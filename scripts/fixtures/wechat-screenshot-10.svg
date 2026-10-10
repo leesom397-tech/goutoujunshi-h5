@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="750" height="1600" viewBox="0 0 750 1600">
+  <rect width="750" height="1600" fill="#ededed"/>
+  <g font-family="Microsoft YaHei,Arial,sans-serif" fill="#202020">
+    <text x="36" y="48" font-size="24">09:41</text><text x="620" y="48" font-size="22">5G</text>
+    <text x="27" y="105" font-size="32">‹</text><text x="290" y="105" font-size="28">测试对象小芳</text><text x="660" y="105" font-size="28">···</text>
+    <path d="M0 130 H750" stroke="#ddd"/>
+    <rect x="26" y="177" width="54" height="54" rx="7" fill="#9bafbf"/><rect x="105" y="170" width="285" height="70" rx="9" fill="#fff"/><text x="125" y="217" font-size="26">周末有空吗？</text>
+    <rect x="668" y="302" width="54" height="54" rx="7" fill="#99b59a"/><rect x="342" y="295" width="300" height="70" rx="9" fill="#95ec69"/><text x="360" y="342" font-size="26">有空，你想做什么？</text>
+    <rect x="26" y="427" width="54" height="54" rx="7" fill="#9bafbf"/><rect x="105" y="420" width="338" height="70" rx="9" fill="#fff"/><text x="125" y="467" font-size="26">新开了一家咖啡店。</text>
+    <rect x="668" y="552" width="54" height="54" rx="7" fill="#99b59a"/><rect x="395" y="545" width="247" height="70" rx="9" fill="#95ec69"/><text x="413" y="592" font-size="26">听起来不错。</text>
+    <rect x="26" y="677" width="54" height="54" rx="7" fill="#9bafbf"/><rect x="105" y="670" width="338" height="70" rx="9" fill="#fff"/><text x="125" y="717" font-size="26">周六下午一起去？</text>
+    <rect x="668" y="802" width="54" height="54" rx="7" fill="#99b59a"/><rect x="420" y="795" width="222" height="70" rx="9" fill="#95ec69"/><text x="438" y="842" font-size="26">可以，几点？</text>
+    <rect x="26" y="927" width="54" height="54" rx="7" fill="#9bafbf"/><rect x="105" y="920" width="258" height="70" rx="9" fill="#fff"/><text x="125" y="967" font-size="26">三点怎么样？</text>
+    <rect x="668" y="1052" width="54" height="54" rx="7" fill="#99b59a"/><rect x="395" y="1045" width="247" height="70" rx="9" fill="#95ec69"/><text x="413" y="1092" font-size="26">三点可以。</text>
+    <rect x="26" y="1177" width="54" height="54" rx="7" fill="#9bafbf"/><rect x="105" y="1170" width="338" height="70" rx="9" fill="#fff"/><text x="125" y="1217" font-size="26">那我把位置发你。</text>
+    <rect x="668" y="1302" width="54" height="54" rx="7" fill="#99b59a"/><rect x="315" y="1295" width="327" height="70" rx="9" fill="#95ec69"/><text x="333" y="1342" font-size="26">好，收到位置我过去。</text>
+    <text x="190" y="1442" font-size="18" fill="#999">合成测试图，不含真实用户聊天</text>
+    <rect x="0" y="1525" width="750" height="75" fill="#f7f7f7"/><rect x="85" y="1539" width="548" height="47" rx="6" fill="#fff"/><text x="660" y="1576" font-size="30">＋</text>
+  </g>
+</svg>

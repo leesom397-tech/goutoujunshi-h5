@@ -1,0 +1,11 @@
+<template name="analysisStatus">
+  <view class="analysis-status" role="status">
+    <view class="analysis-status-heading"><image src="/assets/icon-chat.png"></image><view><text class="analysis-status-kicker">本次分析</text><text class="analysis-status-title">{{!busy ? '分析进度已保留' : taskStage === 'uploading' ? '先把图片传好' : taskStage === 'running' ? '材料已接收，正在分析' : '正在核对最新进度'}}</text></view></view>
+    <view class="analysis-stages"><view class="{{taskStage === 'uploading' ? 'current' : taskStage === 'running' ? 'done' : ''}}"><text class="stage-dot"></text><text>上传材料</text></view><text class="stage-connector">→</text><view class="{{taskStage === 'running' ? 'current' : ''}}"><text class="stage-dot"></text><text>后台分析</text></view><text class="stage-connector">→</text><view><text class="stage-dot"></text><text>查看报告</text></view></view>
+    <text class="analysis-status-note">{{!busy ? '不必重新选图。继续后会核对进度，补传图片或取回报告。' : taskStage === 'uploading' ? '上传完成前请留在此页。若中途离开，回来会自动补传。' : taskStage === 'running' ? '材料已交给服务器处理。可以离开此页，返回后自动查询结果。' : '正在检查已提交的任务，无需重新上传。'}}</text>
+    <busy-indicator wx:if="{{busy}}" label="{{taskStage === 'uploading' ? '正在上传' : taskStage === 'running' ? '正在分析' : '正在查询'}}" detail="{{batchProgress || uploadProgress}}"/>
+    <text wx:if="{{error}}" class="analysis-status-error">{{error}}</text>
+    <button wx:if="{{!busy && backgroundPending}}" bindtap="resumeAnalysis">{{taskStage === 'uploading' ? '继续上传 →' : '查看最新进度 →'}}</button>
+    <button wx:if="{{!busy && backgroundPending && taskStage !== 'running'}}" class="analysis-cancel" bindtap="cancelAnalysis">取消本次上传</button>
+  </view>
+</template>

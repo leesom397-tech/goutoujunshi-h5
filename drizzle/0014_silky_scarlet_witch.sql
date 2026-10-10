@@ -1,0 +1,1 @@
+ALTER TABLE `coach_facts` ADD `event_meta` text;

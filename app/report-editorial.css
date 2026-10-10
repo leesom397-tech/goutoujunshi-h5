@@ -1,0 +1,42 @@
+/* Reading surfaces share one neutral type scale across report and analysis routes. */
+body .wa-shell {
+  font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+  color: #243243;
+  font-size: 16px;
+  line-height: 1.8;
+  letter-spacing: 0;
+}
+body .wa-shell .wa-card {
+  background: #fff;
+  border: 1px solid #dce4eb;
+  border-radius: 18px;
+  box-shadow: 0 8px 28px #263d5006;
+  padding: 30px;
+}
+body .wa-shell :is(.wa-card,.insight-explorer) :is(h2,h3) {
+  font-family: inherit;
+  color: #202d3b;
+  letter-spacing: 0;
+  font-weight: 600;
+}
+body .wa-shell .wa-card h2 {font-size: 22px;line-height: 1.5;margin: 0 0 18px}
+body .wa-shell .wa-card h3 {font-size: 17px;line-height: 1.6}
+body .wa-shell .wa-card :is(p,li,dd) {font-size:16px;line-height:1.9;font-weight:400;color:#344355;letter-spacing:0}
+body .wa-shell .wa-card .wa-muted {font-size:14px;color:#5b6b7c;line-height:1.85}
+body .wa-shell .wa-card#judgment h2 {font-size:23px;color:#202d3b;font-weight:600;line-height:1.5;border:0}
+body .wa-shell .wa-card#judgment .wa-judgment-copy {font-size:18px;line-height:1.85;font-weight:400;color:#26374a;max-width:48em;margin:16px 0 22px}
+body .wa-shell .wa-card#judgment>h3+p {font-size:16px;line-height:1.9;font-weight:400;color:#344355;background:#f3f7fb;border-left:3px solid #648caa;padding:16px 20px;border-radius:0 8px 8px 0}
+body .wa-shell .wa-card .wa-quote {background:#f5f7fa;border-left:3px solid #99adbf;border-radius:0 8px 8px 0;color:#46586b;font-size:15px;line-height:1.85;padding:16px 20px}
+body .wa-shell .wa-card :is(small,.wa-pill) {color:#526477;font-size:13px}
+body .wa-shell .wa-eyebrow {color:#52738c;font-size:12px;font-weight:500;letter-spacing:.06em}
+body .wa-shell .wa-section-links {gap:8px;padding:8px 0}
+body .wa-shell .wa-section-links a {color:#415d75;font-size:14px;font-weight:500;border-color:#dbe3eb;background:#fff;padding:10px 16px;border-radius:8px}
+body .wa-shell .wa-card .wa-metric strong {color:#325f83;font-weight:600;font-variant-numeric:tabular-nums}
+body .wa-shell .wa-card .wa-observable-grid strong {color:#273d52;font-weight:600}
+body .wa-shell .wa-card .wa-reply>p {font-size:17px;color:#26374a;font-weight:400}
+@media(max-width:680px){
+  body .wa-shell .wa-card {padding:22px 18px;border-radius:14px}
+  body .wa-shell .wa-card h2,body .wa-shell .wa-card#judgment h2 {font-size:21px}
+  body .wa-shell .wa-card#judgment .wa-judgment-copy {font-size:17px;line-height:1.85}
+  body .wa-shell .wa-section-links a {font-size:13px;padding:9px 12px}
+}

@@ -1,0 +1,5 @@
+<view wx:if="{{rows.length || note}}" class="signals">
+  <view class="heading"><image src="/assets/icon-chat.png"/><text>{{title}}</text><text wx:if="{{rows.length}}" class="weight-label">解释权重</text></view>
+  <view wx:for="{{rows}}" wx:key="index" class="signal {{item.tone}}"><view class="signal-label"><text>{{item.label}}</text><text>{{item.display}}</text></view><view wx:if="{{item.value !== null}}" class="track"><view class="bar" style="width:{{item.value}}%"></view></view></view>
+  <text wx:if="{{note}}" class="note">{{note}}</text>
+</view>

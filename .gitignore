@@ -1,0 +1,38 @@
+# Dependencies and build output
+node_modules/
+.next/
+dist/
+out/
+build/
+.vinext/
+.wrangler/
+
+# Secrets and local state
+.env
+.env.*
+!.env.example
+.tmp/
+.openai/
+.sites-runtime/
+.firecrawl/
+.codex/
+.agents/
+outputs/
+coverage/
+*.log
+*.pem
+*.key
+
+# Local screenshots / transient exports
+*-qa.png
+*-verify.png
+*-preview.png
+# Keep local QA captures and generated visual audits out of the repository
+/*-qa.*
+/*-verify.*
+/*-preview.*
+/*-audit.*
+# Generated card-render probe package and compiler caches
+/experiments/card-render/package/
+/experiments/card-render/*.otf
+*.tsbuildinfo

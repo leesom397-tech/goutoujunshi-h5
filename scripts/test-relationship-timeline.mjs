@@ -1,0 +1,78 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import ts from "typescript";
+const source = readFileSync("lib/relationship-timeline.ts", "utf8");
+const js = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+const api = {};
+new Function("exports", "require", js)(api, createRequire(import.meta.url));
+const { explicitEventDate, relationshipMaterial, distinctRelationshipEvents, relationshipTrendPoints } = api;
+assert.equal(explicitEventDate("2026年10月5日 18:30"), "2026-10-05");
+assert.equal(explicitEventDate("2024/2/29"), "2024-02-29");
+for (const text of ["2026-02-29", "昨天18:30", "10月5日", "18:30", "2026-13-01"]) assert.equal(explicitEventDate(text), "");
+const lines = Array.from({ length: 6 }, (_, i) => ({ speaker: i % 2 ? "other" : "self", text: `第${i}条聊天内容：我们讨论周末见面的一些具体安排`, timestampRaw: "2026-10-05" }));
+const full = relationshipMaterial(lines);
+assert.equal(full.eventStart, "2026-10-05");
+assert.equal(full.windowsComplete, true);
+assert.ok(!JSON.stringify(full).includes("具体安排"), "metadata must not retain message text");
+assert.equal(relationshipMaterial([{ ...lines[0], timestampRaw: "昨天" }]).eventStart, "");
+assert.equal(relationshipMaterial([{ ...lines[0], timestampRaw: "" }, ...lines.slice(1)]).eventStart, "", "partially dated input is not fully dated");
+assert.equal(relationshipMaterial([lines[0], { ...lines[1], timestampRaw: "18:45" }]).eventEnd, "2026-10-05");
+const point = (reportId, metadata, updatedAt = 1) => ({ subjectId: "personA", reportId, score: 60, comparable: true, estimated: false, dimensions: [{ label: "回应承接", value: 60 }], updatedAt, ...metadata });
+const original = point("original", full);
+const duplicate = point("repeat", full, 3);
+const crop = point("crop", relationshipMaterial(lines.slice(1, 5)), 4);
+assert.equal(distinctRelationshipEvents([original, duplicate, crop]).length, 1);
+assert.equal(distinctRelationshipEvents([{ ...crop, updatedAt: 0 }, original]).length, 1, "a crop uploaded first also merges into its full source");
+assert.deepEqual(distinctRelationshipEvents([original, duplicate, crop])[0].sourceReportIds, ["original", "repeat", "crop"]);
+const later = point("later", relationshipMaterial(lines.map(line => ({ ...line, timestampRaw: "2026-10-06" }))), 2);
+later.dimensions[0].value = 80;
+assert.equal(distinctRelationshipEvents([original, later]).length, 2, "same words on different dates are distinct");
+const morning = point("morning", relationshipMaterial(lines.map(line => ({ ...line, timestampRaw: "2026-10-05 09:30" }))));
+const evening = point("evening", relationshipMaterial(lines.map(line => ({ ...line, timestampRaw: "2026-10-05 19:30" }))));
+assert.equal(distinctRelationshipEvents([morning, evening]).length, 2, "explicitly different times must not collapse");
+assert.equal(distinctRelationshipEvents([original, { ...duplicate, subjectId: "personB" }]).length, 2);
+const unknown = point("unknown", relationshipMaterial(lines.map(line => ({ ...line, timestampRaw: "" }))), 5);
+const trend = relationshipTrendPoints([later, original, unknown]);
+assert.equal(api.latestRelationshipSignals([later, { ...original, updatedAt: 100 }, unknown])[0].reportId, "later", "uploading older or undated material must not replace the newest dated observation");
+assert.equal(trend[0].reportId, "original");
+assert.equal(trend[1].reportId, "later");
+assert.equal(trend[1].connectPrevious, true);
+assert.equal(trend[1].previousReportId, "original");
+assert.match(trend[1].changeSummary, /60 → 80/);
+assert.equal(trend[2].connectPrevious, false);
+assert.equal(trend[2].dateLabel, "");
+assert.equal(trend[0].evidenceWindows, undefined, "fingerprints are not needed in display payloads");
+assert.equal(relationshipTrendPoints([original, { ...later, estimated: true }])[1].connectPrevious, false);
+const overlap = point("overlap", relationshipMaterial([...lines.slice(3), { ...lines[0], text: "这是补充的另一条新消息，原来的材料没有这一段" }]), 6);
+const overlapping = relationshipTrendPoints([original, overlap]);
+assert.equal(overlapping.length, 2, "new evidence must be retained");
+assert.equal(overlapping[1].connectPrevious, false);
+assert.match(overlapping[1].changeSummary, /保留新增内容/);
+assert.equal(distinctRelationshipEvents([{ ...original, materialVersion: undefined, eventStart: undefined }, original]).length, 1, "live and stored copies of one report merge");
+const ctx = { texts: [], strokes: 0, clearRect() {}, setFontSize() {}, setTextAlign() {}, beginPath() {}, moveTo() {}, lineTo() {}, setStrokeStyle() {}, stroke() { this.strokes++; }, setFillStyle() {}, fillText(text) { this.texts.push(text); }, setLineWidth() {}, arc() {}, fill() {}, draw() {} };
+const module = { exports: {} };
+new Function("module", "wx", readFileSync("miniapp/lib/radar.js", "utf8"))(module, { createCanvasContext() { return ctx; } });
+module.exports.drawTrend({}, "canvas", trend);
+assert.ok(ctx.texts.includes("10/05"));
+assert.ok(!ctx.texts.includes("待定"), "undated evidence must not be plotted as a later event");
+assert.equal(ctx.strokes, 4, "three grid lines plus one valid connection");
+console.log("PASS: explicit dates, partial/relative date caution, crop dedup, different-day preservation, overlap evidence, chronology and guarded trend rendering");
+const multiDay = relationshipMaterial([
+  { speaker: "self", text: "没有日期的一条", timestampRaw: "" },
+  { speaker: "self", text: "第一天的安排", timestampRaw: "2026-10-01" },
+  { speaker: "other", text: "时间可以", timestampRaw: "18:30" },
+  { speaker: "other", text: "第二天的新回复", timestampRaw: "2026-10-03" },
+  { speaker: "self", text: "不明确的日期", timestampRaw: "昨天" }
+]);
+assert.deepEqual(multiDay.eventDays, [{ date: "2026-10-01", messageCount: 2 }, { date: "2026-10-03", messageCount: 1 }]);
+assert.equal(multiDay.undatedMessageCount, 2);
+assert.equal(multiDay.eventStart, "", "partial dating must not fabricate a full range");
+const projectedDays = relationshipTrendPoints([point("multi", multiDay)])[0];
+assert.equal(projectedDays.connectPrevious, false);
+assert.equal(projectedDays.eventDayCount, 2);
+assert.match(projectedDays.dayBreakdownLabel, /整组材料/);
+assert.equal(projectedDays.eventDays.some(day => "score" in day), false, "a report score cannot be assigned to every day");
+assert.equal(relationshipTrendPoints([point("multi", multiDay), point("repeat-multi", multiDay)]).length, 1);
+assert.equal(JSON.stringify(multiDay).includes("第一天的安排"), false, "day metadata adds no original message text");
+console.log("PASS: explicit chat-day breakdown, undated messages separate, no duplicated per-day scores or repeat-upload events");

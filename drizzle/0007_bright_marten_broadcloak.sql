@@ -1,0 +1,1 @@
+ALTER TABLE `coach_crush_threads` ADD `advice_data` text DEFAULT '[]' NOT NULL;

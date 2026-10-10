@@ -1,0 +1,11 @@
+.mini-link{max-width:560px;min-height:100vh;margin:0 auto;padding:38px 22px;background:#f7f7f2;color:#193e37;font-family:Arial,"PingFang SC","Microsoft YaHei",sans-serif}
+.mini-link-brand{display:flex;align-items:center;gap:9px;font-size:17px;font-weight:800}.mini-link-brand:first-letter{color:#1e7863}.mini-link-brand span{letter-spacing:-.02em}
+.mini-link-card{margin-top:70px;padding:28px 24px;border-radius:24px;background:white;box-shadow:0 10px 40px #19402d14}
+.mini-link-step{display:block;color:#32836b;font-size:12px;font-weight:800;letter-spacing:.08em}
+.mini-link h1{font-size:28px;line-height:1.3;margin:14px 0 12px}
+.mini-link-card>p{color:#5e7068;font-size:14px;line-height:1.75}
+.mini-link-primary{display:block;width:100%;margin-top:27px;padding:14px;border:0;border-radius:13px;background:#1c6856;color:white;font-size:15px;font-weight:750;text-align:center;text-decoration:none}
+.mini-link-primary:disabled{opacity:.6}
+.mini-link-error{padding:10px;border-radius:10px;background:#fff0ec;color:#a13d36!important}
+.mini-link-foot{margin-top:23px;color:#75847b;font-size:12px;line-height:1.6;text-align:center}
+.mini-devices{display:grid;gap:12px;margin-top:20px}.mini-devices>div{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px;border:1px solid #e4ece4;border-radius:13px}.mini-devices>div>div{display:flex;flex-direction:column;gap:6px}.mini-devices strong{font-size:13px}.mini-devices span{font-size:11px;color:#76857b}.mini-devices button{padding:9px 11px;border:1px solid #e7c2ba;border-radius:9px;background:#fff7f4;color:#9c5143;font-size:12px;white-space:nowrap}

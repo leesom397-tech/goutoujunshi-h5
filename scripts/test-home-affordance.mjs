@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const markup=readFileSync('miniapp/pages/home/index.wxml','utf8');
+assert.match(markup,/系统整理的情感与关系知识/);
+assert.match(markup,/理论与实践资料/);
+assert.doesNotMatch(markup,/集大成|超过.*大模型|通用AI回答/);
+assert.doesNotMatch(markup,/<(?:view|text|image)\b[^>]*bindtap=/,'home actions must use native buttons rather than look like static text');
+assert.match(markup,/<button[^>]*bindtap="toggleSources"/);
+assert.doesNotMatch(markup,/class="knowledge-path"|class="headline"|class="hero-sub"/,'home must not stack slogan, process chips and explanation paragraphs');
+assert.match(markup,/<view wx:if="\{\{showSources\}\}" class="knowledge-detail"><text>\{\{knowledgeSources\}\}/,'detailed source count belongs in disclosure');
+console.log('PASS: knowledge positioning, source disclosure and native-button home affordances');

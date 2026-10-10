@@ -1,0 +1,8 @@
+.waiting{display:flex;align-items:center;gap:18rpx;padding:20rpx 0;color:#203249;font-family:"PingFang SC","Microsoft YaHei",sans-serif}.spinner{flex:none;width:30rpx;height:30rpx;border:4rpx solid #d8eaf2;border-top-color:#347f99;border-radius:50%;animation:spin 1s linear infinite}.copy{display:flex;flex:1;flex-direction:column;gap:8rpx}.title{font-size:25rpx;font-weight:650}.detail{font-size:24rpx;color:#176b89;line-height:1.5}.time{font-size:24rpx;color:#176b89;flex:none}@keyframes spin{to{transform:rotate(360deg)}}
+
+
+/* Readable daylight type: distinct headings, body, and supporting text. */
+.title{font-size:28rpx;font-weight:600;color:#203249;line-height:1.6}.detail,.time{font-size:24rpx;color:#526579;line-height:1.7}.time{white-space:nowrap}
+
+/* Final shared phone contrast layer. */
+@import "../../styles/phone-contrast.wxss";

@@ -1,0 +1,8 @@
+<view class="navigation-space"></view>
+<view class="main-navigation" aria-label="主导航">
+  <button class="nav-item {{selected === 'home' ? 'active' : ''}}" data-target="home" bindtap="open" aria-label="工作台" aria-current="{{selected === 'home' ? 'page' : 'false'}}"><image src="/assets/ui-home.png"/><text>工作台</text></button>
+  <button class="nav-item {{selected === 'analysis' ? 'active' : ''}}" data-target="analysis" bindtap="open" aria-label="分析" aria-current="{{selected === 'analysis' ? 'page' : 'false'}}"><image src="/assets/ui-scan.png"/><text>分析</text></button>
+  <button class="nav-item {{selected === 'chat' ? 'active' : ''}}" data-target="chat" bindtap="open" aria-label="军师" aria-current="{{selected === 'chat' ? 'page' : 'false'}}"><image src="/assets/ui-chat.png"/><text>军师</text></button>
+  <button class="nav-item {{selected === 'people' ? 'active' : ''}}" data-target="people" bindtap="open" aria-label="人物档案" aria-current="{{selected === 'people' ? 'page' : 'false'}}"><image src="/assets/ui-users.png"/><text>人物</text></button>
+  <button class="nav-item {{selected === 'me' ? 'active' : ''}}" data-target="me" bindtap="open" aria-label="账户与积分" aria-current="{{selected === 'me' ? 'page' : 'false'}}"><image src="/assets/ui-user.png"/><text>账户</text></button>
+</view>

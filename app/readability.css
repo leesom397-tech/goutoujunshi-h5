@@ -1,0 +1,113 @@
+/* Text stays solid and legible over the daylight glass surfaces. */
+:root{--cz-ink:#203249;--cz-muted:#526b7e;--cz-accent:#176c88;--cz-text-body:#354f63;--cz-text-label:#294d64;--cz-text-secondary:#526b7e}
+.web-nav nav a{color:#526b7e;font-size:14px;font-weight:500}
+.web-nav nav a[aria-current=page]{color:#155f7c;font-weight:700}
+.web-nav .web-nav-contact{font-size:13px;font-weight:600;color:#315a72}
+.web-brand small{color:#526e80;font-size:8px;letter-spacing:.07em}
+.web-button{font-size:15px;background:linear-gradient(145deg,#23768f,#195f79);border-color:#276d86}
+.web-button.secondary{color:#365d73;background:#ffffffe0;border-color:#adc9d8;font-weight:600}
+.web-price-list>div{font-size:14px;line-height:1.65}.web-price-list dt{color:#526b7e}.web-price-list dd{color:#254e65}
+.web-footer,.web-footer a{font-size:13px;line-height:1.8;color:#526b7e}
+.web-error,.web-notice{font-size:14px;line-height:1.8}.web-notice{color:#256450}.web-error{color:#923d25}
+.web-panel h2{font-weight:650}
+
+/* Workspace: heading → action → feature summary → supporting detail. */
+.workspace-page .workspace-welcome{font-size:11px;color:#526b7e}.workspace-page .workspace-welcome a{font-size:13px;color:#416279}
+.workspace-page .workspace-kicker,.workspace-page .workspace-section-heading .workspace-kicker{font-size:12px;font-weight:600;letter-spacing:.06em;color:#426c82}
+.workspace-page .workspace-hero .workspace-kicker{font-size:12px;color:#376c83}
+.workspace-page .workspace-hero h1{font-weight:750;line-height:1.38}
+.workspace-page .workspace-hero h1>span{background:linear-gradient(110deg,#27536b,#3c7b90);background-clip:text;-webkit-background-clip:text;color:transparent}
+.workspace-page .workspace-hero-copy>p{font-size:16px;line-height:1.9;color:#435f74}
+.workspace-page .workspace-cta{font-size:15px;min-height:48px;background:linear-gradient(145deg,#23768f,#195f79);border-color:#276d86}
+.workspace-page .workspace-text-link{font-size:14px;font-weight:500;color:#365f77}
+.workspace-page .workspace-trust{font-size:12px;line-height:1.75;color:#526b7e;align-items:flex-start}.workspace-page .workspace-trust svg{flex:none;margin-top:3px;color:#416d83}
+.workspace-page .workspace-orbit-label{font-size:12px;letter-spacing:.04em;font-weight:600;color:#3d637a;background:#ffffffed;border-color:#c7dce7}
+.workspace-page .workspace-art-caption{font-size:9px;letter-spacing:.05em;color:#526b7e}
+.workspace-page .workspace-capability-strip{font-size:13px;font-weight:500;line-height:1.65;color:#4a667b}.workspace-page .workspace-capability-strip svg{color:#417b95}
+.workspace-page .workspace-section-heading h2{font-size:28px;font-weight:700;color:#243e54}.workspace-page .workspace-section-heading>p{font-size:13px;color:#526b7e}
+.workspace-page .workspace-entry h3{font-size:19px;font-weight:700;color:#29465b}.workspace-page .workspace-entry p{font-size:14px;line-height:1.9;color:#4c667b}.workspace-page .workspace-entry-go{font-size:14px;font-weight:650;color:#24647f}
+.workspace-page .workspace-entry-number,.workspace-page .workspace-entry-detail{font-size:11px;font-weight:600;color:#526e82}
+.workspace-page .workspace-people h2{font-size:27px;font-weight:700;color:#29485e}.workspace-page .workspace-people p{font-size:15px;line-height:1.9;color:#4c667b}
+.workspace-page .workspace-people .workspace-kicker{color:#426c82}
+.workspace-page .workspace-extras-title{font-size:14px;font-weight:650;color:#355c74}.workspace-page .workspace-extras a b{font-size:15px;color:#294b62}.workspace-page .workspace-extras a small{font-size:13px;line-height:1.75;color:#526b7e}
+.workspace-page .workspace-footnote,.workspace-page .workspace-footnote a{font-size:12px;line-height:1.85;color:#526b7e}
+.workspace-page .workspace-resume b{font-size:15px}.workspace-page .workspace-resume small{font-size:13px;line-height:1.7;color:#526b7e}.workspace-page .workspace-resume>span:last-child{font-size:13px;font-weight:600}
+
+/* Account and administration: amounts stand out; prices and terms remain readable. */
+.account-page .account-kicker,.admin-page .admin-kicker{font-size:12px;font-weight:650;color:#446b82;letter-spacing:.1em}
+.account-page .account-wrap h1,.admin-page .admin-wrap h1{font-weight:750;color:#243e54}
+.account-page .account-lede,.admin-page .admin-wrap>p{font-size:15px;line-height:1.8;color:#4c667b}
+.account-page .account-balance small,.account-page .account-balance span{font-size:14px;line-height:1.9;color:#4d687c}
+.account-page .account-balance strong{font-size:68px;font-weight:600;color:#285e79}
+.account-page .account-status b{font-size:16px;font-weight:650;color:#2a6b5a}
+.account-page .account-status .web-button{font-size:14px;color:#315c73;background:#ffffffdf}
+.account-page .account-wrap h2{font-size:19px;font-weight:700;color:#29495f}
+.account-page .account-id p,.account-page .account-hint,.account-page .account-contact p{font-size:14px;line-height:1.85;color:#4c667b}
+.account-page .account-id code{font-size:13px;line-height:1.8;color:#365f77;font-weight:500}
+.account-page .account-links a{font-size:14px;line-height:1.65;color:#355f78}.account-page .account-links a:last-child{color:#7f5947}
+.account-page .account-ledger table{font-size:14px;line-height:1.7;color:#354f63}.account-page .account-ledger th{font-size:13px;font-weight:650;color:#35566d}.account-page .account-ledger small{font-size:12px;line-height:1.7;color:#526b7e}
+.admin-page .admin-card label{font-size:14px;font-weight:650;color:#36596f}.admin-page .admin-card legend{font-size:16px;font-weight:700;color:#2e5e77}
+.admin-page .admin-card h2,.admin-page .admin-pending h2{font-size:20px;font-weight:700;color:#29495f}
+.admin-page .admin-balance,.admin-page .admin-pending p,.admin-page .admin-entry{font-size:14px;line-height:1.85;color:#4c667b}.admin-page .admin-balance strong{color:#285e79}
+.admin-page .admin-card input::placeholder{font-size:14px;color:#62798a}
+
+/* Registration and purchase information. */
+.login-screen .showcase-kicker{font-size:12px;font-weight:650;color:#416e83}
+.login-screen .showcase-intro h1{font-weight:750;color:#24465e}.login-screen .showcase-intro p{font-size:15px;color:#4b6579;line-height:1.9}
+.login-screen .login-panel h1,.login-screen .login-panel h2{font-size:27px;font-weight:750;color:#29495f}
+.login-screen .login-panel>p{font-size:14px;line-height:1.85;color:#526b7e}
+.login-screen .login-panel label{font-size:14px;font-weight:650;color:#35576d}.login-screen .login-panel input::placeholder{font-size:14px;color:#61788a}
+.login-screen .login-panel form button,.login-screen .login-primary-link,.login-screen .login-panel>button{font-size:15px;min-height:48px;background:linear-gradient(145deg,#23768f,#195f79);border-color:#276d86}
+.login-screen .login-help,.login-screen .login-sales-link a,.login-screen .login-panel .register-consent,.login-screen .login-panel .login-data-note{font-size:13px;line-height:1.85;color:#526b7e;font-weight:400}
+.login-screen .login-help a,.login-screen .register-consent a,.login-screen .login-data-note a{color:#21647f;font-weight:600;text-decoration:underline;text-underline-offset:3px}
+.login-screen .login-error{font-size:14px;line-height:1.8;color:#923d25}
+.login-screen .auth-artwork-caption,.login-screen .auth-artwork>a{font-size:12px;color:#4e6a7f}
+.sales-page .sales-eyebrow,.sales-page .sales-section-head>span{font-size:12px;font-weight:650;color:#416e83;letter-spacing:.06em}
+.sales-page .sales-hero h1{font-weight:750;color:#24465e}.sales-page .sales-hero h1 em{background:linear-gradient(100deg,#2c6681,#3e7c91);background-clip:text;-webkit-background-clip:text;color:transparent}
+.sales-page .sales-hero-copy>p{font-size:16px;color:#4b6579;line-height:1.9}
+.sales-page .sales-primary{font-size:15px;min-height:48px;background:linear-gradient(145deg,#23768f,#195f79);border-color:#276d86}
+.sales-page .sales-secondary{font-size:14px;font-weight:600;color:#355f78}.sales-page .sales-proof{font-size:12px;line-height:1.7;color:#526b7e}
+.sales-page .demo-top small{font-size:12px;font-weight:600;color:#426a80}.sales-page .demo-bubble,.sales-page .demo-bubble.mine{font-size:14px;color:#3d5b71;line-height:1.8}
+.sales-page .demo-report span{font-size:12px;font-weight:650;color:#31677f}.sales-page .demo-report strong{font-size:18px;font-weight:700;color:#294d64}.sales-page .demo-report p{font-size:14px;line-height:1.85;color:#526b7e}.sales-page .demo-tags{flex-wrap:wrap}.sales-page .demo-tags i{font-size:11px;color:#426a80}
+.sales-page .sales-section-head h2,.sales-page .sales-contact h2{font-weight:700;color:#29495f}.sales-page .sales-section-head p,.sales-page .sales-feature-grid p,.sales-page .sales-contact p{font-size:15px;line-height:1.9;color:#4c667b}
+.sales-page .sales-feature-grid h3{font-size:20px;font-weight:700;color:#29495f}.sales-page .plan-card h3{font-size:18px;font-weight:650;color:#365d74}.sales-page .plan-card>strong{font-weight:600;color:#285e79}
+.sales-page .plan-detail,.sales-page .plan-card p,.sales-page .plan-card a{font-size:14px;line-height:1.8;color:#4d687c}.sales-page .plan-card a{font-weight:650;color:#24647f}.sales-page .sales-footnote{font-size:13px;line-height:1.85;color:#526b7e}
+.privacy-web-page article h1{font-weight:750}.privacy-web-page article h2{font-size:20px;font-weight:700;color:#29495f}.privacy-web-page article p{font-size:15px;line-height:1.95;color:#435e73}
+
+/* Older entry points keep the same reading hierarchy. */
+.auxiliary-web-nav+main :is(h1,h2,h3){font-family:var(--cz-font);font-weight:700;color:#29495f}
+.auxiliary-web-nav+main :is(h2){font-size:22px;line-height:1.55}.auxiliary-web-nav+main :is(h3){font-size:18px;line-height:1.65}
+.auxiliary-web-nav+main :is(.library-hero,.history-hero,.import-hero,.positioning-hero,.profile-hero,.quick-hero) p{font-size:16px;line-height:1.9;color:#435f74}
+.auxiliary-web-nav+main :is(.research-item p,.library-uses p,.library-section-head p,.library-books p,.library-catalog p,.library-method p,.library-origin p,.research-caution,.library-footnote,.mini-link-card>p,.history-guide p,.history-guide li,.history-import>p){font-size:15px;line-height:1.9;color:#4c667b}
+.auxiliary-web-nav+main :is(.profile-top,.back-link,.eyebrow,.section-kicker,.quick-kicker,.quick-trust,.history-heading,.history-fields label,.history-subject,.history-check,.mini-link-step,.mini-link-foot){font-size:13px;line-height:1.8;color:#4a667b}
+.auxiliary-web-nav+main :is(.eyebrow,.section-kicker,.quick-kicker,.history-heading,.history-fields label){font-weight:650}
+.auxiliary-web-nav+main :is(.library-start,.positioning-primary,.primary-action,.import-submit,.history-primary,.mini-link-primary,.quick-primary,.quick-upload-button,.crush-submit,.crush-primary,.wechat-primary){font-size:15px;line-height:1.6;min-height:46px;background:linear-gradient(145deg,#23768f,#195f79);color:#fff;border-color:#276d86}
+.auxiliary-web-nav+main :is(input,textarea,select){font-size:16px;line-height:1.7;color:#29495f}.auxiliary-web-nav+main :is(input,textarea)::placeholder{color:#61788a}
+.auxiliary-web-nav+main :is(.history-hero h1 em,.quick-hero h1 em,.crush-intro h1 em){color:#326f87}
+.auxiliary-web-nav+main .risk-wrap{max-width:1120px;margin:auto;padding-top:28px}.auxiliary-web-nav+main .risk-intro p,.auxiliary-web-nav+main .risk-empty p{font-size:15px;line-height:1.9;color:#4c667b}.auxiliary-web-nav+main .risk-form{background:#ffffffdb;border-color:#c1d9e6}.auxiliary-web-nav+main :is(.risk-privacy,.risk-kicker,.risk-form .field){font-size:14px;line-height:1.85;color:#4c667b}.auxiliary-web-nav+main .risk-submit{font-size:15px;font-weight:650;background:linear-gradient(145deg,#23768f,#195f79);color:#fff}
+
+@media(max-width:780px){
+  .web-nav nav a{font-size:12px;gap:5px;padding:8px 3px}.web-nav .web-nav-contact{font-size:12px;padding:9px 10px}.web-nav .web-brand small{font-size:7px}.web-nav .web-brand>div{font-size:20px}
+  .workspace-page .workspace-welcome>span{font-size:9px;letter-spacing:.04em}.workspace-page .workspace-welcome{gap:12px}.workspace-page .workspace-welcome a{font-size:12px}
+  .workspace-page .workspace-hero-copy>p{font-size:15px}.workspace-page .workspace-hero h1{font-size:clamp(28px,8.2vw,38px);letter-spacing:-.045em}
+  .workspace-page .workspace-identity{gap:16px}.workspace-page .workspace-text-link{font-size:13px}.workspace-page .workspace-capability-strip{font-size:12px;gap:17px}
+  .workspace-page .workspace-section-heading{gap:14px;align-items:flex-start;flex-direction:column}.workspace-page .workspace-section-heading h2{font-size:26px}
+  .workspace-page .workspace-entry{padding:22px 18px}.workspace-page .workspace-entry h3{font-size:18px}.workspace-page .workspace-entry p{font-size:14px}.workspace-page .workspace-extras a small{font-size:13px}
+  .account-page .account-heading .web-button{font-size:13px;padding:10px 12px}.account-page .account-wrap h2{font-size:19px}.account-page .account-id code{font-size:13px;overflow-wrap:anywhere}
+  .sales-page .sales-hero-copy>p{font-size:15px}.sales-page .sales-cta-row{gap:16px;flex-wrap:wrap}.sales-page .sales-feature-grid h3{font-size:20px}
+  .login-screen .showcase-intro p{font-size:14px}.login-screen .login-panel h2{font-size:25px}
+  .auxiliary-web-nav+main :is(.library-hero,.history-hero,.import-hero,.positioning-hero,.profile-hero,.quick-hero) p{font-size:15px}
+}
+@media(max-width:600px){.workspace-page .workspace-hero{min-height:0}.workspace-page .workspace-visual{position:relative;right:auto;top:auto;width:calc(100% + 80px);height:300px;margin:0 -40px}.workspace-page .workspace-entry h3{white-space:normal}.workspace-page .workspace-entry-detail{white-space:normal;line-height:1.6}}
+/* Measured narrow-screen overrides: keep these stronger than page media rules. */
+.workspace-page .workspace-orbit-label.one,.workspace-page .workspace-orbit-label.two{font-size:12px;line-height:1.6}
+.workspace-page .workspace-people .workspace-entry-go{font-size:15px;line-height:1.7}
+.workspace-page .workspace-entry-number{font-size:12px}.workspace-page .workspace-entry p{font-size:15px}
+.workspace-page .workspace-text-link{font-size:14px}.workspace-page .workspace-welcome a{font-size:13px}
+.workspace-page .workspace-hero .workspace-kicker,.workspace-page .workspace-capability-strip,.workspace-page .workspace-trust,.workspace-page .workspace-footnote,.workspace-page .workspace-footnote a{font-size:13px}
+.workspace-page .workspace-hero h1>span{background-image:linear-gradient(110deg,#27536b,#35758c)}
+.web-nav .web-nav-contact{font-size:14px}.account-page .account-heading .web-button{font-size:14px}
+.account-page .account-ledger th{font-size:14px}.account-page .account-ledger small{font-size:13px}
+.account-page .account-id p,.account-page .account-contact p,.account-page .account-hint,.account-page .account-links a{font-size:15px}
+.login-screen .login-help,.login-screen .login-help a,.login-screen .login-sales-link a{font-size:14px}
+@media(max-width:360px){.web-nav .web-brand small{display:none}.web-nav .web-brand>div{letter-spacing:.04em}}

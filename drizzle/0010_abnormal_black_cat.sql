@@ -1,0 +1,1 @@
+ALTER TABLE `coach_wechat_links` ADD `memory_offer_asked_at` integer DEFAULT 0 NOT NULL;

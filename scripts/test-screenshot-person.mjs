@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import ts from 'typescript';
+const api={};
+new Function('exports',ts.transpileModule(readFileSync('lib/screenshot-person.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(api);
+const people=[{id:'A',label:'雅欣'},{id:'B',label:'雅鑫'}];
+const original=JSON.stringify(people);
+assert.deepEqual(api.matchScreenshotPerson(['雅欣','雅欣'],people),{status:'suggested',candidates:[people[0]]});
+assert.equal(api.matchScreenshotPerson(['雅鑫'],people).candidates[0].id,'B');
+assert.equal(api.matchScreenshotPerson(['雅欣','雅鑫'],people).status,'conflicting-titles');
+for(const name of ['雅…','',null,'一起吃饭（12）','文件传输助手']) assert.equal(api.matchScreenshotPerson([name],people).status,'unreadable');
+assert.equal(api.matchScreenshotPerson(['雅'],people).status,'unmatched','no fuzzy alias guess');
+assert.equal(api.matchScreenshotPerson(['雅欣'],[...people,{id:'C',label:'雅欣'}]).status,'ambiguous');
+assert.equal(JSON.stringify(people),original);
+console.log('PASS: exact title evidence only, no fuzzy name merging, ambiguous/conflicting/missing titles never choose a person');

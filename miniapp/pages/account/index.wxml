@@ -1,0 +1,35 @@
+<view class="account-screen">
+  <view class="account-heading"><view><text class="eyebrow">你的关系空间</text><text class="heading">我的关系空间</text><text class="account-intro">你的资料、积分和每一次选择。</text></view><image class="account-page-scene" src="../../assets/page-scenes/account.png" mode="aspectFit" aria-hidden="true"/></view>
+  <button class="profile-entry" bindtap="openProfile"><image src="../../assets/ui-user.png"/><view><text class="profile-title">先认识自己</text><text class="profile-caption">我的资料与相处偏好</text></view><text>↗</text></button>
+  <view class="section-title">账号与积分</view>
+  <busy-indicator wx:if="{{loading}}" label="正在读取账号"/>
+  <view wx:if="{{error}}" class="error"><text>{{error}}</text><button bindtap="load" disabled="{{saving}}">重新读取账号</button></view>
+  <block wx:if="{{account}}">
+    <view class="balance-panel"><view><text class="caption">可用积分</text><text class="balance">{{account.balance}}</text></view><view class="balance-aside"><text>暂留 {{account.reserved}}</text><text>已使用 {{account.spent}}</text></view></view>
+    <text class="hold-explain">暂留积分用于正在处理的任务；成功后结算，失败退回，同一任务重试不重复扣除。</text>
+    <view class="details"><text class="caption">用户编号</text><text class="user-id" selectable>{{account.userId}}</text><button class="outline" bindtap="copyId">复制编号</button><text class="caption">权限状态</text><text>{{account.active ? account.featureLabels : '未开通或已到期'}}</text><text class="caption">有效期至 {{account.expiresLabel}}</text></view>
+    <view wx:if="{{!meteringReady}}" class="notice">积分账本已就绪，分析扣分尚未启用。</view>
+    <view wx:if="{{hasPrices}}" class="price-panel"><view class="section-title">积分怎么用</view><view wx:for="{{priceRows}}" wx:key="key" class="price-row"><text>{{item.label}}</text><text>{{item.amount}} 积分</text></view><text class="caption">语音转文字与发送提问分开计费；复制回复、查看已有报告不另扣分析积分。</text></view>
+    <view class="section-title">最近明细<text>最近 50 条</text></view>
+    <text wx:if="{{!account.entries.length}}" class="empty">暂无积分记录</text>
+    <view wx:for="{{account.entries}}" wx:key="key" class="entry"><view><text>{{item.kindLabel}}</text><text class="caption">{{item.label}} · {{item.dateLabel}}</text></view><text class="amount {{item.positive ? 'positive' : ''}}">{{item.amountLabel}}</text></view>
+  </block>
+  <view wx:if="{{admin}}" class="admin-panel">
+    <text class="heading small">账号管理</text><text class="caption">仅管理员可操作，所有变更留有记录</text>
+    <input placeholder="粘贴用户编号" value="{{userId}}" data-field="userId" bindinput="edit" disabled="{{saving}}" maxlength="36"/>
+    <button class="primary" bindtap="findUser" loading="{{saving}}" disabled="{{saving}}">查询账号</button>
+    <block wx:if="{{target}}">
+      <text class="caption user-id">{{target.userId}}</text><text class="target-balance">可用 {{target.balance}} · 暂留 {{target.reserved}}</text>
+      <text class="caption">操作原因</text><input placeholder="例如：人工分配、故障补偿" value="{{reason}}" data-field="reason" bindinput="edit" disabled="{{saving}}" maxlength="200"/>
+      <text class="caption">积分调整</text><input placeholder="增加填正数，减少填负数" value="{{delta}}" data-field="delta" bindinput="edit" disabled="{{saving}}" maxlength="8"/>
+      <button class="primary" bindtap="save" data-action="adjust" loading="{{saving}}" disabled="{{saving}}">{{saving ? '正在处理…' : '确认调整积分'}}</button>
+      <text class="caption">功能权限</text><checkbox-group bindchange="selectFeatures"><label wx:for="{{featureOptions}}" wx:key="key"><checkbox value="{{item.key}}" checked="{{item.checked}}" disabled="{{saving}}" color="#965a42"/>{{item.label}}</label></checkbox-group>
+      <picker mode="date" value="{{expires}}" bindchange="selectDate" disabled="{{saving}}"><view class="date-picker">有效期至 {{expires}} · 修改</view></picker>
+      <button class="outline" bindtap="save" data-action="permissions" loading="{{saving}}" disabled="{{saving}}">{{saving ? '正在处理…' : '保存功能权限'}}</button>
+      <text wx:if="{{notice}}" class="success">{{notice}}</text>
+    </block>
+    <text wx:if="{{adminError}}" class="error admin-error">{{adminError}}</text>
+  </view>
+  <view class="contact-panel"><view class="contact-heading"><image src="../../assets/ui-headphones.png"/><view><text class="section-title">联系开通</text><text class="caption">把用户编号发给客服，确认服务后开通。</text></view></view><text class="contact-wechat">微信 lxlikex</text><button class="outline" bindtap="copyContact">复制客服微信</button></view>
+  <main-navigation selected="me"/>
+</view>

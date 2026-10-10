@@ -1,0 +1,200 @@
+<import src="../../components/analysis-status.wxml"/>
+<import src="../../templates/photo-clues.wxml"/>
+<view class="screen">
+  <view class="hero page-scene-hero">
+    <view class="glass-stamp page-scene-stamp"><image class="glass-stamp-art" src="/assets/page-scenes/analysis.png" mode="aspectFit"/><image class="glass-stamp-symbol" src="/assets/ui-scan.png" mode="aspectFit"/><text>LOOK A LITTLE CLOSER</text></view>
+    <text class="eyebrow">从真实材料开始</text>
+    <text class="title">{{result.reportId ? '聊天分析报告' : '看懂互动，'}}<text wx:if="{{!result.reportId}}" class="title-line">再决定下一步</text></text>
+    <text class="sub">{{result.reportId ? '核对材料，理解可能性，再选择适合自己的回应。' : '聊天里的信号、彼此的适配，分别说清楚。'}}</text>
+  </view>
+  <view wx:if="{{phase === 'loading'}}" class="panel center"><busy-indicator label="接入微信身份"/></view>
+  <view wx:elif="{{phase === 'error'}}" class="panel">
+    <text class="panel-title">暂时没有连接上</text><text class="helper">{{error}}</text>
+    <button class="primary" bindtap="refresh">重试连接</button>
+  </view>
+  <block wx:else>
+    <view wx:if="{{priceError}}" class="panel"><text class="error">{{priceError}}</text><button class="secondary" bindtap="loadPrices">重试读取价格</button></view>
+    <template wx:if="{{busy || backgroundPending}}" is="analysisStatus" data="{{busy, backgroundPending, taskStage, uploadProgress, batchProgress, error}}"/>
+    <view wx:if="{{partialCount && !result.reportId}}" class="partial-results">
+      <view class="partial-heading"><text>先看已完成的部分</text><text class="partial-count">{{partialCount}} / {{partialTotal}} 张</text></view>
+      <text class="partial-note">后面的截图继续处理中；这些是局部解读，完整判断和回复建议会在整组完成后汇总。</text>
+      <view wx:for="{{partialReports}}" wx:for-item="part" wx:key="id" class="partial-report panel">
+        <view class="partial-report-title"><text>第 {{part.number}} 张</text><text>部分结果</text></view>
+        <text wx:if="{{part.observation}}" class="partial-observation">{{part.observation}}</text>
+        <view wx:if="{{part.interpretation}}" class="partial-inference"><text class="partial-label">这一段可能的意思</text><text>{{part.interpretation}}</text></view>
+        <view wx:for="{{part.lines}}" wx:for-item="line" wx:key="id" class="partial-line">
+          <text class="partial-speaker {{line.speaker === 'self' ? 'partial-self' : ''}}">{{line.who}}</text><text class="partial-quote" selectable>{{line.text}}</text>
+          <text wx:if="{{line.note}}" class="partial-line-note">{{line.note}}</text>
+        </view>
+      </view>
+    </view>
+    <view wx:if="{{!result.reportId && !busy && !backgroundPending}}" class="panel">
+      <view class="step">01 · 选择截图</view>
+      <text class="panel-title">上传双方聊天截图</text>
+      <button class="picker" bindtap="choose">
+        <image wx:if="{{image}}" src="{{image}}" mode="aspectFill"/>
+        <image wx:else class="picker-icon" src="/assets/page-scenes/analysis.png" mode="aspectFit"/>
+        <view class="picker-copy">
+          <text>{{image ? '已选 ' + imageCount + ' 张 · 重新选择' : '选择图片或拍照上传'}}</text>
+          <text class="hint">1–9 张 JPG / PNG，每张 5 MB 内</text>
+        </view>
+      </button>
+      <button class="reset related-entry" bindtap="openSocialProfile">个人简介或主页截图？分析社交资料</button>
+      <block wx:if="{{image}}">
+        <text class="helper">核对顺序，可用按钮前后调整。</text>
+        <view wx:for="{{images}}" wx:for-index="imageIndex" wx:key="path" class="ordered-image">
+          <image src="{{item.path}}" mode="aspectFill"/>
+          <text>第 {{item.order}} 张 · {{imageIndex === 0 ? '最早' : imageIndex === imageCount - 1 ? '最新' : '接续'}}</text>
+          <button data-index="{{imageIndex}}" data-step="-1" bindtap="moveImage" disabled="{{imageIndex === 0 || busy}}" aria-label="第{{item.order}}张前移">前移</button>
+          <button data-index="{{imageIndex}}" data-step="1" bindtap="moveImage" disabled="{{imageIndex === imageCount - 1 || busy}}" aria-label="第{{item.order}}张后移">后移</button>
+        </view>
+        <view class="upload-section">
+          <view class="step">02 · 确认本人</view>
+          <view class="field"><text class="field-label">我在截图哪侧？</text><picker range="{{sideChoices}}" value="{{sideIndex}}" disabled="{{busy}}" bindchange="sideChange"><view class="select">{{sideChoices[sideIndex]}}<text class="select-action">选择</text></view></picker></view>
+          <view class="field archive-choice">
+            <text class="archive-choice-title">这是谁的聊天？ <text class="archive-choice-optional">可选</text></text>
+            <text wx:if="{{archivePrompt && !newPersonOpen}}" class="archive-choice-hint">需要持续跟进时再选人物，不保存就保持默认。</text>
+            <picker range="{{people}}" range-key="label" value="{{personIndex}}" disabled="{{busy || creatingPerson}}" bindchange="personChange"><view class="select">{{people[personIndex].label}}<text class="select-action">选择</text></view></picker>
+            <button class="new-person-link" disabled="{{busy || creatingPerson}}" bindtap="openNewPerson">新认识的人？新建档案</button>
+            <text wx:if="{{personIndex}}" class="helper">分析会归入选中的人物。</text>
+          </view>
+          <view wx:if="{{newPersonOpen}}" class="new-person">
+            <text class="new-person-title">怎么称呼这位对象？</text>
+            <input value="{{newPersonName}}" maxlength="60" placeholder="例如：小林 / 周末认识的人" bindinput="newPersonInput"/>
+            <text class="helper">只保存你填写的称呼，截图推测不会自动记成事实。</text>
+            <checkbox-group wx:if="{{!archiveReady}}" bindchange="newPersonAgree"><label class="consent"><checkbox value="yes" checked="{{newPersonConsent}}" color="#965a42"/><text>我同意启用关系档案，保存这位对象的称呼，之后可查看或删除。</text></label></checkbox-group>
+            <button class="primary" disabled="{{creatingPerson}}" bindtap="createPerson">{{creatingPerson ? '正在新建…' : '新建并选中'}}</button>
+            <button class="reset" disabled="{{creatingPerson}}" bindtap="cancelNewPerson">取消</button>
+          </view>
+        </view>
+        <view class="upload-section">
+          <view class="step">03 · 确认后开始</view>
+          <text class="privacy-summary">截图交由阿里云百炼识别，聊天文字与报告保留 7 天。</text>
+          <button class="disclosure-button" bindtap="togglePrivacyDetails" aria-expanded="{{showPrivacyDetails}}"><text>{{showPrivacyDetails ? '收起处理与保存说明' : '查看处理与保存说明'}}</text><view class="disclosure-chevron {{showPrivacyDetails ? 'expanded' : ''}}"/></button>
+          <view wx:if="{{showPrivacyDetails}}" class="privacy-details">
+            <text>截图会逐张交由阿里云百炼识别。聊天文字与报告保留 7 天；选定人物后保存互动摘要，用于长期趋势。</text>
+            <text>为断点续传，本机会保存临时图片副本；取回结果或取消上传时清理，清理失败会在下次进入时重试。未完成上传的本机副本在任务过期后再次处理时清理；服务端副本仅临时处理。</text>
+          </view>
+          <checkbox-group bindchange="agree"><label class="consent"><checkbox value="yes" checked="{{agreed}}" color="#965a42"/><text>我有权提供这 {{imageCount}} 张本人单聊截图，已核对顺序及本人气泡侧，同意上述处理与保存范围。</text></label></checkbox-group>
+          <text class="cost-note">本批 {{imageCount}} 张 · {{pricesReady ? (imageCount <= 3 ? prices.analysisSmall : imageCount <= 6 ? prices.analysisMedium : prices.analysisLarge) + ' 积分' : '价格读取中'}}；分析成功后使用，失败退回。</text>
+          <button class="primary" disabled="{{busy || creatingPerson || !pricesReady}}" bindtap="analyze">{{busy ? '正在逐张读取…' : '开始分析'}}</button>
+          <text wx:if="{{batchProgress}}" class="elapsed">{{batchProgress}}</text>
+          <text wx:if="{{busy}}" class="elapsed">上传与分析中 · 已等待 {{elapsedSeconds}} 秒</text>
+        </view>
+      </block>
+      <text wx:if="{{progress}}" class="helper">{{progress}}</text>
+      <text wx:if="{{error}}" class="error">{{error}}</text>
+      <text wx:if="{{error && lastElapsedSeconds}}" class="elapsed">本次等待约 {{lastElapsedSeconds}} 秒，可截图反馈问题。</text>
+    </view>
+    <block wx:if="{{result.reportId}}">
+      <view wx:if="{{result.partialNotice}}" class="error">{{result.partialNotice}}</view>
+      <view class="report-shortcuts">
+        <button data-section="judgment" bindtap="jumpReport">本轮判断</button>
+        <button data-section="replies" bindtap="jumpReport">怎么回复</button>
+        <button data-section="lines" bindtap="jumpReport">逐句解读</button>
+        <button data-section="metrics" bindtap="jumpReport">互动指标</button>
+        <button wx:if="{{result.photoClueCount}}" data-section="photos" bindtap="jumpReport">照片线索</button>
+      </view>
+      <view class="affection-highlight">
+        <view class="affection-highlight-head"><text class="affection-highlight-title">好感度 · 互动参考</text><text class="affection-highlight-scope">{{result.affectionScope}}</text></view>
+        <view wx:if="{{result.hasInteractionScore}}" class="affection-highlight-score"><text>{{result.interactionScore}}</text><text class="affection-highlight-unit">/ 100</text></view>
+        <view wx:else class="affection-overview">
+          <view><text class="affection-overview-value">{{result.metrics.otherTurnCount}}</text><text>对方发言回合</text></view>
+          <view><text class="affection-overview-value">{{result.metrics.activeCount}}</text><text>提问 / 邀约表达</text></view>
+          <view><text class="affection-overview-value">{{result.metrics.responseCount ? result.metrics.expandedCount + '/' + result.metrics.responseCount : '—'}}</text><text>{{result.metrics.responseCount ? '展开回应 / 完整回应' : '尚无完整回应'}}</text></view>
+        </view>
+        <text class="affection-highlight-trend">{{result.metrics.trendLoading ? '正在核对历史变化' : result.metrics.trend}}</text>
+        <text wx:if="{{result.affectionBoundary}}" class="affection-highlight-boundary">对方表达了明确边界，先停止推进。</text>
+        <text class="affection-highlight-basis">{{result.evidence}}</text>
+        <text class="affection-highlight-note">{{result.hasInteractionScore ? '基于可见互动，不是对方喜欢你的概率。' : '暂无可靠总分，先看真实互动；不把缺失维度算作 0。'}}</text>
+        <button class="affection-highlight-link" data-section="metrics" bindtap="jumpReport">查看好感依据与互动详情 →</button>
+      </view>
+      <view id="report-judgment" class="panel result">
+        <avatar-picker sources="{{avatarSources}}" candidates="{{result.avatarCandidates}}" subject-id="{{result.subjectId || people[personIndex].id}}" current="{{people[personIndex].avatar}}"/>
+        <view class="step">01 · 本轮判断</view><text class="panel-title">本轮判断</text>
+        <view class="verdict">
+      <view wx:if="{{result.interactionInsight}}" class="verdict-block intent-highlight">
+        <text class="verdict-label">深层互动洞察 · 推测</text>
+        <text class="judgment">{{result.interactionInsight.label}}</text>
+        <text class="verdict-label">可能意味着</text><text>{{result.interactionInsight.interpretation}}</text>
+        <text class="verdict-label">从哪里看出来</text><text>{{result.interactionInsight.observed}}</text>
+        <text class="verdict-label">另一种解释</text><text>{{result.interactionInsight.alternative}}</text>
+        <text class="verdict-label">接下来留意</text><text>{{result.interactionInsight.verify}}</text>
+      </view>
+      <view wx:else class="verdict-block verdict-intent"><text class="verdict-label">这段互动的判断</text><text class="judgment">{{result.judgment || result.possibleIntent}}</text></view>
+          <view wx:if="{{!result.interactionInsight && result.judgment && result.possibleIntent && result.possibleIntent !== result.judgment}}" class="verdict-block intent-highlight"><text class="verdict-label">对方可能的意思 · 推测</text><text class="judgment">{{result.possibleIntent}}</text></view>
+          <button class="disclosure-button" bindtap="toggleEvidence" aria-expanded="{{showEvidence}}"><text>{{showEvidence ? '收起事实与判断依据' : '查看事实与判断依据'}}</text><view class="disclosure-chevron {{showEvidence ? 'expanded' : ''}}"/></button>
+          <view wx:if="{{showEvidence}}" class="verdict-block verdict-evidence"><block wx:if="{{result.observation}}"><text class="verdict-label">看见的事实</text><text class="evidence">{{result.observation}}</text></block><text class="verdict-label">判断依据</text><text class="evidence">{{result.evidence}}</text></view>
+          <view class="verdict-block verdict-action"><text class="verdict-label">下一步怎么做</text><text class="advice">{{result.nextStep || '先结合完整上下文核对。'}}</text></view>
+        </view>
+        <button class="followup-button" bindtap="openFollowup" disabled="{{followupBusy}}" loading="{{followupBusy}}">{{followupBusy ? '正在打开…' : '继续追问'}}</button>
+        <text class="followup-note">带着这份分析，和军师接着聊。</text>
+        <text wx:if="{{followupError}}" class="error">{{followupError}}</text>
+        <text wx:if="{{result.durationSeconds}}" class="elapsed">本次用时约 {{result.durationSeconds}} 秒（含上传）</text>
+      </view>
+      <view id="report-replies" class="panel">
+        <view class="step">02 · 回复选择</view><text class="panel-title">现在怎么回</text>
+        <block wx:if="{{result.hasReplies}}">
+          <text class="rank-note">按本轮推荐顺序，选符合你意思的一句。</text>
+          <view wx:for="{{result.replies}}" wx:for-index="replyIndex" wx:key="text" class="reply {{replyIndex === 0 ? 'reply-first' : ''}}">
+            <text class="reply-heading">{{item.rankLabel}} · {{item.style}}</text>
+            <text class="reply-text" selectable>{{item.personalizedText || item.text}}</text>
+            <text class="reply-reason">为什么这样回：{{item.reason || '请结合这轮上下文判断。'}}</text>
+            <button class="reply-copy" data-index="{{replyIndex}}" bindtap="copyReply">{{copiedReplyIndex === replyIndex ? '已复制' : '复制这句'}}</button>
+            <text wx:if="{{item.personalizedText}}" class="reply-original">原推荐：{{item.text}}</text>
+            <button class="disclosure-button" data-index="{{replyIndex}}" bindtap="toggleReply" aria-expanded="{{item.expanded}}"><text>{{item.expanded ? '收起注意事项' : '查看注意事项'}}</text><view class="disclosure-chevron {{item.expanded ? 'expanded' : ''}}"/></button>
+            <view wx:if="{{item.expanded}}" class="reply-details"><text>可能的代价：{{item.cost || '这份旧报告没有评估代价；发送前请结合对方的边界判断。'}}</text></view>
+            <button class="reply-more reply-personalize" data-index="{{replyIndex}}" disabled="{{!result.canPersonalize || rewriteBusy >= 0 || !pricesReady}}" bindtap="personalize">{{rewriteBusy === replyIndex ? '正在调整语气…' : '更像我一点 · ' + (pricesReady ? prices.text + ' 积分' : '价格读取中')}}</button>
+            <text wx:if="{{!result.canPersonalize}}" class="reply-note">需要本批至少 3 句、合计 30 字的你的原话，才可参考你的语气。</text>
+            <text wx:else class="reply-note">仅参考本轮确认是你说过的话。</text>
+            <text wx:if="{{item.note}}" class="reply-note">{{item.note}}</text><text wx:if="{{item.rewriteError}}" class="reply-note reply-error">{{item.rewriteError}}</text>
+          </view>
+          <text wx:if="{{copyError}}" class="error">{{copyError}}</text>
+        </block>
+        <text wx:else class="reply-empty">{{result.replyEmptyReason}}</text>
+        <view wx:if="{{result.review}}" class="review"><text>你刚才回得怎么样</text><text>{{result.review}}</text></view>
+      </view>
+      <view id="report-lines" class="panel">
+        <view class="step">03 · 逐句解读</view><text class="panel-title">逐句解读</text>
+        <button class="disclosure-button" bindtap="toggleLines" aria-expanded="{{showLines}}"><text>{{showLines ? '收起逐句分析' : result.linesToggleLabel}}</text><view class="disclosure-chevron {{showLines ? 'expanded' : ''}}"/></button>
+        <view wx:if="{{showLines}}" class="lines">
+          <text class="helper">解释权重不是好感概率。</text>
+          <view wx:for="{{result.lines}}" wx:key="id" class="line {{item.who === '我' ? 'line-self' : item.who === '对方' ? 'line-other' : 'line-unknown'}}">
+            <text class="who">图 {{item.screenshotNumber}} · {{item.lineNumber}} · {{item.who}}</text><text class="quote" selectable>{{item.text}}</text>
+            <signal-tags class="emotion-tags" title="语气与情绪" tags="{{item.emotionTags}}"/>
+            <signal-tags class="intent-tags" title="可能的意思" tags="{{item.intentTags}}" note="{{item.note}}"/>
+          </view>
+        </view>
+      </view>
+      <view id="report-metrics" class="panel">
+        <view class="step">04 · 互动信号</view><text class="panel-title">互动指标</text>
+        <view class="affection-card">
+          <text class="affection-scope">{{result.affectionScope}}</text><view class="affection-score"><text>{{result.hasInteractionScore ? result.interactionScore : '待建立基线'}}</text><text wx:if="{{result.hasInteractionScore}}" class="affection-unit">/ 100</text></view>
+          <view wx:if="{{result.hasInteractionScore}}" class="score-track"><view class="score-fill" style="width:{{result.interactionScore}}%"/></view>
+          <text class="affection-trend">{{result.metrics.trendLoading ? '正在对照之前的互动…' : result.metrics.trend}}</text><text class="affection-note">{{result.metrics.trendNote}}</text>
+          <text wx:if="{{result.affectionBoundary}}" class="affection-boundary">对方表达了明确边界，先停止推进。</text>
+          <text class="affection-note">{{result.hasInteractionScore ? '分数表示可见互动信号，不是喜欢你的概率。' : '本轮证据暂不足以计分，可先核对原话和判断。'}}</text>
+        </view>
+        <view wx:if="{{result.metrics}}" class="relationship-metrics">
+          <text class="section-title">本轮互动与长期变化</text>
+          <view class="metric-grid">
+            <view><text>本轮线索</text><text class="metric-value">{{result.metrics.stage}}</text></view>
+            <view><text>历史互动变化</text><text class="metric-value">{{result.metrics.trend}}</text></view>
+            <view><text>提问 / 推进表达</text><text class="metric-value">{{result.metrics.activeRate === null ? '暂无样本' : result.metrics.activeRate + '%'}}</text><text>{{result.metrics.activeCount}} / {{result.metrics.otherTurnCount}} 个对方发言回合</text></view>
+            <view><text>回应扩展线索</text><text class="metric-value">{{result.metrics.replyExpansion === null ? '暂无完整回应' : result.metrics.replyExpansion + '%'}}</text><text>{{result.metrics.expandedCount}} / {{result.metrics.responseCount}} 次回应含追问或较多内容</text></view>
+            <view><text>邀约线索</text><text class="metric-value">{{result.metrics.invitationCount}} 个发言回合</text><text>兑现需对应约定和实际结果</text></view>
+            <view><text>本轮互动参考</text><text class="metric-value">{{result.metrics.score === null ? '待补证据' : result.metrics.score + '/100'}}</text></view>
+          </view>
+          <busy-indicator wx:if="{{result.metrics.trendLoading}}" label="正在对照历史互动"/>
+          <text class="metric-callout red">边界提醒 · {{result.metrics.redFlag}}</text>
+          <text class="metric-callout green">推进线索 · {{result.metrics.opportunity}}</text><text class="metric-stop">{{result.metrics.stopAdvice}}</text>
+          <view wx:if="{{result.metrics.hasIssues}}" class="metric-issues"><text>还需要观察</text><text wx:for="{{result.metrics.issues}}" wx:key="*this">· {{item}}</text></view>
+        </view>
+        <button class="secondary" bindtap="report">查看最新一张的六维依据与完整报告</button>
+      </view>
+      <view wx:if="{{result.photoClueCount}}" id="report-photos"><template is="photo-clues" data="{{clues:result.photoClues,count:result.photoClueCount}}"/></view>
+      <view class="report-actions"><button wx:if="{{personIndex}}" class="secondary" bindtap="openArchive">去人物档案核对线索</button><button class="primary" bindtap="reset">分析另一组截图</button><button class="reset" data-section="judgment" bindtap="jumpReport">回到本轮判断</button></view>
+    </block>
+  </block>
+  <main-navigation selected="analysis"/>
+</view>

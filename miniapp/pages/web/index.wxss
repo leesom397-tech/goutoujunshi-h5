@@ -1,0 +1,5 @@
+.error { display: flex; flex-direction: column; align-items: center; padding: 190rpx 55rpx 0; text-align: center; }
+.error-mark { display: flex; align-items: center; justify-content: center; width: 80rpx; height: 80rpx; border-radius: 50%; background: #f7e8dd; color: #a85e3d; font-size: 46rpx; }
+.title { margin-top: 35rpx; font-size: 34rpx; font-weight: 700; }
+.hint { margin-top: 20rpx; color: #677c73; font-size: 25rpx; line-height: 1.7; }
+button { margin-top: 55rpx; width: 290rpx; border-radius: 18rpx; background: #1a5b52; color: #fff; font-size: 28rpx; }

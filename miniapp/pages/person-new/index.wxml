@@ -1,0 +1,18 @@
+<view class="screen">
+  <view class="new-person-hero page-scene-person-new"><image class="new-person-scene" src="/assets/page-scenes/archive.png" mode="aspectFit" aria-hidden="true"/><view class="new-person-copy"><text class="eyebrow">新建人物</text><text class="title">没有截图，<text class="title-next">也能建档。</text></text><text class="sub">只需一个称呼，知道多少填多少。</text></view></view>
+  <view class="wizard-steps"><text class="current">01 一个称呼</text><view></view><text>02 补充资料</text><view></view><text>03 保存档案</text></view>
+  <view class="panel"><view class="section-heading"><text class="section-number">01</text><view><text class="heading">从一个称呼开始</text><text class="section-caption">用名字或代号，留下属于这段关系的位置。</text></view></view><text class="label">怎么称呼 TA · 必填</text><input value="{{label}}" bindinput="nameInput" maxlength="60" placeholder="例如：小林 / 朋友介绍的人" disabled="{{busy}}"/></view>
+  <view class="panel"><view class="section-heading"><text class="section-number">02</text><view><text class="heading">基础资料 · 均可跳过</text><text class="section-caption">填写你已经了解的部分，剩下的以后再补。</text></view></view>
+    <picker wx:for="{{pickers}}" wx:key="key" range="{{item.options}}" value="{{item.index}}" data-key="{{item.key}}" bindchange="choose" disabled="{{busy}}"><view class="select-row"><text>{{item.label}}</text><text class="value">{{item.options[item.index]}}　⌄</text></view></picker>
+    <picker mode="region" bindchange="city" disabled="{{busy}}"><view class="select-row"><text>常住地</text><text class="value">{{fields.city || '选择省市'}}　⌄</text></view></picker><button wx:if="{{fields.city}}" class="clear-city" bindtap="clearCity" disabled="{{busy}}">清除常住地</button>
+    <text class="label">职业</text><input data-key="occupation" value="{{fields.occupation}}" bindinput="input" maxlength="100" placeholder="例如：教师 / 设计师，不知道可跳过" disabled="{{busy}}"/>
+    <text class="label">生活方式</text><input data-key="lifestyle" value="{{fields.lifestyle}}" bindinput="input" maxlength="100" placeholder="例如：周末喜欢户外" disabled="{{busy}}"/>
+  </view>
+  <view class="panel"><view class="section-heading"><text class="section-number">03</text><view><text class="heading">再补充几句 · 可选</text><text class="section-caption">真实的细节，让建议更贴近你们。</text></view></view>
+    <text class="label">TA 明确表达的期待或价值观</text><textarea data-key="values" value="{{fields.values}}" bindinput="input" maxlength="800" placeholder="没说过的可以留空" disabled="{{busy}}"/>
+    <text class="label">TA 明确表达的边界</text><textarea data-key="boundaries" value="{{fields.boundaries}}" bindinput="input" maxlength="800" placeholder="没说过的可以留空" disabled="{{busy}}"/>
+    <text class="label">备注与已确认经历</text><textarea data-key="notes" value="{{fields.notes}}" bindinput="input" maxlength="800" placeholder="怎么认识的、发生过什么……也可用手机键盘的语音输入。" disabled="{{busy}}"/>
+  </view>
+  <checkbox-group bindchange="agree"><label class="consent"><checkbox value="yes" checked="{{agreed}}" color="#965a42" disabled="{{busy}}"/><text>确认保存我有权提供的资料，用于关系分析；未启用时同时启用档案，可随时修改或删除。</text></label></checkbox-group>
+  <text wx:if="{{error}}" class="error">{{error}}</text><button class="primary" bindtap="save" disabled="{{busy}}" loading="{{busy}}">{{busy ? '正在保存' : '保存并查看人物档案 →'}}</button>
+</view>

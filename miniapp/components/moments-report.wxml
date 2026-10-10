@@ -1,0 +1,44 @@
+<template name="momentsReport">
+  <view class="moments-report">
+    <view class="moments-verdict"><text class="moments-kicker">人物总评 · 这批朋友圈</text><text class="moments-summary">{{report.summary}}</text></view>
+    <view wx:if="{{allowFollowup}}" class="moments-followup"><button class="moments-followup-button" bindtap="continueDiscussion" disabled="{{followupBusy}}">{{followupBusy ? '正在打开…' : '继续追问这份分析'}}</button><text class="moments-evidence">带上当前报告继续聊，不必重新描述。</text></view>
+    <view wx:if="{{report.hasHypotheses && !hideFindings}}" class="moments-section moments-depth" id="moments-findings">
+      <view class="moments-heading"><image src="/assets/icon-people.png"/><text>值得留意的深层推测</text></view>
+      <text class="moments-caption">结合这批动态形成的判断，可以随新表现修正。</text>
+      <view wx:for="{{report.hypotheses}}" wx:key="title" class="moments-insight"><text class="moments-title">{{item.title}}</text><text>{{item.possibility}}</text><block wx:if="{{showDetails}}"><text class="moments-evidence">依据 · {{item.evidence}}</text><text class="moments-alternative">另一种可能 · {{item.alternative}}</text></block></view>
+      <button class="moments-source-button" hover-class="moments-button-pressed" bindtap="toggleMomentsDetails" aria-expanded="{{showDetails}}">{{showDetails ? '收起推测依据与其他解释' : '查看推测依据与其他解释'}}</button>
+    </view>
+    <view id="moments-actions">
+    <view wx:if="{{report.approach}}"><template is="communicationApproach" data="{{approach:report.approach}}"/></view>
+    <view wx:elif="{{report.hasHypotheses}}" class="moments-section"><text class="moments-title">可以怎么相处</text><view wx:for="{{report.hypotheses}}" wx:key="title"><text wx:if="{{item.verify}}" class="moments-support">{{item.verify}}</text></view></view>
+    <view wx:if="{{report.hasStarters}}" class="moments-section"><text class="moments-title">挑一句顺口的，接着聊</text><view wx:for="{{report.starters}}" wx:key="topic" class="moments-starter"><text class="moments-chat-message" selectable="true">{{item.message}}</text><text wx:if="{{item.reason}}" class="moments-evidence">{{item.reason}}</text><text wx:if="{{showDetails}}" class="moments-evidence">对应动态 · {{item.evidence}}</text></view></view>
+    </view>
+    <view wx:if="{{archiveView && report.commonPoints.length}}" class="moments-section"><text class="moments-title">你们的交集</text><view wx:for="{{report.commonPoints}}" wx:key="title" class="moments-theme"><text class="moments-title">{{item.title}}</text><text>{{item.meaning}}</text></view></view>
+    <view id="moments-statistics" class="moments-section-divider"><text>回到材料 · 统计与完整依据</text></view>
+    <view wx:if="{{report.statistics.hasContent}}" class="moments-section"><text class="moments-title">内容构成 · {{report.statistics.classified}} 条可分类动态</text><text class="moments-evidence">已识别去重 {{report.statistics.total}} 条，{{report.statistics.unclassified}} 条未分类</text><view wx:for="{{report.statistics.visibleContent}}" wx:key="label" class="moments-bar-row"><view class="moments-bar-heading"><text>{{item.label}}</text><text>{{item.count}} / {{item.total}} 条 · {{item.percent}}%</text></view><view class="moments-track"><view class="moments-fill" style="width:{{item.percent}}%"></view></view></view><text class="moments-evidence">{{report.statistics.scope}}</text><text wx:if="{{report.statistics.selfie.known}}" class="moments-support">自拍：{{report.statistics.selfie.count}} / {{report.statistics.selfie.known}} 条可判断动态（{{report.statistics.selfie.percent}}%），另有 {{report.statistics.selfie.unknown}} 条无法判断</text></view>
+    <view wx:if="{{report.statistics.hasCopy}}" class="moments-section"><text class="moments-title">文案表达 · {{report.statistics.copyTotal}} 条可分类文案</text><view wx:for="{{report.statistics.visibleCopy}}" wx:key="label" class="moments-bar-row"><view class="moments-bar-heading"><text>{{item.label}}</text><text>{{item.count}} / {{item.total}} 条 · {{item.percent}}%</text></view><view class="moments-track"><view class="moments-fill copy" style="width:{{item.percent}}%"></view></view></view><text class="moments-evidence">一条文案可能包含多种表达；纯照片和无法读清的文案不计入。</text></view>
+    <button wx:if="{{report.hasPosts}}" class="moments-details-button" hover-class="moments-button-pressed" bindtap="toggleMomentsTimeline" aria-expanded="{{showTimeline}}"><view><text>动态时间线 · {{report.posts.length}} 条</text><text class="moments-button-caption">{{showTimeline ? '收起已识别的动态' : '按截图日期回看内容与出处'}}</text></view><view class="moments-chevron {{showTimeline ? 'expanded' : ''}}"></view></button>
+    <view wx:if="{{report.hasPosts && showTimeline}}" class="moments-section"><text class="moments-title">动态时间线</text><text class="moments-evidence">按截图中的日期整理，时间未明确的内容保留原标注。</text><view wx:for="{{report.posts}}" wx:key="index" class="moments-post"><text class="moments-date">{{item.date}}</text><text>{{item.content}}</text><text class="moments-evidence">{{item.evidence}}</text></view></view>
+    <button class="moments-details-button" hover-class="moments-button-pressed" bindtap="toggleMomentsDetails" aria-expanded="{{showDetails}}"><view><text>{{showDetails ? '收起完整依据与照片线索' : '查看完整依据与照片线索'}}</text><text class="moments-button-caption">行为、生活主题、重要节点与可见范围</text></view><view class="moments-chevron {{showDetails ? 'expanded' : ''}}"></view></button>
+    <block wx:if="{{showDetails}}">
+    <view wx:if="{{report.hasBehaviorClues}}" class="moments-section"><text class="moments-title">行为与价值线索</text><view wx:for="{{report.behaviorClues}}" wx:key="dimension" class="moments-insight"><text class="moments-title">{{item.dimension}} · {{item.sourceType}}</text><text>{{item.reading}}</text><text class="moments-support">原文 · {{item.quote}}</text><text class="moments-evidence">{{item.evidence}}</text><text class="moments-alternative">{{item.alternative}}</text></view></view>
+    <view wx:if="{{report.statistics.hasSummaries}}" class="moments-section moments-portraits"><text class="moments-title">这批朋友圈透露了什么</text><view wx:for="{{report.statistics.summaries}}" wx:key="title" class="moments-insight"><text class="moments-title">{{item.title}}</text><text class="moments-support">{{item.support}}</text><text>{{item.reading}}</text><text class="moments-evidence">{{item.evidence}}</text><text class="moments-alternative">{{item.alternative}}</text></view></view>
+    <view wx:if="{{report.statistics.hasMilestones}}" class="moments-section"><text class="moments-title">重要节点 · 文字自述</text><text class="moments-evidence">按动态发布日期标注，不代表事件实际发生日期</text><view wx:for="{{report.statistics.milestones}}" wx:key="index" class="moments-post"><text class="moments-date">{{item.date}}</text><text class="moments-title">{{item.title}}</text><text>{{item.quote}}</text><text class="moments-evidence">{{item.evidence}}</text></view></view>
+    <view class="moments-section visibility"><text class="moments-title">可见范围 · {{report.visibility.label}}</text><text>{{report.visibility.reading}}</text><text wx:if="{{report.visibility.evidence}}" class="moments-evidence">截图提示：{{report.visibility.evidence}}</text><text wx:for="{{report.visibility.possibilities}}" wx:key="*this" class="moments-line">{{item}}</text></view>
+    <view wx:if="{{report.hasThemes}}" class="moments-section"><text class="moments-title">公开展示的生活主题</text><view wx:for="{{report.themes}}" wx:key="title" class="moments-theme"><text class="moments-chip">{{item.title}}</text><text>{{item.meaning}}</text><text class="moments-evidence">{{item.evidence}}</text></view></view>
+    <view wx:if="{{archiveView && report.hasPhotos}}" class="moments-section"><text class="moments-title">照片里的线索</text><view wx:for="{{report.photoClues}}" wx:key="item" class="moments-theme"><text class="moments-title">{{item.item}}</text><text>{{item.style}}</text><text class="moments-evidence">{{item.evidence}}</text></view></view>
+    <view wx:if="{{archiveView && report.fitSummary}}" class="moments-section"><text class="moments-title">资料适配线索</text><text>{{report.fitSummary}}</text></view>
+    </block>
+  </view>
+</template>
+<template name="communicationApproach">
+  <view wx:if="{{approach}}" class="moments-section moments-approach">
+    <text class="moments-title">怎么相处，怎么聊</text>
+    <view class="moments-strategy-row"><text>态度</text><text>{{approach.attitude}}</text></view>
+    <view wx:if="{{approach.emotion}}" class="moments-strategy-row"><text>回应</text><text>{{approach.emotion}}</text></view>
+    <view wx:if="{{approach.pace}}" class="moments-strategy-row"><text>节奏</text><text>{{approach.pace}}</text></view>
+    <view wx:if="{{approach.avoid}}" class="moments-strategy-row moments-avoid"><text>少做</text><text>{{approach.avoid}}</text></view>
+    <text class="moments-evidence">依据 · {{approach.evidence}}</text>
+    <text wx:if="{{approach.adjustWhen}}" class="moments-support">何时换方式 · {{approach.adjustWhen}}</text>
+  </view>
+</template>

@@ -1,0 +1,18 @@
+import assert from "node:assert/strict";
+import {readFileSync,readdirSync} from "node:fs";
+import {DatabaseSync} from "node:sqlite";
+const db=new DatabaseSync(":memory:");
+const files=readdirSync("drizzle").filter(file=>file.endsWith(".sql")).sort();
+const migration="0014_silky_scarlet_witch.sql";
+for(const file of files.filter(file=>file<migration))db.exec(readFileSync(`drizzle/${file}`,"utf8"));
+db.prepare("INSERT INTO coach_facts (id,owner_id,subject_id,field,value,source,evidence,status,created_at) VALUES ('legacy','owner','person','recentEvent','旧记录原文','旧截图','原依据','accepted',123)").run();
+const before=db.prepare("SELECT * FROM coach_facts WHERE id='legacy'").get();
+db.exec(readFileSync(`drizzle/${migration}`,"utf8"));
+const after=db.prepare("SELECT * FROM coach_facts WHERE id='legacy'").get();
+assert.equal(after.event_meta,null);
+delete after.event_meta;
+assert.deepEqual(after,before);
+db.prepare("INSERT INTO coach_facts (id,owner_id,field,value,source,created_at) VALUES ('old-writer','owner','notes','兼容旧写入','test',124)").run();
+assert.equal(db.prepare("SELECT event_meta FROM coach_facts WHERE id='old-writer'").get().event_meta,null);
+db.close();
+console.log("PASS: additive event metadata migration preserves pre-existing accepted facts and old writers");

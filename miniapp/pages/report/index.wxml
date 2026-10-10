@@ -1,0 +1,104 @@
+<import src="../../templates/photo-clues.wxml"/>
+<view class="screen">
+  <view wx:if="{{phase === 'loading'}}" class="panel center"><busy-indicator label="正在读取报告"/></view>
+  <view wx:elif="{{phase === 'error'}}" class="panel"><text class="heading">报告暂时无法打开</text><text class="muted">{{error}}</text><button class="retry" bindtap="refresh">重新读取</button></view>
+  <block wx:else>
+    <view class="hero page-scene-hero"><view class="glass-stamp page-scene-stamp"><image class="glass-stamp-art" src="/assets/page-scenes/report.png" mode="aspectFit"/><image class="glass-stamp-symbol" src="/assets/ui-sparkles.png" mode="aspectFit"/><text>关系记录</text></view><text class="eyebrow">从原话到行动</text><text class="title">聊天分析报告</text><text class="sub">核对材料，理解可能性，再选择适合自己的回应。</text></view>
+    <view class="report-shortcuts">
+      <button data-section="judgment" bindtap="jumpReport">本轮判断</button><button data-section="replies" bindtap="jumpReport">怎么回复</button>
+      <button data-section="lines" bindtap="jumpReport">逐句解读</button><button data-section="metrics" bindtap="jumpReport">互动指标</button>
+      <button wx:if="{{report.photoClueCount}}" data-section="photos" bindtap="jumpReport">照片线索</button>
+      <button wx:if="{{report.compatibility}}" data-section="fit" bindtap="jumpReport">补充适配</button>
+    </view>
+    <view class="affection-highlight">
+      <view class="affection-highlight-head"><text class="affection-highlight-title">好感度 · 互动参考</text><text class="affection-highlight-scope">{{report.affectionScope}}</text></view>
+      <view wx:if="{{report.hasAffectionScore}}" class="affection-highlight-score"><text>{{report.affectionScore}}</text><text class="affection-highlight-unit">/ 100</text></view>
+      <view wx:else class="affection-overview">
+        <view><text class="affection-overview-value">{{report.interactionOverview.otherTurnCount}}</text><text>对方发言回合</text></view>
+        <view><text class="affection-overview-value">{{report.interactionOverview.activeCount}}</text><text>提问 / 邀约表达</text></view>
+        <view><text class="affection-overview-value">{{report.interactionOverview.responseCount ? report.interactionOverview.expandedCount + '/' + report.interactionOverview.responseCount : '—'}}</text><text>{{report.interactionOverview.responseCount ? '展开回应 / 完整回应' : '尚无完整回应'}}</text></view>
+      </view>
+      <text class="affection-highlight-trend">{{report.trendLoading ? '正在核对历史变化' : report.trend}}</text>
+      <text wx:if="{{report.affectionBoundary}}" class="affection-highlight-boundary">对方表达了明确边界，先停止推进。</text>
+      <text class="affection-highlight-basis">{{report.evidence}}</text>
+      <text class="affection-highlight-note">{{report.hasAffectionScore ? '基于可见互动，不是对方喜欢你的概率。' : '暂无可靠总分，先看真实互动；不把缺失维度算作 0。'}}</text>
+      <button class="affection-highlight-link" data-section="metrics" bindtap="jumpReport">查看好感依据与六维详情 →</button>
+    </view>
+    <view id="report-judgment" class="panel verdict">
+      <text class="step">01 · 本轮判断</text><text class="heading">本轮判断</text>
+      <view wx:if="{{report.interactionInsight}}" class="verdict-block intent-highlight">
+        <text class="label">深层互动洞察 · 推测</text>
+        <text class="lead">{{report.interactionInsight.label}}</text>
+        <text class="label">可能意味着</text><text>{{report.interactionInsight.interpretation}}</text>
+        <text class="label">从哪里看出来</text><text>{{report.interactionInsight.observed}}</text>
+        <text class="label">另一种解释</text><text>{{report.interactionInsight.alternative}}</text>
+        <text class="label">接下来留意</text><text>{{report.interactionInsight.verify}}</text>
+      </view>
+      <view wx:else class="verdict-block verdict-intent"><text class="label">这段互动的判断</text><text class="lead">{{report.judgment || report.possibleIntent}}</text></view>
+      <view wx:if="{{!report.interactionInsight && report.judgment && report.possibleIntent && report.possibleIntent !== report.judgment}}" class="verdict-block intent-highlight"><text class="label">对方可能的意思 · 推测</text><text class="lead">{{report.possibleIntent}}</text></view>
+      <button class="disclosure-button" bindtap="toggleEvidence" aria-expanded="{{showEvidence}}"><text>{{showEvidence ? '收起事实与判断依据' : '查看事实与判断依据'}}</text><view class="disclosure-chevron {{showEvidence ? 'expanded' : ''}}"/></button>
+      <view wx:if="{{showEvidence}}" class="verdict-block verdict-evidence"><block wx:if="{{report.observation}}"><text class="label">看见的事实</text><text>{{report.observation}}</text></block><text class="label">判断依据</text><text>{{report.evidence}}</text></view>
+      <view class="verdict-block verdict-action"><text class="label">下一步怎么做</text><text class="lead">{{report.nextStep}}</text></view>
+      <text class="muted">基于本轮可读聊天推测，不代表对方已确认的想法。</text>
+      <button class="followup-button" bindtap="openFollowup" disabled="{{followupBusy}}" loading="{{followupBusy}}">{{followupBusy ? '正在打开…' : '继续追问'}}</button>
+      <text class="followup-note">带着这份分析，和军师接着聊。</text>
+      <text wx:if="{{followupError}}" class="error">{{followupError}}</text>
+    </view>
+    <view id="report-replies" class="panel">
+      <text class="step">02 · 回复选择</text><text class="heading">现在怎么回</text>
+      <block wx:if="{{report.hasReplies}}">
+        <text class="muted">按本轮推荐顺序，选符合你意思的一句。</text>
+        <view wx:for="{{report.replies}}" wx:for-index="replyIndex" wx:key="text" class="reply {{replyIndex === 0 ? 'reply-first' : ''}}">
+          <text class="label">{{item.rankLabel}} · {{item.style}}</text><text class="reply-text" selectable>{{item.text}}</text>
+          <text class="reply-reason">为什么这样回：{{item.reason || '请结合上下文判断。'}}</text>
+          <button class="reply-copy" data-index="{{replyIndex}}" bindtap="copyReply">{{copiedReplyIndex === replyIndex ? '已复制' : '复制这句'}}</button>
+          <button class="disclosure-button" data-index="{{replyIndex}}" bindtap="toggleReply" aria-expanded="{{item.expanded}}"><text>{{item.expanded ? '收起注意事项' : '查看注意事项'}}</text><view class="disclosure-chevron {{item.expanded ? 'expanded' : ''}}"/></button>
+          <view wx:if="{{item.expanded}}" class="details"><text>可能的代价：{{item.cost || '本轮没有可靠的代价分析。'}}</text></view>
+        </view>
+        <text wx:if="{{copyError}}" class="error">{{copyError}}</text>
+      </block>
+      <text wx:else class="empty-note">本轮没有可靠的候选回复，不必为了发而发。</text>
+      <view wx:if="{{report.review}}" class="review"><text class="section-title">你刚才回得怎么样</text><text>{{report.review}}</text></view>
+    </view>
+    <view id="report-lines" class="panel">
+      <text class="step">03 · 逐句解读</text><text class="heading">逐句解读</text>
+      <button class="disclosure-button" bindtap="toggleLines" aria-expanded="{{showLines}}"><text>{{showLines ? '收起逐句分析' : report.linesLabel + ' · 点击展开'}}</text><view class="disclosure-chevron {{showLines ? 'expanded' : ''}}"/></button>
+      <text wx:if="{{showLines}}" class="muted">权重表示解释倾向，不是对方喜欢你的概率。</text>
+      <view wx:if="{{showLines}}" wx:for="{{report.lines}}" wx:key="id" class="line {{item.who === '我' ? 'line-self' : item.who === '对方' ? 'line-other' : 'line-unknown'}}">
+        <text class="label">{{item.lineNumber}} · {{item.who}}</text><text class="quote" selectable>{{item.text}}</text>
+        <signal-tags title="语气与情绪" tags="{{item.emotionTags}}"/><signal-tags title="可能的意思" tags="{{item.intentTags}}" note="{{item.note}}"/>
+        <text wx:if="{{item.evidence}}" class="muted">{{item.evidence}}</text>
+      </view>
+    </view>
+    <view id="report-metrics" class="panel">
+      <text class="step">04 · 互动信号</text><text class="heading">互动指标</text>
+      <view class="affection-card">
+        <text class="muted">{{report.affectionScope}}</text><text class="score">{{report.hasAffectionScore ? report.affectionScore + '/100' : '待建立基线'}}</text>
+        <view wx:if="{{report.hasAffectionScore}}" class="track"><view class="fill" style="width:{{report.affectionScore}}%"/></view>
+        <text class="section-title">{{report.trendLoading ? '正在对照之前的互动…' : report.trend}}</text><text class="muted">{{report.trendNote}}</text>
+        <text class="muted">{{report.hasAffectionScore ? '分数表示本轮可见互动信号，不是喜欢你的概率。' : '本轮证据暂不足以计分，可先核对原话和判断。'}}</text>
+        <text wx:if="{{report.affectionBoundary}}" class="boundary-note">对方表达了明确边界，先停止推进。</text>
+      </view>
+      <view wx:if="{{report.affinity}}" class="dimensions">
+        <text class="section-title">好感依据 · 六维互动信号</text><text class="muted">待验证的维度不计零分。</text>
+        <view wx:if="{{report.affinity.radarReady}}" class="radar-wrap"><canvas canvas-id="affinityRadar" class="radar" width="260" height="260"/><text class="radar-note">六边形呈现已有六维参考值，可在下方逐项核对。</text></view>
+        <text wx:else class="radar-note">有维度待验证，暂不绘制六边形，避免误当 0 分。</text>
+        <view wx:for="{{report.affinity.dimensions}}" wx:key="key" class="dimension"><text>{{item.label}}</text><view class="track"><view class="fill" style="width:{{item.width}}%"/></view><text>{{item.displayValue}}</text></view>
+      </view>
+      <text wx:else class="empty-note">六维互动图尚无已授权的评估数据，本报告不编造分数。</text>
+    </view>
+    <view wx:if="{{report.photoClueCount}}" id="report-photos"><template is="photo-clues" data="{{clues:report.photoClues,count:report.photoClueCount}}"/></view>
+    <view wx:if="{{report.compatibility}}" id="report-fit" class="panel supplemental">
+      <text class="step">补充参考</text>
+      <view wx:if="{{report.hasCommonPoints}}" class="common-points"><text class="section-title">你们的交集</text><view wx:for="{{report.compatibility.commonPoints}}" wx:key="title" class="fit-row"><text class="fit-title">{{item.title}}</text><text>{{item.meaning}}</text><text wx:if="{{item.evidence}}" class="muted">{{item.evidence}}</text></view></view>
+      <button class="disclosure-button" bindtap="toggleFitDetails" aria-expanded="{{showFitDetails}}"><text>{{showFitDetails ? '收起资料适配' : '补充查看 · 最新资料适配'}}</text><view class="disclosure-chevron {{showFitDetails ? 'expanded' : ''}}"/></button>
+      <block wx:if="{{showFitDetails}}">
+        <text class="heading">{{report.compatibilityTitle}}</text><text wx:if="{{report.compatibilityNote}}" class="muted">{{report.compatibilityNote}}</text>
+        <text class="score">{{report.compatibility.fitScore == null ? '待补资料' : report.compatibility.fitScore + '/100'}}</text><text>{{report.compatibility.fitSummary}}</text>
+        <view wx:for="{{report.compatibility.fit}}" wx:key="dimension" class="fit-row"><text class="fit-title">{{item.dimension}} · {{item.status}}</text><text>{{item.conclusion}}</text></view>
+      </block>
+    </view>
+    <button class="back-top" data-section="judgment" bindtap="jumpReport">回到本轮判断</button>
+    <view class="foot">报告保留 7 天，过期后需重新分析。</view>
+  </block>
+</view>

@@ -1,0 +1,122 @@
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+
+const source = readFileSync("miniapp/pages/archive/index.js", "utf8");
+const reportId = "22222222-2222-4222-8222-222222222222";
+let definition, fail = false, idCount = 0, delayed = false, modalTask;
+const calls = [], pending = new Map();
+const cards = [{ reportId, action: "问一次具体见面时间", suggestedAt: 1791250000000, latest: null, revisions: [] }];
+const api = {
+  async newId() { return `00000000-0000-4000-8000-${String(++idCount).padStart(12, "0")}`; },
+  async request(path, method, body) {
+    calls.push({ path, method, body });
+    if (method === "GET") {
+      const id = new URL("https://example.test" + path).searchParams.get("subjectId");
+      if (delayed) return new Promise(resolve => pending.set(id, resolve));
+      return { cards: cards.map(item => ({ ...item, action: id + ": " + item.action })) };
+    }
+    if (fail) throw new Error("临时断网");
+    return { feedback: body };
+  }
+};
+new Function("require", "Page", "wx", source)(name => name.endsWith("/api") ? api : { drawRadar() {}, drawTrend() {} }, value => { definition = value; }, { showModal(options) { modalTask = options.success({ confirm: true }); } });
+const page = { ...definition, _token: "fake-token", data: { ...structuredClone(definition.data), selectedId: "A", selectedLabel: "人物A", enabled: true, archiveTab: "people" }, setData(value, callback) { Object.assign(this.data, value); callback?.(); } };
+{
+  let applied=0;
+  const editor={...definition,_token:"editor-token",data:{...structuredClone(definition.data),selectedId:"A",enabled:true,archiveTab:"people",facts:[{id:"event-A",subjectId:"A",kind:"recentEvent",eventTitle:"发出邀约",eventDate:"2026-10-01",value:"邀请看展"}]},setData(value){Object.assign(this.data,value);},apply(){applied++;}};
+  const open=()=>editor.openEventDate({currentTarget:{dataset:{id:"event-A"}}});
+  open();
+  editor.eventDateChange({detail:{value:"2026-09-30"}});
+  fail=true;
+  await editor.saveEventDate();
+  assert.equal(editor.data.eventDateOpen,true);
+  assert.equal(editor.data.eventDateValue,"2026-09-30");
+  const failed=calls.at(-1).body;
+  fail=false;
+  await editor.saveEventDate();
+  assert.equal(calls.at(-1).body.requestId,failed.requestId);
+  assert.equal(calls.at(-1).body.expectedDate,"2026-10-01");
+  assert.equal(editor.data.eventDateOpen,false);
+  assert.equal(applied,1);
+  open();editor.clearEventDate();
+  editor.data.selectedId="B";
+  const count=calls.length;
+  await editor.saveEventDate();
+  assert.equal(calls.length,count,"old editor must not submit after selecting another person");
+  editor.data.selectedId="A";editor.data.paused=true;
+  await editor.saveEventDate();
+  assert.equal(calls.length,count);
+  calls.length=0;
+}
+await page.loadActionCards();
+assert.equal(page.data.actionCards[0].action.startsWith("A:"), true);
+page.openFeedback({ currentTarget: { dataset: { reportId } } });
+page.feedbackOutcomeChange({ currentTarget: { dataset: { value: "positive" } } });
+page.feedbackNoteInput({ detail: { value: "这次约好了时间" } });
+fail = true;
+await page.saveFeedback();
+assert.equal(page.data.feedbackOpen, true);
+assert.equal(page.data.feedbackNote, "这次约好了时间");
+const firstId = calls.find(item => item.method === "POST").body.id;
+fail = false;
+await page.saveFeedback();
+const posts = calls.filter(item => item.method === "POST");
+assert.equal(posts[1].body.id, firstId, "retry must reuse the request ID");
+assert.equal(posts[1].body.subjectId, "A");
+assert.equal(page.data.feedbackOpen, false);
+assert.equal(page._feedbackDrafts["A:" + reportId], undefined);
+
+page.openFeedback({ currentTarget: { dataset: { reportId } } });
+page.feedbackOutcomeChange({ currentTarget: { dataset: { value: "waiting" } } });
+page.feedbackNoteInput({ detail: { value: "只给A的草稿" } });
+page.closeFeedback();
+page.openFeedback({ currentTarget: { dataset: { reportId } } });
+assert.equal(page.data.feedbackNote, "只给A的草稿");
+page.data.selectedId = "B";
+await page.saveFeedback();
+assert.equal(calls.filter(item => item.method === "POST").length, 2, "stale form must not submit for another person");
+
+delayed = true;
+page.data.selectedId = "A";
+const loadA = page.loadActionCards(true);
+page.data.selectedId = "B";
+const loadB = page.loadActionCards(true);
+pending.get("B")({ cards: [{ ...cards[0], action: "B的建议" }], events: [{ reportId: "B-event" }] });
+await loadB;
+pending.get("A")({ cards: [{ ...cards[0], action: "A的建议" }], events: [{ reportId: "A-event" }] });
+await loadA;
+assert.equal(page.data.actionCards[0].action, "B的建议", "late responses must not replace another person's cards");
+assert.equal(page.data.feedbackEvents[0].reportId,"B-event","late events must not cross people");
+page.data.feedbackEvents=Array.from({length:5},(_,i)=>({reportId:String(i)}));
+page.data.showAllFeedbackEvents=false;
+page.toggleFeedbackEvents();
+assert.equal(page.data.visibleFeedbackEvents.length,5);
+page.toggleFeedbackEvents();
+assert.equal(page.data.visibleFeedbackEvents.length,3);
+delayed = false;
+page.data.actionCards[0].latest = { outcome: "positive" };
+page.deleteFeedback({ currentTarget: { dataset: { reportId } } });
+await modalTask;
+assert.equal(calls.find(item => item.method === "DELETE").body.subjectId, "B");
+page.data.archiveTab = "self";
+await page.loadActionCards();
+assert.equal(page.data.hasActionCards, false);
+page.data.archiveTab = "people";
+await page.loadActionCards(true);
+page.openFeedback({ currentTarget: { dataset: { reportId } } });
+assert.equal(page.data.feedbackDetails, false, "new feedback hides optional fields");
+const beforeQuick = calls.filter(item => item.method === "POST").length;
+await page.quickFeedbackOutcome({ currentTarget: { dataset: { value: "not_done" } } });
+const quickPost = calls.filter(item => item.method === "POST");
+assert.equal(quickPost.length, beforeQuick + 1);
+assert.equal(quickPost.at(-1).body.note, "");
+assert.equal(quickPost.at(-1).body.eventDate, "", "do not invent the event date");
+assert.equal(quickPost.at(-1).body.outcome, "not_done");
+assert.equal(page.data.feedbackOpen, false);
+page.openFeedback({ currentTarget: { dataset: { reportId } } });
+page.toggleFeedbackDetails();
+page.feedbackNoteInput({ detail: { value: "保留补充说明" } });
+page.closeFeedback();
+page.openFeedback({ currentTarget: { dataset: { reportId } } });
+assert.equal(page.data.feedbackDetails, true, "reopened notes must remain visible");
+console.log("PASS: action cards, person isolation, stale-response guard, draft preservation, retry idempotency and confirmed deletion");

@@ -1,0 +1,4 @@
+{
+  "desc": "仅展示首页，关系档案和报告不进入小程序搜索。",
+  "rules": [{ "action": "allow", "page": "pages/home/index" }]
+}

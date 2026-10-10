@@ -1,0 +1,18 @@
+/* Clear, full-width disclosure controls; important conclusions stay outside. */
+.disclosure-button{display:flex;align-items:center;justify-content:space-between;gap:20rpx;width:100%;box-sizing:border-box;min-height:88rpx;margin:18rpx 0 0;padding:18rpx 22rpx;border:2rpx solid #b8cfc4;border-radius:12rpx;background:#e8f1ec;color:#214c3f;font-size:25rpx;font-weight:650;line-height:1.5;text-align:left}
+.disclosure-button::after{border:0}.disclosure-button:active{background:#d9e9df}
+.disclosure-chevron{width:13rpx;height:13rpx;flex:none;margin-right:6rpx;border-right:3rpx solid #276d5b;border-bottom:3rpx solid #276d5b;transform:rotate(45deg)}
+.disclosure-chevron.expanded{transform:rotate(225deg)}
+.verdict .intent-highlight{background:#faf3e4;border-color:#ddc595;border-left-color:#b78332}
+.intent-highlight .label{color:#805b25}.intent-highlight .lead{color:#142633}
+.hypothesis-heading{display:flex;align-items:center;justify-content:space-between;gap:14rpx}.hypothesis-heading .group-title{margin-bottom:0}
+.hypothesis-tag{flex:none;padding:5rpx 12rpx;border-radius:8rpx;background:#eee0bd;color:#74521f;font-size:24rpx}
+.hypotheses.featured{background:#faf5e9;border-color:#ddcbaa;border-left-color:#b78332}
+.featured .hypothesis-card{margin-top:20rpx;padding:22rpx;background:#fffcf7;border:1rpx solid #e3d8c2;border-radius:12rpx}
+.hypothesis-title{display:block;color:#142633;font-size:28rpx;font-weight:700;line-height:1.5}
+.hypothesis-reading{display:block;margin-top:12rpx;color:#3a423e;font-size:28rpx;line-height:1.7}
+.hypothesis-detail{display:flex;flex-direction:column;gap:12rpx;margin-top:18rpx;color:#4a5751;font-size:24rpx;line-height:1.7}
+.hypothesis-detail text{display:block}.hypothesis-detail .detail-label{color:#276d5b;font-size:24rpx;font-weight:700}
+
+/* Readable daylight type: distinct headings, body, and supporting text. */
+.disclosure-button{font-size:26rpx;color:#244f67;line-height:1.65;font-weight:550;background:#f0f8fc;border-color:#c5deea}.disclosure-button:active{background:#e4f2f9}.disclosure-chevron{border-color:#39758f}.hypothesis-tag{font-size:24rpx;line-height:1.5;color:#79572e}.hypothesis-title{font-size:30rpx;font-weight:650;color:#203249;line-height:1.6}.hypothesis-reading{font-size:28rpx;color:#29485f;line-height:1.8}.hypothesis-detail{font-size:26rpx;color:#425a6f;line-height:1.85}.hypothesis-detail .detail-label{font-size:24rpx;color:#244f67;font-weight:550}

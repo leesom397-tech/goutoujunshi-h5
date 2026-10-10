@@ -1,0 +1,7 @@
+<web-view wx:if="{{!failed}}" src="{{src}}" binderror="onError"></web-view>
+<view wx:else class="error">
+  <view class="error-mark">!</view>
+  <text class="title">页面暂时没有打开</text>
+  <text class="hint">请检查网络，或确认小程序已配置并验证 coach.lovetalk.love 业务域名。</text>
+  <button bindtap="retry">重新打开</button>
+</view>

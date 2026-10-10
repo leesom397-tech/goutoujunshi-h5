@@ -1,0 +1,43 @@
+// Anonymous browser journey against real local routes. No API fixtures, SMS or model calls.
+import assert from 'node:assert/strict';
+import {spawn} from 'node:child_process';
+import {readFile,writeFile,mkdir,mkdtemp} from 'node:fs/promises';
+import {join} from 'node:path';
+import {tmpdir} from 'node:os';
+const base=process.env.CHENGZI_QA_BASE||'http://127.0.0.1:5191',output='outputs/user-experience-20261009/guest';
+await mkdir(output,{recursive:true});const profile=await mkdtemp(join(tmpdir(),'chengzi-guest-journey-'));
+const edge=spawn('C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',['--headless=new','--no-first-run','--remote-debugging-port=0','--user-data-dir='+profile,'about:blank'],{windowsHide:true,stdio:'ignore'});
+let socket,sid,serial=0;const pending=new Map(),requests=[],errors=[],results=[];const delay=ms=>new Promise(r=>setTimeout(r,ms));
+function call(method,params={},sessionId){const id=++serial;return new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('CDP timeout '+method)),20000);pending.set(id,{resolve,reject,timer});socket.send(JSON.stringify({id,method,params,...(sessionId?{sessionId}:{})}));});}
+const send=(method,params={})=>call(method,params,sid);
+async function evaluate(expression){const r=await send('Runtime.evaluate',{expression,returnByValue:true,awaitPromise:true});if(r.exceptionDetails)throw Error(r.exceptionDetails.text);return r.result.value;}
+async function until(expression,label){for(let i=0;i<140;i++){if(await evaluate(expression))return;await delay(100);}throw Error('Timed out '+label);}
+async function click(selector){await evaluate(`(()=>{const el=document.querySelector(${JSON.stringify(selector)});el.scrollIntoView({behavior:'instant',block:'center'});el.click()})()`);await delay(150);}
+async function shot(name,selector){let clip;if(selector)clip=await evaluate(`(()=>{const n=document.querySelector(${JSON.stringify(selector)});const r=n.getBoundingClientRect();return{x:r.x+scrollX,y:r.y+scrollY,width:r.width,height:r.height,scale:1}})()`);const r=await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:!!clip,...(clip?{clip}:{})});await writeFile(output+'/'+name+'.png',Buffer.from(r.data,'base64'));}
+try{
+ let info;for(let i=0;i<90;i++){try{info=(await readFile(join(profile,'DevToolsActivePort'),'utf8')).trim().split(/\r?\n/);break;}catch{await delay(100);}}if(!info)throw Error('Browser not ready');
+ socket=new WebSocket('ws://127.0.0.1:'+info[0]+info[1]);await new Promise((resolve,reject)=>{socket.addEventListener('open',resolve,{once:true});socket.addEventListener('error',reject,{once:true});});socket.addEventListener('message',event=>{const m=JSON.parse(event.data),p=pending.get(m.id);if(p){clearTimeout(p.timer);pending.delete(m.id);m.error?p.reject(Error(m.error.message)):p.resolve(m.result);}if(m.method==='Network.requestWillBeSent'&&m.params.request.url.startsWith(base+'/api/'))requests.push({path:new URL(m.params.request.url).pathname,method:m.params.request.method});if(m.method==='Runtime.exceptionThrown')errors.push(m.params.exceptionDetails.exception?.description||m.params.exceptionDetails.text);});
+ const page=await call('Target.createTarget',{url:'about:blank'});sid=(await call('Target.attachToTarget',{targetId:page.targetId,flatten:true})).sessionId;await send('Page.enable');await send('Runtime.enable');await send('Network.enable');
+ await send('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'reduce'}]});
+ for(const width of[390,320,1280]){
+  await send('Emulation.setDeviceMetricsOverride',{width,height:960,deviceScaleFactor:1,mobile:width<700});await send('Page.navigate',{url:base+'/workspace'});await until('!!document.querySelector(".workspace-identity button.workspace-cta")','guest ready');
+  assert.equal(await evaluate('!!document.querySelector(".workspace-gate")'),false);assert.equal(await evaluate('/RELATIONSHIP INTELLIGENCE|EXPLORE YOUR CONNECTIONS|CHAT INTELLIGENCE/.test(document.body.innerText)'),false);
+  await click('.workspace-identity button.workspace-cta');assert.equal(await evaluate('location.pathname'),'/workspace');assert.equal(await evaluate('!!document.querySelector(".workspace-gate")'),false);assert.equal(await evaluate('document.activeElement.id'),'experience');
+  assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),true);await shot('experience-'+width);
+  await click('.gx-cases button:nth-child(3)');assert.match(await evaluate('document.querySelector(".gx-reading").innerText'),/尊重明确的拒绝/);await click('.gx-questions button:first-child');assert.match(await evaluate('document.querySelector(".gx-answer").innerText'),/不建议用刺激/);assert.equal(await evaluate('!!document.querySelector(".workspace-gate")'),false);
+  await click('.gx-cases button:nth-child(2)');assert.equal(await evaluate('!!document.querySelector(".gx-answer")'),false);assert.match(await evaluate('document.querySelector(".gx-reading").innerText'),/确认这次见面/);
+  for(const route of ['/chat','/analyze','/archive']){
+   await click(`.web-nav nav a[href="${route}"]`);await until(`location.pathname===${JSON.stringify(route)} && !document.querySelector('#experience')`,'navigation to '+route);
+   await send('Page.navigate',{url:base+'/workspace'});await until('!!document.querySelector(".workspace-identity button.workspace-cta")','return to homepage');
+  }
+  await click('.workspace-entry[href="/chat"]');assert.match(await evaluate('document.querySelector(".gx-feature").innerText'),/军师追问/);assert.equal(await evaluate('!!document.querySelector(".workspace-gate")'),false);
+  await click('.gx-footer button');await until('!!document.querySelector(".workspace-gate input[name=username]")','register after own content');assert.equal(await evaluate('location.pathname'),'/workspace');assert.equal(await evaluate('document.documentElement.scrollWidth<=innerWidth+1'),true);assert.equal(await evaluate('new URL(document.querySelector(".phone-register-help a").href).searchParams.get("return_to")'),'/chat','existing-account login keeps selected feature');await click('.register-code-button');assert.match(await evaluate('document.querySelector(".register-code-error").innerText'),/正确的 11 位手机号/);await shot('registration-after-demo-'+width);
+  await send('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape',windowsVirtualKeyCode:27});await until('!document.querySelector(".workspace-gate")','close registration');
+  await click('.gx-cases button:first-child');await click('.gx-section-title button');assert.equal(await evaluate('document.querySelectorAll(".gx-message").length'),4,'reduced motion must show full example');
+  await click('.gx-screenshots summary');await until('Array.from(document.querySelectorAll(".gx-screenshots img")).every(n=>n.complete&&n.naturalWidth>0)','public example screenshots');assert.equal(await evaluate('!!document.querySelector(".workspace-gate")'),false);await click('.gx-screenshots summary');
+  if(width===390){await shot('example-material','.gx-conversation');await shot('example-reading','.gx-reading');await click('.gx-questions button:first-child');await shot('example-followup','.gx-followup');}
+  results.push({width,anonymousPreview:true,samePage:true,noRegisterUntilOwnMaterial:true,scenarioSwitch:true,followup:true,chineseLabels:true,noOverflow:true});
+ }
+ await send('Emulation.setEmulatedMedia',{features:[{name:'prefers-reduced-motion',value:'no-preference'}]});await click('.gx-section-title button');const initial=await evaluate('document.querySelectorAll(".gx-message").length');await delay(1100);const later=await evaluate('document.querySelectorAll(".gx-message").length');assert.ok(later>initial,'demo replay progresses');await click('.gx-section-title button');const paused=await evaluate('document.querySelectorAll(".gx-message").length');await delay(1100);assert.equal(await evaluate('document.querySelectorAll(".gx-message").length'),paused,'pause works');results.push({replay:true,pause:true});
+ assert.deepEqual(errors,[]);assert.ok(requests.every(row=>row.method==='GET'),'anonymous demos must not submit any API mutation');await writeFile(output+'/qa.json',JSON.stringify({passed:true,apiFixtures:false,results,requests,errors},null,2));console.log('PASS: guest preview, three scenarios, followups, gate after own material, motion and mobile layout; no API mutations.');
+}catch(error){await writeFile(output+'/qa.json',JSON.stringify({passed:false,results,requests,errors,error:String(error.stack)},null,2));throw error;}finally{try{if(socket?.readyState===1)await call('Browser.close');}catch{}socket?.close();edge.kill();for(const p of pending.values())clearTimeout(p.timer);}

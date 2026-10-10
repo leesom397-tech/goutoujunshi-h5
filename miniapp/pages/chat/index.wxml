@@ -1,0 +1,32 @@
+<view class="screen chat-screen">
+  <view class="hero page-scene-conversation"><image class="hero-art page-scene-image" src="../../assets/page-scenes/chat.png" mode="aspectFit"/><view class="hero-copy"><view class="hero-brand"><image src="../../assets/chengzi-orbit.png"/><text>成子 · 你的关系军师</text></view><text class="title">把难开口的，<text class="title-accent">慢慢说清楚。</text></text><text class="sub">从让你在意的一句话开始。</text></view></view>
+  <busy-indicator wx:if="{{phase === 'loading'}}" label="正在准备你的对话"/>
+  <view wx:elif="{{phase === 'error'}}" class="panel"><text class="error">{{error}}</text><button class="primary" bindtap="refresh">重新连接</button></view>
+  <block wx:else>
+    <view class="conversation-toolbar">
+      <picker range="{{people}}" range-key="label" value="{{personIndex}}" disabled="{{busy || recording || transcribing}}" bindchange="personChange"><view class="select conversation-person"><text class="person-caption">这次聊谁</text><image wx:if="{{people[personIndex].avatar}}" style="width:56rpx;height:56rpx;border-radius:50%;" src="{{people[personIndex].avatar}}" mode="aspectFill"/><text>{{people[personIndex].label}}</text><text>⌄</text></view></picker>
+      <button class="live-entry" bindtap="openLiveVoice" disabled="{{busy || recording || transcribing}}"><image src="../../assets/ui-audio.png"/><view><text>直接语音聊</text><text class="live-caption">语音通话 · 最多聊 3 分钟</text></view><text class="live-arrow">→</text></button>
+    </view>
+    <view wx:if="{{followupTitle}}" class="followup-context">
+      <view class="followup-context-head"><view><text class="followup-kicker">接着这份分析聊</text><text class="followup-title">{{followupTitle}}</text></view><button bindtap="toggleFollowupSummary" aria-expanded="{{showFollowupSummary}}">{{showFollowupSummary ? '收起摘要' : '查看摘要'}}</button></view>
+      <text class="followup-caption">已带入下方文字追问，不用重新解释。</text>
+      <text wx:if="{{showFollowupSummary}}" class="followup-summary" selectable>{{followupSummary}}</text>
+    </view>
+    <view class="conversation">
+      <view wx:if="{{!hasMessages}}" class="welcome"><image class="welcome-art" src="../../assets/page-scenes/chat.png" mode="aspectFit"/><text class="speaker-label">军师</text><text>{{followupTitle ? '这份分析里，哪一点你还没想明白？也可以说说你自己的判断。' : '最近有什么让你拿不准？可以聊某个人，也可以聊你自己。'}}</text></view>
+      <view wx:for="{{messages}}" wx:for-item="message" wx:key="id" class="bubble {{message.role === 'user' ? 'bubble-user' : 'bubble-assistant'}}"><text class="speaker-label">{{message.role === 'user' ? '你' : '军师'}}</text><text class="bubble-text" selectable>{{message.content}}</text><view wx:for="{{message.replies}}" wx:for-item="reply" wx:for-index="replyIndex" wx:key="text" class="conversation-reply"><text class="reply-direction">{{reply.style || reply.rankLabel}}</text><text selectable>「{{reply.text}}」</text><button class="copy-conversation-reply" data-message="{{message.id}}" data-index="{{replyIndex}}" bindtap="copyConversationReply">复制这句</button></view></view>
+      <busy-indicator wx:if="{{busy || transcribing}}" label="{{transcribing ? '正在转成文字' : '军师正在想'}}"/>
+    </view>
+    <view id="conversation-end"></view>
+    <view class="composer">
+      <view class="composer-heading"><text>打字聊</text><text wx:if="{{self}}" class="draft-note">草稿会保留在本机</text></view>
+      <textarea value="{{self}}" maxlength="1500" placeholder="直接说你的困惑，也可以贴一段对话…" bindinput="selfInput" disabled="{{busy || transcribing}}" auto-height/>
+      <checkbox-group bindchange="agree"><label class="consent"><checkbox value="yes" checked="{{agreed}}" color="#965a42"/><text>同意本次文字、主动录音、{{followupTitle ? '所带分析摘要及' : ''}}所选档案交由百炼处理。</text></label></checkbox-group>
+      <view class="compose-actions"><button class="voice-hold" disabled="{{busy || transcribing}}" bindtouchstart="startVoice" bindtouchend="stopVoice" bindtouchcancel="stopVoice">{{recording ? '松开转文字' : transcribing ? '正在识别' : '按住转文字'}}</button><button class="primary" disabled="{{busy || recording || transcribing}}" bindtap="analyze">{{busy ? '回复中…' : '发送提问'}}</button></view>
+      <text class="cost-note">语音转文字 5 积分；发送提问 5 积分。各自处理成功后使用，失败退回。</text>
+      <text wx:if="{{error}}" class="error">{{error}}</text>
+      <button wx:if="{{self}}" class="clear-draft" bindtap="clearDraft" disabled="{{busy || recording || transcribing}}">清空草稿</button>
+    </view>
+  </block>
+</view>
+<main-navigation selected="chat"/>

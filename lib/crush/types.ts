@@ -1,0 +1,15 @@
+export type Speaker = "self" | "other" | "unknown";
+export type ChatLine = { id: string; speaker: Speaker; text: string; timestampRaw?: string; receivedAt?: number };
+export type Tag = { key: string; label: string; probability?: number };
+export type LineAnnotation = { lineId: string; emotion: Tag[]; intent: Tag[]; evidence: "sufficient" | "limited" | "insufficient"; note: string };
+export type SourceCoverage={total:number;text:number;voice:number;transcribed:number;noMedia:number;failedVoice:number;multiSpeaker:number;overLimit:number;otherSkipped:number};
+export type ScreenshotReplyOption={style:string;text:string;reason:string;cost?:string;weight?:number};
+export type ScreenshotDecision={avatarCandidates?:import("../avatar-candidates").AvatarCandidate[];interactionInsight?:import("./interaction-insight").InteractionInsight|null;photoClues?:import("../screenshot-photo").ScreenshotPhotoClue[];chatTitle?:string;observation:string;judgment:string;nextStep:string;replyDraft:string;possibleIntent?:string;evidence?:string;replyReview?:string;replyGrade?:string;replyOptions?:ScreenshotReplyOption[];affinityPreview?:import("./affinity-jev").AffinitySignal;skipped:number;unreadText?:number;unknownSpeaker?:number;partial?:boolean;affinityDeferred?:boolean};
+export type CrushResult = { id: string; threadId: string; subjectId?: string | null; selfLabel?: string; revision: number; provider: "jev" | "qwen"; model: string; lines: ChatLine[]; annotations: LineAnnotation[]; affinity?:import("./affinity-jev").AffinitySignal|null; affinityStatus?:"ready"|"insufficient"|"unavailable"|"disabled"|"unread_media"; affinityError?:string; coverage?:SourceCoverage; evidenceVersion?:string; decision?:ScreenshotDecision; readableLineCount?:number; unreadMediaCount?:number; createdAt: number; expiresAt: number; latencyMs: number; duplicateCount: number };
+export class CrushError extends Error { constructor(message: string, public status = 400) { super(message); } }
+export function distributionTags(values: Record<string, number>, registry: Record<string, { label: string }>): Tag[] {
+  // Jev returns a full, validated distribution. Preserve every category for
+  // the detailed report; only the quick surface should collapse it to top 3.
+  return Object.entries(values).filter(([k,p]) => k in registry && Number.isFinite(p) && p >= 0 && p <= 1).sort((a,b) => b[1]-a[1]).map(([key,probability]) => ({key,label:registry[key].label,probability}));
+}
+export function probabilityText(p?: number) { return p == null ? "" : p === 0 ? "0%" : p >= .995 ? "99%+" : p < .005 ? "<1%" : Math.round(p * 100) + "%"; }

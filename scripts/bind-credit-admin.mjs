@@ -1,0 +1,11 @@
+import { spawnSync } from 'node:child_process';
+const suffix=process.argv[2];
+if(!/^\d{4}$/.test(suffix||''))throw Error('Expected verified phone suffix');
+const args=['node_modules/wrangler/bin/wrangler.js'];
+const query=spawnSync(process.execPath,[...args,'d1','execute','goutoujunshi-coach','--remote','--config','wrangler.coach.jsonc','--json','--command',`SELECT DISTINCT owner_id FROM coach_miniapp_links WHERE phone_last4='${suffix}' AND phone_verified_at>0`],{encoding:'utf8',windowsHide:true});
+if(query.status!==0)throw Error('Admin lookup failed');
+const result=JSON.parse(query.stdout),rows=result.flatMap(item=>item.results||[]);
+if(rows.length!==1||!rows[0].owner_id)throw Error('Admin lookup must match exactly one verified owner');
+const saved=spawnSync(process.execPath,[...args,'secret','put','COACH_ADMIN_OWNER_IDS','--config','wrangler.coach.jsonc'],{input:rows[0].owner_id,encoding:'utf8',windowsHide:true});
+if(saved.status!==0)throw Error('Admin binding failed');
+console.log('Administrator bound to one verified owner; no credits or feature grants issued.');

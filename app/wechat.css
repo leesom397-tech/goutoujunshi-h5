@@ -1,0 +1,21 @@
+.wechat-shell { min-height: 100vh; max-width: 840px; margin: 0 auto; padding: 28px 24px 80px; color: #172127; }
+.wechat-back { color: #526574; text-decoration: none; font-size: .92rem; }
+.wechat-eyebrow { margin-top: 54px; color: #397a74; font-size: .85rem; font-weight: 700; letter-spacing: .14em; }
+.wechat-shell h1 { margin: 10px 0 12px; font-size: clamp(2rem, 5vw, 3.1rem); line-height: 1.15; letter-spacing: -.035em; }
+.wechat-lead { max-width: 650px; color: #53616a; line-height: 1.75; font-size: 1.05rem; }
+.wechat-card { margin-top: 28px; padding: clamp(22px, 4vw, 36px); border: 1px solid #dce4e2; border-radius: 24px; background: #fff; box-shadow: 0 16px 45px rgba(17, 45, 47, .055); }
+.wechat-card h2 { margin: 0 0 12px; font-size: 1.25rem; }
+.wechat-card p { color: #52616a; line-height: 1.75; font-size: 1rem; }
+.wechat-card a { color: #26746f; }
+.wechat-primary, .wechat-open, .wechat-secondary { display: inline-flex; align-items: center; justify-content: center; min-height: 46px; border-radius: 13px; padding: 11px 17px; font-size: .95rem; font-weight: 650; cursor: pointer; text-decoration: none; margin: 8px 10px 0 0; }
+.wechat-primary { border: 1px solid #245f5b; background: #245f5b; color: white; }
+.wechat-primary:disabled { opacity: .45; cursor: not-allowed; }
+.wechat-open { border: 1px solid #245f5b; background: #f1f9f7; color: #245f5b !important; }
+.wechat-secondary { border: 1px solid #d8e1df; background: white; color: #40555b; }
+.wechat-code { margin: 18px 0 12px; padding: 18px; border: 1px dashed #66a29a; border-radius: 15px; background: #f4faf8; }
+.wechat-code strong { display: block; font-size: 1.45rem; letter-spacing: .17em; color: #174f4a; }
+.wechat-code span { display: block; margin-top: 6px; color: #42605d; line-height: 1.5; }
+.wechat-warning { color: #9d531d !important; }
+.wechat-link-row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 18px 0; color: #344a4c; font-weight: 650; }
+.wechat-link-row select { min-height: 42px; min-width: 200px; border: 1px solid #cdd9d6; border-radius: 10px; padding: 8px 12px; background: white; font: inherit; }
+@media (max-width: 600px) { .wechat-shell { padding: 22px 18px 65px; } .wechat-eyebrow { margin-top: 42px; } .wechat-card { border-radius: 19px; } .wechat-primary, .wechat-open, .wechat-secondary { width: 100%; margin-right: 0; } }

@@ -1,0 +1,42 @@
+{
+  "description": "成子关系决策智能体小程序",
+  "miniprogramRoot": "./",
+  "projectname": "lovetalk-coach",
+  "appid": "wx1ffabe1071a6244c",
+  "setting": {
+    "es6": true,
+    "minified": true,
+    "urlCheck": true,
+    "postcss": false,
+    "compileWorklet": false,
+    "uglifyFileName": false,
+    "uploadWithSourceMap": true,
+    "enhance": false,
+    "packNpmManually": false,
+    "packNpmRelationList": [],
+    "minifyWXSS": true,
+    "minifyWXML": true,
+    "localPlugins": false,
+    "disableUseStrict": false,
+    "useCompilerPlugins": false,
+    "condition": false,
+    "babelSetting": {
+      "ignore": [],
+      "disablePlugins": [],
+      "outputPath": ""
+    }
+  },
+  "compileType": "miniprogram",
+  "simulatorPluginLibVersion": {},
+  "packOptions": {
+    "ignore": [
+      { "type": "file", "value": "assets/chengzi-app-icon.png" },
+      { "type": "file", "value": "assets/relationship-daylight.webp" },
+      { "type": "file", "value": "assets/conversation-daylight.webp" },
+      { "type": "file", "value": "assets/conversation-warm-v1.jpg" },
+      { "type": "file", "value": "assets/relationship-warm-v1.jpg" }
+    ],
+    "include": []
+  },
+  "editorSetting": {}
+}

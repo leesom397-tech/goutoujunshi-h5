@@ -1,0 +1,33 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {resolve,dirname} from 'node:path';
+import {createRequire} from 'node:module';
+import ts from 'typescript';
+const native=createRequire(import.meta.url),cache=new Map();let authenticated=true,calls=[],budget=0;
+const observation={kind:'profile',readable:true,summary:'记录登山',visibility:{evidence:''},posts:[{date:'10月8日',content:'周末登山',evidence:'第1张：周末登山',contentTags:['旅行'],copyTags:['生活记录'],selfie:'unknown',milestone:null}],profileBasics:[],photoClues:[]};
+function load(file){const path=resolve(file);if(cache.has(path))return cache.get(path).exports;const m={exports:{}};cache.set(path,m);if(path.endsWith('.json')){m.exports=JSON.parse(readFileSync(path,'utf8'));return m.exports;}const source=ts.transpileModule(readFileSync(path,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText;const req=id=>{
+ if(id==='cloudflare:workers')return {env:{WECHAT_CALLBACK_TOKEN:'internal-test-key'}};
+ if(id==='@/lib/miniapp-auth')return {miniappOwner:async()=>authenticated?{ownerId:'test-owner'}:null};
+ if(id==='@/lib/crush/service')return {reserveBudget:async()=>{budget++;}};
+ if(id==='@/db')return {getD1:()=>{throw Error('unexpected DB access');}};
+ if(id==='@/lib/qwen')return {parseQwenJson:JSON.parse,qwenPublicError:(_e,f)=>f,qwenChat:async(messages,options)=>{calls.push({messages,options});return JSON.stringify(options.vision?observation:{kind:'profile',readable:true,summary:'汇总完成',moments:{summary:'旅行记录',posts:[{date:'未来',content:'虚构购车',evidence:'虚构'}],hypotheses:[],starters:[]},profileBasics:[{field:'occupation',value:'虚构职业',evidence:'虚构'}]});}};
+ if(id.startsWith('@/')||id.startsWith('.')){let p=id.startsWith('@/')?resolve(id.slice(2)):resolve(dirname(path),id);if(!/\.(ts|mjs|json)$/.test(p))p+='.ts';return load(p);}return native(id);};new Function('require','module','exports',source)(req,m,m.exports);return m.exports;}
+const route=load('app/api/miniapp/social-profile/route.ts');
+const {DEEP_INFERENCE_GUIDANCE}=load('lib/deep-inference-guidance.ts');
+const request=(body,key='internal-test-key')=>new Request('https://test/api/miniapp/social-profile',{method:'POST',headers:{'Content-Type':'application/json','x-moments-job-key':key},body:JSON.stringify({confirmed:true,target:'other',materialType:'moments',...body})});
+const extract={momentsPhase:'extract',imageIndex:0,images:['data:image/png;base64,YQ==']};
+assert.equal((await route.POST(request(extract,''))).status,403);assert.equal(calls.length,0);
+authenticated=false;assert.equal((await route.POST(request(extract))).status,401);authenticated=true;
+assert.equal((await route.POST(request({...extract,imageIndex:99}))).status,400);
+const recognized=await (await route.POST(request(extract))).json();assert.equal(recognized.posts.length,1);assert.equal(calls[0].options.maxTokens,2600);
+assert.ok(!calls[0].messages.some(message=>typeof message.content==='string'&&message.content.includes(DEEP_INFERENCE_GUIDANCE)),'evidence extraction stays separate from deeper inference');
+assert.equal((await route.POST(request({momentsPhase:'summarize',imageCount:2,observations:[recognized]}))).status,400);
+const result=await (await route.POST(request({momentsPhase:'summarize',imageCount:2,observations:[recognized,recognized]}))).json();
+assert.equal(calls.at(-1).options.vision,false);assert.equal(calls.at(-1).options.timeoutMs,45000);
+assert.ok(calls.at(-1).messages.some(message=>message.role==='system'&&typeof message.content==='string'&&message.content.includes(DEEP_INFERENCE_GUIDANCE)),'moments summary uses the same evidence-to-action policy');
+assert.ok(!JSON.stringify(calls.at(-1).messages).includes('data:image/'),'summary never resends images');
+assert.equal(result.moments.posts.length,1,'overlapping identical posts are counted once');
+assert.equal(result.moments.posts[0].content,'周末登山','summary cannot replace recognized evidence');
+assert.equal(result.profileBasics.length,0,'summary cannot invent new basic facts');
+assert.match(result.note,/2 张/);assert.equal(budget,1);
+console.log('PASS moments pipeline: internal stage authorization, validation, image-free summary, deduplication, source preservation and one budget reservation');

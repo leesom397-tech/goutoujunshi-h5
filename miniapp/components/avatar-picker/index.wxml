@@ -1,0 +1,12 @@
+<view class="avatar-panel">
+  <text class="title">选一张档案头像</text>
+  <text class="hint">{{self ? '保存给自己' : '保存给当前选中的人物'}} · 点选后确认</text>
+  <scroll-view wx:if="{{choices.length}}" scroll-x class="candidates"><view class="row"><button wx:for="{{choices}}" wx:key="path" class="candidate {{selected === index ? 'selected' : ''}}" data-index="{{index}}" bindtap="select" disabled="{{busy}}"><image src="{{item.path}}" mode="aspectFill"/><text>{{selected === index ? '已选中' : item.label + ' · 点选'}}</text></button></view></scroll-view>
+  <text wx:else class="hint">没有可用候选？可以选照片或截图，调整到头像位置。</text>
+  <view wx:if="{{preview || currentAvatar || current}}" class="comparison"><view wx:if="{{currentAvatar || current}}"><image src="{{currentAvatar || current}}" mode="aspectFill"/><text>当前头像</text></view><view wx:if="{{preview}}"><image src="{{preview}}" mode="aspectFill"/><text>待确认头像</text></view></view>
+  <button class="secondary" bindtap="choose" disabled="{{busy}}">选择照片 / 截图并裁剪 →</button>
+  <view wx:if="{{editing}}"><text class="hint">看上方预览，调整裁剪范围</text><text>左右位置</text><slider min="0" max="100" value="{{x}}" data-field="x" bindchange="adjust" disabled="{{busy}}"/><text>上下位置</text><slider min="0" max="100" value="{{y}}" data-field="y" bindchange="adjust" disabled="{{busy}}"/><text>裁剪范围</text><slider min="4" max="100" value="{{size}}" data-field="size" bindchange="adjust" disabled="{{busy}}"/></view>
+  <button wx:if="{{preview}}" class="primary" bindtap="save" disabled="{{busy || saved}}" loading="{{busy}}">{{saved ? '头像已保存' : currentAvatar || current ? '确认替换头像' : '确认使用这张头像'}}</button>
+  <text wx:if="{{error}}" class="error">{{error}}</text>
+  <canvas canvas-id="avatarCrop" class="crop-canvas" style="width:160px;height:160px"/>
+</view>

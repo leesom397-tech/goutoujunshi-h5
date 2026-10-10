@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+const source=readFileSync('miniapp/pages/archive/index.js','utf8');
+const basics=new Function('require','Page',source+';return subjectBasics;')(()=>({}),()=>{});
+const city=rows=>rows.find(row=>row.label==='常住地').value;
+const clue=(value,status='pending')=>({kind:'subjectBasic:city',value,status});
+const newestFirst=[clue('杭州'),clue('上海'),clue('北京','accepted')];
+const before=JSON.stringify(newestFirst);
+assert.equal(city(basics({},newestFirst)),'待确认 · 杭州');
+assert.equal(city(basics({city:'深圳'},newestFirst)),'深圳','confirmed structured field remains authoritative');
+assert.equal(city(basics({},[clue('杭州','accepted'),clue('上海','accepted')])),'杭州');
+assert.equal(city(basics({},[clue('广州','rejected'),clue('  '),clue('杭州')])),'待确认 · 杭州');
+assert.equal(city(basics({},[clue('广州','rejected')])),'待了解');
+assert.equal(JSON.stringify(newestFirst),before,'display projection never edits stored evidence');
+console.log('PASS: newest clue wins, pending status retained, confirmed profile preserved, rejected and blank facts excluded');

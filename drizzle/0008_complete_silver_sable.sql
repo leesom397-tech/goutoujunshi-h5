@@ -1,0 +1,1 @@
+ALTER TABLE `coach_crush_settings` ADD `jev_full_consent_at` integer;

@@ -1,0 +1,9 @@
+{
+  "name": "lovetalk-card-render-lab",
+  "main": "worker.mjs",
+  "compatibility_date": "2026-05-15",
+  "workers_dev": false,
+  "rules": [
+    { "type": "Data", "globs": ["**/*.otf"], "fallthrough": true }
+  ]
+}

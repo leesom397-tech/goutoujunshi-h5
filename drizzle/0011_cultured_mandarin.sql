@@ -1,0 +1,1 @@
+ALTER TABLE `coach_wechat_links` ADD `memory_offer_start_revision` integer DEFAULT 0 NOT NULL;

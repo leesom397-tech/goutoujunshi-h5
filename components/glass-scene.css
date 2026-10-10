@@ -1,0 +1,148 @@
+.cz-glass-stage {
+  --cz-glass-x: 0px;
+  --cz-glass-y: 0px;
+  --cz-glass-rx: 0deg;
+  --cz-glass-ry: 0deg;
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  aspect-ratio: 1672 / 941;
+  overflow: hidden;
+  isolation: isolate;
+  background: #f5f9fb;
+}
+
+.cz-glass-analysis { aspect-ratio: 4 / 3; }
+.cz-glass-parallax,
+.cz-glass-float,
+.cz-glass-effects { position: absolute; inset: 0; }
+.cz-glass-parallax {
+  transform: perspective(1000px) translate3d(var(--cz-glass-x), var(--cz-glass-y), 0) rotateX(var(--cz-glass-rx)) rotateY(var(--cz-glass-ry));
+  transition: transform 650ms cubic-bezier(.2, .7, .2, 1);
+}
+.cz-glass-float { animation: cz-glass-float 7s ease-in-out infinite; }
+.cz-glass-stage .cz-glass-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  object-fit: cover;
+  user-select: none;
+  pointer-events: none;
+  animation: none;
+  transform: none;
+}
+.cz-glass-effects { overflow: hidden; pointer-events: none; }
+.cz-glass-effects > span { position: absolute; display: block; pointer-events: none; }
+.cz-glass-light {
+  left: 30%;
+  top: -35%;
+  width: 60%;
+  height: 165%;
+  background: linear-gradient(105deg, transparent 30%, #fff7dc00 38%, #fff7dc50 44%, #ffffffdb 49%, #c8edfa66 52%, transparent 61%);
+  mix-blend-mode: soft-light;
+  opacity: 0;
+  animation: cz-glass-sunlight 6s ease-in-out infinite;
+}
+.cz-glass-caustic {
+  width: 52%;
+  height: 24%;
+  left: 41%;
+  bottom: 6%;
+  border-radius: 50%;
+  background: radial-gradient(ellipse at 45% 45%, transparent 26%, #e9c98938 33%, #ffffffa6 35%, transparent 44%), radial-gradient(ellipse at 65% 50%, transparent 19%, #9adcf647 33%, #ffffff9c 36%, transparent 45%);
+  filter: blur(3px);
+  mix-blend-mode: soft-light;
+  opacity: .35;
+  animation: cz-glass-caustic 7s ease-in-out infinite;
+}
+.cz-glass-spark {
+  width: 44px;
+  height: 44px;
+  margin: -22px 0 0 -22px;
+  border-radius: 50%;
+  background: radial-gradient(circle, #fff 0 4%, #fff2cacc 8%, #f5fdff55 23%, transparent 62%);
+  opacity: 0;
+  animation: cz-glass-spark 6s ease-in-out infinite;
+}
+.cz-glass-spark::before,
+.cz-glass-spark::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  background: linear-gradient(90deg, transparent, #fff, transparent);
+  transform: translate(-50%, -50%);
+}
+.cz-glass-spark::before { width: 36px; height: 1px; }
+.cz-glass-spark::after { width: 1px; height: 27px; background: linear-gradient(transparent, #fff, transparent); }
+.cz-glass-spark-one { left: 58%; top: 19%; animation-delay: -.8s; }
+.cz-glass-spark-two { left: 87%; top: 65%; animation-delay: -3.5s; }
+.cz-glass-analysis .cz-glass-spark-one { left: 27%; top: 22%; }
+.cz-glass-analysis .cz-glass-spark-two { left: 77%; top: 55%; }
+.cz-glass-analysis .cz-glass-light { left: 15%; width: 70%; }
+.cz-glass-analysis .cz-glass-caustic { left: 22%; width: 63%; bottom: 7%; }
+
+.cz-glass-stage .cz-glass-toggle {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  color: #456c82;
+  background: #ffffffb8;
+  border: 1px solid #ffffffed;
+  border-radius: 50%;
+  box-shadow: 0 3px 12px #557b9012, inset 0 1px #fff;
+  backdrop-filter: blur(12px);
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: manipulation;
+  transition: background 180ms ease, box-shadow 180ms ease;
+}
+.cz-glass-stage .cz-glass-toggle:hover { background: #fff; box-shadow: 0 3px 16px #557b9026; }
+.cz-glass-stage .cz-glass-toggle:focus-visible { outline: 2px solid #8d6f5a; outline-offset: 3px; }
+.cz-glass-stage[data-motion="paused"] .cz-glass-float,
+.cz-glass-stage[data-motion="paused"] .cz-glass-effects > span { animation-play-state: paused; }
+.cz-glass-stage[data-motion="paused"] .cz-glass-parallax { transition: none; }
+.cz-glass-stage[data-reduced-motion="true"] .cz-glass-float { animation: none; }
+.cz-glass-stage[data-reduced-motion="true"] .cz-glass-parallax { transform: none; transition: none; }
+.cz-glass-stage[data-reduced-motion="true"] .cz-glass-effects { display: none; }
+
+@keyframes cz-glass-float {
+  0%, 100% { transform: translate3d(0, 3px, 0) scale(1.025) rotate(-.12deg); }
+  50% { transform: translate3d(0, -7px, 0) scale(1.035) rotate(.12deg); }
+}
+@keyframes cz-glass-sunlight {
+  0%, 14% { transform: translateX(-65%) rotate(-12deg); opacity: 0; }
+  34% { opacity: .8; }
+  62% { transform: translateX(65%) rotate(-12deg); opacity: 0; }
+  100% { transform: translateX(65%) rotate(-12deg); opacity: 0; }
+}
+@keyframes cz-glass-caustic {
+  0%, 100% { opacity: .2; transform: translateX(-3%) scale(.94); }
+  50% { opacity: .65; transform: translateX(3%) scale(1.06); }
+}
+@keyframes cz-glass-spark {
+  0%, 24%, 52%, 100% { opacity: 0; transform: scale(.55); }
+  38% { opacity: .8; transform: scale(1); }
+}
+@media (max-width: 600px) {
+  .cz-glass-stage .cz-glass-toggle { width: 40px; height: 40px; right: 20px; bottom: 15px; }
+  .cz-glass-spark { width: 34px; height: 34px; margin: -17px 0 0 -17px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cz-glass-stage .cz-glass-float,
+  .cz-glass-stage .cz-glass-effects > span,
+  .cz-glass-stage .cz-glass-image { animation: none !important; transform: none; }
+  .cz-glass-stage .cz-glass-parallax { transform: none; transition: none; }
+  .cz-glass-stage .cz-glass-effects,
+  .cz-glass-stage .cz-glass-toggle { display: none; }
+}

@@ -1,0 +1,19 @@
+.decision-panel{display:grid;gap:12px;margin:0 0 18px;color:#244438}
+.decision-section{padding:17px 18px;border:1px solid #dce9df;background:#f4f9f3;border-radius:15px}
+.decision-section>span{display:block;margin-bottom:8px;color:#39745b;font-size:12px;font-weight:800}
+.decision-section>strong{display:block;font-size:18px;line-height:1.55}
+.decision-section p{margin:8px 0 0;font-size:13px;line-height:1.7;color:#536b5e}
+.decision-section blockquote{margin:0;padding:10px 13px;border-left:3px solid #6ca184;background:#fff;font-size:13px;line-height:1.7;white-space:pre-wrap;overflow-wrap:anywhere}
+.decision-options{margin-top:5px}.decision-options-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.decision-options-empty{margin:0;padding:13px 15px;border:1px solid #e6ebe3;border-radius:12px;background:#fafbf8;color:#596b5d;font-size:13px;line-height:1.65}
+.decision-options-head h3{font-size:16px;margin:0}.decision-options-head small{font-size:11px;color:#698073}
+.decision-option{padding:15px;margin-bottom:10px;background:#fff;border:1px solid #dce8de;border-radius:14px}
+.decision-option-head{display:flex;align-items:center;gap:8px;font-size:12px;color:#3c765d}.decision-option-head span{padding:3px 7px;border-radius:6px;background:#e5f2e8;font-weight:800}
+.decision-option-text{margin:10px 0;font-size:16px;line-height:1.6;font-weight:700;white-space:pre-wrap;overflow-wrap:anywhere}
+.decision-option>small{display:block;margin:7px 0;color:#6d8072;font-size:11px;line-height:1.6}
+.decision-option details{margin-top:12px;border-top:1px solid #e8eee8;padding-top:10px}
+.decision-option summary{cursor:pointer;min-height:30px;color:#346e53;font-size:12px;font-weight:700}
+.decision-option details p{font-size:12px;color:#587063;line-height:1.7;margin:7px 0}
+.decision-option>button{margin-top:11px;min-height:38px;padding:7px 12px;border:1px solid #bed6c4;border-radius:9px;background:#eef7ef;color:#2c6849;font-size:12px;font-weight:700;cursor:pointer}
+.decision-option>button:disabled{opacity:.5;cursor:not-allowed}
+@media(max-width:420px){.decision-section{padding:15px}.decision-option{padding:13px}.decision-option-text{font-size:15px}}

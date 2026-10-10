@@ -1,0 +1,1 @@
+ALTER TABLE `coach_crush_settings` ADD `affinity_consent_at` integer;

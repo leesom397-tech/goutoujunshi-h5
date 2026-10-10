@@ -1,0 +1,15 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+const source = readFileSync('miniapp/pages/report/index.js','utf8');
+const present = new Function('require', source.split('Page({')[0] + '\nreturn present;')(() => ({}));
+const historical = { id:'synthetic', compatibility:{fitScore:80}, decision:{judgment:'原来的判断'} };
+const input = { ...historical, latestCompatibility:{fitScore:35} };
+const before=JSON.stringify(input), result=present(input);
+assert.equal(JSON.stringify(input),before);
+assert.equal(result.compatibility.fitScore,35);
+assert.match(result.compatibilityTitle,/最新资料/);
+assert.equal(result.judgment,'原来的判断');
+assert.equal(present({...historical,latestCompatibility:null}).compatibility,null,'revoked/unavailable latest profile must not fall back to stale fit');
+assert.equal(present(historical).compatibility.fitScore,80,'older API remains readable');
+assert.doesNotMatch(present(historical).compatibilityTitle,/最新资料/);
+console.log('PASS: live fit explicitly separated from historical report, no source mutation or stale fallback');

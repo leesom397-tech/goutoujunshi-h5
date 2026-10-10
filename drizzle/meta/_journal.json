@@ -1,0 +1,111 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1790325312844,
+      "tag": "0000_lying_leech",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1790433496988,
+      "tag": "0001_curious_nick_fury",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1790436583419,
+      "tag": "0002_calm_leper_queen",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1790444699660,
+      "tag": "0003_wealthy_stephen_strange",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1790483119388,
+      "tag": "0004_panoramic_jocasta",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1790508357239,
+      "tag": "0005_worthless_spacker_dave",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1790517949848,
+      "tag": "0006_special_manta",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1790518583123,
+      "tag": "0007_bright_marten_broadcloak",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1790605499161,
+      "tag": "0008_complete_silver_sable",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1790608778386,
+      "tag": "0009_windy_speed",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1790609426371,
+      "tag": "0010_abnormal_black_cat",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1790620808924,
+      "tag": "0011_cultured_mandarin",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1790682374527,
+      "tag": "0012_glossy_lord_hawal",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1790863031240,
+      "tag": "0013_tan_silver_samurai",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1791269419732,
+      "tag": "0014_silky_scarlet_witch",
+      "breakpoints": true
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+<template name="photo-clues">
+  <view wx:if="{{count > 0}}" class="photo-clues">
+    <view class="photo-clues-heading"><image src="/assets/icon-chat.png"/><text>照片里还有这些线索</text></view>
+    <view wx:for="{{clues}}" wx:key="index" class="photo-clue">
+      <text class="photo-clue-location">{{item.location}}</text>
+      <text wx:if="{{item.speaker}}" class="photo-clue-location">{{item.speaker === 'other' ? '对方发送的图片' : item.speaker === 'self' ? '我发送的图片' : '发送者待确认'}} · 不代表发送者本人拍摄</text>
+      <text class="photo-clue-observation">看到了 · {{item.observation}}</text>
+      <text wx:if="{{item.inference}}" class="photo-clue-inference">可能说明 · {{item.inference}}</text>
+      <text wx:if="{{item.alternative}}" class="photo-clue-alternative">也可能 · {{item.alternative}}</text>
+      <text wx:if="{{item.verify}}" class="photo-clue-verify">可以聊聊 · {{item.verify}}</text>
+    </view>
+  </view>
+</template>

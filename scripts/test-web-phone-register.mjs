@@ -1,0 +1,30 @@
+import assert from 'node:assert/strict';
+import { DatabaseSync } from 'node:sqlite';
+import { readFileSync } from 'node:fs';
+import { sendRegistrationCode, phoneRegister } from '../lib/web-phone-register.mjs';
+const sql=new DatabaseSync(':memory:');sql.exec(readFileSync('drizzle/0015_account_credits.sql','utf8'));sql.exec(readFileSync('drizzle/0017_web_accounts.sql','utf8'));
+const env={DB:{prepare(q){let a=[];return{bind(...v){a=v;return this},async first(){return sql.prepare(q).get(...a)||null},async run(){return {meta:{changes:Number(sql.prepare(q).run(...a).changes)}}}}}},COACH_WEB_ADMIN_OWNER_IDS:'lovetalk:chengyi01'};
+let ip=0,calls=[],mode='ok';const original=globalThis.fetch;
+globalThis.fetch=async(url,options)=>{calls.push({url,body:JSON.parse(options.body)});assert.equal(options.redirect,'manual');assert.equal(options.headers.Origin,'https://ai.lovetalk.love');
+ if(url.endsWith('/send-code')){if(mode==='debug')return Response.json({ok:true,debug_code:'123456',message:'secret code 123456'});if(mode==='malformed')return Response.json({});return Response.json({ok:true,resend_seconds:60});}
+ if(url.endsWith('/register')){if(mode==='invalid')return Response.json({ok:false,error:'验证码错误，还可尝试 4 次'},{status:400});return Response.json({ok:true,username:JSON.parse(options.body).registration_name,message:'注册成功，已赠送积分'});}
+ if(url.endsWith('/login')){if(mode==='login-fail')throw Error('offline');return Response.json({logged_in:true,user:JSON.parse(options.body).username},{headers:{'Set-Cookie':'lt_next_session=synthetic_session_1234567890; Path=/; HttpOnly'}});}throw Error('unexpected URL');};
+const req=(body,headers={})=>new Request('https://coach.example.test/api/auth/register',{method:'POST',headers:{Origin:'https://coach.example.test','Content-Type':'application/json','CF-Connecting-IP':'192.0.2.'+(++ip),...headers},body:JSON.stringify(body)});
+const body={username:'sms_customer',phone:'13800000000',code:'123456',password:'testpassword123',password2:'testpassword123',agree:true};
+assert.equal((await phoneRegister(req({username:'no_phone',password:'testpassword123',agree:true}),env)).status,400);
+assert.equal((await phoneRegister(req(body,{Origin:'https://evil.test'}),env)).status,403);
+assert.equal((await sendRegistrationCode(req({phone:body.phone,agree:false}),env)).status,400);
+assert.equal((await sendRegistrationCode(req({phone:'invalid',agree:true}),env)).status,400);assert.equal(calls.length,0);
+const sent=await sendRegistrationCode(req({phone:body.phone,agree:true}),env);assert.equal(sent.status,200);assert.equal((await sent.json()).resendSeconds,60);
+assert.equal((await sendRegistrationCode(req({phone:body.phone,agree:true}),env)).status,429);assert.equal(calls.length,1);
+mode='debug';const debug=await sendRegistrationCode(req({phone:'13900000000',agree:true}),env);assert.equal(debug.status,400);assert.ok(!(await debug.text()).includes('123456'));
+mode='malformed';assert.equal((await sendRegistrationCode(req({phone:'13700000000',agree:true}),env)).status,400);
+mode='invalid';const invalid=await phoneRegister(req(body),env);assert.equal(invalid.status,400);assert.equal(invalid.headers.get('set-cookie'),null);
+mode='ok';const done=await phoneRegister(req(body),env);assert.equal(done.status,200);assert.equal((await done.json()).user,'sms_customer');assert.match(done.headers.get('set-cookie'),/HttpOnly; SameSite=Lax; Max-Age=604800; Secure/);assert.match(done.headers.get('set-cookie'),/cz_session=;/);
+assert.equal(sql.prepare('SELECT COUNT(*) n FROM coach_web_users').get().n,0,'no shadow local account');
+assert.equal(sql.prepare('SELECT COUNT(*) n FROM coach_credit_accounts WHERE owner_id=?').get('lovetalk:sms_customer').n,1,'registered member appears in admin list immediately');
+assert.deepEqual(calls.find(c=>c.url.endsWith('/register')).body,{registration_name:body.username,phone:body.phone,code:body.code,password:body.password,password2:body.password,agree:true});
+const count=calls.length;assert.equal((await phoneRegister(req({...body,username:'chengyi01'}),env)).status,409);assert.equal(calls.length,count);
+mode='login-fail';const partial=await phoneRegister(req({...body,username:'sms_second'}),env);assert.equal(partial.status,200);assert.equal((await partial.json()).loginRequired,true);assert.equal(partial.headers.get('set-cookie'),null);
+const route=readFileSync('app/api/auth/register/route.ts','utf8');assert.match(route,/phoneRegister/);assert.ok(!route.includes('nativeRegister'),'HTTP registration cannot bypass SMS');
+globalThis.fetch=original;sql.close();console.log('PASS: SMS registration, consent/CSRF, no-code rejection, send throttling, no debug OTP exposure, malformed/incorrect-code failure, secure cookie, reserved names, login recovery. No real SMS or external account created.');

@@ -1,0 +1,57 @@
+.moments-report{margin:24rpx 0;color:#203249;text-align:left;font-family:"PingFang SC","Microsoft YaHei",sans-serif;font-size:27rpx;line-height:1.75}
+.moments-report text{display:block;overflow-wrap:break-word}
+.moments-verdict{padding:28rpx;background:#203249;color:#fff;border-left:5rpx solid #83b8cb;border-radius:12rpx}
+.moments-kicker{font-size:24rpx;color:#176b89;letter-spacing:1rpx}
+.moments-summary{font-size:32rpx;font-weight:600;margin:16rpx 0 0;line-height:1.7}
+.moments-section{margin:26rpx 0;padding:24rpx;background:#f3f9fc;border:1rpx solid #d0e1eb;border-radius:12rpx}
+.moments-heading{display:flex;align-items:flex-start;gap:12rpx;font-size:30rpx;font-weight:700;line-height:1.5}
+.moments-heading image{width:36rpx;height:36rpx;margin-top:4rpx;flex:none}
+.moments-caption{margin-top:12rpx;color:#176b89;font-size:24rpx;line-height:1.6}
+.moments-title{font-size:28rpx;font-weight:600;margin-bottom:12rpx;line-height:1.5}
+.moments-evidence{color:#176b89;font-size:24rpx;margin-top:12rpx;line-height:1.65}
+.moments-alternative{font-size:24rpx;color:#79572e;margin-top:12rpx;padding-top:12rpx;border-top:1rpx dashed #e4d8c1}
+.moments-insight{border-left:3rpx solid #83b8cb;padding:18rpx;background:#fff;margin-top:22rpx}
+.moments-depth{background:#fcfaf4;border-color:#e6d9bc;border-top:5rpx solid #83b8cb}
+.moments-approach{background:#f0f8fb;border-color:#d0e4eb}
+.moments-strategy-row{display:flex;gap:18rpx;padding:16rpx 0;border-bottom:1rpx solid #d4e5ed}
+.moments-strategy-row>text:first-child{flex:0 0 58rpx;font-weight:600;color:#526579}
+.moments-strategy-row>text:last-child{flex:1;min-width:0}
+.moments-avoid>text:first-child{color:#79572e}
+.moments-support{color:#526579;background:#eaf5fa;padding:14rpx 16rpx;margin:14rpx 0;font-weight:500;font-size:25rpx}
+.moments-starter{padding:22rpx;background:#fff;border-left:3rpx solid #70a9bd;border-radius:8rpx;margin-top:18rpx}
+.moments-chat-message{font-size:30rpx;font-weight:500;line-height:1.7}
+.moments-section-divider{margin:36rpx 0 22rpx;padding-top:24rpx;border-top:1rpx solid #d9e3e9;color:#79572e;font-size:24rpx;font-weight:600}
+.moments-bar-row{margin:22rpx 0}
+.moments-bar-heading{display:flex;justify-content:space-between;gap:16rpx;font-size:24rpx;margin-bottom:10rpx}
+.moments-bar-heading text:first-child{flex:1;min-width:0}
+.moments-bar-heading text:last-child{color:#176b89;font-size:24rpx;text-align:right}
+.moments-track{height:12rpx;border-radius:6rpx;background:#e3edf3;overflow:hidden}
+.moments-fill{height:100%;border-radius:6rpx;background:#70a9bd}
+.moments-fill.copy{background:#83b8cb}
+.moments-post{border-left:2rpx solid #83b8cb;margin:18rpx 0 0 8rpx;padding:0 0 24rpx 22rpx}
+.moments-post:last-child{padding-bottom:8rpx}
+.moments-date{font-size:24rpx;color:#79572e;font-weight:600;margin-bottom:8rpx}
+.moments-theme{padding:18rpx 0;border-bottom:1rpx solid #d0e1eb}
+.moments-theme:last-child{border-bottom:0}
+.moments-chip{color:#526579;font-weight:600}
+.moments-section.visibility{border-left:3rpx solid #83b8cb}
+.moments-line{font-size:24rpx;margin-top:10rpx}
+.moments-portraits{border-top:3rpx solid #83b8cb}
+.moments-details-button,.moments-source-button{box-sizing:border-box;width:100%;min-height:88rpx;text-align:left;background:#fff;border:1rpx solid #c7dce7;border-radius:10rpx;color:#466e87;font-size:25rpx;line-height:1.6;font-family:"PingFang SC","Microsoft YaHei",sans-serif}
+.moments-details-button{display:flex;align-items:center;justify-content:space-between;gap:20rpx;margin:20rpx 0;padding:22rpx;font-weight:600}
+.moments-details-button>view:first-child{flex:1;min-width:0}
+.moments-source-button{display:block;margin:22rpx 0 0;padding:20rpx}
+.moments-details-button::after,.moments-source-button::after{border:0}
+.moments-button-caption{margin-top:7rpx;color:#176b89;font-size:24rpx;font-weight:400}
+.moments-chevron{width:13rpx;height:13rpx;flex:none;margin-right:6rpx;border-right:3rpx solid #638b9f;border-bottom:3rpx solid #638b9f;transform:rotate(45deg)}
+.moments-chevron.expanded{transform:rotate(225deg)}
+.moments-button-pressed{background:#e9f4f9}
+.moments-followup{margin:24rpx 0 30rpx}
+.moments-followup-button{box-sizing:border-box;width:100%;min-height:88rpx;margin:0 0 14rpx;padding:20rpx;border-radius:10rpx;background:#203249;color:#fff;font-family:inherit;font-size:27rpx;font-weight:600;line-height:1.7}
+.moments-followup-button::after{border:0}
+.moments-followup-button[disabled]{background:#dce0e0;color:#526579}
+
+.moments-verdict{background:linear-gradient(140deg,#eef8fc,#ffffffd9);color:#203249;border:1rpx solid #c2dce7;border-left:5rpx solid #79b5c8;border-radius:22rpx;box-shadow:inset 0 2rpx #fff}.moments-section{border-radius:20rpx;background:#ffffffcc;box-shadow:inset 0 2rpx #fff}.moments-followup-button{background:linear-gradient(135deg,#4096ae,#267e96);border-radius:16rpx}.moments-insight{border-radius:12rpx}.moments-depth{background:#fffcf4}
+
+/* Readable daylight type: distinct headings, body, and supporting text. */
+.moments-report{font-size:28rpx;line-height:1.85;color:#203249}.moments-kicker{font-size:24rpx;color:#176b89}.moments-summary{font-size:33rpx;font-weight:600;line-height:1.8;color:#203249}.moments-heading{font-size:32rpx;font-weight:650;line-height:1.6}.moments-title{font-size:29rpx;font-weight:600;line-height:1.6}.moments-caption,.moments-evidence,.moments-button-caption{font-size:25rpx;color:#526579;line-height:1.85}.moments-alternative{font-size:26rpx;line-height:1.8;color:#79572e}.moments-strategy-row{font-size:28rpx;line-height:1.85}.moments-strategy-row>text:first-child{flex-basis:66rpx;color:#244f67;font-weight:550}.moments-avoid>text:first-child{color:#79572e}.moments-support{font-size:26rpx;color:#244f67;line-height:1.8;font-weight:500}.moments-chat-message{font-size:31rpx;line-height:1.85}.moments-section-divider{font-size:26rpx;color:#79572e}.moments-bar-heading{font-size:26rpx;line-height:1.7}.moments-bar-heading text:last-child{font-size:24rpx;color:#526579}.moments-date{font-size:25rpx;color:#79572e}.moments-chip{color:#244f67}.moments-line{font-size:26rpx;line-height:1.8}.moments-details-button,.moments-source-button{font-size:27rpx;line-height:1.75;color:#244f67;font-weight:550}.moments-followup-button{font-size:28rpx;background:linear-gradient(135deg,#176f8c,#155d78);color:#fff}

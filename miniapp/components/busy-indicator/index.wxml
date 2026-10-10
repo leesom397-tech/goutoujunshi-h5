@@ -1,0 +1,1 @@
+<view class="waiting" role="status" aria-live="polite"><view class="spinner"></view><view class="copy"><text class="title">{{label}}</text><text wx:if="{{detail}}" class="detail">{{detail}}</text></view><text class="time">已等待 {{seconds}} 秒</text></view>
