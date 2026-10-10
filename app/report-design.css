@@ -283,6 +283,19 @@ body .workspace-page .public-case-spotlight article:nth-child(1){background:#c6e
 body .workspace-page .public-case-spotlight article:nth-child(2){background:#dacdf8!important;border:0!important}
 body .workspace-page .public-case-spotlight strong,body .workspace-page .public-case-spotlight span{color:#1b1b1b}
 body .workspace-page .public-case-detail-prompt{background:#1b1b1b!important;border:0!important;color:#fff8ec!important}
+body .workspace-page{background:#fff8ec!important;color:#1b1b1b!important}
+body .workspace-page .workspace-wrap{background:transparent}
+body .workspace-page .workspace-welcome,body .workspace-page .workspace-welcome a{color:#5f5b54!important}
+body .workspace-page .workspace-hero h1,body .workspace-page .workspace-hero h1>span{color:#1b1b1b!important;-webkit-text-fill-color:#1b1b1b!important;background:none!important}
+body .workspace-page .workspace-hero-copy>p,body .workspace-page .workspace-trust,body .workspace-page .workspace-creator{color:#554d24!important}
+body .workspace-page .workspace-cta{background:#1b1b1b!important;border-color:#1b1b1b!important;color:#fff8ec!important;box-shadow:0 10px 20px #1b1b1b2a!important}
+body .workspace-page .workspace-text-link{color:#1b1b1b!important}
+body .workspace-page .workspace-capability-strip{background:#fff8ec!important;border-top:1px solid #1b1b1b22!important;border-bottom:1px solid #1b1b1b22!important;color:#1b1b1b!important}
+body .workspace-page .workspace-capability-strip svg{color:#1b1b1b!important}
+body .workspace-page .workspace-section-heading h2{color:#1b1b1b!important}
+body .workspace-page .workspace-entry-detail,body .workspace-page .workspace-entry-number,body .workspace-page .workspace-entry p{color:#5f5b54!important}
+body .workspace-page .workspace-entry-go{color:#1b1b1b!important}
+body .workspace-page .workspace-footnote{color:#5f5b54!important}
 body .workspace-page .workspace-visual{right:0;top:0;width:58%;height:100%;opacity:1;overflow:visible}
 body .workspace-page .workspace-visual .workspace-glass,body .workspace-page .workspace-visual .workspace-image-overlay,body .workspace-page .workspace-visual .workspace-orbit-label,body .workspace-page .workspace-visual .workspace-art-caption{display:none}
 .playful-orbit-art{position:relative;width:100%;height:100%;min-height:420px;overflow:hidden;background:radial-gradient(circle at 50% 50%,#fff9d899 0 14%,transparent 15%),radial-gradient(circle at 48% 48%,#ffffff66 0 34%,transparent 35%)}
