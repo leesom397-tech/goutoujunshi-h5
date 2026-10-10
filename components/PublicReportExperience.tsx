@@ -34,6 +34,7 @@ export function PublicReportExperience({ example, onStart }: {
   const opening = lines.find(line => typeof line.text === "string" && line.text.includes("记得你说三点"))?.text;
   const turningPoint = lines.find(line => typeof line.text === "string" && line.text.includes("挺喜欢跟你相处"))?.text;
   return <section className="wa-shell public-report-example" id="experience" tabIndex={-1} aria-label="功能报告案例">
+    <div className="public-case-how" aria-label="案例阅读顺序"><strong>案例只看三步</strong><span>01 看原话</span><i>→</i><span>02 看判断</span><i>→</i><span>03 看下一步</span></div>
     <div className="public-case-switch" role="tablist" aria-label="选择报告案例">{cases.map(item => <button key={item.key} type="button" role="tab" id={`case-tab-${item.key}`} aria-controls="case-panel" aria-selected={mode === item.key} onClick={() => setMode(item.key)}>{item.label}</button>)}</div>
     <div id="case-panel" role="tabpanel" aria-labelledby={`case-tab-${mode}`}>
     <header className="public-case-intro">
@@ -42,7 +43,7 @@ export function PublicReportExperience({ example, onStart }: {
         <h2>{current.title}</h2>
         <p>{current.question}</p>
         {mode === "chat" ? <><div className="public-case-facts"><span><strong>{lines.length}</strong> 句聊天</span><span><strong>6</strong> 类可见线索</span><span>逐句有依据</span></div><small>真实分析流程生成；公开前校正了说话人和文字 · {example.analyzedAt}</small></> : <><div className="public-case-facts"><span><strong>{mode === "moments" ? "3" : "2"}</strong> 条可见材料</span><span>推测与另一种解释</span><span>可查看完整依据</span></div><small>演示内容根据下方虚构材料编写，用真实产品报告组件展示。</small></>}
-        <a className="public-case-detail-prompt" href="#report-detail-action"><span aria-hidden="true">↓</span> 点击下方蓝色按钮，查看完整分析</a>
+        <a className="public-case-detail-prompt" href="#report-detail-action"><span aria-hidden="true">↓</span> 先看完三步，再打开完整分析</a>
       </div>
       <div className="public-case-excerpt" aria-label="案例原话摘录">
         <span>{mode === "chat" ? "先看两句原话" : mode === "social" ? "示例主页可见内容" : "示例朋友圈原文"}</span>

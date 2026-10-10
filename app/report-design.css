@@ -208,3 +208,4 @@
   .wa-shell .report-art-caption{display:none}
   .wa-shell .report-document:before{inset:-15px -12px 0}
 }
+.public-report-example .public-case-how{display:flex;align-items:center;justify-content:center;gap:10px;margin:0 auto 18px;padding:10px 14px;border:1px solid #d5e7e8;border-radius:999px;background:#f5fbfb;color:#5d7b82;font-size:12px;max-width:max-content}.public-report-example .public-case-how strong{color:#176c88;font-weight:800}.public-report-example .public-case-how span{white-space:nowrap}.public-report-example .public-case-how i{font-style:normal;color:#9ab8bd}@media(max-width:680px){.public-report-example .public-case-how{justify-content:flex-start;max-width:100%;overflow:auto;border-radius:12px;white-space:nowrap}}
