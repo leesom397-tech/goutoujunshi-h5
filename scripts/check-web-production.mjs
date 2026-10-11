@@ -73,8 +73,9 @@ await Promise.all(["/workspace", "/register", "/login", "/sales", "/privacy", "/
   requireValue(visible.length > 30, "No meaningful page content.");
   requireValue(!/lovetalk/i.test(visible), "Visible previous branding found.");
   if (path === "/workspace") {
-      requireValue(response.text.includes("p-demo-card"), "Feature preview cards missing.");
-      requireValue(response.text.includes("p-tool-grid"), "Feature entry section missing.");
+      requireValue(response.text.includes("home-evidence"), "Knowledge evidence section missing.");
+      requireValue(!response.text.includes('id="experience"'), "Homepage must not contain a full demo report.");
+      requireValue(response.text.includes("home-feature-grid"), "Feature entry section missing.");
       requireValue(response.text.includes("cz-brand-mark"), "Relationship brand mark missing.");
   }
   return { title, visibleCharacters: visible.length, previousBrandVisible: false };

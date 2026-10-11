@@ -182,7 +182,7 @@ export default function ChatPage() {
         </div>
   );
   return <><WebNav/><main className="wa-shell chat-experience">
-    <div className="wa-heading chat-page-heading"><div className="wa-heading-main"><span className="wa-eyebrow">你的关系军师</span><h1>一起把下一步，想清楚。</h1><p>从一句原话开始，也可以带着人物档案接着聊。</p></div><HeadingStamp variant="chat"/></div>
+    <div className="wa-heading chat-page-heading"><div className="wa-heading-main"><span className="wa-eyebrow">你的关系军师</span><h1>文字军师</h1><p>从一句原话开始，也可以带着人物档案接着聊。</p></div><HeadingStamp variant="chat"/></div>
     <AccountNotice state={account}/>
     {accessIssue && <div className="chat-access-notice" role="status"><span>{accessIssue}</span><a href="/account#contact">查看积分与开通 <ArrowUpRight size={15}/></a></div>}
     <div className={"chat-experience-grid" + (settingsOpen ? " has-context" : "")}>

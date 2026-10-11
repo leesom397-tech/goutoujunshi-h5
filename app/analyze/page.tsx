@@ -105,7 +105,7 @@ export default function AnalyzePage() {
       <header className="wa-heading ax-heading">
         <div className="wa-heading-main">
           <span className="wa-eyebrow">关系分析</span>
-          <h1>理清线索，让下一步更清晰。</h1>
+          <h1>分析材料</h1>
           <p>从一组真实材料开始，读懂互动，找到适合你的回应。</p>
         </div>
         <HeadingStamp variant="analysis"/>
