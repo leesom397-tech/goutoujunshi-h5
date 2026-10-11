@@ -73,8 +73,8 @@ await Promise.all(["/workspace", "/register", "/login", "/sales", "/privacy", "/
   requireValue(visible.length > 30, "No meaningful page content.");
   requireValue(!/lovetalk/i.test(visible), "Visible previous branding found.");
   if (path === "/workspace") {
-      requireValue(response.text.includes("feature-deck"), "Feature preview cards missing.");
-      requireValue(response.text.includes("workspace-tools"), "Feature entry section missing.");
+      requireValue(response.text.includes("p-demo-card"), "Feature preview cards missing.");
+      requireValue(response.text.includes("p-tool-grid"), "Feature entry section missing.");
       requireValue(response.text.includes("cz-brand-mark"), "Relationship brand mark missing.");
   }
   return { title, visibleCharacters: visible.length, previousBrandVisible: false };
@@ -100,3 +100,4 @@ await writeFile(output, JSON.stringify({ checkedAt: new Date().toISOString(), ba
 console.log(`${failed.length ? "FAIL" : "PASS"}: ${results.length - failed.length}/${results.length} anonymous production checks; ${output}`);
 for (const result of failed) console.error(`${result.path}: ${result.error}`);
 if (failed.length) process.exitCode = 1;
+
