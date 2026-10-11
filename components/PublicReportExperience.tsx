@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ChatReport, SocialReport } from "@/components/web-analysis/ReportView";
 import type { Json } from "@/components/web-analysis/client";
 import { publicSocialCase, publicMomentsCase } from "@/data/public-social-cases";
@@ -26,6 +26,7 @@ export function PublicReportExperience({ example, onStart }: {
   onStart: (mode: CaseMode) => void;
 }) {
   const [mode, setMode] = useState<CaseMode>("chat");
+  useEffect(() => { const select = (event: Event) => { const value = (event as CustomEvent).detail; if (["chat", "social", "moments"].includes(value)) setMode(value); }; window.addEventListener("public-case-select", select); return () => window.removeEventListener("public-case-select", select); }, []);
   const current = cases.find(item => item.key === mode)!;
   // Do not carry production identifiers into the anonymous demonstration.
   // Without an account, the shared report cannot read history or submit followups.

@@ -26,6 +26,7 @@ export default function Workspace() {
   const [showRegister, setShowRegister] = useState(false);
   const destination = useRef("/workspace");
   const preview = (href = "/analyze?mode=chat") => {
+    window.dispatchEvent(new CustomEvent("public-case-select", { detail: new URL(href, window.location.origin).searchParams.get("mode") || "chat" }));
     window.setTimeout(() => { const section = document.getElementById("experience"); section?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start" }); section?.focus({ preventScroll: true }); }, 0);
   };
   const beginOwn = (href: string) => { destination.current = href; setShowRegister(true); };
