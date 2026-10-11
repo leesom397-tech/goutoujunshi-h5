@@ -1,3 +1,6 @@
+
+/* Legacy layout layer */
+@layer legacy {
 .decision-panel{display:grid;gap:12px;margin:0 0 18px;color:#244438}
 .decision-section{padding:17px 18px;border:1px solid #dce9df;background:#f4f9f3;border-radius:15px}
 .decision-section>span{display:block;margin-bottom:8px;color:#39745b;font-size:12px;font-weight:800}
@@ -17,3 +20,5 @@
 .decision-option>button{margin-top:11px;min-height:38px;padding:7px 12px;border:1px solid #bed6c4;border-radius:9px;background:#eef7ef;color:#2c6849;font-size:12px;font-weight:700;cursor:pointer}
 .decision-option>button:disabled{opacity:.5;cursor:not-allowed}
 @media(max-width:420px){.decision-section{padding:15px}.decision-option{padding:13px}.decision-option-text{font-size:15px}}
+
+}

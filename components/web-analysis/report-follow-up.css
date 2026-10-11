@@ -1,3 +1,6 @@
+
+/* Legacy layout layer */
+@layer legacy {
 .report-follow-up{scroll-margin-top:90px;background:linear-gradient(130deg,#fffcf6,#f6f2eb);border-color:#ddd2c1;color:#383832}
 .report-follow-up .rf-heading{display:flex;justify-content:space-between;align-items:flex-start;gap:16px}
 .report-follow-up h2{line-height:1.5;margin-bottom:8px}.report-follow-up .wa-eyebrow{color:#8a6745}
@@ -15,3 +18,5 @@
 @keyframes rf-enter{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
 @media(max-width:520px){.report-follow-up .rf-heading{display:block}.rf-free{display:inline-block;margin-top:3px}.rf-suggestion,.rf-result{padding:13px}.rf-outcomes{grid-template-columns:repeat(2,minmax(0,1fr))}.rf-actions>button{flex:1 1 auto}.rf-actions>a{width:100%;justify-content:flex-start}.rf-date{max-width:100%}.rf-editor .wa-field{min-width:0}.rf-editor input{min-width:0;max-width:100%}}
 @media(prefers-reduced-motion:reduce){.rf-editor{animation:none}}
+
+}

@@ -1,3 +1,6 @@
+
+/* Legacy layout layer */
+@layer legacy {
 .history-consistency{margin-top:24px;padding:28px;display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,.9fr);gap:34px;align-items:center}
 .history-consistency h2{margin:5px 0 12px}
 .history-consistency p:not(.eyebrow){max-width:660px;color:#63736b;line-height:1.75}
@@ -5,3 +8,5 @@
 .history-consistency-form>input{width:100%;padding:13px 14px;border:1px solid #c9d8cd;border-radius:10px;background:#fff}
 .history-consistency-form .history-check{margin:3px 0}
 @media(max-width:820px){.history-consistency{grid-template-columns:1fr;padding:22px;gap:12px}}
+
+}

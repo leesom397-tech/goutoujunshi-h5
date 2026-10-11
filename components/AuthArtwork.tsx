@@ -1,7 +1,2 @@
-import { ScanLine, Orbit, ShieldCheck } from "lucide-react";
-import { GlassScene } from "@/components/GlassScene";
-export function AuthArtwork(){
-  return <div className="auth-artwork"><GlassScene className="auth-glass"/><div className="auth-artwork-caption"><span><ScanLine size={15}/> 看见关系里的线索</span><span><Orbit size={15}/> 连接每一次变化</span></div><a href="/privacy"><ShieldCheck size={13}/> 你的资料，由你掌控</a></div>;
-}
-
-
+import { ScanLine, MessageCircle, Users, ArrowUpRight } from "lucide-react";
+export function AuthArtwork(){return <div className="p-auth-stack"><div className="p-auth-tile sky"><ScanLine size={25}/><span>看懂一句话</span><ArrowUpRight size={20}/></div><div className="p-auth-tile pink"><MessageCircle size={25}/><span>找到下一步</span><ArrowUpRight size={20}/></div><div className="p-auth-tile mint"><Users size={25}/><span>记住每一次</span><ArrowUpRight size={20}/></div></div>}

@@ -1,3 +1,6 @@
+
+/* Legacy layout layer */
+@layer legacy {
 .cz-glass-stage {
   --cz-glass-x: 0px;
   --cz-glass-y: 0px;
@@ -141,8 +144,10 @@
 @media (prefers-reduced-motion: reduce) {
   .cz-glass-stage .cz-glass-float,
   .cz-glass-stage .cz-glass-effects > span,
-  .cz-glass-stage .cz-glass-image { animation: none !important; transform: none; }
+  .cz-glass-stage .cz-glass-image { animation: none ; transform: none; }
   .cz-glass-stage .cz-glass-parallax { transform: none; transition: none; }
   .cz-glass-stage .cz-glass-effects,
   .cz-glass-stage .cz-glass-toggle { display: none; }
+}
+
 }

@@ -1,3 +1,6 @@
+
+/* Legacy layout layer */
+@layer legacy {
 .cz-page-illustration{--ci-ink:#547b8f;--ci-accent:#237a98;--ci-gold:#ba9b76;--ci-edge:#bad7e5;--ci-faint:#d4e8f2;--ci-soft:#e4f3fa;position:relative;display:block;width:280px;max-width:100%;aspect-ratio:7/5;flex:none;isolation:isolate;pointer-events:none;color:var(--ci-ink)}
 .cz-page-illustration>svg{display:block;width:100%;height:100%;overflow:visible;animation:cz-illustration-enter .65s ease-out both}
 .cz-illustration-rule{stroke:#899da7;stroke-width:2.4;stroke-linecap:round;opacity:.62}
@@ -22,4 +25,6 @@ header .cz-archive-illustration{width:100%;height:100%}
 @media(max-width:680px){.wa-shell .wa-heading .wa-heading-stamp.cz-page-stamp{display:block;width:88px;height:68px;margin-top:7px}.wa-shell .wa-heading:has(.cz-page-stamp){gap:9px}.wa-shell .wa-heading:has(.cz-page-stamp)>.wa-heading-main{min-width:0;flex:1}.cz-page-illustration.is-compact{width:140px}.wa-upload-art.cz-upload-illustration{width:220px;height:145px}.cz-archive-empty{height:119px;width:167px}}
 @media(max-width:760px){header:has(>div>.cz-archive-illustration){padding-right:112px}header:has(>div>.cz-archive-illustration)>div:has(>.cz-archive-illustration){width:96px;height:80px;right:12px;top:27px}header:has(>div>.cz-archive-illustration)>div:first-child{width:100%;max-width:100%}}
 @media(max-width:360px){.wa-shell .wa-heading .wa-heading-stamp.cz-page-stamp{width:66px;height:55px}}
-@media(prefers-reduced-motion:reduce){.cz-page-illustration>svg,.cz-illustration-glint{animation:none!important;transform:none}}
+@media(prefers-reduced-motion:reduce){.cz-page-illustration>svg,.cz-illustration-glint{animation:none;transform:none}}
+
+}

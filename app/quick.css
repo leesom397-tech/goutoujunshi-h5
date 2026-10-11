@@ -1,3 +1,6 @@
+
+/* Legacy layout layer */
+@layer legacy {
 .quick-page{--ink:#183b36;--muted:#63766d;max-width:760px;margin:auto;padding:20px 18px 84px;color:var(--ink);background:#f7f7f2;min-height:100vh;font-family:Arial,"PingFang SC","Microsoft YaHei",sans-serif}
 .quick-page *{box-sizing:border-box}
 .quick-head{display:flex;align-items:center;justify-content:space-between;min-height:46px}
@@ -57,3 +60,5 @@
 .quick-actions{display:grid;gap:9px;margin-top:19px}.quick-actions>button{display:flex;align-items:center;justify-content:center;gap:5px;min-height:43px;background:white;border:1px solid #d8e5db;border-radius:12px;color:#386451;font-size:12px}
 .quick-example{padding:18px;border:1px solid #e6eee6;border-radius:18px;background:#fbfdf9}.quick-example>div:not(.quick-example-foot){margin:0 0 10px;padding:12px;border-radius:12px;background:#edf7ed}.quick-example>div:nth-child(2){background:#f4f5f1}.quick-example span{font-size:11px;color:#237a60;font-weight:800}.quick-example p{margin:5px 0;font-size:14px;font-weight:700}.quick-example small{font-size:11px;color:#6c8173}.quick-example-foot{margin:13px 0;font-size:12px;line-height:1.65;color:#51685a}
 @media(max-width:390px){.quick-field-row{grid-template-columns:1fr}.quick-hero{padding:27px 23px}.quick-card,.quick-result{padding:18px}}
+
+}

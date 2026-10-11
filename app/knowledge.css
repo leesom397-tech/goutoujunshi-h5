@@ -1,3 +1,6 @@
+
+/* Legacy layout layer */
+@layer legacy {
 .knowledge-proof{display:block;margin:14px 0;padding:18px 20px;background:#f1f7f3;border:1px solid #cbded4;border-radius:16px;color:#173f37;text-decoration:none;transition:border-color .2s,box-shadow .2s}
 .knowledge-proof-brief{display:block;margin-top:7px;color:#60796d;font-size:13px;line-height:1.5}
 .research-list{display:grid;gap:12px;margin-top:18px}.research-item{padding:18px;border:1px solid #dce8df;border-radius:14px;background:#fff}.research-item h3{margin:5px 0 7px;font-size:18px}.research-item p{margin:6px 0;color:#52695e;line-height:1.6}.research-item small{color:#728078}.research-item a{color:#19694a;font-weight:700}.research-caution{color:#68796e;font-size:13px;line-height:1.6}
@@ -25,3 +28,5 @@
 
 .library-page .profile-top{scroll-margin-top:80px}.library-page [id]{scroll-margin-top:88px}.library-page .web-nav{margin:0 -24px 0;width:calc(100% + 48px)}
 @media(max-width:700px){.library-page .web-nav{margin:0 -0px;width:100%}.library-page{padding-left:16px;padding-right:16px}}
+
+}

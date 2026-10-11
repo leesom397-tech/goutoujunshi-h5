@@ -1,3 +1,6 @@
+
+/* Legacy layout layer */
+@layer legacy {
 .positioning-page{min-height:100dvh;background:radial-gradient(circle at 88% 8%,#d9eee4 0,transparent 24%),#eff3f0;color:#173b3e;padding:0 22px 72px}
 .positioning-wrap{max-width:1140px;margin:0 auto}
 .positioning-intro{padding:22px 0 25px}
@@ -15,7 +18,7 @@
 .positioning-form legend,.positioning-field>span{display:block;margin-bottom:10px;color:#244b48;font-size:15px;font-weight:800;line-height:1.45}
 .positioning-field>span b{font-size:12px;color:#277c66}
 .positioning-field>span small{font-size:12px;color:#81958c;font-weight:600}
-.positioning-hint{margin:-4px 0 12px;color:#6b8179!important;font-size:13px}
+.positioning-hint{margin:-4px 0 12px;color:#6b8179;font-size:13px}
 .choice-grid,.priority-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
 .choice{min-height:44px;border:1px solid #d6e5dc;border-radius:11px;background:#f9fbf9;color:#3a5b56;padding:9px 12px;text-align:left;font-size:14px;font-weight:650;line-height:1.4;transition:border-color .15s,background .15s,transform .15s}
 .choice:hover{border-color:#8abda4;transform:translateY(-1px)}
@@ -58,3 +61,5 @@
 .positioning-disclaimer{margin:17px 0 0;color:#758981;font-size:12px;line-height:1.55}
 @media(max-width:830px){.positioning-layout{grid-template-columns:1fr}.positioning-aside{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:620px){.positioning-page{padding:0 14px 45px}.positioning-intro{padding:13px 3px 19px}.positioning-intro h1{font-size:31px}.positioning-intro>p{font-size:14px}.positioning-card,.positioning-result{padding:18px;border-radius:17px}.positioning-card-head{margin-bottom:17px}.positioning-card h2{font-size:18px}.positioning-aside{grid-template-columns:1fr}.positioning-two-fields{grid-template-columns:1fr;gap:0}.choice-grid,.priority-grid{gap:7px}.choice{font-size:13px;padding:8px 10px}.positioning-actions{align-items:stretch}.positioning-actions .positioning-primary{width:100%}.positioning-report-grid{grid-template-columns:1fr}.positioning-report-grid article:first-child{grid-column:auto}.positioning-result-head{flex-direction:column}.positioning-lead{font-size:16px}.positioning-result-actions .positioning-primary{width:100%}}
+
+}

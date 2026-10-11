@@ -12,13 +12,7 @@ import "./history.css";
 import "./history-consistency.css";
 import "./web.css";
 import "./web-auxiliary.css";
-import "./readability.css";
-import "./product-system.css";
-import "./warmth.css";
-import "./section-hierarchy.css";
-import "./report-editorial.css";
-import "./report-design.css";
-import "./playful-product.css";
+import "./product-redesign.css";
 import { AuxiliaryWebNav } from "@/components/AuxiliaryWebNav";
 import {PwaRegistration} from "@/components/pwa-registration";
 

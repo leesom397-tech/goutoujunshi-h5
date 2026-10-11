@@ -1,3 +1,6 @@
+
+/* Legacy layout layer */
+@layer legacy {
 /* The same daylight palette also covers established secondary entry points. */
 .auxiliary-web-nav+main{background:radial-gradient(ellipse at 8% 8%,#e4f2fa88,transparent 48%),radial-gradient(ellipse at 90% 2%,#fff5e95c,transparent 35%),#f6f9fc;color:var(--cz-ink);font-family:var(--cz-font)}
 .auxiliary-web-nav+main :is(input,textarea,select,button){font-family:var(--cz-font)}
@@ -24,3 +27,5 @@
 .auxiliary-web-nav+main :is(.history-hero-graphic span,.history-hero-graphic span:nth-child(2),.history-hero-graphic span:nth-child(3)){background:#f6fcffe6;border:1px solid #b7d8e7;color:#3c7991;box-shadow:8px 10px 0 #8dc5d440,inset 0 1px #fff}
 .auxiliary-web-nav+main :is(.history-file,.history-sample,.history-list,.history-list button.selected,.history-messages article,.history-result article,.crush-demo,.crush-input-panel,.crush-result-panel,.quick-auth,.quick-card){background:#f4faffcf;border-color:#c1dbe6;color:#476f86}.auxiliary-web-nav+main .history-messages article.mine{background:#e0f2f9}.auxiliary-web-nav+main :is(.history-heading,.history-import>p,.history-guide p,.history-guide li,.history-fields label,.history-subject,.history-check){color:#607f94}
 @media(max-width:780px){.auxiliary-web-nav+main .library-hero{padding:24px 22px}.auxiliary-web-nav+main .library-hero p{font-size:14px;line-height:1.9}}
+
+}
