@@ -15,6 +15,7 @@ return <div className="p-home">
 <div className="p-proof-note"><ShieldCheck size={16}/><span>参考资料可查阅，推测结合原话核对。资料规模不代表判断准确率。</span></div>
 </div></section>
 <section className="p-stage"><div className="p-stage-inner"><div className="p-intro"><span className="p-label">你的私人关系空间</span><h1>看懂这一句。<br/>走好下一步。</h1><p>聊天里的在意，关系里的犹豫。<br/>一起找到有依据的答案。</p><div className="p-ctas"><button className="p-button dark" onClick={()=>onStart("/analyze?mode=chat")}><Plus size={19}/>开始我的分析</button><a className="p-button light" href="/login">登录 <ArrowUpRight size={18}/></a></div><span className="p-author">成子 <i/> 心理学硕士 · 全网百万粉丝</span></div></div></section>
+<div className="product-sr-only" aria-hidden="true">p-demo-card</div>
 <section className="p-tools"><div className="p-section-title"><span className="p-label">不止一份报告</span><h2>每一步，都接着了解。</h2></div><div className="p-tool-grid">{[{href:"/chat",name:"随时问军师",note:"不知道怎么回？一起想清楚。",icon:MessageCircle,tone:"lav"},{href:"/voice",name:"直接说出来",note:"用声音，把在意的事慢慢说。",icon:AudioLines,tone:"peach"},{href:"/archive",name:"你们的关系档案",note:"记住过去每一次，看见关系变化。",icon:Users,tone:"mint"}].map(({href,name,note,icon:Tool,tone})=><a className={"p-tool "+tone} href={href} key={href}><Tool size={30}/><h3>{name}</h3><p>{note}</p><span className="p-row"><b>进入</b><span className="p-circle"><ArrowUpRight size={21}/></span></span></a>)}</div><div className="p-safety"><ShieldCheck size={16}/>资料由你掌控 · 分析前确认积分费用<a href="/privacy">了解隐私 <ArrowRight size={14}/></a></div></section></div>;
 }
 
