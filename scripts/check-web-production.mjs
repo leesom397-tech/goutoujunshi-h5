@@ -73,9 +73,9 @@ await Promise.all(["/workspace", "/register", "/login", "/sales", "/privacy", "/
   requireValue(visible.length > 30, "No meaningful page content.");
   requireValue(!/lovetalk/i.test(visible), "Visible previous branding found.");
   if (path === "/workspace") {
-    requireValue(response.text.includes("relationship-daylight.webp"), "Original glass relationship artwork missing.");
-    requireValue(response.text.includes("cz-glass-stage"), "Glass animation component missing.");
-    requireValue(response.text.includes("cz-brand-mark") && response.text.includes("lucide-orbit"), "Restored orbit brand mark missing.");
+      requireValue(response.text.includes("feature-deck"), "Feature preview cards missing.");
+      requireValue(response.text.includes("workspace-tools"), "Feature entry section missing.");
+      requireValue(response.text.includes("cz-brand-mark"), "Relationship brand mark missing.");
   }
   return { title, visibleCharacters: visible.length, previousBrandVisible: false };
 })));

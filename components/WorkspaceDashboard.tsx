@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { ArrowRight, ArrowUpRight, ScanLine, Images, ScanFace, MessageCircle, AudioLines, UserPlus, Users, Sparkles, Clock3, FileText, Check, Circle, ShieldCheck, RefreshCw, Coins, Layers3 } from "lucide-react";
-import { GlassScene } from "@/components/GlassScene";
+
 import "./workspace-dashboard.css";
 import "./workspace-followups.css";
 
@@ -41,7 +41,7 @@ export function WorkspaceDashboard({ name, owner, balance, active, admin }: { na
   return <div className="desk" data-testid="member-workspace">
     <section className="desk-hero">
       <div className="desk-hero-copy"><span className="desk-eyebrow"><span/> 我的关系空间</span><h1>欢迎回来，<span>{name}</span></h1><p>今天，有什么在意的事？我们慢慢理清。</p><div className="desk-hero-actions"><a className="desk-primary" href={data?.reports[0] ? `/report?id=${encodeURIComponent(data.reports[0].id)}` : "/analyze?mode=chat"}>{data?.reports[0] ? <Clock3 size={18}/> : <ScanLine size={18}/>} {data?.reports[0] ? "继续上次分析" : "开始新分析"} <ArrowUpRight size={18}/></a>{!!data?.reports.length && <a className="desk-secondary" href="/analyze?mode=chat">上传新材料 <ArrowRight size={16}/></a>}</div></div>
-      <div className="desk-hero-art"><GlassScene decorative/><span className="desk-art-label"><MessageCircle size={15}/> 你的感受，也值得被认真对待</span></div>
+      <div className="desk-hero-art"><div className="desk-hero-shortcuts"><a href="/analyze?mode=chat"><ScanLine size={30}/><b>看懂一句话</b><span>截图分析 →</span></a><a href="/chat"><MessageCircle size={30}/><b>理清下一步</b><span>问问军师 →</span></a></div><span className="desk-art-label"><MessageCircle size={15}/> 你的感受，也值得被认真对待</span></div>
     </section>
     <section className="desk-metrics" aria-label="我的空间概况"><a href="/archive"><Users size={19}/><span><strong>{data ? data.peopleTotal : "—"}</strong><small>人物档案</small></span><ArrowUpRight size={16}/></a><a href="/reports"><FileText size={19}/><span><strong>{data ? data.total : "—"}</strong><small>可回看的聊天报告</small></span><ArrowUpRight size={16}/></a><a href="/account"><Coins size={19}/><span><strong>{balance ?? "—"}</strong><small>可用积分</small></span><ArrowUpRight size={16}/></a></section>
     {active === false && <div className="desk-access"><ShieldCheck size={20}/><div><b>先准备资料，开通后就能分析</b><p>联系客服确认服务与积分；人物档案可以先建立。</p></div><a href="/account#contact">联系开通 <ArrowRight size={16}/></a></div>}

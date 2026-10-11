@@ -18,6 +18,7 @@ import "./warmth.css";
 import "./section-hierarchy.css";
 import "./report-editorial.css";
 import "./report-design.css";
+import "./playful-product.css";
 import { AuxiliaryWebNav } from "@/components/AuxiliaryWebNav";
 import {PwaRegistration} from "@/components/pwa-registration";
 
@@ -38,7 +39,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN">
-      <body className="antialiased"><PwaRegistration/><AuxiliaryWebNav/>{children}</body>
+      <body className="antialiased cz-product"><PwaRegistration/><AuxiliaryWebNav/>{children}</body>
     </html>
   );
 }
