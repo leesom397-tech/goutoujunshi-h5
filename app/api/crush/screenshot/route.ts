@@ -47,8 +47,8 @@ export async function analyzeScreenshot(request:Request,owner:string){
     // A mobile client may time out after the report was saved. Resolve the
     // same owner/request before calling vision again; otherwise a retry pays
     // for OCR twice and can exceed the mobile request window repeatedly.
-    const prior=await getD1().prepare("SELECT r.status,r.result,r.updated_at,t.subject_id FROM coach_crush_reports r JOIN coach_crush_threads t ON t.id=r.thread_id AND t.owner_id=r.owner_id WHERE r.owner_id=? AND r.source_key=? AND r.expires_at>?")
-      .bind(owner,"web-image:"+body.requestId,Date.now()).first<{status:string;result:string|null;updated_at:number;subject_id:string|null}>();
+    const prior=await getD1().prepare("SELECT r.status,r.result,r.updated_at,COALESCE(t.subject_id,json_extract(r.result,'$.subjectId')) AS subject_id FROM coach_crush_reports r LEFT JOIN coach_crush_threads t ON t.id=r.thread_id AND t.owner_id=r.owner_id WHERE r.owner_id=? AND r.source_key=?")
+      .bind(owner,"web-image:"+body.requestId).first<{status:string;result:string|null;updated_at:number;subject_id:string|null}>();
     if(prior){
       if(prior.subject_id!==subject)throw new CrushError("本次截图对应的对象已改变，请重新选择截图。",409);
       if(prior.status==="done"&&prior.result)return json(readableReport(JSON.parse(prior.result) as CrushResult));

@@ -14,7 +14,7 @@ export async function GET(request:Request){
     const id=new URL(request.url).searchParams.get("id");
     if(id)return json(await ownedReport(user.userId,id));
     const s=await getSettings(user.userId);
-    const reports=await getD1().prepare("SELECT r.id, r.created_at, r.thread_id, t.subject_id, s.label AS subject_label FROM coach_crush_reports r LEFT JOIN coach_crush_threads t ON t.id = r.thread_id AND t.owner_id = r.owner_id LEFT JOIN coach_subjects s ON s.id = t.subject_id AND s.owner_id = r.owner_id WHERE r.owner_id = ? AND r.status = 'done' AND r.expires_at > ? ORDER BY r.created_at DESC LIMIT 10").bind(user.userId,Date.now()).all();
+    const reports=await getD1().prepare("SELECT r.id, r.created_at, r.thread_id, t.subject_id, s.label AS subject_label FROM coach_crush_reports r LEFT JOIN coach_crush_threads t ON t.id = r.thread_id AND t.owner_id = r.owner_id LEFT JOIN coach_subjects s ON s.id = t.subject_id AND s.owner_id = r.owner_id WHERE r.owner_id = ? AND r.status = 'done' ORDER BY r.created_at DESC LIMIT 10").bind(user.userId).all();
     return json({enabled:!!s?.consent_at,imageEnabled:!!(s?.consent_at&&s.image_consent_at),imageSelfSide:s?.image_self_side||"ask",quickJevEnabled:!!(s?.consent_at&&s.jev_consent_at),fullJevEnabled:!!(s?.consent_at&&s.jev_full_consent_at),affinityEnabled:!!(s?.consent_at&&s.jev_consent_at&&s.affinity_consent_at),provider:s?.provider||"qwen",...classifierStatus(),wechatConfigured:wechatPublicConfig().configured,reports:reports.results});
   }catch(e){return failure(e);}
 }

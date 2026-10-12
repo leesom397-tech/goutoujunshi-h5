@@ -40,7 +40,7 @@ globalThis.fetch = async (url, options) => {
 
 function fixture() {
   const sql = new DatabaseSync(':memory:');
-  for (const name of ['0000_lying_leech', '0003_wealthy_stephen_strange']) {
+  for (const name of ['0000_lying_leech', '0003_wealthy_stephen_strange', '0018_saved_analysis_reports']) {
     sql.exec(readFileSync(new URL('../drizzle/' + name + '.sql', import.meta.url), 'utf8'));
   }
   let reads = 0;
@@ -130,7 +130,7 @@ try {
     assert.doesNotMatch(JSON.stringify(data), /PRIVATE FACT|PRIVATE EVIDENCE|Archived/);
   });
 
-  await test('only completed unexpired reports surface; malformed JSON degrades without query failure', async f => {
+  await test('completed reports survive old expiry; malformed JSON degrades without query failure', async f => {
     f.report('fresh', owner);
     f.report('expired', owner, { expiresAt: f.now - 1000 });
     f.report('failed', owner, { status: 'failed' });
@@ -138,8 +138,8 @@ try {
     f.report('broken-json', owner, { result: '{bad json' });
     f.report('fallback', owner, { result: { decision: { possibleIntent: '可以核对的替代解释' } } });
     const data = await overview.workspaceOverview(f.db, owner);
-    assert.deepEqual(data.reports.map(r => r.id).sort(), ['broken-json', 'fallback', 'fresh']);
-    assert.equal(data.total, 3);
+    assert.deepEqual(data.reports.map(r => r.id).sort(), ['broken-json', 'expired', 'fallback', 'fresh']);
+    assert.equal(data.total, 4);
     assert.equal(data.reports.find(r => r.id === 'fallback').summary, '可以核对的替代解释');
     assert.ok(data.reports.find(r => r.id === 'broken-json').summary.length > 0);
   });
@@ -309,7 +309,7 @@ try {
     assert.ok(data.followups.every(item => item.subjectId === 'alice-person'));
   });
 
-  await test('expired, absent and unauthorized reports cannot become available from archived summaries', async f => {
+  await test('completed reports stay available while absent and unauthorized reports remain hidden', async f => {
     f.updatePerson('alice-person', { relationshipHistory: [
       { reportId: 'fresh-source', nextStep: '有效报告建议', updatedAt: f.now, summary: '已存摘要' },
       { reportId: 'expired-source', nextStep: '过期报告建议', updatedAt: f.now - 1, summary: '过期但已归档摘要' },
@@ -319,7 +319,7 @@ try {
     f.report('expired-source', owner, { threadId: 'alice-thread', expiresAt: f.now - 1000 });
     let data = await overview.workspaceOverview(f.db, owner);
     assert.deepEqual(data.followups.map(item => [item.reportId, item.sourceAvailable, item.reportAvailable]), [
-      ['fresh-source', true, true], ['expired-source', true, false], ['absent-source', false, false],
+      ['fresh-source', true, true], ['expired-source', true, true], ['absent-source', false, false],
     ]);
     f.settings(owner, null);
     data = await overview.workspaceOverview(f.db, owner);

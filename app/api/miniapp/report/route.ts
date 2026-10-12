@@ -2,6 +2,10 @@ import { miniappOwner } from "@/lib/miniapp-auth";
 import { ownedReport } from "@/lib/crush/service";
 import { CrushError } from "@/lib/crush/types";
 import { loadRelationshipFit } from "@/lib/relationship-context";
+import { getD1 } from "@/db";
+import { readAnalysisReport, deleteAnalysisReport } from "@/lib/saved-reports.mjs";
+import { readableReport } from "@/lib/crush/evidence";
+import type { CrushResult } from "@/lib/crush/types";
 
 export const runtime = "edge";
 const json = (data: unknown, status = 200) => Response.json(data, { status, headers: { "Cache-Control": "no-store" } });
@@ -13,14 +17,31 @@ export async function GET(request: Request) {
   const id = new URL(request.url).searchParams.get("id") || "";
   if (!idPattern.test(id)) return json({ error: "报告编号不正确。" }, 400);
   try {
+    const saved=await readAnalysisReport(getD1(),identity.ownerId,id);
+    if(saved){
+      if(saved.kind==='chat'){
+        saved.entries=saved.entries?.map((entry:CrushResult)=>readableReport(entry));
+        saved.report=readableReport(saved.report as CrushResult);
+      }
+      return json(saved);
+    }
     const report = await ownedReport(identity.ownerId, id);
     const latestCompatibility = await loadRelationshipFit(identity.ownerId, report.subjectId);
     // Do not overwrite a stored historical assessment with a live projection.
-    return json({ report: { ...report, latestCompatibility, compatibilityContext: {
+    return json({kind:'chat',reportId:id,subjectId:report.subjectId,retention:'until-deleted',report: { ...report, reportId:id,retention:'until-deleted',latestCompatibility, compatibilityContext: {
       basis: 'current-confirmed-profile', computedAt: Date.now(), methodVersion: latestCompatibility?.methodVersion || null
     } } });
   } catch (error) {
     if (error instanceof CrushError) return json({ error: error.message }, error.status);
     throw error;
   }
+}
+
+export async function DELETE(request:Request){
+  const identity=await miniappOwner(request);
+  if(!identity)return json({error:'请登录后删除报告。'},401);
+  if(new URL(request.url).pathname.startsWith('/api/web/') && request.headers.get('origin')!==new URL(request.url).origin)return json({error:'请求来源无效。'},403);
+  const id=new URL(request.url).searchParams.get('id')||'';
+  if(!idPattern.test(id))return json({error:'报告编号不正确。'},400);
+  return await deleteAnalysisReport(getD1(),identity.ownerId,id)?json({ok:true}):json({error:'报告不存在或已删除。'},404);
 }

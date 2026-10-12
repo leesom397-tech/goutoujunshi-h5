@@ -61,16 +61,16 @@ async function state(owner: string) {
   ]);
   const signalRows = profile?.consent_at && !profile.paused ? await db.prepare(`
     SELECT subject_id, report_id, affinity, result, updated_at FROM (
-      SELECT t.subject_id, r.id AS report_id,
+      SELECT s.id AS subject_id, r.id AS report_id,
         CASE WHEN json_valid(r.result) THEN json_extract(r.result, '$.affinity') ELSE NULL END AS affinity,
         r.result,
         r.updated_at
       FROM coach_crush_reports r
-      JOIN coach_crush_threads t ON t.id=r.thread_id AND t.owner_id=r.owner_id
-      JOIN coach_subjects s ON s.id=t.subject_id AND s.owner_id=r.owner_id AND s.status='active'
-      WHERE r.owner_id=? AND r.status='done' AND r.expires_at>? AND t.expires_at>?
+      LEFT JOIN coach_crush_threads t ON t.id=r.thread_id AND t.owner_id=r.owner_id
+      JOIN coach_subjects s ON s.id=COALESCE(t.subject_id,json_extract(CASE WHEN json_valid(r.result) THEN r.result ELSE '{}' END,'$.subjectId')) AND s.owner_id=r.owner_id AND s.status='active'
+      WHERE r.owner_id=? AND r.status='done'
     ) AS signal_source ORDER BY updated_at ASC
-  `).bind(owner, Date.now(), Date.now()).all<{ subject_id: string; report_id: string; affinity: string | null; result: string | null; updated_at: number }>() : null;
+  `).bind(owner).all<{ subject_id: string; report_id: string; affinity: string | null; result: string | null; updated_at: number }>() : null;
   const parsedSignals = (signalRows?.results || []).map(row => {
     let affinity: Record<string, unknown> = {};
     let report: Record<string, unknown> = {};

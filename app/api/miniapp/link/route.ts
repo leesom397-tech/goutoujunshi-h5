@@ -35,16 +35,16 @@ export async function POST(request: Request) {
   if (existing && existing.owner_id !== user.userId) {
     if (!existing.owner_id.startsWith("miniapp:")) return json({ error: "这个微信身份已绑定其他 成子 账号，请先在原账号解除绑定。" }, 409);
     const privateOwner = existing.owner_id;
-    const protectedTables = ["coach_subjects", "coach_crush_reports", "coach_crush_threads", "coach_positionings", "coach_facts"] as const;
+    const protectedTables = ["coach_subjects", "coach_crush_reports", "coach_saved_reports", "coach_crush_threads", "coach_positionings", "coach_facts"] as const;
     for (const table of protectedTables) {
-      const data = await db.prepare(`SELECT 1 AS found FROM ${table} WHERE owner_id=? LIMIT 1`).bind(privateOwner).first();
+      const data = await db.prepare(`SELECT 1 AS found FROM ${table} WHERE owner_id=? ${table==='coach_saved_reports'?"AND status!='deleted'":''} LIMIT 1`).bind(privateOwner).first();
       if (data) return json({ error: "小程序里已有独立档案或报告；为避免覆盖，请先在小程序清理或保留这个账号，不会自动合并。" }, 409);
     }
   }
   const now = Date.now();
   const result = await db.batch([
-    db.prepare("UPDATE coach_miniapp_links SET owner_id=?,updated_at=? WHERE open_id=? AND owner_id=? AND NOT EXISTS (SELECT 1 FROM coach_subjects WHERE owner_id=?) AND NOT EXISTS (SELECT 1 FROM coach_crush_reports WHERE owner_id=?) AND NOT EXISTS (SELECT 1 FROM coach_crush_threads WHERE owner_id=?) AND NOT EXISTS (SELECT 1 FROM coach_positionings WHERE owner_id=?) AND NOT EXISTS (SELECT 1 FROM coach_facts WHERE owner_id=?)")
-      .bind(user.userId, now, row.open_id, existing?.owner_id || "", ...Array(5).fill(existing?.owner_id || "")),
+    db.prepare("UPDATE coach_miniapp_links SET owner_id=?,updated_at=? WHERE open_id=? AND owner_id=? AND NOT EXISTS (SELECT 1 FROM coach_subjects WHERE owner_id=?) AND NOT EXISTS (SELECT 1 FROM coach_crush_reports WHERE owner_id=?) AND NOT EXISTS (SELECT 1 FROM coach_crush_threads WHERE owner_id=?) AND NOT EXISTS (SELECT 1 FROM coach_positionings WHERE owner_id=?) AND NOT EXISTS (SELECT 1 FROM coach_facts WHERE owner_id=?) AND NOT EXISTS (SELECT 1 FROM coach_saved_reports WHERE owner_id=? AND status!='deleted')")
+      .bind(user.userId, now, row.open_id, existing?.owner_id || "", ...Array(6).fill(existing?.owner_id || "")),
     db.prepare("DELETE FROM coach_miniapp_pairings WHERE code_hash=?").bind(hash),
   ]);
   if (!result[0].meta.changes) return json({ error: "这个微信身份已绑定其他账号。" }, 409);

@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { ScanLine, Link2, MessageSquare, Images, UserRound, Sparkles, Coins, ArrowRight, ArrowUp, ArrowDown, Check, CheckCheck, Clipboard, CloudUpload, FileCheck2, FolderHeart, ImagePlus, LoaderCircle, Plus, RotateCcw, ShieldCheck, SlidersHorizontal, X } from "lucide-react";
+import { ScanLine, Link2, MessageSquare, Images, UserRound, Sparkles, Coins, ArrowRight, ArrowUp, ArrowDown, Check, CheckCheck, Clipboard, CloudUpload, FileCheck2, FolderHeart, ImagePlus, LoaderCircle, Plus, RotateCcw, ShieldCheck, SlidersHorizontal, History, BookmarkCheck, X } from "lucide-react";
 import { AnalysisIllustration } from "@/components/web-analysis/Visuals";
 import { WebNav } from "@/components/WebNav";
 import { AnalysisAuthGate } from "@/components/AnalysisAuthGate";
@@ -26,13 +26,33 @@ const analysisModes = [
 export default function AnalyzePage() {
   const account = useAccount(), [mode, setMode] = useState("chat"), [files, setFiles] = useState<File[]>([]), [previews, setPreviews] = useState<string[]>([]), [side, setSide] = useState(""), [subject, setSubject] = useState(""), [targetSelf, setTargetSelf] = useState(false), [compare, setCompare] = useState(true), [consent, setConsent] = useState(false), [linkConsent, setLinkConsent] = useState(false), [busy, setBusy] = useState(false), [preparing, setPreparing] = useState(false), [task, setTask] = useState<UploadTask | null>(null), [status, setStatus] = useState<Json | null>(null), [result, setResult] = useState<Json | null>(null), [error, setError] = useState(""), [url, setUrl] = useState(""), [linkResult, setLinkResult] = useState<Json | null>(null), [previous, setPrevious] = useState<Json | null>(null), [previousCount, setPreviousCount] = useState(0), [resultSources, setResultSources] = useState<File[]>([]), [restoredOwner, setRestoredOwner] = useState<string | null>(null);
   const controller = useRef<AbortController | null>(null), generation = useRef(0), preparingRef = useRef(false), owner = account.account?.account?.userId, linkId = useRef<string | null>(null), resultRef = useRef<HTMLDivElement>(null), fileInputRef = useRef<HTMLInputElement>(null), dragDepth = useRef(0);
+  const avatarDialog = useRef<HTMLDialogElement>(null);
+  const [lastReport, setLastReport] = useState<Json | null>(null);
+  const [restoringReport, setRestoringReport] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [clock, setClock] = useState(Date.now());
   useEffect(() => { if(!busy)return; const timer=setInterval(()=>setClock(Date.now()),1000); return ()=>clearInterval(timer); }, [busy]);
   const [showAuth, setShowAuth] = useState(false), [pendingAuth, setPendingAuth] = useState(false), [authComplete, setAuthComplete] = useState(false);
   useEffect(() => { const search = new URLSearchParams(window.location.search); const selected = search.get("mode") || search.get("kind"); if (["chat", "social", "moments", "profile"].includes(selected || "")) setMode(selected === "profile" ? "social" : selected!); setSubject(search.get("subjectId") || ""); setTargetSelf(search.get("target") === "self"); return () => { generation.current++; controller.current?.abort(); }; }, []);
   useEffect(() => { const next = files.map(file => URL.createObjectURL(file)); setPreviews(next); return () => next.forEach(URL.revokeObjectURL); }, [files]);
-  useEffect(() => { generation.current++; controller.current?.abort(); setBusy(false); preparingRef.current = false; setPreparing(false); setPrevious(null); setPreviousCount(0); setConsent(false); setLinkConsent(false); setUrl(""); setLinkResult(null); setTask(null); setResult(null); setResultSources([]); setFiles([]); setStatus(null); setRestoredOwner(owner || null); if (!owner) return; let current = true; void uploadStore(owner).then(saved => { if (!current) return; if (!saved) { try { const query = new URLSearchParams(window.location.search); if (["mode", "kind", "subjectId", "target"].some(key => query.has(key))) return; const stored = JSON.parse(sessionStorage.getItem(`chengzi-analysis:${owner}`) || "null"); if (stored) { setResult(stored.result); setMode(stored.mode); setSubject(stored.result.subjectId || ""); setTargetSelf(!!stored.result.targetSelf); } } catch {} return; } setTask(saved); setMode(saved.mode); setFiles(saved.files); setSubject(saved.parameters.subjectId || ""); setSide(saved.parameters.selfSide || ""); setTargetSelf(saved.parameters.target === "self"); setCompare(saved.parameters.compareWithSelf === true); setPrevious(saved.parameters.previous || null); setPreviousCount(saved.parameters.previousCount || 0); setStatus({ status: "saved" }); }).catch(e => setError(message(e))); return () => { current = false; }; }, [owner]);
+  useEffect(() => {
+    generation.current++; controller.current?.abort(); setBusy(false); preparingRef.current=false; setPreparing(false); setPrevious(null); setPreviousCount(0); setConsent(false); setLinkConsent(false); setUrl(''); setLinkResult(null); setTask(null); setResult(null); setResultSources([]); setFiles([]); setStatus(null); setLastReport(null); setRestoringReport(false); setRestoredOwner(owner||null);
+    if(!owner)return; let current=true;
+    const query=new URLSearchParams(window.location.search),savedId=query.get('reportId');
+    void api('/api/web/report/list?page=1&pageSize=1').then(value=>{if(current)setLastReport(value.reports?.[0]||null);}).catch(()=>{});
+    if(savedId){
+      setRestoringReport(true);
+      void api('/api/web/report?id='+encodeURIComponent(savedId)).then(value=>{
+        if(!current)return; const restored={...value.report,...(value.kind==='chat'||value.report?.lines ? {entries:Array.isArray(value.entries)?value.entries:[value.report]} : {}),reportId:value.reportId||savedId,subjectId:value.subjectId||value.report?.subjectId||null,targetSelf:value.targetSelf??value.report?.targetSelf,totalCount:value.totalCount||value.report?.totalCount,selfSide:value.selfSide||value.report?.selfSide};
+        setResult(restored);setMode(value.kind==='moments'?'moments':value.kind==='social'?'social':'chat');setSubject(restored.subjectId||'');setTargetSelf(!!restored.targetSelf);setSide(restored.selfSide||'');
+      }).catch(e=>{if(current)setError(message(e));}).finally(()=>{if(current)setRestoringReport(false);});
+    } else void uploadStore(owner).then(saved=>{
+      if(!current)return;
+      if(!saved){try{if(['mode','kind','subjectId','target','new'].some(key=>query.has(key)))return;const stored=JSON.parse(sessionStorage.getItem(`chengzi-analysis:${owner}`)||'null');if(stored?.result){setResult(stored.result);setMode(stored.mode);setSubject(stored.result.subjectId||'');setTargetSelf(!!stored.result.targetSelf);}}catch{}return;}
+      setTask(saved);setMode(saved.mode);setFiles(saved.files);setSubject(saved.parameters.subjectId||'');setSide(saved.parameters.selfSide||'');setTargetSelf(saved.parameters.target==='self');setCompare(saved.parameters.compareWithSelf===true);setPrevious(saved.parameters.previous||null);setPreviousCount(saved.parameters.previousCount||0);setStatus({status:'saved'});
+    }).catch(e=>{if(current)setError(message(e));});
+    return()=>{current=false;};
+  },[owner]);
   const costKey = mode === "chat" ? files.length <= 3 ? "analysisSmall" : files.length <= 6 ? "analysisMedium" : "analysisLarge" : "profile";
   const disabled = busy || preparing || !!task;
   async function changeMode(next: string) {
@@ -104,9 +124,9 @@ export default function AnalyzePage() {
     return () => window.removeEventListener("paste", paste);
   }, [disabled, owner, files, mode, previousCount]);
   function scrollToStart() { window.scrollTo({ top: 0, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" }); }
-  function newAnalysis() { if (disabled) return; resetMaterials(); setSubject(""); setSide(""); setLinkResult(null); try { sessionStorage.removeItem(`chengzi-analysis:${owner}`); } catch {} scrollToStart(); }
+  function newAnalysis() { if (disabled) return; const nextUrl=new URL(window.location.href);nextUrl.searchParams.delete('reportId');nextUrl.searchParams.set('new','1');nextUrl.hash='';window.history.replaceState(null,'',nextUrl.pathname+nextUrl.search); resetMaterials(); setSubject(""); setSide(""); setLinkResult(null); try { sessionStorage.removeItem(`chengzi-analysis:${owner}`); } catch {} scrollToStart(); }
   function onStatus(value: Json) { setStatus(value); }
-  async function execute(currentTask: UploadTask) { setBusy(true); setError(""); controller.current?.abort(); const abort = new AbortController(); controller.current = abort; try { const completed = await runUpload(currentTask, onStatus, abort.signal); if (abort.signal.aborted) return; const savedResult = { ...completed.result, subjectId: currentTask.parameters.subjectId || null, targetSelf: currentTask.parameters.target === "self", totalCount: completed.totalCount || completed.result?.totalCount || (currentTask.parameters.previousCount || 0) + currentTask.files.length }; setResult(savedResult); setResultSources(currentTask.files); try { sessionStorage.setItem(`chengzi-analysis:${currentTask.owner}`, JSON.stringify({ mode: currentTask.mode, result: savedResult })); } catch {} setTask(null); setFiles([]); setPrevious(null); setPreviousCount(0); setConsent(false); void account.refresh(); setTimeout(() => { resultRef.current?.focus({ preventScroll: true }); resultRef.current?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start" }); }, 100); } catch (e) { if (abort.signal.aborted) return; setError(message(e)); if ((e as WebError).details?.terminal) { setTask(null); const partial = (e as WebError).details?.partialResult; if (partial?.entries?.length) { setResult({ ...partial, subjectId: currentTask.parameters.subjectId || null, targetSelf: currentTask.parameters.target === "self", incomplete: true, totalCount: currentTask.files.length }); setResultSources(currentTask.files); } void account.refresh(); } } finally { if (!abort.signal.aborted) setBusy(false); } }
+  async function execute(currentTask: UploadTask) { setBusy(true); setError(""); controller.current?.abort(); const abort = new AbortController(); controller.current = abort; try { const completed = await runUpload(currentTask, onStatus, abort.signal); if (abort.signal.aborted) return; const savedResult = { ...completed.result, subjectId: currentTask.parameters.subjectId || null, targetSelf: currentTask.parameters.target === "self", totalCount: completed.totalCount || completed.result?.totalCount || (currentTask.parameters.previousCount || 0) + currentTask.files.length }; setResult(savedResult); setResultSources(currentTask.files); const savedId=savedResult.reportId || savedResult.entries?.[0]?.id; if(savedId){const nextUrl=new URL(window.location.href);nextUrl.searchParams.set('reportId',savedId);nextUrl.searchParams.set('mode',currentTask.mode);nextUrl.searchParams.delete('new');nextUrl.hash='analysis-result';window.history.replaceState(null,'',nextUrl.pathname+nextUrl.search+nextUrl.hash);setLastReport({id:savedId,kind:currentTask.mode});} try { sessionStorage.setItem(`chengzi-analysis:${currentTask.owner}`, JSON.stringify({ mode: currentTask.mode, result: savedResult })); } catch {} setTask(null); setFiles([]); setPrevious(null); setPreviousCount(0); setConsent(false); void account.refresh(); setTimeout(() => { resultRef.current?.focus({ preventScroll: true }); resultRef.current?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start" }); }, 100); } catch (e) { if (abort.signal.aborted) return; setError(message(e)); if ((e as WebError).details?.terminal) { setTask(null); const partial = (e as WebError).details?.partialResult; if (partial?.entries?.length) { setResult({ ...partial, subjectId: currentTask.parameters.subjectId || null, targetSelf: currentTask.parameters.target === "self", incomplete: true, totalCount: currentTask.files.length }); setResultSources(currentTask.files); } void account.refresh(); } } finally { if (!abort.signal.aborted) setBusy(false); } }
   async function submit() { if (busy || !owner) return; if (task) { await execute(task); return; } if (!hasPrice(account.account, costKey)) { setError("本次价格暂未取回，请重新读取价格后再开始。"); return; } if (!files.length) { setError("先选择至少一张截图。"); return; } if (mode === "chat" && !["left", "right"].includes(side)) { setError("请确认截图里哪侧气泡是你。"); return; } if (!consent) { setError("请确认材料提供权与本次处理范围。"); return; } setBusy(true); setError(""); const activeGeneration = generation.current; try { if (mode === "chat") await api("/api/web/settings", { consent: true, allowImageProcessing: true, selfSide: side }); if (activeGeneration !== generation.current) return; const next: UploadTask = { owner, taskId: crypto.randomUUID(), path: mode === "chat" ? "/api/web/screenshot/batch" : "/api/web/social-profile", mode, files, expiresAt: Date.now() + 86_400_000, parameters: { confirmed: true, ...(mode === "chat" ? { selfSide: side, sessionId: crypto.randomUUID(), subjectId: subject || null } : { materialType: mode === "moments" ? "moments" : "profile", target: targetSelf ? "self" : "other", compareWithSelf: !targetSelf && compare, subjectId: targetSelf ? null : subject || null, previous: previous ? { ...previous, fit: !targetSelf && compare ? previous.fit : [] } : null, previousCount }) } }; await uploadStore(owner, next); if (activeGeneration !== generation.current) return; setTask(next); await execute(next); } catch (e) { setError(message(e)); setBusy(false); } }
   async function cancel() { if (!task || busy) return; setBusy(true); setError(""); try { try { await api(task.path, { taskId: task.taskId, uploadAction: "cancel" }); } catch (e) { if (![404, 410].includes((e as WebError).status)) throw e; } await uploadStore(task.owner, null); setTask(null); setStatus(null); setConsent(false); void account.refresh(); } catch (e) { setError(message(e)); } finally { setBusy(false); } }
   async function analyzeLink() { if (busy || !owner) return; if (!hasPrice(account.account, "profile")) { setError("主页读取价格暂未取回，请重新读取价格后再开始。"); return; } if (!linkConsent) { setError("请确认读取公开主页并建立人物档案。"); return; } const activeGeneration = generation.current; setBusy(true); setError(""); try { linkId.current ||= crypto.randomUUID(); const data = await api("/api/web/social-link", { url: url.trim(), confirmed: true, requestId: linkId.current }); if (activeGeneration !== generation.current) return; setLinkResult(data); setSubject(data.subjectId || ""); linkId.current = null; void account.refresh(); } catch (e) { setError(message(e)); if ((e as WebError).details?.code === "CREDIT_RELEASED") linkId.current = null; } finally { setBusy(false); } }
@@ -133,6 +153,9 @@ export default function AnalyzePage() {
     <WebNav/>
     <main className={`wa-shell ax-shell ${styles.page}`}>
       <AuroraPageHero eyebrow="从材料到判断" title={mode === "chat" ? "聊天分析" : mode === "moments" ? "朋友圈分析" : "社交主页分析"} description={selectedMode.description}/>
+      {restoringReport && <p className={styles.resumeBar} role="status"><LoaderCircle size={19} className="ax-spin"/>正在取回已保存的完整报告…</p>}
+      {owner && !visibleResult && lastReport && !restoringReport && <a className={styles.resumeBar} href={`/report?id=${lastReport.id}#report-detail-action`}><History size={21}/><span><strong>继续看上次的报告</strong><small>之前的分析都在历史报告中</small></span><ArrowRight size={19}/></a>}
+      {owner && !visibleResult && error && new URLSearchParams(typeof window==='undefined'?'':window.location.search).has('reportId') && <ErrorNotice error={error}/>}
       {owner && account.error && <AccountNotice state={account}/>}
       {pendingAuth && <p role="status" className="wa-muted">正在确认账户，请稍等…</p>}
       {authComplete && owner && !hasMaterials && <p role="status" className="wa-muted">已登录，点击下方选图即可继续。</p>}
@@ -147,7 +170,7 @@ export default function AnalyzePage() {
         })}
       </ol>}
 
-      {!visibleResult && <>
+      {!visibleResult && !restoringReport && <>
         <div className="ax-mode-heading"><h2>选择分析类型</h2><a href="#analysis-example">先看分析案例 ↓</a></div>
         <div className={`ax-modes ${styles.entryModes}`} role="tablist" aria-label="分析材料" onKeyDown={event => {
           if (disabled || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
@@ -218,36 +241,30 @@ export default function AnalyzePage() {
 
             {hasMaterials && <section className="wa-card ax-confirm" id="analysis-confirm" aria-labelledby="analysis-confirm-title">
               <div className="ax-section-heading"><div><span className="ax-section-number">02 · 确认分析</span><h2 id="analysis-confirm-title">把分析对象和范围说清楚</h2></div><FileCheck2 size={23}/></div>
-              {mode === "chat" ? <div className="ax-side-setting">
-                <label className="wa-field">截图中哪侧气泡是你？
-                  <select value={side} disabled={disabled} onChange={e => { setSide(e.target.value); setConsent(false); setResult(null); }}>
-                    <option value="">请明确选择</option><option value="right">右侧是我</option><option value="left">左侧是我</option>
-                  </select>
-                </label>
-                <div className="ax-bubbles" aria-hidden="true"><span data-self={side === "left"}>{side === "left" ? "我" : side ? "对方" : "左侧"}</span><span data-self={side === "right"}>{side === "right" ? "我" : side ? "对方" : "右侧"}</span></div>
-                <p className="wa-muted">正确区分双方，才能给出适合你的回复建议。</p>
-              </div> : <label className="wa-field">这些资料属于谁？
+              {mode === "chat" ? <fieldset className={styles.sidePicker} disabled={disabled}>
+                <legend>截图中哪侧气泡是你？</legend><div role="group" aria-label="选择我的气泡位置">{([['left','左侧是我'],['right','右侧是我']] as const).map(([value,label])=><button type="button" key={value} aria-pressed={side===value} onClick={()=>{setSide(value);setConsent(false);setResult(null);}}><span className={styles.sidePreview} data-side={value}><MessageSquare size={24}/><MessageSquare size={24}/></span><strong>{label}</strong>{side===value?<Check size={20}/>:<span className={styles.radio}/>}</button>)}</div><p>{side ? `已确认：${side==='left'?'左侧':'右侧'}是我，${side==='left'?'右侧':'左侧'}是对方。` : '点一下确认，避免把你和对方认反。'}</p>
+              </fieldset> : <label className="wa-field">这些资料属于谁？
                 <select value={targetSelf ? "self" : "other"} disabled={disabled || previousCount > 0} onChange={e => { resetInterpretation(); setTargetSelf(e.target.value === "self"); setCompare(e.target.value !== "self"); setLinkConsent(false); }}>
                   <option value="other">我正在了解的人</option><option value="self">我自己的资料</option>
                 </select>
               </label>}
 
-              {(!targetSelf || mode === "chat") && <details className="ax-options" open={subject || previousCount > 0 ? true : undefined}>
-                <summary><SlidersHorizontal size={17}/><span>人物关联与分析偏好<small>{selectedPerson ? "已关联「" + selectedPerson.label + "」" : subject ? "已选择人物" : "可选 · 让这次分析连到长期关系"}</small></span><Plus size={16}/></summary>
+              {(!targetSelf || mode === "chat") && <section className={styles.personPicker} aria-labelledby="analysis-person-title">
+                <header><UserRound size={21}/><div><h3 id="analysis-person-title">这次在分析谁？</h3><p>{selectedPerson ? "已关联「" + selectedPerson.label + "」" : "选好人物，这次报告就能连到之前的互动。"}</p></div><span>可选</span></header>
                 <div className="ax-options-body">
-                  <PersonSelect people={account.people} value={subject} disabled={disabled || previousCount > 0} onChange={value => { if (mode !== "chat") resetInterpretation(); setSubject(value); setConsent(false); setResult(null); }} empty="本次先不归档"/>
-                  <p className="wa-muted">关联同一人物，后续可在档案里回看互动与长期趋势。</p>
+                  <PersonSelect people={account.people} value={subject} disabled={disabled || previousCount > 0} onChange={value => { if (mode !== "chat") resetInterpretation(); setSubject(value); setConsent(false); setResult(null); }} empty="暂不关联人物（报告仍会保存）"/>
+                  <p className="wa-muted">不关联人物也会保存完整报告；关联后可查看同一人的长期趋势。</p>
                   <InlinePerson disabled={disabled || !owner} onCreated={async id => { setSubject(id); setConsent(false); await account.refresh(); }}/>
                   {mode !== "chat" && <label className="wa-check"><input type="checkbox" checked={compare} disabled={disabled} onChange={e => { setCompare(e.target.checked); setConsent(false); setResult(null); }}/><span>同时与你的已确认档案做适配对照 <a href="/archive?tab=self">完善我的资料</a></span></label>}
                 </div>
-              </details>}
+              </section>}
 
               <div className="ax-order-summary" aria-live="polite">
                 <div><span>{selectedMode.label}</span><strong>{files.length ? files.length + " 张待分析" : task ? "继续已保存的任务" : "等待添加截图"}</strong></div>
                 <div><span>{previousCount > 0 ? "本次补图费用" : "本次费用"}</span><strong>{priceLabel(account.account, costKey)}</strong></div>
               </div>
               <label className="wa-check ax-consent"><input type="checkbox" checked={consent} disabled={disabled} onChange={e => { setConsent(e.target.checked); if (error === "请确认材料提供权与本次处理范围。") setError(""); }}/><span>我有权提供这些材料，同意将本次图片发送至阿里云百炼进行分析。上传中的图片会临时保存在当前浏览器以便断线续传，任务完成或取消后删除本机临时图片。</span></label>
-              {mode === "chat" && <p className="wa-muted ax-retention"><ShieldCheck size={15}/>聊天文字与报告保留 7 天；选定人物后保存互动摘要，用于长期趋势。</p>}
+              {mode === "chat" && <p className="wa-muted ax-retention"><ShieldCheck size={15}/>报告和识别出的文字长期保存到历史报告，由你决定何时删除。原截图不归档。</p>}
               <ErrorNotice error={error}/>
 
               {task && <section className="wa-status ax-task" aria-live="polite">
@@ -311,21 +328,14 @@ export default function AnalyzePage() {
             <div><span className="ax-section-number">{visibleResult.incomplete ? "已生成部分结果" : "本次分析已完成"}</span><h2>{visibleResult.incomplete ? "先查看已完成的内容" : "线索已理清，看看下一步。"}</h2><p>{resultCount ? resultCount + " 张材料 · " : ""}{selectedMode.label}{resultSubject ? " · 已关联人物" : " · 结合实际情况选择行动"}</p></div>
             <button disabled={disabled} onClick={newAnalysis}><Plus size={17}/>开始新分析</button>
           </section>
-          <nav className="ax-result-links" aria-label="分析结果快捷操作">
-            <a href={combined ? "#judgment" : "#analysis-report"}><FileCheck2 size={16}/>{combined ? "先看判断与下一步" : "阅读完整分析"}<ArrowRight size={15}/></a>
-            {combined && <a href="#replies"><MessageSquare size={16}/>查看可用回复<ArrowRight size={15}/></a>}
-            {(resultSubject || visibleResult.targetSelf) && <a href={visibleResult.targetSelf ? "/archive?tab=self" : "/archive?subjectId=" + resultSubject}><FolderHeart size={16}/>查看人物档案<ArrowRight size={15}/></a>}
-          </nav>
+          <div className={styles.savedReportBar}><BookmarkCheck size={21}/><div><strong>{visibleResult.incomplete ? '已完成的内容可在历史报告回看' : visibleResult.reportId || reports[0]?.id ? '完整报告已保存' : '本次分析结果'}</strong><p>{reports.length>1 ? `已将 ${reports.length} 张截图整理为一份报告。` : visibleResult.reportId || reports[0]?.id ? '离开或刷新后，可以从历史报告继续查看。' : '这是更新前的临时结果，可下载摘要留存。'}</p></div><a href="/reports"><History size={17}/>历史报告<ArrowRight size={15}/></a>{(visibleResult.reportId || reports[0]?.id) && <a href={`/report?id=${visibleResult.reportId || reports[0]?.id}#report-detail-action`}>打开已保存报告<ArrowRight size={15}/></a>}</div>
           <ErrorNotice error={error}/>
-
-          {resultSources.length > 0 && (visibleResult.targetSelf || resultSubject) && <details className="wa-card ax-avatar-option"><summary><UserRound size={17}/>从本次截图中选择人物头像<span>可选</span></summary><ArchiveAvatar key={visibleResult.targetSelf ? "self" : resultSubject} name={visibleResult.targetSelf ? "我的档案" : account.people.find(person => person.id === resultSubject)?.label || "所选人物"} subjectId={visibleResult.targetSelf ? undefined : resultSubject} disabled={busy} onSaved={account.refresh} sources={resultSources} candidates={combined ? reports.flatMap((entry, imageIndex) => (entry.decision?.avatarCandidates || []).filter((candidate: Json) => candidate.side !== side && ["left", "right"].includes(candidate.side)).map((candidate: Json) => ({ ...candidate, imageIndex }))) : visibleResult.avatarCandidates || []}/></details>}
-
+          {(resultSubject || visibleResult.targetSelf) && <section className={styles.resultPerson}><div><UserRound size={21}/><span><strong>{visibleResult.targetSelf ? '我的档案' : account.people.find(person=>person.id===resultSubject)?.label || '已关联人物'}</strong><small>这份分析已关联此人物</small></span></div><div><button type="button" onClick={()=>avatarDialog.current?.showModal()}><ImagePlus size={17}/>设置人物头像</button><a href={visibleResult.targetSelf ? '/archive?tab=self' : '/archive?subjectId='+resultSubject}>查看人物档案<ArrowRight size={15}/></a></div></section>}
+          <dialog ref={avatarDialog} className={styles.avatarDialog}><header><div><h2>设置人物头像</h2><p>头像用于区分人物，不影响分析结果。</p></div><button type="button" aria-label="关闭头像设置" onClick={()=>avatarDialog.current?.close()}><X size={20}/></button></header><ArchiveAvatar expanded key={visibleResult.targetSelf ? 'self' : resultSubject} name={visibleResult.targetSelf ? '我的档案' : account.people.find(person=>person.id===resultSubject)?.label || '所选人物'} subjectId={visibleResult.targetSelf ? undefined : resultSubject} disabled={busy} onSaved={async()=>{await account.refresh();avatarDialog.current?.close();}} sources={resultSources} candidates={combined ? reports.flatMap((entry,imageIndex)=>(entry.decision?.avatarCandidates||[]).filter((candidate:Json)=>candidate.side!==side && ['left','right'].includes(candidate.side)).map((candidate:Json)=>({...candidate,imageIndex}))) : visibleResult.avatarCandidates||[]}/></dialog>
           <div id="analysis-report">
             {combined && <>
-              {reports.length > 1 && <details className="ax-individual-reports"><summary><Images size={16}/>逐张查看原始报告 · {reports.length} 张</summary><div className="wa-actions">{reports.map((entry, index) => <a className="wa-button" key={entry.id} href={"/report?id=" + entry.id}>第 {index + 1} 张完整报告<ArrowRight size={15}/></a>)}</div></details>}
-              {reports.length === 1 && reports[0].id && <a className="ax-single-report" href={"/report?id=" + reports[0].id}>打开这张截图的完整报告<ArrowRight size={15}/></a>}
               {visibleResult.incomplete && <p className="wa-status">本组只完成 {reports.length}/{visibleResult.totalCount} 张，以下不是整组结论。本组预留积分将退回；未完成图片可单独重试。</p>}
-              <ChatReport key={owner + ":" + combined.id} report={combined} account={account.account} styleReportIds={reports.map(entry => entry.id).slice(-9)}/>
+              <ChatReport key={owner + ":" + combined.id} report={{...combined,reportId:visibleResult.reportId || combined.id}} account={account.account} styleReportIds={reports.map(entry => entry.id).slice(-9)}/>
             </>}
             {!combined && <SocialReport key={visibleResult.summary} report={visibleResult} account={account.account} subjectId={visibleResult.subjectId || ""} targetSelf={!!visibleResult.targetSelf} onSubjectChange={id => { setResult(value => value ? { ...value, subjectId: id } : value); void account.refresh(); }}/>}
           </div>

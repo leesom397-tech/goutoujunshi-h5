@@ -9,6 +9,7 @@ import * as creditResponse from '../lib/credit-response.mjs';
 import * as guard from '../lib/voice-turn-guard.mjs';
 import * as memory from '../lib/miniapp-voice-memory.mjs';
 import { nativeRegister } from '../lib/web-native-auth.mjs';
+import * as savedReports from '../lib/saved-reports.mjs';
 
 const origin = 'https://coach.example.test';
 const token = 'alice_session_token_123456789';
@@ -51,7 +52,7 @@ assert.equal((await identity.requestOwner(request('/api/miniapp/profile', undefi
 assert.equal(await identity.requestOwner(request('/api/web/profile', undefined, { Cookie: '', Authorization: 'Bearer ' + 'a'.repeat(64) }), miniEnv), null, 'mini-program bearer cannot impersonate a web account');
 
 const sql = new DatabaseSync(':memory:');
-for (const name of ['0015_account_credits', '0016_credit_receipts', '0017_web_accounts']) sql.exec(readFileSync(new URL('../drizzle/' + name + '.sql', import.meta.url), 'utf8'));
+for (const name of ['0000_lying_leech','0003_wealthy_stephen_strange','0015_account_credits', '0016_credit_receipts', '0017_web_accounts','0018_saved_analysis_reports']) sql.exec(readFileSync(new URL('../drizzle/' + name + '.sql', import.meta.url), 'utf8'));
 const db = { prepare(query) { let values = []; return { bind(...v) { values = v; return this; }, async first() { return sql.prepare(query).get(...values) || null; }, async all() { return { results: sql.prepare(query).all(...values) }; }, async run() { return { meta: { changes: Number(sql.prepare(query).run(...values).changes) } }; } }; }, async batch(statements) { sql.exec('BEGIN'); try { const result = []; for (const s of statements) result.push(await s.run()); sql.exec('COMMIT'); return result; } catch (e) { sql.exec('ROLLBACK'); throw e; } } };
 const owner = 'lovetalk:alice';
 let expectedOwner=owner;
@@ -68,6 +69,7 @@ const app = { async fetch(req, appEnv) {
   return Response.json({ ok: true, report: 'owner-scoped report' });
 } };
 const mocks = {
+  './saved-reports.mjs': savedReports,
   'cloudflare:workers': { DurableObject },
   '../dist/server/index.js': { default: app }, './dist/server/index.js': { default: app },
   './account-credits.mjs': credits, './lib/account-credits.mjs': credits,
@@ -179,7 +181,7 @@ const nativeResult=await (await worker.fetch(request('/api/web/social-profile?ta
 assert.equal(nativeResult.status,'done');
 assert.equal(stores.get(expectedOwner).get('job:'+nativeTask).webCookie,undefined);
 assert.equal((await credits.readCreditAccount(db,expectedOwner)).balance,20);
-sql.exec('CREATE TABLE coach_crush_budget (id TEXT PRIMARY KEY,uses INTEGER NOT NULL,expires_at INTEGER NOT NULL)');
+sql.exec('CREATE TABLE IF NOT EXISTS coach_crush_budget (id TEXT PRIMARY KEY,uses INTEGER NOT NULL,expires_at INTEGER NOT NULL)');
 const voiceStatus=await worker.fetch(request('/api/web/voice-live/status',undefined,{Cookie:nativeCookie}),env,ctx);
 assert.equal(voiceStatus.status,200);assert.equal((await voiceStatus.json()).configured,false);
 assert.equal((await worker.fetch(request('/api/web/voice-live?requestId='+crypto.randomUUID(),undefined,{Cookie:nativeCookie,Upgrade:'websocket'}),env,ctx)).status,503,'native voice authenticates before configuration check');

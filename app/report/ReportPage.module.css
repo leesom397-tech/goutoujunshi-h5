@@ -1,0 +1,10 @@
+.saved { display:flex; align-items:center; gap:12px; margin:0 0 24px; padding:16px 20px; border:1px solid #e7d9cb; border-radius:13px; background:#fffaf3; color:#786b5c; font-size:14px; line-height:1.7; }
+.saved > svg { flex-shrink:0; color:#8d725a; }
+.saved strong { display:block; font-size:16px; color:#44382d; margin-bottom:3px; font-weight:600; }
+.footer { display:flex; justify-content:space-between; gap:16px; align-items:center; margin:28px 0; padding-top:20px; border-top:1px solid #e7d9cb; }
+.footer a,.footer button { display:inline-flex; align-items:center; gap:7px; min-height:44px; padding:10px 13px; font-size:14px; color:#805c45; text-decoration:none; border:1px solid #dfcbbb; border-radius:10px; background:#fffcf8; cursor:pointer; }
+.footer a:hover,.footer button:hover:not(:disabled) { background:#f8eee4; border-color:#b89278; }
+.footer button { color:#975244; }
+.footer button:disabled { opacity:.5; cursor:wait; }
+.footer :is(a,button):focus-visible { outline:2px solid #a46b50; outline-offset:3px; }
+@media(max-width:480px){.saved{padding:14px 16px}.footer{gap:10px;flex-wrap:wrap}.footer a,.footer button{font-size:13px;padding:9px 11px}}

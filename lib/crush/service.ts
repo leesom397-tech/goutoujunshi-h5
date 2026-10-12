@@ -1,4 +1,5 @@
 import { getD1 } from "@/db";
+import { clearSavedReports, PERMANENT_REPORT_EXPIRES_AT } from "@/lib/saved-reports.mjs";
 import { recordRelationshipHistory } from "@/lib/relationship-history";
 import { createHash } from "node:crypto";
 import { parseChat, mergeChat } from "./parser";
@@ -47,7 +48,7 @@ export async function analyzeLines(owner:string,text:string,options:{sourceKey:s
   const provider=options.providerOverride||settings.provider;
   const sourceKey=options.sourceKey.slice(0,160);
   const inputHash=createHash("sha256").update(JSON.stringify({text,subject:options.subjectId||null,self:options.selfLabel||"",speaker:options.plainSpeaker||"other",channel:options.channelKey,provider,rubric:RUBRIC_VERSION})).digest("hex");
-  const previous=await db.prepare("SELECT id, input_hash, status, result, updated_at FROM coach_crush_reports WHERE owner_id = ? AND source_key = ? AND expires_at > ?").bind(owner,sourceKey,now).first<{id:string;input_hash:string;status:string;result:string;updated_at:number}>();
+  const previous=await db.prepare("SELECT id, input_hash, status, result, updated_at FROM coach_crush_reports WHERE owner_id = ? AND source_key = ?").bind(owner,sourceKey).first<{id:string;input_hash:string;status:string;result:string;updated_at:number}>();
   if(previous) {
     if(previous.input_hash!==inputHash)throw new CrushError("材料或分析方式已改变，请重新提交本次分析。",409);
     if(previous.status==="done")return readableReport(JSON.parse(previous.result) as CrushResult);
@@ -66,7 +67,7 @@ export async function analyzeLines(owner:string,text:string,options:{sourceKey:s
   const existing=JSON.parse(thread.data) as ChatLine[];
   const merged=mergeChat(existing,incoming);
   if(!merged.added.length) {
-    const latest=await db.prepare("SELECT result FROM coach_crush_reports WHERE owner_id = ? AND thread_id = ? AND status = 'done' AND expires_at > ? ORDER BY created_at DESC LIMIT 1").bind(owner,thread.id,now).first<{result:string}>();
+    const latest=await db.prepare("SELECT result FROM coach_crush_reports WHERE owner_id = ? AND thread_id = ? AND status = 'done' ORDER BY created_at DESC LIMIT 1").bind(owner,thread.id).first<{result:string}>();
     if(latest){
       const saved=readableReport(JSON.parse(latest.result) as CrushResult);
       // A resend after deployment must not be stuck on a report whose score failed
@@ -78,7 +79,7 @@ export async function analyzeLines(owner:string,text:string,options:{sourceKey:s
         saved.evidenceVersion=EVIDENCE_VERSION;
         const current=await requireSettings(owner);
         if(current.updated_at!==settings.updated_at)throw new CrushError("聊天处理授权已改变，本次评分已停止。",409);
-        const update=await db.prepare("UPDATE coach_crush_reports SET result = ?, updated_at = ? WHERE id = ? AND owner_id = ? AND status = 'done' AND expires_at > ? AND EXISTS (SELECT 1 FROM coach_crush_threads WHERE id = ? AND owner_id = ? AND revision = ?)").bind(JSON.stringify(saved),Date.now(),saved.id,owner,Date.now(),thread.id,owner,thread.revision).run();
+        const update=await db.prepare("UPDATE coach_crush_reports SET result = ?, updated_at = ? WHERE id = ? AND owner_id = ? AND status = 'done' AND EXISTS (SELECT 1 FROM coach_crush_threads WHERE id = ? AND owner_id = ? AND revision = ?)").bind(JSON.stringify(saved),Date.now(),saved.id,owner,thread.id,owner,thread.revision).run();
         if(!update.meta.changes)throw new CrushError("会话已清空或更新，请重新分析。",409);
       }
       return {...saved,...(options.decision?{decision:options.decision}:{}),duplicateCount:incoming.length};
@@ -117,10 +118,10 @@ export async function analyzeLines(owner:string,text:string,options:{sourceKey:s
     const current=await requireSettings(owner);
     if(current.updated_at!==settings.updated_at)throw new CrushError("聊天处理设置已改变，本次结果已停止保存。",409);
     if(!await db.prepare("SELECT id FROM coach_crush_threads WHERE id = ? AND owner_id = ? AND revision = ?").bind(thread.id,owner,revision).first()) throw new CrushError("会话已清空或更新，请重新分析。",409);
-    const result:CrushResult={id,threadId:thread.id,subjectId:thread.subject_id,revision,provider,model,lines:merged.added,annotations,affinity,affinityStatus,affinityError,evidenceVersion:EVIDENCE_VERSION,decision:options.decision,readableLineCount:supported.length,unreadMediaCount:merged.added.length-supported.length,coverage:options.coverage,createdAt:now,expiresAt:now+retention,latencyMs:Date.now()-now,duplicateCount:merged.duplicateCount};
+    const result:CrushResult={id,threadId:thread.id,subjectId:thread.subject_id,revision,provider,model,lines:merged.added,annotations,affinity,affinityStatus,affinityError,evidenceVersion:EVIDENCE_VERSION,decision:options.decision,readableLineCount:supported.length,unreadMediaCount:merged.added.length-supported.length,coverage:options.coverage,createdAt:now,expiresAt:PERMANENT_REPORT_EXPIRES_AT,latencyMs:Date.now()-now,duplicateCount:merged.duplicateCount};
     if(options.decision&&options.skipAffinity&&settings.jev_consent_at&&settings.affinity_consent_at)result.decision={...options.decision,affinityDeferred:true};
     const results=await db.batch([
-      db.prepare("UPDATE coach_crush_reports SET result = ?, status = 'done', updated_at = ? WHERE id = ? AND owner_id = ? AND status = 'running'").bind(JSON.stringify(result),Date.now(),id,owner),
+      db.prepare("UPDATE coach_crush_reports SET result = ?, status = 'done', updated_at = ?, expires_at = ? WHERE id = ? AND owner_id = ? AND status = 'running'").bind(JSON.stringify(result),Date.now(),PERMANENT_REPORT_EXPIRES_AT,id,owner),
       db.prepare("UPDATE coach_crush_threads SET data = ?, self_label = ?, updated_at = ? WHERE id = ? AND owner_id = ? AND revision = ? AND EXISTS (SELECT 1 FROM coach_crush_reports WHERE id = ? AND status = 'done')").bind(JSON.stringify(merged.all),options.selfLabel ?? thread.self_label,Date.now(),thread.id,owner,revision,id),
     ]);
     if(!results[0].meta.changes||!results[1].meta.changes)throw new CrushError("会话已删除，本次结果没有保存。",409);
@@ -138,9 +139,10 @@ export async function analyzeLines(owner:string,text:string,options:{sourceKey:s
 }
 export async function ownedReport(owner:string,id:string) {
   if(!/^[a-f0-9-]{36}$/.test(id))throw new CrushError("报告不存在。",404);
-  const row=await getD1().prepare("SELECT r.result, t.subject_id, t.self_label FROM coach_crush_reports r LEFT JOIN coach_crush_threads t ON t.id = r.thread_id AND t.owner_id = r.owner_id WHERE r.id = ? AND r.owner_id = ? AND r.status = 'done' AND r.expires_at > ?").bind(id,owner,Date.now()).first<{result:string;subject_id:string|null;self_label:string|null}>();
-  if(!row)throw new CrushError("报告不存在、已删除或已过期。",404);
-  return readableReport({...JSON.parse(row.result),subjectId:row.subject_id||null,selfLabel:row.self_label||""} as CrushResult);
+  const row=await getD1().prepare("SELECT r.result, t.subject_id, t.self_label FROM coach_crush_reports r LEFT JOIN coach_crush_threads t ON t.id = r.thread_id AND t.owner_id = r.owner_id WHERE r.id = ? AND r.owner_id = ? AND r.status = 'done'").bind(id,owner).first<{result:string;subject_id:string|null;self_label:string|null}>();
+  if(!row)throw new CrushError("报告不存在或已删除。",404);
+  const saved=JSON.parse(row.result);
+  return readableReport({...saved,subjectId:row.subject_id||saved.subjectId||null,selfLabel:row.self_label||saved.selfLabel||"",expiresAt:PERMANENT_REPORT_EXPIRES_AT} as CrushResult);
 }
 // The one-time full-distribution consent is separate from the old six-message
 // quick-look permission. Only readable text excerpts are sent to Jev; the
@@ -151,7 +153,7 @@ export async function enrichReportDistribution(owner:string,id:string){
   if(!classifierStatus().jev)throw new CrushError("完整分类服务暂不可用，请稍后再试。",503);
   if(!/^[a-f0-9-]{36}$/.test(id))throw new CrushError("报告不存在。",404);
   const db=getD1(),now=Date.now();
-  const row=await db.prepare("SELECT result FROM coach_crush_reports WHERE id=? AND owner_id=? AND status='done' AND expires_at>?").bind(id,owner,now).first<{result:string}>();
+  const row=await db.prepare("SELECT result FROM coach_crush_reports WHERE id=? AND owner_id=? AND status='done'").bind(id,owner).first<{result:string}>();
   if(!row)throw new CrushError("报告不存在、已删除或已过期。",404);
   const original=readableReport(JSON.parse(row.result) as CrushResult);
   if(original.provider==="jev")return original;
@@ -178,7 +180,7 @@ export async function enrichReportDistribution(owner:string,id:string){
     return {...fresh,evidence,note:old?.note&&old.evidence!=="insufficient"?old.note:fresh.note};
   });
   const updated:CrushResult={...original,provider:"jev",model:"jev-latest + "+original.model,annotations};
-  const saved=await db.prepare("UPDATE coach_crush_reports SET result=?,updated_at=? WHERE id=? AND owner_id=? AND status='done' AND result=? AND expires_at>? AND EXISTS(SELECT 1 FROM coach_crush_settings WHERE owner_id=? AND consent_at IS NOT NULL AND jev_full_consent_at=?)").bind(JSON.stringify(updated),Date.now(),id,owner,row.result,Date.now(),owner,settings.jev_full_consent_at).run();
+  const saved=await db.prepare("UPDATE coach_crush_reports SET result=?,updated_at=? WHERE id=? AND owner_id=? AND status='done' AND result=? AND EXISTS(SELECT 1 FROM coach_crush_settings WHERE owner_id=? AND consent_at IS NOT NULL AND jev_full_consent_at=?)").bind(JSON.stringify(updated),Date.now(),id,owner,row.result,owner,settings.jev_full_consent_at).run();
   if(!saved.meta.changes)throw new CrushError("报告或授权已更新，请重新打开后再试。",409);
   return updated;
 }
@@ -195,14 +197,15 @@ export async function refreshReportAffinity(owner:string,id:string){
   const current=await requireSettings(owner);
   if(current.updated_at!==settings.updated_at)throw new CrushError("分析授权已改变，本次评分停止保存。",409);
   if(result.decision)result.decision.affinityDeferred=false;
-  const saved=await db.prepare("UPDATE coach_crush_reports SET result=?,updated_at=? WHERE id=? AND owner_id=? AND status='done' AND expires_at>? AND EXISTS(SELECT 1 FROM coach_crush_threads WHERE id=? AND owner_id=? AND revision=? AND subject_id IS ?) AND EXISTS(SELECT 1 FROM coach_crush_settings WHERE owner_id=? AND consent_at IS NOT NULL AND jev_consent_at IS NOT NULL AND affinity_consent_at IS NOT NULL)").bind(JSON.stringify(result),Date.now(),id,owner,Date.now(),result.threadId,owner,result.revision,thread.subject_id,owner).run();
+  const saved=await db.prepare("UPDATE coach_crush_reports SET result=?,updated_at=? WHERE id=? AND owner_id=? AND status='done' AND EXISTS(SELECT 1 FROM coach_crush_threads WHERE id=? AND owner_id=? AND revision=? AND subject_id IS ?) AND EXISTS(SELECT 1 FROM coach_crush_settings WHERE owner_id=? AND consent_at IS NOT NULL AND jev_consent_at IS NOT NULL AND affinity_consent_at IS NOT NULL)").bind(JSON.stringify(result),Date.now(),id,owner,result.threadId,owner,result.revision,thread.subject_id,owner).run();
   if(!saved.meta.changes)throw new CrushError("聊天已更新或删除，本次评分没有保存。",409);
   return result;
 }
 export async function deleteCrush(owner:string,subjectId?:string) {
   const db=getD1();
+  await clearSavedReports(db,owner,subjectId);
   if(subjectId)return db.batch([
-    db.prepare("DELETE FROM coach_crush_reports WHERE owner_id = ? AND thread_id IN (SELECT id FROM coach_crush_threads WHERE owner_id = ? AND subject_id = ?)").bind(owner,owner,subjectId),
+    db.prepare("DELETE FROM coach_crush_reports WHERE owner_id = ? AND (thread_id IN (SELECT id FROM coach_crush_threads WHERE owner_id = ? AND subject_id = ?) OR json_extract(CASE WHEN json_valid(result) THEN result ELSE '{}' END,'$.subjectId')=?)").bind(owner,owner,subjectId,subjectId),
     db.prepare("DELETE FROM coach_crush_threads WHERE owner_id = ? AND subject_id = ?").bind(owner,subjectId),
     db.prepare("UPDATE coach_wechat_outbox SET status = 'cancelled', payload = '{}' WHERE owner_id = ? AND status IN ('pending','sending')").bind(owner),
   ]);
@@ -220,7 +223,7 @@ export async function cleanupCrush() {
   await db.prepare("UPDATE coach_crush_threads SET voice_pending = json_set(voice_pending, '$.entries', json((SELECT json_group_array(json(value)) FROM json_each(coach_crush_threads.voice_pending, '$.entries') WHERE json_extract(value, '$.expiresAt') > ?))) WHERE voice_pending_expires_at > ?").bind(now,now).run();
   await db.prepare("UPDATE coach_crush_threads SET data = (SELECT json_group_array(json(value)) FROM json_each(coach_crush_threads.data) WHERE COALESCE(json_extract(value,'$.receivedAt'),coach_crush_threads.updated_at) > ?) WHERE EXISTS (SELECT 1 FROM json_each(coach_crush_threads.data) WHERE COALESCE(json_extract(value,'$.receivedAt'),coach_crush_threads.updated_at) <= ?)").bind(now-retention,now-retention).run();
   await db.batch([
-    db.prepare("DELETE FROM coach_crush_reports WHERE expires_at <= ?").bind(now),
+    db.prepare("DELETE FROM coach_crush_reports WHERE status != 'done' AND expires_at <= ?").bind(now),
     db.prepare("DELETE FROM coach_crush_threads WHERE expires_at <= ?").bind(now),
     db.prepare("DELETE FROM coach_crush_budget WHERE expires_at <= ?").bind(now),
     db.prepare("DELETE FROM coach_wechat_inbox WHERE expires_at <= ?").bind(now),

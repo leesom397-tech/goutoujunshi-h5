@@ -1,17 +1,18 @@
 "use client";
-import {useId,useRef,useState,type ReactNode} from "react";
+import {useEffect,useId,useRef,useState,type ReactNode} from "react";
 import {ArrowLeft,ArrowRight,Check,Compass,MessageCircle,ChartNoAxesCombined,Send,Quote,UserRound} from "lucide-react";
 import styles from "./ReportReader.module.css";
 
 export type ReadingSection={id:string;label:string;caption:string;tone:"coral"|"amber"|"teal"|"slate"};
 const iconFor=(id:string)=>id==="tone"?MessageCircle:id==="signals"||id==="content"?ChartNoAxesCombined:id==="replies"||id==="next"?Send:id==="evidence"?Quote:id==="overview"?UserRound:Compass;
 
-export function ReportReader({items,children}:{items:ReadingSection[];children:(active:string)=>ReactNode}){
+export function ReportReader({items,children,storageKey}:{items:ReadingSection[];children:(active:string)=>ReactNode;storageKey?:string}){
  const id=useId(),root=useRef<HTMLDivElement>(null),[active,setActive]=useState(items[0].id),[seen,setSeen]=useState<string[]>([items[0].id]);
+ useEffect(()=>{setActive(items[0].id);setSeen([items[0].id]);if(!storageKey)return;try{const saved=JSON.parse(localStorage.getItem('chengzi-report-reading:'+storageKey)||'null');if(saved&&items.some(part=>part.id===saved.active)){setActive(saved.active);setSeen([...new Set([items[0].id,...(Array.isArray(saved.seen)?saved.seen.filter((value:string)=>items.some(part=>part.id===value)):[]),saved.active])] as string[]);}}catch{}},[storageKey]);
  const index=Math.max(0,items.findIndex(item=>item.id===active)),item=items[index];
  function choose(next:number,focusTab=false){
   const target=items[next];if(!target)return;
-  setActive(target.id);setSeen(previous=>previous.includes(target.id)?previous:[...previous,target.id]);
+  const nextSeen=seen.includes(target.id)?seen:[...seen,target.id];setActive(target.id);setSeen(nextSeen);if(storageKey)try{localStorage.setItem('chengzi-report-reading:'+storageKey,JSON.stringify({active:target.id,seen:nextSeen}));}catch{}
   requestAnimationFrame(()=>{if(root.current && root.current.getBoundingClientRect().top<0)root.current.scrollIntoView({block:"start",behavior:"instant"});if(focusTab)document.getElementById(`${id}-tab-${target.id}`)?.focus({preventScroll:true});});
  }
  return <div ref={root} id="report-detail-action" className={styles.reader} data-report-reader data-tone={item.tone}>

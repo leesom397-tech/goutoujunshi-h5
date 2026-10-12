@@ -56,7 +56,7 @@ export function ChatReport({report,account,styleReportIds,preview=false,publicEx
  const decision=report.decision||{},fit=Object.prototype.hasOwnProperty.call(report,'latestCompatibility')?report.latestCompatibility:report.compatibility;
  const options=[...(decision.replyOptions||[])].sort((a:Json,b:Json)=>(b.weight??-1)-(a.weight??-1)).slice(0,3);
  return <div className={reportStyles.document}>
-  <ReportReader key={report.id||'chat-report'} items={chatSections}>{active=><>
+  <ReportReader key={report.reportId||report.id||'chat-report'} storageKey={!publicExample && account?.account?.userId && (report.reportId||report.id) ? `${account.account.userId}:${report.reportId||report.id}:chat` : undefined} items={chatSections}>{active=><>
    {active==='judgment'&&<><div className={readerStyles.overview}><article><h3><Sparkles size={18}/>当前判断</h3><p>{decision.judgment||decision.possibleIntent||'先核对本轮可见对话。'}</p></article><article><h3><Quote size={18}/>关键依据</h3><blockquote>{decision.evidence||decision.observation||'本轮暂未返回可引用的原话。'}</blockquote></article><article><h3><ArrowRight size={18}/>下一步</h3><p>{decision.nextStep||'结合原话和完整上下文决定如何回应。'}</p></article></div>{decision.partial&&<p className="wa-status">部分内容未识别，结论只覆盖当前可读材料。</p>}<InsightExplorer compact publicExample={publicExample} report={report} kind="chat" owner={publicExample?undefined:account?.account?.userId}/></>}
    {active==='tone'&&<ToneEvidence report={report}/>}
    {active==='signals'&&<><InteractionEvidence report={report} owner={publicExample?undefined:account?.account?.userId}/>{fit&&<FitReport fit={fit} current={Object.prototype.hasOwnProperty.call(report,'latestCompatibility')}/>}</>}
@@ -93,7 +93,7 @@ export function SocialReport({ report, account, subjectId, targetSelf, onSubject
     finally { if (mounted.current) setBusy(false); }
   }
   return <div className={reportStyles.document}>
-    <ReportReader key={report.id || (report.moments?"moments":"social")} items={sections}>{active=><>
+    <ReportReader key={report.reportId || report.id || (report.moments?"moments":"social")} storageKey={!publicExample && account?.account?.userId && (report.reportId||report.id) ? `${account.account.userId}:${report.reportId||report.id}:social` : undefined} items={sections}>{active=><>
     {active === "overview" && <><section className="wa-card"><h2><UserRound size={21}/>{targetSelf ? "我的资料印象" : report.moments ? "朋友圈人物分析" : "社交资料分析"}</h2><div className={readerStyles.overview}><article><h3><Sparkles size={18}/>当前判断</h3><p>{source.summary || report.summary}</p></article></div>{report.coverage && <p className="wa-muted">{report.coverage}</p>}{report.note && <small className="wa-muted">{report.note}</small>}</section><InsightExplorer compact publicExample={publicExample} report={{ ...report, subjectId: targetSelf ? "" : archiveSubject }} kind="social" owner={publicExample ? undefined : account?.account?.userId}/></>}
     {active === "content" && <SocialContentPanel report={report}/>}
     {active === "evidence" && <>

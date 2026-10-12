@@ -185,7 +185,8 @@ export async function POST(request: Request) {
   let stage = "budget";
   try {
     await reserveBudget(identity.ownerId, "deep");
-    // No image, OCR text, or report is written to D1 or application logs.
+    // This model call does not log materials. The owner-scoped job layer saves
+    // the completed report; original images remain temporary upload data.
     const imageItems = stagedSummary ? [] : images.map(image => ({ type: "image_url" as const, image_url: { url: image as string, detail: "high" as const } }));
     stage = "model";
     const references = selectKnowledge((isMoments ? "朋友圈 沟通风格 " : "社交资料 沟通风格 ") + selfContext + " " + (prior?.summary || ""), "signal", stagedSummary ? 2 : 3);
