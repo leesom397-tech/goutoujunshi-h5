@@ -1,0 +1,2 @@
+.shell{min-height:100vh;background:#fffaf5;color:#272421;padding:0}.wrap{width:100%;max-width:1440px;margin:0 auto;padding:0}.shell>header{max-width:1440px;margin:auto;padding-left:6%;padding-right:6%}.shell>footer{max-width:1268px;margin:auto}
+@media(max-width:700px){.shell>header{padding-left:24px;padding-right:24px}}

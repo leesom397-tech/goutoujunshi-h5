@@ -73,14 +73,14 @@ await Promise.all(["/workspace", "/register", "/login", "/sales", "/privacy", "/
   requireValue(visible.length > 30, "No meaningful page content.");
   requireValue(!/lovetalk/i.test(visible), "Visible previous branding found.");
   if (path === "/workspace") {
-      requireValue(response.text.includes("home-evidence"), "Knowledge evidence section missing.");
+      requireValue(response.text.includes("data-knowledge-evidence"), "Knowledge evidence section missing.");
       requireValue(!response.text.includes('id="experience"'), "Homepage must not contain a full demo report.");
-      requireValue(response.text.includes("home-feature-grid"), "Feature entry section missing.");
+      requireValue(response.text.includes("data-feature-grid"), "Feature entry section missing.");
       requireValue(response.text.includes("cz-brand-mark"), "Relationship brand mark missing.");
   }
   return { title, visibleCharacters: visible.length, previousBrandVisible: false };
 })));
-await Promise.all(["/visuals/relationship-daylight.webp", "/visuals/conversation-daylight.webp", "/icon-192.png"].map(path => check("deployed visual asset", path, response => {
+await Promise.all(["/visuals/relationship-daylight.webp", "/visuals/conversation-daylight.webp", "/icon-192.png", "/images/aurora-fluted-light-v2.webp"].map(path => check("deployed visual asset", path, response => {
   requireValue(response.status === 200, `Expected image 200, received ${response.status}.`);
   requireValue(String(response.headers["content-type"]).startsWith("image/"), "Wrong image content type.");
   return { image: true };

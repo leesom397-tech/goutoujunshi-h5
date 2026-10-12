@@ -2,6 +2,7 @@
 import {ArrowUpRight, ArrowRight, ScanLine, Images, ScanFace, MessageCircle, AudioLines, Users, BookOpen} from "lucide-react";
 import {knowledgeManifest as library, knowledgeVolume} from "@/lib/knowledge-public";
 import {knowledgeDomains} from "@/lib/knowledge-origins";
+import { GlassStudy } from "./GlassStudy";
 import styles from "./ProductHome.module.css";
 const features = [
 {href:"/analyze?mode=chat",icon:ScanLine,title:"聊天分析",text:"上传聊天截图，看语气、好感信号和回复建议。",action:"上传聊天"},
@@ -14,15 +15,16 @@ const features = [
 
 export function ProductHome({onStart,signedIn=false,loading=false,error="",onRetry}:{onStart:(href:string)=>void;signedIn?:boolean;loading?:boolean;error?:string;onRetry?:()=>void}) {
 const disabled=loading||!!error;
-return <main className={styles.page}>
+return <div className={styles.page}>
 <section className={styles.hero}>
-<div className={styles.light} aria-hidden="true"><div/><div/><div/></div>
-<div className={styles.heroCopy}><span className={styles.eyebrow}>成子 · 关系决策智能体</span><h1>看懂当下这一句。<br/>让下一步，更清晰。</h1><p>从聊天里的细节，到一段关系的走向。<br/>理解互动信号，记住每一次相处。</p><div className={styles.actions}><button disabled={disabled} onClick={()=>onStart('/analyze?mode=chat')}>开始分析 <ArrowRight size={17}/></button><a href="#tools">探索全部功能 <ArrowUpRight size={16}/></a></div><span className={styles.privacy}>你的内容，只用于你的关系分析。</span></div>
+
+<div className={styles.heroCopy}><span className={styles.eyebrow}>成子 · 关系决策智能体</span><h1>看懂当下这一句。<br/><span>让下一步，更清晰。</span></h1><p>从聊天里的细节，到一段关系的走向。<br/>理解互动信号，记住每一次相处。</p><div className={styles.actions}><button disabled={disabled} onClick={()=>onStart('/analyze?mode=chat')}>开始分析 <ArrowRight size={17}/></button><a href="#tools">探索全部功能 <ArrowUpRight size={16}/></a></div><span className={styles.privacy}>你的内容，只用于你的关系分析。</span></div>
+<div className={styles.art}><GlassStudy/></div>
 </section>
-{loading&&<p className={`${styles.status} home-session-state`} role="status">正在确认账户…</p>}{error&&<div className={`${styles.error} home-session-error`} role="alert">{error}<button onClick={onRetry}>重新连接</button></div>}
+{loading&&<p className={styles.status} data-session-state role="status">正在确认账户…</p>}{error&&<div className={styles.error} data-session-error role="alert">{error}<button onClick={onRetry}>重新连接</button></div>}
 <KnowledgeEvidence/>
-<section id="tools" className={styles.tools}><header><div><span className={styles.eyebrow}>从线索到行动</span><h2>你想从哪里开始？</h2></div><a href={signedIn?'/account':'/login'}>{signedIn?'我的账户':'登录账户'} <ArrowUpRight size={16}/></a></header><div className={`${styles.grid} home-feature-grid`}>{features.map(({href,icon:Icon,title,text,action},i)=><button className={`${styles.tool} home-feature`} key={href} disabled={disabled} onClick={()=>onStart(href)}><span className={styles.icon}><Icon size={23} strokeWidth={1.4}/></span><span className={styles.toolCopy}><strong>{title}</strong><span>{text}</span><small>{action} <ArrowRight size={15}/></small></span><span className={styles.index}>0{i+1}</span></button>)}</div></section>
+<section id="tools" className={styles.tools}><header><div><span className={styles.eyebrow}>从线索到行动</span><h2>你想从哪里开始？</h2></div><a href={signedIn?'/account':'/login'}>{signedIn?'我的账户':'登录账户'} <ArrowUpRight size={16}/></a></header><div className={styles.grid} data-feature-grid>{features.map(({href,icon:Icon,title,text,action},i)=><button className={styles.tool} data-feature-entry key={href} disabled={disabled} onClick={()=>onStart(href)}><span className={styles.icon}><Icon size={23} strokeWidth={1.4}/></span><span className={styles.toolCopy}><strong>{title}</strong><span>{text}</span><small>{action} <ArrowRight size={15}/></small></span><span className={styles.index}>0{i+1}</span></button>)}</div></section>
 <nav className={styles.utilities} aria-label="更多工具">{[['/reports','历史报告'],['/import','导入聊天记录'],['/archive?tab=self','我的资料']].map(([href,label])=><button key={href} disabled={disabled} onClick={()=>onStart(href)}>{label}<ArrowUpRight size={14}/></button>)}<span>分析前确认积分费用 · <a href="/privacy">数据与隐私</a></span></nav>
-</main>;
+</div>;
 }
-export function KnowledgeEvidence(){return <section className={`${styles.evidence} home-evidence`} aria-label="资料库依据"><div className={styles.author}><BookOpen size={22} strokeWidth={1.3}/><div><strong>有依据，也有温度。</strong><span>成子 · 心理学硕士 · 全网百万粉丝</span></div></div><div className={styles.stats}>{[[library.referenceDocuments,'篇参考文档'],[knowledgeVolume,'万字资料'],[knowledgeDomains.length,'类关系主题']].map(([n,label])=><div key={label}><b>{n}</b><span>{label}</span></div>)}</div><a href="/library">探索资料库 <ArrowUpRight size={16}/></a></section>;}
+export function KnowledgeEvidence(){return <section className={styles.evidence} data-knowledge-evidence aria-label="资料库依据"><div className={styles.author}><BookOpen size={22} strokeWidth={1.3}/><div><strong>有依据，也有温度。</strong><span>成子 · 心理学硕士 · 全网百万粉丝</span></div></div><div className={styles.stats}>{[[library.referenceDocuments,'篇参考文档'],[knowledgeVolume,'万字资料'],[knowledgeDomains.length,'类关系主题']].map(([n,label])=><div key={label}><b>{n}</b><span>{label}</span></div>)}</div><a href="/library">探索资料库 <ArrowUpRight size={16}/></a></section>;}

@@ -7,6 +7,7 @@ import { WebNav } from "@/components/WebNav";
 import { PhoneRegisterForm } from "@/components/PhoneRegisterForm";
 import { uploadStore } from "@/components/web-analysis/uploads";
 import "./workspace.css";
+import styles from "./Workspace.module.css";
 export default function Workspace() {
   const [identity, setIdentity] = useState<{name: string; id: string} | null>(null);
   const [loading, setLoading] = useState(true);
@@ -67,7 +68,7 @@ export default function Workspace() {
     refresh(); window.addEventListener("focus", refresh);
     return () => { disposed = true; generation++; window.removeEventListener("focus", refresh); };
   }, []);
-  return <main className="workspace-page"><WebNav/><div className="workspace-wrap">
+  return <main className={styles.shell}><WebNav/><div className={styles.wrap}>
     <div className="workspace-welcome"><span><i/> 陪你理清关系</span><a href="/account"><UserRound size={14}/>{loading ? "正在确认账号" : identity ? identity.name : "你的私人关系空间"}<ArrowUpRight size={14}/></a></div>
     {pendingTask && <a className="workspace-resume" href={`/analyze?mode=${pendingTask.mode}`}><span><b>接着上次</b><small>{pendingTask.mode === "chat" ? "聊天截图" : pendingTask.mode === "moments" ? "朋友圈" : "社交资料"} · {pendingTask.count} 张图片的任务已保留</small></span><span>继续查看 <ArrowUpRight size={16}/></span></a>}
     <ProductHome loading={loading} error={error} onRetry={()=>window.dispatchEvent(new Event("focus"))} signedIn={!!identity} onStart={href => { if (loading || error) return; if (identity) window.location.assign(href); else beginOwn(href); }}/>
