@@ -1,14 +1,15 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { Mic, Send, Phone, Square, MessageCircle, ScanLine, Compass, Plus, ArrowUpRight, Quote, SlidersHorizontal, CalendarDays, ShieldCheck, Coins, UserRound, ChevronRight } from "lucide-react";
-import { AssistantEmblem, HeadingStamp } from "@/components/web-analysis/Visuals";
+import { AssistantEmblem } from "@/components/web-analysis/Visuals";
+import { AuroraPageHero } from "@/components/AuroraPageHero";
+import styles from "./chat.module.css";
 import { WebNav } from "@/components/WebNav";
 import { AccountNotice, ErrorNotice, PersonSelect, api, message, priceLabel, hasPrice, useAccount, readLocal, saveLocal, type Json, WebError } from "@/components/web-analysis/client";
 import { Replies } from "@/components/web-analysis/ReportView";
 import { openMicrophone, wavBase64, type Microphone } from "@/components/web-analysis/audio";
 import { restoreConversation, conversationHistory, fitConversationRequest } from "@/lib/web-conversation-state.mjs";
 import "@/components/web-analysis/web-analysis.css";
-import "./chat-experience.css";
 
 const conversationPresets = [
   { id: "signals", title: "看懂 TA 的态度", hint: "把行为和自己的猜测分开", mode: "conversation", draft: "最近让我在意的一次互动是：\n我观察到的具体行为：\n我最想弄清楚的是：", icon: MessageCircle },
@@ -181,8 +182,8 @@ export default function ChatPage() {
           <p className="wa-muted chat-price-line">文字 {priceLabel(account.account, "text")} / 次 · 语音转写 {priceLabel(account.account, "transcription")} / 次</p>
         </div>
   );
-  return <><WebNav/><main className="wa-shell chat-experience">
-    <div className="wa-heading chat-page-heading"><div className="wa-heading-main"><span className="wa-eyebrow">你的关系军师</span><h1>文字军师</h1><p>从一句原话开始，也可以带着人物档案接着聊。</p></div><HeadingStamp variant="chat"/></div>
+  return <><WebNav/><main className={styles.page}>
+    <AuroraPageHero eyebrow="你的关系军师" title="文字军师" description="从一句原话开始，也可以带着人物档案接着聊。"/>
     <AccountNotice state={account}/>
     {accessIssue && <div className="chat-access-notice" role="status"><span>{accessIssue}</span><a href="/account#contact">查看积分与开通 <ArrowUpRight size={15}/></a></div>}
     <div className={"chat-experience-grid" + (settingsOpen ? " has-context" : "")}>

@@ -22,8 +22,8 @@ export const metadata: Metadata = {
   description: "聊天截图、朋友圈与社交主页分析，人物档案、关系趋势和实时语音，手机与电脑均可使用。",
   manifest: "/manifest.webmanifest",
   icons: {
-    icon: "/favicon.svg",
-    shortcut: "/favicon.svg",
+    icon: "/favicon.svg?v=aurora-1",
+    shortcut: "/favicon.svg?v=aurora-1",
   },
 };
 

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48" fill="none">
+ <defs>
+  <linearGradient id="warm" x1="7" y1="8" x2="29" y2="41" gradientUnits="userSpaceOnUse"><stop stop-color="#F6C67E"/><stop offset=".42" stop-color="#EFA06E"/><stop offset=".76" stop-color="#DF7D63"/><stop offset="1" stop-color="#BA6556"/></linearGradient>
+  <linearGradient id="rose" x1="25" y1="6" x2="39" y2="41" gradientUnits="userSpaceOnUse"><stop stop-color="#EDA38F"/><stop offset=".38" stop-color="#E17C71"/><stop offset=".72" stop-color="#CE6175"/><stop offset="1" stop-color="#A54A60"/></linearGradient>
+  <linearGradient id="gleam" x1="11" y1="7" x2="30" y2="40" gradientUnits="userSpaceOnUse"><stop stop-color="#FFFAEC" stop-opacity=".94"/><stop offset=".5" stop-color="#FFF8E5" stop-opacity=".28"/><stop offset="1" stop-color="#FDE9D2" stop-opacity=".12"/></linearGradient>
+  <path id="left" d="M23.5 5.5C13.4 5.5 5.5 13.8 5.5 24C5.5 33.5 12.6 41.3 21.6 42.5C17.9 38.2 18.1 34 20.5 29.7L23.1 25.1C18.3 27.3 12.9 24.9 12.9 20.4C12.9 16.3 16.2 13.1 20.4 13.1L23.5 5.5Z"/>
+  <path id="right" d="M26.4 5.5C30.1 9.8 29.9 14 27.5 18.3L24.9 22.9C29.7 20.7 35.1 23.1 35.1 27.6C35.1 31.7 31.8 34.9 27.6 34.9L24.5 42.5C34.6 42.5 42.5 34.2 42.5 24C42.5 14.5 35.4 6.7 26.4 5.5Z"/>
+  <clipPath id="body"><use href="#left"/><use href="#right"/></clipPath>
+ </defs>
+ <use href="#left" fill="url(#warm)"/>
+ <use href="#right" fill="url(#rose)"/>
+ <g clip-path="url(#body)" stroke="url(#gleam)" stroke-width=".65"><path d="M8 2V47M11 2V47M14 2V47M17 2V47M20 2V47M23 2V47M26 2V47M29 2V47M32 2V47M35 2V47M38 2V47M41 2V47"/></g>
+ <path d="M21.7 6.7C12.9 7.5 6.7 15 6.7 24C6.7 31.5 11.3 37.9 17.8 40.4M28.5 7.4C36 9.4 41.2 16.2 41.2 24C41.2 32.5 35.1 39.8 27 41" stroke="url(#gleam)" stroke-width="1.05" stroke-linecap="round"/>
+ <path d="M19.7 29.9L22.6 25.1M28.3 18.1L25.4 22.9" stroke="#9E5361" stroke-opacity=".27" stroke-width=".7" stroke-linecap="round"/>
+</svg>

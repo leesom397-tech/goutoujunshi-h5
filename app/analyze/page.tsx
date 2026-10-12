@@ -1,8 +1,9 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { ScanLine, Link2, MessageSquare, Images, UserRound, Sparkles, Coins, ArrowRight, ArrowUp, ArrowDown, Check, CheckCheck, Clipboard, CloudUpload, FileCheck2, FolderHeart, ImagePlus, LoaderCircle, Plus, RotateCcw, ShieldCheck, SlidersHorizontal, X } from "lucide-react";
-import { AnalysisIllustration, HeadingStamp } from "@/components/web-analysis/Visuals";
+import { AnalysisIllustration } from "@/components/web-analysis/Visuals";
 import { WebNav } from "@/components/WebNav";
+import { AuroraPageHero } from "@/components/AuroraPageHero";
 import { AccountNotice, ErrorNotice, PersonSelect, InlinePerson, api, message, priceLabel, hasPrice, useAccount, type Json, WebError } from "@/components/web-analysis/client";
 import { runUpload, uploadStore, type UploadTask } from "@/components/web-analysis/uploads";
 import { ArchiveAvatar } from "@/components/ArchiveAvatar";
@@ -11,6 +12,7 @@ import { prepareSocialImage } from "@/components/web-analysis/image-normalize";
 import { mergeChatReports, socialPrevious } from "@/components/web-analysis/report-data";
 import "@/components/web-analysis/web-analysis.css";
 import "./analyze-experience.css";
+import styles from "./analyze.module.css";
 
 const analysisModes = [
   { key: "chat", label: "聊天截图", intent: "读懂这轮互动", description: "看情绪与回应，找到适合你的下一句。", upload: "上传双方聊天截图", tip: "截取完整对话，保留前后语境；按聊天的阅读顺序排列。", Icon: MessageSquare },
@@ -102,15 +104,8 @@ export default function AnalyzePage() {
 
   return <>
     <WebNav/>
-    <main className="wa-shell ax-shell">
-      <header className="wa-heading ax-heading">
-        <div className="wa-heading-main">
-          <span className="wa-eyebrow">关系分析</span>
-          <h1>分析材料</h1>
-          <p>从一组真实材料开始，读懂互动，找到适合你的回应。</p>
-        </div>
-        <HeadingStamp variant="analysis"/>
-      </header>
+    <main className={`wa-shell ax-shell ${styles.page}`}>
+      <AuroraPageHero eyebrow="关系分析" title="分析材料" description="从一组真实材料开始，读懂互动，找到适合你的回应。" />
 
       <AccountNotice state={account}/>
 

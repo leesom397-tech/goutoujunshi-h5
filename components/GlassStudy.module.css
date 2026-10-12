@@ -1,9 +1,14 @@
 .study{position:relative;min-width:0;width:100%;height:100%;isolation:isolate;overflow:hidden;background:#fffaf5}
 .canvas{position:absolute;inset:0;width:100%;height:100%;opacity:0;transition:opacity .8s ease}
 .canvas.ready{opacity:1}
-.fallback{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;object-position:center}
-.study .control{position:absolute;z-index:3;bottom:18px;right:24px;display:grid;place-items:center;width:30px;height:30px;padding:0;background:#fff9;border:1px solid #ffffffb0;border-radius:50%;color:#654639;cursor:pointer;transition:background .2s,border-color .2s;box-shadow:0 2px 8px #773d2420}
+.fallback{position:absolute;left:0;right:0;top:-16px;width:100%;height:calc(100% + 32px);object-fit:fill;animation:glass-light-drift 12s ease-in-out infinite alternate;object-position:center}
+.study .control{position:absolute;z-index:3;bottom:18px;right:24px;display:flex;align-items:center;gap:7px;min-width:100px;height:34px;padding:0 12px;font-size:10px;letter-spacing:.04em;background:#fff9;border:1px solid #ffffffb0;border-radius:18px;color:#654639;cursor:pointer;transition:background .2s,border-color .2s;box-shadow:0 2px 8px #773d2420}
 .study .control:hover{background:#fff;border-color:#a67058}
 .study .control:focus-visible{outline:2px solid #a25f45;outline-offset:4px}
 @media(max-width:700px){.fallback{object-fit:cover}.study .control{bottom:15px;right:20px}}
 @media(prefers-reduced-motion:reduce){.canvas{transition:none}}
+
+.study[data-motion=paused] .fallback{animation-play-state:paused}
+.study[data-glass-ready=true] .fallback{animation:none}
+@keyframes glass-light-drift{from{transform:translateY(-12px);filter:brightness(.98)}to{transform:translateY(12px);filter:brightness(1.04)}}
+@media(prefers-reduced-motion:reduce){.study:not([data-motion-explicit=true]) .fallback{animation:none}}
