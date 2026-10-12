@@ -20,8 +20,9 @@ void main(){
  float crop=ratio<1.2?ratio/materialAspect:1.;
  float field=uv.x;
  float depth=smoothstep(.08,.48,field);
- float glide=.012*sin(field*12.+time*.62)+.006*sin(field*23.-time*.41);
- float lift=.047*sin(field*11.-time*.55)+.019*sin(field*22.+time*.38);
+ float motion=time*.75;
+ float glide=.012*sin(field*12.+motion*.62)+.006*sin(field*23.-motion*.41);
+ float lift=.047*sin(field*11.-motion*.55)+.019*sin(field*22.+motion*.38);
  // Overscan keeps both ends filled as neighbouring ribs rise and settle.
  vec2 tex=vec2((uv.x-.5)*crop*.95+.5,uv.y*.85+.075);
  tex.x+=glide*crop*depth;
@@ -31,14 +32,15 @@ void main(){
  vec3 left=texture2D(material,tex-vec2(stepX,0.)).rgb;
  vec3 right=texture2D(material,tex+vec2(stepX,0.)).rgb;
  float slope=dot(right-left,vec3(.299,.587,.114))*5.;
- vec3 normal=normalize(vec3(-slope,.12,1.));
+ // Facet tilt follows the same displacement as the ribs, coupling light to motion.
+ vec3 normal=normalize(vec3(-slope+glide*9.,.12+lift*3.,1.));
  // A changing angle lights the individual glass faces, never a travelling beam.
- vec3 light=normalize(vec3(.65*sin(time*.47)+.3,.32,1.));
+ vec3 light=normalize(vec3(.65*sin(motion*.47)+.3,.32,1.));
  float diffuse=max(dot(normal,light),0.);
  float edge=smoothstep(.035,.28,abs(slope));
  float glint=pow(max(dot(normal,normalize(light+vec3(0.,0.,1.))),0.),18.);
- col*=.94+.10*diffuse;
- col+=vec3(1.,.88,.75)*glint*edge*.095;
+ col*=.91+.14*diffuse;
+ col+=vec3(1.,.88,.75)*glint*edge*.13;
  gl_FragColor=vec4(clamp(col,0.,1.),1.);
 }`;
 
