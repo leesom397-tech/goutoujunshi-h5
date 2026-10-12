@@ -17,6 +17,11 @@ const childPlan = (value: string) => {
 };
 const normalize = (value: string) => value.replace(/[\s，。市省]/g, "").toLowerCase();
 const cityName = (value: string) => normalize((value.match(/(?:现居|常住|目前在|坐标)[：:\s]*([^，。；;]+)/)?.[1] || value).replace(/^(?:广东|浙江|江苏|山东|河南|河北|四川|福建|湖北|湖南|安徽|江西|陕西|辽宁|吉林|云南|贵州|山西|甘肃|海南|广西|黑龙江)(?:省)?/, ""));
+const relationshipGoal = (value: string) => {
+  const noCommitment = /不(?:想|考虑|打算|需要).{0,5}(?:恋爱|关系)|只想交友|不考虑长期/.test(value);
+  const serious = !noCommitment && /认真.{0,5}(?:恋爱|关系|交往)|长期.{0,5}(?:关系|伴侣)|以结婚|可以考虑结婚|想结婚|希望结婚|稳定.{0,4}(?:关系|伴侣)|找伴侣/.test(value);
+  return noCommitment ? "casual" : serious ? "serious" : "unknown";
+};
 export function ageInYears(value: string, year = new Date().getFullYear()) {
   if (/\d\s*(?:[-–—~～至到]|或)\s*\d|可能|大概|不确定|不知道/.test(value)) return null;
   const born = value.match(/(?:19|20)\d{2}/);
@@ -28,13 +33,18 @@ export function ageInYears(value: string, year = new Date().getFullYear()) {
   if (age) return valid(Number(age[1]));
   return /^\d{2}$/.test(value.trim()) ? valid(Number(value)) : null;
 }
-export function relationshipFit(own: Profile, other: Profile, evidence: Record<string, string> = {}) {
+export function relationshipFit(own: Profile, other: Profile, evidence: Record<string, string> = {}, context: {sameCity?:boolean} = {}) {
   const rows = Object.entries(fields).map(([field, dimension]) => {
     const a = text(own[field]), b = text(other[field]);
     let conclusion = !a ? `你的${dimension}尚未记录，补齐后可直接比较。` : `TA 的${dimension}还没有明确资料。`;
     let score: number | null = null;
     let status = "待了解";
-    if ((a && b) || (field === 'relationshipStatus' && text(own.childrenPlan) && text(other.childrenPlan))) {
+    // Explicit material remains visible even when the user's comparison profile is incomplete.
+    if (b) {
+      status = "有线索";
+      conclusion = `TA 自述“${b}”。${a ? "结合双方实际安排继续比较。" : `你的${dimension}尚未记录，因此先保留这条明确资料，不计算双人匹配分。`}`;
+    }
+    if ((a && b) || (field === 'relationshipStatus' && (text(own.childrenPlan) && text(other.childrenPlan) || b && (text(own.preferredRelationship) || text(own.goals))))) {
       const x = normalize(a), y = normalize(b);
       const equal = x === y;
       if (field === "ageRange") {
@@ -76,8 +86,11 @@ export function relationshipFit(own: Profile, other: Profile, evidence: Record<s
         const conflict = (ca === 'no' && cb === 'yes') || (ca === 'yes' && cb === 'no');
         const contradictory = [ca, cb, sa, sb].includes('contradictory');
         const unavailable = sa === 'occupied' || sb === 'occupied';
-        score = contradictory ? null : unavailable ? 20 : conflict ? 25 : sa === 'available' && sb === 'available' ? 85 : ca !== 'unknown' && ca === cb ? 80 : null;
+        const ga = relationshipGoal([a, text(own.preferredRelationship), text(own.goals)].join("；")), gb = relationshipGoal(b);
+        const goalConflict = ga !== 'unknown' && gb !== 'unknown' && ga !== gb;
+        score = contradictory ? null : unavailable ? 20 : conflict || goalConflict ? 25 : ga === 'serious' && gb === 'serious' ? 85 : sa === 'available' && sb === 'available' ? 85 : ca !== 'unknown' && ca === cb ? 80 : null;
         conclusion = contradictory ? `双方婚恋或婚育资料中有相互矛盾的表述，先确认当前想法，暂不计分。` : unavailable ? `${sb === 'occupied' ? `TA 自述${b}` : `你自述${a}`}。如果目标是建立排他伴侣关系，目前不适合继续升级投入。` : conflict ? `你对婚育的想法是“${childA}”，TA 是“${childB}”，存在重要方向冲突，建议在继续投入前直接聊清。` : `你的婚恋状态是“${a || '尚未记录'}”，TA 是“${b || '尚未记录'}”。${sa === 'available' && sb === 'available' ? "双方目前都有继续了解的基础。" : "是否愿意发展关系还需要双方表达。"}${childA && childB ? `婚育想法分别是“${childA}”和“${childB}”，${ca !== 'unknown' && ca === cb ? '方向相近，可以聊具体时间安排。' : '还不能确定一致，建议直接聊清。'}` : ""}`;
+        if (!contradictory && !unavailable && !conflict && gb !== 'unknown') conclusion = goalConflict ? `你希望“${[a, text(own.preferredRelationship), text(own.goals)].filter(Boolean).join("；")}”，TA 自述“${b}”，当前关系目标方向不同，先聊清再投入。` : `TA 已明确表达“${b}”，${gb === 'serious' ? "倾向认真发展关系" : "当前更偏向轻量相处"}。${ga === gb ? "双方目标方向接近，下一步看持续投入和具体时间安排。" : "你的关系目标尚未明确对照；这不是对你作出的承诺，但无需再把TA的目标列为未知。"}`;
       } else if (field === "lifestyle") {
         const positiveA = affirmative(a), positiveB = affirmative(b);
         const tokens = positiveA.filter(word => word.length > 1 && positiveB.some(part => part === word));
@@ -86,8 +99,9 @@ export function relationshipFit(own: Profile, other: Profile, evidence: Record<s
         score = tokens.length ? 85 : null;
         conclusion = tokens.length ? `共同的生活线索是${tokens.join("、")}。可以从这类活动安排一次轻量见面，看实际相处是否舒服。` : `你提到“${a}”，TA 提到“${b}”。目前没有确认双方都愿意参与的共同活动，不把否定或模糊表述算作共同爱好。`;
       }
-      status = field === "city" && score === null && a && b ? "有线索" : score === null ? "待了解" : score >= 75 ? "匹配" : score < 40 ? "有冲突" : score < 60 ? "有差异" : "可继续了解";
+      status = score === null ? b ? "有线索" : "待了解" : score >= 75 ? "匹配" : score < 40 ? "有冲突" : score < 60 ? "有差异" : "可继续了解";
     }
+    if (field === "city" && context.sameCity === true) return { dimension, field, selfNeed: a || "用户已确认同城", reading: b || "双方同城", evidence: "用户确认双方同城" + (evidence[field] ? `；${evidence[field]}` : ""), conclusion: "双方同城，安排见面没有跨城成本。下一步看具体时间、区域和双方是否愿意落实邀约。", status:"有线索", score:null };
     return { dimension, field, selfNeed: a || "尚未记录", reading: b || "尚未记录", evidence: evidence[field] || (b ? `档案自述：${b}` : ""), conclusion, status, score };
   });
   const scored = rows.filter(row => row.score !== null);
@@ -95,6 +109,7 @@ export function relationshipFit(own: Profile, other: Profile, evidence: Record<s
   const commonPoints = rows.filter(row => row.status === "匹配").map(row => ({ title: row.dimension, evidence: row.evidence, meaning: row.conclusion }));
   const conflicts = rows.filter(row => row.status === "有冲突");
   const fitScore = average === null ? null : conflicts.length ? Math.min(39, average) : average;
-  const summary = conflicts.length ? `优先解决${conflicts.map(row => row.dimension).join("、")}上的冲突，暂缓加大投入。${conflicts[0].conclusion}` : commonPoints.length ? `可以继续了解，优势集中在${commonPoints.map(row => row.title).join("、")}。${commonPoints[0].meaning}` : "当前没有足够的共同点支持加大投入；先围绕已有资料交流，补齐重要信息后再决定。";
+  const available = rows.filter(row => row.evidence);
+  const summary = conflicts.length ? `优先解决${conflicts.map(row => row.dimension).join("、")}上的冲突，暂缓加大投入。${conflicts[0].conclusion}` : commonPoints.length ? `可以继续了解，优势集中在${commonPoints.map(row => row.title).join("、")}。${commonPoints[0].meaning}` : available.length ? `已有${available.length}项明确资料。${available.find(row=>row.field==='relationshipStatus')?.conclusion || available[0].conclusion}` : "当前材料尚未包含可对照的明确自述。";
   return { fit: rows, fitScore, fitSummary: summary, commonPoints, coverage: scored.length, total: 6, methodVersion: 'profile-fit-2', scoreBasis: '资料适配参考', conflictCapApplied: conflicts.length > 0 };
 }

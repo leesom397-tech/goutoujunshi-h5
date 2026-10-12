@@ -39,7 +39,7 @@ export default function PersonNewPage() {
       request.current ||= { id: crypto.randomUUID(), label: label.trim(), data: { ...fields } };
       const result = await archiveRequest<{ createdSubjectId: string }>("profile", { action: "create-manual", ...request.current, confirmed: true });
       if (result.createdSubjectId !== request.current.id) throw new Error("未确认建档结果，请返回人物列表核对。");
-      window.location.assign(`/archive?subjectId=${encodeURIComponent(result.createdSubjectId)}`);
+      window.location.assign(`/archive?subjectId=${encodeURIComponent(result.createdSubjectId)}&avatar=choose`);
     } catch (cause) { if ((cause as { status?: number }).status === 401) setSignedOut(true); setError(cause instanceof Error ? cause.message : "暂未保存，填写内容仍保留。"); }
     finally { setBusy(false); }
   }

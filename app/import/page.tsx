@@ -197,7 +197,6 @@ export default function ImportPage() {
   const currentStep = finalResult ? 3 : analysisReady || busy ? 2 : hasMaterials ? 1 : 0;
   return <main className={styles.page}><div className={styles.wrap}>
     <AuroraPageHero eyebrow="材料导入 · 长对话分析" title={<>把长对话，放在一起看。</>} description="上传文字、截图或录音，先核对双方身份，再看有原话依据的分析。">
-      <Link className={styles.historyLink} href="/history">电脑端完整聊天记录 <ArrowUpRight size={16} aria-hidden="true" /></Link>
     </AuroraPageHero>
     <ol className={styles.steps} aria-label="导入步骤">
       {[{title:"添加材料",note:"上传文件或粘贴文字"},{title:"确认谁是你",note:"核对称呼与授权"},{title:"查看分析",note:"先看结果，再决定留档"}].map((step,index)=><li key={step.title} data-state={currentStep>index?"done":currentStep===index?"current":"waiting"} aria-current={currentStep===index?"step":undefined}><span className={styles.stepNumber}>{currentStep>index?<Check size={17} aria-hidden="true"/>:String(index+1).padStart(2,"0")}</span><div><strong>{step.title}</strong><small>{step.note}</small></div></li>)}

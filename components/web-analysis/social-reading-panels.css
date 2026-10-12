@@ -81,3 +81,44 @@
   .social-reading-panels .srp-starters blockquote { font-size: 18px; }
 }
 @media(prefers-reduced-motion:reduce) { .social-reading-panels .srp-starters button { transition: none; } }
+
+/* Keep the figures and their meaning together, at the same reading scale. */
+.srp-stat-grid { gap:30px; }
+.srp-composition-layout { display:grid; grid-template-columns:minmax(145px,.8fr) minmax(0,1.2fr); align-items:center; gap:22px; }
+.srp-donut { position:relative; width:100%; max-width:215px; margin-inline:auto; }
+.srp-donut svg { display:block; width:100%; overflow:visible; }
+.srp-donut > div { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; pointer-events:none; }
+.srp-donut strong { color:#302821; font-size:38px; line-height:1.25; font-weight:600; font-variant-numeric:tabular-nums; }
+.srp-donut span { color:#7c6d59; font-size:15px; line-height:1.8; }
+.srp-chart-dot { display:inline-block; flex-shrink:0; width:8px; height:8px; border-radius:50%; }
+.social-reading-panels button.srp-bar-row { display:block; width:100%; text-align:left; border:1px solid transparent; border-radius:10px; padding:9px 10px; min-height:64px; background:transparent; box-shadow:none; color:#302821; font:inherit; cursor:pointer; transition:background .18s,border-color .18s; }
+.social-reading-panels button.srp-bar-row:hover { background:#f6f3e9; border-color:#dadbcd; }
+.social-reading-panels button.srp-bar-row[aria-pressed=true] { background:#f2f5ec; border-color:#b7cabc; }
+.social-reading-panels .srp-stat-group[data-tone=amber] button.srp-bar-row[aria-pressed=true] { background:#fcf4e5; border-color:#d9c098; }
+.social-reading-panels button.srp-bar-row:focus-visible { outline:3px solid #9d8160; outline-offset:2px; }
+.srp-chart-selection { padding:18px 19px; margin-top:16px; background:#f7f8f1; border:1px solid #dce3d3; border-radius:12px; }
+.srp-chart-selection > strong { display:flex; align-items:center; gap:7px; color:#416d5d; font-size:16px; }
+.social-reading-panels .srp-chart-selection > p { margin:8px 0; font-size:15px; }
+.srp-stat-group[data-tone=amber] .srp-chart-selection { background:#fcf6e9; border-color:#e6d8be; }
+.srp-stat-group[data-tone=amber] .srp-chart-selection > strong { color:#91662f; }
+.srp-composition-layout .srp-bars { gap:4px; }
+.srp-legend-count { display:block; margin-top:6px; color:#786853; font-size:15px; line-height:1.55; }
+.social-reading-panels .srp-ring-note { color:#7a6b58; font-size:15px; line-height:1.7; margin:20px 0 0; }
+.social-reading-panels .srp-conclusion { padding:20px 22px; margin-top:28px; border:1px solid #e5d4b8; border-left:3px solid #b78b4c; border-radius:13px; background:#fcf5e8; }
+.srp-conclusion > span { display:flex; align-items:center; gap:8px; font-size:15px; font-weight:650; color:#91662f; }
+.social-reading-panels .srp-conclusion h3 { margin:10px 0 0; font-size:18px; color:#302821; }
+.social-reading-panels .srp-conclusion > p { margin:10px 0 0; }
+.social-reading-panels .srp-reading-alternative { display:flex; gap:7px; font-size:15px; color:#7b6a51; }
+.srp-reading-alternative svg { flex-shrink:0; margin-top:4px; }
+.srp-conclusion + .srp-timeline { margin-top:30px; }
+.social-reading-panels .srp-timeline .srp-conclusion { margin-top:17px; padding:14px 17px; background:#faf7ed; }
+.srp-profile-grid > div { padding:20px; border:1px solid #e3e0d1; border-radius:14px; background:#fffefa; }
+.srp-profile-grid > div[data-important=true] { border-top:3px solid #8aa08c; }
+.srp-profile-meaning { margin-top:15px; padding:14px 16px; border-radius:10px; background:#f3f6ed; }
+.srp-profile-meaning strong { display:flex; align-items:center; gap:6px; font-size:15px; color:#4f735e; }
+.social-reading-panels .srp-profile-meaning p { color:#415948; font-size:16px; margin:8px 0 0; }
+.social-reading-panels :is(.srp-muted,.srp-evidence,.srp-bar-row .srp-evidence,.srp-stat-scope p,.srp-selfie p,.srp-post-heading > span,.srp-post-heading > small,.srp-tags > span,.srp-starters article > header > span,.srp-copy-status,.srp-starters button) { font-size:15px; }
+.srp-total > span,.srp-bar-value small { font-size:15px; }
+.srp-starters button { min-height:44px; }
+@media(min-width:761px) and (max-width:1150px) { .srp-composition-layout { grid-template-columns:minmax(0,1fr); } .srp-donut { max-width:190px; } }
+@media(max-width:760px) { .srp-composition-layout { grid-template-columns:minmax(0,1fr); gap:18px; } .srp-donut { max-width:210px; } .social-reading-panels .srp-conclusion { padding:18px 16px; } .srp-profile-grid > div { padding:18px 16px; } .srp-bar-heading > span:first-child { font-size:16px; } .srp-starters article > header { flex-wrap:wrap; } }

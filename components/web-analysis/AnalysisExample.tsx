@@ -15,7 +15,7 @@ type ExampleProps = { mode: ExampleMode; onUpload: () => void };
 
 const descriptions: Record<ExampleMode, { label: string; title: string; benefits: string[] }> = {
   chat: { label: "聊天", title: "他主动约下一次，是礼貌还是靠近？", benefits: ["语气与意图", "互动信号", "回复备选"] },
-  moments: { label: "朋友圈", title: "三条动态，怎样找到自然话题？", benefits: ["内容分布", "动态里的线索", "自然开场"] },
+  moments: { label: "朋友圈", title: "一组动态，怎样找到相处的切入点？", benefits: ["内容分布", "动态里的线索", "自然开场"] },
   social: { label: "社交主页", title: "一张主页，能看出哪些可聊线索？", benefits: ["可见资料", "事实与推测", "可聊话题"] },
 };
 const signalIcons: LucideIcon[] = [ArrowUpRight, MessagesSquare, HeartHandshake, UserRound, Heart, CalendarCheck];
@@ -57,7 +57,7 @@ function previewData(mode: ExampleMode) {
     return {
       focus: source.hypotheses[0].title,
       focusNote: "工作、看展、散步；从对方已分享的细节打开话题。",
-      boundary: "3 条动态，不能代表完整生活。",
+      boundary: `${source.posts.length} 条动态，只代表本批可见内容。`,
       summary: publicMomentsCase.summary,
       nextStep: source.starters[0].message,
       excerptLabel: `关键动态 · ${source.posts[0].date}`,
@@ -66,10 +66,10 @@ function previewData(mode: ExampleMode) {
       chartTitle: "这批动态的内容构成",
       chartMetric: `${source.statistics.total}`,
       chartMetricUnit: "条动态",
-      chartNote: "只统计这 3 条演示动态，不代表完整朋友圈。",
+      chartNote: `只统计这 ${source.posts.length} 条虚构动态，不代表完整朋友圈。`,
       chartUnit: "条数与占比 · 分类可重叠",
       chartEvidenceLabel: "对应的动态",
-      chartRows: source.statistics.visibleContent.map((row, index) => ({ label: row.label, value: row.percent, display: `${row.count} 条 · ${row.percent}%`, icon: icons[index], evidence: [`${source.posts[index].date}：${source.posts[index].content}`] })),
+      chartRows: source.statistics.visibleContent.map((row, index) => ({ label: row.label, value: row.percent, display: `${row.count} 条 · ${row.percent}%`, icon: icons[index % icons.length] || Image, evidence: [row.evidence || source.posts[0]?.evidence || "虚构动态"] })),
       chartMaximum: 100,
     };
   }

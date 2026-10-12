@@ -3,7 +3,8 @@ import fs from 'node:fs';
 import ts from 'typescript';
 const compile = p => ts.transpileModule(fs.readFileSync(p,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
 const statistics={};new Function('exports',compile('lib/moments-statistics.ts'))(statistics);
-const helpers={};new Function('exports','require',compile('lib/moments-report.ts'))(helpers,()=>statistics);
+const photos={};new Function('exports',compile('lib/social-photo-clues.ts'))(photos);
+const helpers={};new Function('exports','require',compile('lib/moments-report.ts'))(helpers,name=>name.includes('social-photo')?photos:statistics);
 const readings={};new Function('exports',compile('lib/communication-reading.ts'))(readings);
 const raw={summary:'以旅行与日常活动为主要展示内容',visibility:{label:'三天可见',evidence:'第1张：最近三天的朋友圈'},posts:[{date:'10月8日',content:'登山',evidence:'第1张山顶照片'}],themes:[{title:'户外',evidence:'第1张',meaning:'展示户外活动'}],hypotheses:[{title:'活动切入',evidence:'第1张',possibility:'可能愿意聊路线',alternative:'也可能只是一次出游'}],starters:[{topic:'路线',evidence:'第1张',message:'这条路线你觉得难走吗？'}]};
 assert.equal(helpers.cleanMomentsReport(null),null);
@@ -16,7 +17,7 @@ assert.ok(!JSON.stringify(helpers.cleanMomentsReport({...raw,summary:'电话1381
 assert.deepEqual(helpers.cleanMomentsReport(helpers.cleanMomentsReport(raw)),helpers.cleanMomentsReport(raw));
 const insight={...raw.hypotheses[0],verify:'先问这次体验，再看对方是否主动展开'};
 const deep=helpers.cleanMomentsReport({...raw,hypotheses:[insight,insight,...Array.from({length:5},(_,i)=>({...insight,title:`发现${i}`,possibility:`局部解释${i}`}))]});
-assert.equal(deep.hypotheses.length,3,'show at most three distinct findings');
+assert.equal(deep.hypotheses.length,4,'show at most four distinct evidence-backed findings');
 assert.equal(deep.hypotheses[0].verify,insight.verify,'retain communication strategy through archive sanitization');
 assert.deepEqual(helpers.cleanMomentsReport(deep),deep,'reopening an archived report preserves deep findings and action');
 assert.equal(helpers.cleanMomentsReport(raw).hypotheses[0].verify,'','legacy reports do not invent a strategy');

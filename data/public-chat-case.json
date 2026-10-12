@@ -408,7 +408,30 @@
           "status": "insufficient"
         }
       ]
-    }
+    },
+    "mediaBubbles": [
+      {
+        "kind": "image",
+        "side": "left",
+        "speaker": "other",
+        "lineIndex": 7,
+        "lineId": "bubble-7",
+        "text": ""
+      }
+    ],
+    "photoClues": [
+      {
+        "location": "虚构示例 · 第8个气泡",
+        "observation": "展厅里的画作照片，画框与作品局部清楚可见。",
+        "inference": "结合前句“你说喜欢那幅画，我拍了给你”，这次分享可能是在延续共同体验。",
+        "alternative": "发图也可能只是兑现顺手帮拍的约定，不能单凭照片推断长期承诺。",
+        "verify": "可以自然回应“你还记得我喜欢这幅，谢谢你”，再看双方是否继续主动交流。",
+        "side": "left",
+        "speaker": "other",
+        "lineIndex": 7,
+        "lineId": "bubble-7"
+      }
+    ]
   },
   "readableLineCount": 9,
   "unreadMediaCount": 0

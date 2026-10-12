@@ -102,3 +102,4 @@
 .stats.volumeStats .volumeHero b { font-size: 76px; font-weight: 550; color: #774a32; line-height: 1.1; gap: 10px; }
 .stats.volumeStats .volumeHero b small { font-size: 18px; }
 @media(max-width:700px) { .stats.volumeStats { padding: 22px 14px; }.stats.volumeStats .volumeHero b { font-size: 64px; }.stats.volumeStats .volumeHero b small { font-size: 16px; } }
+.sessionStatus{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap;border:0}

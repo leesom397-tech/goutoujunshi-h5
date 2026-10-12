@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import ui from "@/components/AuroraUI.module.css";
+import {PersonAvatarChoice} from "@/components/PersonAvatarChoice";
 export type Json = Record<string, any>;
 export class WebError extends Error { constructor(message: string, public status = 0, public details: Json = {}) { super(message); } }
 export async function api(path: string, body?: Json, signal?: AbortSignal): Promise<Json> {
@@ -71,10 +72,10 @@ export function encodeBase64(bytes: Uint8Array) { let output = ""; for (let i = 
 
 
 
-export function InlinePerson({ disabled = false, onCreated }: { disabled?: boolean; onCreated: (id: string) => void | Promise<void> }) {
+export function InlinePerson({ disabled = false, onCreated, avatarSources, avatarCandidates }: { disabled?: boolean; onCreated: (id: string) => void | Promise<void>; avatarSources?:File[]; avatarCandidates?:Parameters<typeof PersonAvatarChoice>[0]["candidates"] }) {
   const [name, setName] = useState(""), [consent, setConsent] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(""), [done, setDone] = useState(false);
   const pending = useRef<{ id: string; label: string } | null>(null);
   async function create() { if (!name.trim() || !consent || busy) return; setBusy(true); setError(""); try { const state = await api("/api/web/profile"); if (!state.enabled || state.paused) await api("/api/web/profile", { action: "consent", enabled: true }); pending.current ||= { id: crypto.randomUUID(), label: name.trim() }; const created = await api("/api/web/profile", { action: "create-manual", ...pending.current, data: {}, confirmed: true }); if (created.createdSubjectId !== pending.current.id) throw new Error("建档结果尚未确认，再次点击会核对同一人物。"); await onCreated(created.createdSubjectId); setDone(true); } catch (e) { setError(message(e)); } finally { setBusy(false); } }
-  if (done) return <p className="wa-muted" role="status">已建立「{name}」的人物档案。</p>;
+  if (done) return <div><p className="wa-muted" role="status">已建立「{name}」的人物档案。</p><PersonAvatarChoice subjectId={pending.current!.id} name={name} sources={avatarSources} candidates={avatarCandidates} autoOpen/></div>;
   return <details><summary>还没有档案？在这里新建人物</summary><label className="wa-field">人物称呼<input maxLength={60} disabled={disabled || busy || !!pending.current} value={name} onChange={e => setName(e.target.value)} placeholder="例如：小林"/></label><label className="wa-check"><input type="checkbox" checked={consent} disabled={disabled || busy || !!pending.current} onChange={e => setConsent(e.target.checked)}/>同意保存我有权提供的资料用于关系分析，并启用或恢复人物档案。</label><button disabled={disabled || busy || !consent || !name.trim()} onClick={() => void create()}>{busy ? "建档中…" : pending.current ? "核对并重试建档" : "建立并选择此人物"}</button><ErrorNotice error={error}/></details>;
 }
