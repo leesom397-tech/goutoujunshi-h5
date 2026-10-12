@@ -14,6 +14,7 @@ import "./web.css";
 import "./web-auxiliary.css";
 import "./product-redesign.css";
 import "./reference-ui.css";
+import "./unified-ui.css";
 import { AuxiliaryWebNav } from "@/components/AuxiliaryWebNav";
 import {PwaRegistration} from "@/components/pwa-registration";
 
@@ -38,3 +39,4 @@ export default function RootLayout({
     </html>
   );
 }
+
