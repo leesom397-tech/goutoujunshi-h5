@@ -110,7 +110,7 @@
   padding: 34px;
   border: 1px solid #edddcf;
   border-radius: 24px;
-  background: linear-gradient(90deg, #fffaf7 15%, #fffaf7ed 40%, #fffaf733 80%), url('/images/aurora-fluted-light-v3.webp') right center / cover;
+  background: linear-gradient(90deg, #fffaf7 15%, #fffaf7ed 40%, #fffaf733 80%), url('/images/aurora-fluted-light-v5.webp') right center / cover;
   box-shadow: 0 10px 32px #996c5108, inset 0 1px 0 #fff;
 }
 .hero::before, .hero::after, .heroArt { display: none; }

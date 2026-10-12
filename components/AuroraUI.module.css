@@ -1,6 +1,6 @@
 .page{--aurora-bg:#fffaf5;--aurora-ink:#272421;--aurora-muted:#796d65;--aurora-edge:#eaddd2;--aurora-accent:#b66c53;min-height:100vh;background:var(--aurora-bg);color:var(--aurora-ink);font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif}
 .wrap{width:min(1180px,calc(100% - 48px));margin:24px auto 0;padding:0 0 64px;min-width:0}
-.hero{position:relative;isolation:isolate;overflow:hidden;min-height:236px;padding:36px 40px;border:1px solid #ecded3;border-radius:22px;background:linear-gradient(90deg,#fffaf5 0%,#fffaf5f2 34%,#fffaf5b8 52%,#fffaf510 100%),url('/images/aurora-fluted-light-v3.webp') center/cover;box-shadow:inset 0 1px #fff,0 12px 30px #7c432d08;margin:0 0 26px;color:#272421}
+.hero{position:relative;isolation:isolate;overflow:hidden;min-height:236px;padding:36px 40px;border:1px solid #ecded3;border-radius:22px;background:linear-gradient(90deg,#fffaf5 0%,#fffaf5f2 34%,#fffaf5b8 52%,#fffaf510 100%),url('/images/aurora-fluted-light-v5.webp') center/cover;box-shadow:inset 0 1px #fff,0 12px 30px #7c432d08;margin:0 0 26px;color:#272421}
 .hero .heroCopy{position:relative;z-index:1;max-width:720px}
 .hero .eyebrow{display:inline-flex;align-items:center;gap:9px;color:#945e49;font-size:11px;letter-spacing:.10em;font-weight:550;line-height:1.6}
 .hero .eyebrow:before{content:"";width:5px;height:5px;flex:none;border-radius:50%;background:#c0805d;box-shadow:0 0 0 4px #f2e2d7}
@@ -16,5 +16,5 @@
 .secondary:hover{background:#f6e9df;border-color:#c9a58c}
 .primary:disabled,.secondary:disabled{opacity:.5;cursor:not-allowed;box-shadow:none}
 .primary:focus-visible,.secondary:focus-visible{outline:2px solid #a96347;outline-offset:3px}
-@media(max-width:700px){.wrap{width:calc(100% - 36px);margin-top:14px;padding-bottom:40px}.hero{min-height:214px;padding:28px 22px;border-radius:19px;margin-bottom:20px;background:linear-gradient(90deg,#fffaf5f2 0%,#fffaf5e8 38%,#fffaf568 100%),url('/images/aurora-fluted-light-v3.webp') 65% center/cover}.hero .heroCopy .title{font-size:28px;line-height:1.45;margin:17px 0 10px}.hero .description{font-size:12px;max-width:290px}.actions{margin-top:20px;gap:9px}.panel{padding:21px;border-radius:17px}.primary,.secondary{font-size:12px;padding:10px 15px;min-height:42px}}
+@media(max-width:700px){.wrap{width:calc(100% - 36px);margin-top:14px;padding-bottom:40px}.hero{min-height:214px;padding:28px 22px;border-radius:19px;margin-bottom:20px;background:linear-gradient(90deg,#fffaf5f2 0%,#fffaf5e8 38%,#fffaf568 100%),url('/images/aurora-fluted-light-v5.webp') 65% center/cover}.hero .heroCopy .title{font-size:28px;line-height:1.45;margin:17px 0 10px}.hero .description{font-size:12px;max-width:290px}.actions{margin-top:20px;gap:9px}.panel{padding:21px;border-radius:17px}.primary,.secondary{font-size:12px;padding:10px 15px;min-height:42px}}
 @media(prefers-reduced-motion:reduce){.primary,.secondary{transition:none}}

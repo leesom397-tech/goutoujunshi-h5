@@ -17,7 +17,7 @@
 .page :global(.voice-live-dot) { width: 6px; height: 6px; border-radius: 50%; background: #c8b9ad; }
 .page :global(.voice-live-dot.active) { background: #b98062; box-shadow: 0 0 0 4px #f9e9dc; }
 .page :global(.voice-stage) { position: relative; display: grid; place-items: center; height: 255px; margin: 24px -29px 0; isolation: isolate; background: radial-gradient(ellipse at 52% 54%, #f7deca5c, #fffefd00 62%); }
-.page :global(.voice-stage)::before { content: ""; position: absolute; width: 290px; height: 200px; background: url("/images/aurora-fluted-light-v3.webp") center 65% / cover; mask-image: radial-gradient(ellipse, #0007 22%, #0002 50%, transparent 72%); pointer-events: none; z-index: -1; }
+.page :global(.voice-stage)::before { content: ""; position: absolute; width: 290px; height: 200px; background: url("/images/aurora-fluted-light-v5.webp") center 65% / cover; mask-image: radial-gradient(ellipse, #0007 22%, #0002 50%, transparent 72%); pointer-events: none; z-index: -1; }
 .voiceLens { position: relative; width: 139px; height: 139px; display: grid; place-items: center; margin-top: -17px; color: #b5775f; border: 1px solid #fff; border-radius: 50%; background: radial-gradient(circle at 30% 22%, #fffffff2 3%, #fffaf69e 31%, #edc7ad61 65%, #fff4e6b0 100%); box-shadow: inset 3px 3px 11px #fff, inset -4px -6px 18px #bc846e21, 0 20px 34px -13px #995c3226, 0 0 0 13px #ffffff59, 0 0 0 14px #e9d5c44a; backdrop-filter: blur(9px); }
 .voiceLens::after { content: ""; position: absolute; inset: 8px; border: 1px solid #fff9; border-bottom-color: #d6b29650; border-radius: inherit; pointer-events: none; }
 .voiceLens svg { position: relative; z-index: 1; filter: drop-shadow(0 1px 0 #fff); }

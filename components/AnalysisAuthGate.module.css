@@ -17,7 +17,7 @@
 .dialog *, .dialog *::before, .dialog *::after { box-sizing: border-box; }
 .close { position: absolute; top: 13px; right: 13px; z-index: 2; display: grid; place-items: center; width: 37px; height: 37px; padding: 0; border: 1px solid #e8d5c6; border-radius: 50%; background: #fffcf6dc; color: #916851; cursor: pointer; }
 .close:hover { background: #f7e6d8; }
-.header { padding: 33px 32px 25px; background: linear-gradient(90deg, #fffaf5 8%, #fffaf5d9 52%, #fffaf557), url('/images/aurora-fluted-light-v3.webp') right center / cover; border-bottom: 1px solid #eddfd3; }
+.header { padding: 33px 32px 25px; background: linear-gradient(90deg, #fffaf5 8%, #fffaf5d9 52%, #fffaf557), url('/images/aurora-fluted-light-v5.webp') right center / cover; border-bottom: 1px solid #eddfd3; }
 .eyebrow { display: block; padding-right: 28px; color: #a36f53; font-size: 11px; letter-spacing: .04em; }
 .header h2 { margin: 16px 0 10px; color: #302620; font-size: 25px; font-weight: 550; letter-spacing: -.035em; line-height: 1.5; }
 .header p { max-width: 320px; margin: 0; color: #806b5c; font-size: 12px; line-height: 1.9; }

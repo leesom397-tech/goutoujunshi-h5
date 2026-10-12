@@ -10,9 +10,9 @@
 .caseLabel p { margin: 0; color: #8f7762; font-size: 11px; line-height: 1.8; }
 .preview { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 18px; }
 .example .summaryCard, .example .chartCard { display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 0; min-width: 0; min-height: 320px; width: 100%; margin: 0; padding: 27px; border: 1px solid #e9dacc; border-radius: 23px; color: #272421; background: linear-gradient(140deg, #fffefd, #fffaf3); box-shadow: inset 0 1px #fff, 0 13px 32px #78503109; font: inherit; text-align: left; cursor: pointer; transition: border-color .2s, box-shadow .2s; }
-.example .summaryCard { background: linear-gradient(100deg, #fffaf5f7, #fffaf5e5), url('/images/aurora-fluted-light-v3.webp') 60% center / cover; }
+.example .summaryCard { background: linear-gradient(100deg, #fffaf5f7, #fffaf5e5), url('/images/aurora-fluted-light-v5.webp') 60% center / cover; }
 .example button.summaryCard:not(:disabled):hover, .example button.chartCard:not(:disabled):hover { transform: none; border-color: #caab8d; box-shadow: inset 0 1px #fff, 0 17px 35px #78503114; }
-.example button.summaryCard:not(:disabled):hover { background: linear-gradient(100deg, #fffaf5f7, #fffaf5e5), url('/images/aurora-fluted-light-v3.webp') 60% center / cover; }
+.example button.summaryCard:not(:disabled):hover { background: linear-gradient(100deg, #fffaf5f7, #fffaf5e5), url('/images/aurora-fluted-light-v5.webp') 60% center / cover; }
 .example button.chartCard:not(:disabled):hover { background: linear-gradient(140deg, #fffefd, #fffaf3); }
 .cardKicker { display: flex; align-items: center; gap: 7px; color: #956e4f; font-size: 11px; font-weight: 500; line-height: 1.7; }
 .cardKicker > span { margin-left: auto; color: #a3866b; font-size: 10px; font-weight: 400; }

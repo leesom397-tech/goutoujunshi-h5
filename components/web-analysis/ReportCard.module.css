@@ -15,7 +15,7 @@
   padding: clamp(26px, 4vw, 46px);
   border: 1px solid #e9e2d7;
   border-radius: 28px;
-  background: linear-gradient(90deg, #fffaf5 3%, #fffaf5ed 40%, #fffaf522 100%), url("/images/aurora-fluted-light-v3.webp") center / cover;
+  background: linear-gradient(90deg, #fffaf5 3%, #fffaf5ed 40%, #fffaf522 100%), url("/images/aurora-fluted-light-v5.webp") center / cover;
   box-shadow: inset 0 1px 0 #fff, 0 20px 50px #5745240b;
 }
 
