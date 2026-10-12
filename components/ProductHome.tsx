@@ -33,7 +33,7 @@ export function KnowledgeEvidence() {
       <span className={styles.evidenceKicker}><BookOpen size={17} strokeWidth={1.5}/>成子智能体的资料依据</span>
       <h2>用有依据的分析，帮你看清关系</h2>
       <p><strong>融合心理学、法学、社会学等多学科知识</strong>，参考书籍与关系研究，整理约 {knowledgeVolume} 万字资料。成子智能体结合你的聊天与相处经历，帮你想清楚下一步。</p>
-      <ul className={styles.theoryTags} aria-label="参考书目">{['《亲密关系》','《非暴力沟通》','《爱的艺术》','《成人依恋》','《乡土中国》','《私人生活的变革》'].map(label=><li key={label}>{label}</li>)}</ul>
+      <ul className={styles.theoryTags} aria-label="参考书目">{['《亲密关系》','《非暴力沟通》','《爱的艺术》','《成人依恋》','《Attachment and Loss》','《私人生活的变革》'].map(label=><li key={label}>{label}</li>)}</ul>
     </div>
     <div className={`${styles.stats} ${styles.volumeStats}`} aria-label="方法资料规模">
       <div className={styles.volumeHero}><span>为关系分析整理的资料</span><b><small>约</small>{knowledgeVolume}<small>万字</small></b><span>从资料依据，到你的具体处境</span></div>
