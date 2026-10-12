@@ -40,6 +40,7 @@ export default function AnalyzePage() {
       finally { if (current === generation.current) { preparingRef.current = false; setPreparing(false); } }
     }
     if (current !== generation.current) return;
+    const modeUrl = new URL(window.location.href); modeUrl.searchParams.set("mode", next); window.history.replaceState(null, "", modeUrl.pathname + modeUrl.search + modeUrl.hash);
     setMode(next); setResult(null); setResultSources([]); setPrevious(null); setPreviousCount(0); setConsent(false); setError(""); setStatus(null); setLinkResult(null); setLinkConsent(false);
   }
   function resetMaterials() { setFiles([]); setResult(null); setResultSources([]); setPrevious(null); setPreviousCount(0); setConsent(false); setStatus(null); setError(""); }
@@ -125,9 +126,14 @@ export default function AnalyzePage() {
 
       {!visibleResult && <>
         <div className="ax-mode-heading"><h2>这次想了解什么？</h2><span>选择一种材料开始</span></div>
-        <div className="ax-modes" role="tablist" aria-label="分析材料">
+        <div className="ax-modes" role="tablist" aria-label="分析材料" onKeyDown={event => {
+          if (disabled || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+          event.preventDefault(); const keys = ["chat", "moments", "social"]; const index = keys.indexOf(mode);
+          const next = event.key === "Home" ? 0 : event.key === "End" ? 2 : (index + (event.key === "ArrowRight" ? 1 : -1) + 3) % 3;
+          document.getElementById("analysis-mode-" + keys[next])?.focus(); void changeMode(keys[next]);
+        }}>
           {analysisModes.map(({ key, label, intent, description, Icon }) => <button
-            role="tab" aria-selected={mode === key} aria-controls="analysis-workspace" id={"analysis-mode-" + key}
+            role="tab" tabIndex={mode === key ? 0 : -1} aria-selected={mode === key} aria-controls="analysis-workspace" id={"analysis-mode-" + key}
             key={key} disabled={disabled} onClick={() => void changeMode(key)} className="ax-mode">
             <span className="ax-mode-top"><span className="ax-mode-symbol"><Icon size={22}/></span><span className="ax-mode-choice" aria-hidden="true">{mode === key && <Check size={13}/>}</span></span>
             <strong>{label}<span>{intent}</span></strong>
