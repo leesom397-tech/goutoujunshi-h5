@@ -1,6 +1,6 @@
 "use client";
 import {ArrowUpRight, ArrowRight, ScanLine, Images, ScanFace, MessageCircle, AudioLines, Users, BookOpen} from "lucide-react";
-import {knowledgeManifest as library} from "@/lib/knowledge-public";
+import {knowledgeVolume} from "@/lib/knowledge-public";
 import {knowledgeDomains, knowledgeOrigin} from "@/lib/knowledge-origins";
 import { GlassStudy } from "./GlassStudy";
 import styles from "./ProductHome.module.css";
@@ -30,22 +30,22 @@ return <div className={styles.page}>
 export function KnowledgeEvidence() {
   return <section className={styles.evidence} data-knowledge-evidence aria-label="资料依据与分析方法">
     <div className={styles.evidenceHeading}>
-      <span className={styles.evidenceKicker}><BookOpen size={17} strokeWidth={1.5}/>研究方法 × 你的真实互动</span>
-      <h2>循证驱动的关系分析系统</h2>
-      <p>参考体系涵盖 <strong>{knowledgeOrigin.referenceCount} 条参考来源</strong>，融合心理学、法学与社会学知识，整理为可供成子智能体按问题调用的结构化知识库。</p>
-      <ul className={styles.theoryTags} aria-label="参考理论与研究领域">{['亲密关系','依恋理论','大五人格','戈特曼婚姻研究','婚姻与沟通','社会交换与承诺'].map(label=><li key={label}>{label}</li>)}</ul>
+      <span className={styles.evidenceKicker}><BookOpen size={17} strokeWidth={1.5}/>成子智能体的资料依据</span>
+      <h2>用有依据的分析，帮你看清关系</h2>
+      <p>参考这些书目与关系研究，整理约 <strong>{knowledgeVolume} 万字资料</strong>。成子智能体结合你的聊天与相处经历，帮你想清楚下一步。</p>
+      <ul className={styles.theoryTags} aria-label="参考书目">{['《亲密关系》','《非暴力沟通》','《爱的艺术》','《成人依恋》'].map(label=><li key={label}>{label}</li>)}</ul>
     </div>
     <div className={styles.stats} aria-label="方法资料规模">
-      {[[knowledgeOrigin.referenceCount, "条", "参考来源"], [library.referenceDocuments, "份", "结构化专题"], [knowledgeDomains.length, "类", "关系主题"]].map(([value, unit, label]) => <div key={label}><b>{value}<small>{unit}</small></b><span>{label}</span></div>)}
+      {[[knowledgeOrigin.referenceCount, "条", "参考来源"], [knowledgeVolume, "万字", "整理资料"], [knowledgeDomains.length, "类", "关系主题"]].map(([value, unit, label]) => <div key={label}><b>{value}<small>{unit}</small></b><span>{label}</span></div>)}
     </div>
     <ol className={styles.methodFlow} aria-label="从资料依据到行动建议">
-      <li><span className={styles.methodNumber}>01</span><div><strong>循证资料库</strong><small>按问题匹配研究与方法资料，区分研究证据、理论框架和经验策略。</small></div><ArrowRight size={17} aria-hidden="true"/></li>
-      <li><span className={styles.methodNumber}>02</span><div><strong>个体化建模</strong><small>结合聊天记录与长期人物档案，对照主动性、回应和态度变化。</small></div><ArrowRight size={17} aria-hidden="true"/></li>
-      <li><span className={styles.methodNumber}>03</span><div><strong>结论与行动方案</strong><small>呈现原话依据与相关方法，给出可执行的沟通建议和时机选择。</small></div></li>
+      <li><span className={styles.methodNumber}>01</span><div><strong>有资料依据</strong><small>从书籍、论文和公开资料中，找到与你的问题相关的方法。</small></div><ArrowRight size={17} aria-hidden="true"/></li>
+      <li><span className={styles.methodNumber}>02</span><div><strong>结合你的经历</strong><small>一起看这次聊天和过去的相处，留意态度与主动性的变化。</small></div><ArrowRight size={17} aria-hidden="true"/></li>
+      <li><span className={styles.methodNumber}>03</span><div><strong>告诉你怎么做</strong><small>说明为什么这样判断，再给你怎么回、何时聊的具体建议。</small></div></li>
     </ol>
     <div className={styles.evidenceFooter}>
       <span className={styles.author}>成子 · 心理学硕士 · 全网百万粉丝</span>
-      <a href="/library#references">查看 {knowledgeOrigin.referenceCount} 条参考资料来源 <ArrowRight size={16}/></a>
+      <a href="/library#references">查看全部 {knowledgeOrigin.referenceCount} 条参考来源 <ArrowRight size={16}/></a>
     </div>
   </section>;
 }
