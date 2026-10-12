@@ -94,3 +94,9 @@
   .stats b small { font-size: 12px; }
 }
 @media (prefers-reduced-motion: reduce) { .evidenceFooter a { transition: none; } }
+.stats.volumeStats { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 24px 20px; background: linear-gradient(140deg, #fffdf9, #fbece3); }
+.stats.volumeStats .volumeHero { grid-column: 1 / -1; gap: 12px; margin-bottom: 22px; padding: 0 0 24px; border-bottom: 1px solid #e8d9cd; }
+.stats.volumeStats .volumeHero + div { border-left: 0; }
+.stats.volumeStats .volumeHero b { font-size: 76px; font-weight: 550; color: #774a32; line-height: 1.1; gap: 10px; }
+.stats.volumeStats .volumeHero b small { font-size: 18px; }
+@media(max-width:700px) { .stats.volumeStats { padding: 22px 14px; }.stats.volumeStats .volumeHero b { font-size: 64px; }.stats.volumeStats .volumeHero b small { font-size: 16px; } }

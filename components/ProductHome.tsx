@@ -32,11 +32,12 @@ export function KnowledgeEvidence() {
     <div className={styles.evidenceHeading}>
       <span className={styles.evidenceKicker}><BookOpen size={17} strokeWidth={1.5}/>成子智能体的资料依据</span>
       <h2>用有依据的分析，帮你看清关系</h2>
-      <p>参考这些书目与关系研究，整理约 <strong>{knowledgeVolume} 万字资料</strong>。成子智能体结合你的聊天与相处经历，帮你想清楚下一步。</p>
-      <ul className={styles.theoryTags} aria-label="参考书目">{['《亲密关系》','《非暴力沟通》','《爱的艺术》','《成人依恋》'].map(label=><li key={label}>{label}</li>)}</ul>
+      <p><strong>融合心理学、法学、社会学等多学科知识</strong>，参考书籍与关系研究，整理约 {knowledgeVolume} 万字资料。成子智能体结合你的聊天与相处经历，帮你想清楚下一步。</p>
+      <ul className={styles.theoryTags} aria-label="参考书目">{['《亲密关系》','《非暴力沟通》','《爱的艺术》','《成人依恋》','《乡土中国》','《私人生活的变革》'].map(label=><li key={label}>{label}</li>)}</ul>
     </div>
-    <div className={styles.stats} aria-label="方法资料规模">
-      {[[knowledgeOrigin.referenceCount, "条", "参考来源"], [knowledgeVolume, "万字", "整理资料"], [knowledgeDomains.length, "类", "关系主题"]].map(([value, unit, label]) => <div key={label}><b>{value}<small>{unit}</small></b><span>{label}</span></div>)}
+    <div className={`${styles.stats} ${styles.volumeStats}`} aria-label="方法资料规模">
+      <div className={styles.volumeHero}><span>为关系分析整理的资料</span><b><small>约</small>{knowledgeVolume}<small>万字</small></b><span>从资料依据，到你的具体处境</span></div>
+      {[[knowledgeOrigin.referenceCount, "条", "参考来源"], [knowledgeDomains.length, "类", "关系主题"]].map(([value, unit, label]) => <div key={label}><b>{value}<small>{unit}</small></b><span>{label}</span></div>)}
     </div>
     <ol className={styles.methodFlow} aria-label="从资料依据到行动建议">
       <li><span className={styles.methodNumber}>01</span><div><strong>有资料依据</strong><small>从书籍、论文和公开资料中，找到与你的问题相关的方法。</small></div><ArrowRight size={17} aria-hidden="true"/></li>
