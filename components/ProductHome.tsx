@@ -39,11 +39,6 @@ export function KnowledgeEvidence() {
       <div className={styles.volumeHero}><span>为关系分析整理的资料</span><b><small>约</small>{knowledgeVolume}<small>万字</small></b><span>从资料依据，到你的具体处境</span></div>
       {[[knowledgeOrigin.referenceCount, "条", "参考来源"], [knowledgeDomains.length, "类", "关系主题"]].map(([value, unit, label]) => <div key={label}><b>{value}<small>{unit}</small></b><span>{label}</span></div>)}
     </div>
-    <ol className={styles.methodFlow} aria-label="从资料依据到行动建议">
-      <li><span className={styles.methodNumber}>01</span><div><strong>有资料依据</strong><small>从书籍、论文和公开资料中，找到与你的问题相关的方法。</small></div><ArrowRight size={17} aria-hidden="true"/></li>
-      <li><span className={styles.methodNumber}>02</span><div><strong>结合你的经历</strong><small>一起看这次聊天和过去的相处，留意态度与主动性的变化。</small></div><ArrowRight size={17} aria-hidden="true"/></li>
-      <li><span className={styles.methodNumber}>03</span><div><strong>告诉你怎么做</strong><small>说明为什么这样判断，再给你怎么回、何时聊的具体建议。</small></div></li>
-    </ol>
     <div className={styles.evidenceFooter}>
       <span className={styles.author}>成子 · 心理学硕士 · 全网百万粉丝</span>
       <a href="/library#references">查看全部 {knowledgeOrigin.referenceCount} 条参考来源 <ArrowRight size={16}/></a>

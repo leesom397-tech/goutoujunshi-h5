@@ -1,0 +1,22 @@
+/* Shared interaction feedback. Decorative icons remain still. */
+body.cz-product :where(button, a[href], summary, [role="button"], [role="tab"], input[type="submit"], input[type="button"]):not(:disabled):not([aria-disabled="true"]) {
+  cursor: pointer;
+  -webkit-tap-highlight-color: #b9785424;
+  transition: translate 180ms ease, scale 140ms ease, transform 180ms ease, background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease, color 180ms ease;
+}
+body.cz-product :where(button, a[href], summary, [role="button"], [role="tab"]):not(:disabled):not([aria-disabled="true"]) svg:not(.animate-spin) {
+  transition: translate 180ms ease, scale 180ms ease;
+  transform-origin: center;
+}
+@media (hover: hover) and (pointer: fine) {
+  body.cz-product :where(button, summary, [role="button"], [role="tab"], input[type="submit"]):not(:disabled):not([aria-disabled="true"]):hover { translate: 0 -1px; }
+  body.cz-product a[href]:not([aria-disabled="true"]):hover { text-decoration: underline; text-underline-offset: 4px; text-decoration-thickness: 1px; }
+  body.cz-product :where(button, a[href], summary, [role="button"], [role="tab"]):not(:disabled):not([aria-disabled="true"]):hover svg:not(.animate-spin) { translate: 1px -1px; scale: 1.06; }
+}
+body.cz-product :where(button, a[href], summary, [role="button"], [role="tab"], input[type="submit"], input[type="button"]):not(:disabled):not([aria-disabled="true"]):active { translate: 0 1px; scale: .985; }
+body.cz-product :where(button, a[href], summary, [role="button"], [role="tab"]):not(:disabled):not([aria-disabled="true"]):active svg:not(.animate-spin) { translate: 0 0; scale: .94; }
+body.cz-product :where(button, a[href], summary, [role="button"], [role="tab"], input[type="submit"]):focus-visible { outline: 2px solid #a26043; outline-offset: 4px; }
+@media (prefers-reduced-motion: reduce) {
+  body.cz-product :where(button, a[href], summary, [role="button"], [role="tab"], input[type="submit"], input[type="button"]),
+  body.cz-product :where(button, a[href], summary, [role="button"], [role="tab"]) svg:not(.animate-spin) { transition: none !important; translate: none !important; scale: none !important; }
+}

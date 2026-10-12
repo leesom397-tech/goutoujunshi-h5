@@ -14,6 +14,7 @@ import "./web.css";
 import "./web-auxiliary.css";
 import "./product-redesign.css";
 import "./aurora-ui.css";
+import "./interaction-motion.css";
 import { AuxiliaryWebNav } from "@/components/AuxiliaryWebNav";
 import {PwaRegistration} from "@/components/pwa-registration";
 
