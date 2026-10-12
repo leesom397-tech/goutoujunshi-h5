@@ -20,7 +20,7 @@ void main(){
  float crop=ratio<1.2?ratio/materialAspect:1.;
  float field=uv.x;
  float depth=smoothstep(.08,.48,field);
- float motion=time*.75;
+ float motion=time*.5625;
  float glide=.012*sin(field*12.+motion*.62)+.006*sin(field*23.-motion*.41);
  float lift=.047*sin(field*11.-motion*.55)+.019*sin(field*22.+motion*.38);
  // Overscan keeps both ends filled as neighbouring ribs rise and settle.

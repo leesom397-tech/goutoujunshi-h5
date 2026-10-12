@@ -3,7 +3,7 @@
 .canvas.ready{opacity:1}
 .fallback{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;object-position:center}
 .fallbackRibs{position:absolute;inset:0;display:flex;overflow:hidden;pointer-events:none}
-.fallbackRibs i{display:block;flex:1;min-width:0;height:116%;margin-top:-8cqh;background-image:url('/images/aurora-fluted-light-v5.webp');background-size:3600% 100%;background-position:calc(var(--rib) * 100% / 35) center;animation:glass-rib-rise 7.33s ease-in-out infinite alternate;animation-delay:calc(var(--rib) * -.493s)}
+.fallbackRibs i{display:block;flex:1;min-width:0;height:116%;margin-top:-8cqh;background-image:url('/images/aurora-fluted-light-v5.webp');background-size:3600% 100%;background-position:calc(var(--rib) * 100% / 35) center;animation:glass-rib-rise 9.7778s ease-in-out infinite alternate;animation-delay:calc(var(--rib) * -.65778s)}
 .study .control{position:absolute;z-index:3;bottom:18px;right:24px;display:grid;place-items:center;width:40px;min-width:40px;height:40px;padding:0;background:#fff9;border:1px solid #ffffffb0;border-radius:50%;color:#654639;cursor:pointer;transition:background .2s,border-color .2s;box-shadow:0 2px 8px #773d2420}
 .study .control:hover{background:#fff;border-color:#a67058}
 .study .control:focus-visible{outline:2px solid #a25f45;outline-offset:4px}
