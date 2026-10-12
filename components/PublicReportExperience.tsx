@@ -44,14 +44,14 @@ export function PublicReportExperience({ example, onStart }: {
         <h2>{current.title}</h2>
         <p>{current.question}</p>
         {mode === "chat" ? <><div className="public-case-facts"><span><strong>{lines.length}</strong> 句聊天</span><span><strong>6</strong> 类可见线索</span><span>逐句有依据</span></div><small>真实分析流程生成；公开前校正了说话人和文字 · {example.analyzedAt}</small></> : <><div className="public-case-facts"><span><strong>{mode === "moments" ? "3" : "2"}</strong> 条可见材料</span><span>推测与另一种解释</span><span>可查看完整依据</span></div><small>演示内容根据下方虚构材料编写，用真实产品报告组件展示。</small></>}
-        <a className="public-case-detail-prompt" href="#report-detail-action"><span aria-hidden="true">↓</span> 先看完三步，再打开完整分析</a>
+        <a className="public-case-detail-prompt" href="#report-detail-action"><span aria-hidden="true">↓</span> 按四个部分，阅读完整分析</a>
       </div>
       <div className="public-case-excerpt" aria-label="案例原话摘录">
         <span>{mode === "chat" ? "先看两句原话" : mode === "social" ? "示例主页可见内容" : "示例朋友圈原文"}</span>
         {mode === "chat" ? <>{opening && <p><small>对方</small>{opening}</p>}{turningPoint && <p><small>对方</small>{turningPoint}</p>}<em>语气和好感信号，都回到原话核对。</em></> : mode === "social" ? <><p><small>简介</small>周末常看展，最近在学摄影。</p><p><small>照片配文</small>喜欢傍晚的光。</p><em>主页能提示话题，不能证明对你有好感。</em></> : <div className="public-moments-feed" aria-label="虚构朋友圈样式示例"><div className="public-moments-head"><span className="public-moments-avatar">林</span><div><strong>林然</strong><small>10 月 2 日 · 公开</small></div></div><p className="public-moments-body">这次布光改了三版，终于接近想要的感觉。</p><div className="public-moments-images"><i/><i/><i/></div><div className="public-moments-meta"><span>♡</span><span>评论</span><span>赞</span></div><div className="public-moments-comment"><b>成子</b>：最后最满意的是哪一处？</div><div className="public-moments-next"><span className="public-moments-avatar small">林</span><div><strong>林然</strong><small>10 月 5 日</small><p>今天这场展值得慢慢看。</p></div></div><em>虚构朋友圈界面 · 3 条动态进入右侧统计图表</em></div>}
       </div>
     </header>
-    {mode === "chat" ? <ChatReport report={report} account={null} preview/> : <SocialReport key={mode} report={mode === "social" ? publicSocialCase : publicMomentsCase} account={null} subjectId="" targetSelf={false}/>}
+    {mode === "chat" ? <ChatReport report={report} account={null} preview publicExample/> : <SocialReport key={mode} report={mode === "social" ? publicSocialCase : publicMomentsCase} account={null} subjectId="" targetSelf={false} publicExample/>}
     <div className="wa-card">
       <h3>带上你的{mode === "chat" ? "聊天" : mode === "social" ? "社交主页" : "朋友圈"}，看清自己的处境。</h3>
       <p>案例可免费查看。使用自己的材料时登录，分析前会显示积分费用。</p>

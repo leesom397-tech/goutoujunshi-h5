@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="720" height="1140" viewBox="0 0 720 1140">
+<rect width="720" height="1140" fill="#ededed"/>
+<g font-family="Microsoft YaHei,Arial,sans-serif" fill="#202020">
+<text x="35" y="45" font-size="25">9:41</text><text x="590" y="45" font-size="20">100%</text>
+<text x="34" y="112" font-size="46">‹</text><text x="278" y="112" font-size="31">测试对象</text><text x="640" y="112" font-size="30">···</text>
+<path d="M0 146H720" stroke="#d4d4d4"/>
+<g fill="#c1cdb4"><rect x="631" y="185" width="59" height="59" rx="8"/><rect x="631" y="415" width="59" height="59" rx="8"/><rect x="631" y="933" width="59" height="59" rx="8"/></g>
+<g fill="#bccee0"><rect x="30" y="291" width="59" height="59" rx="8"/><rect x="30" y="535" width="59" height="59" rx="8"/><rect x="30" y="822" width="59" height="59" rx="8"/></g>
+<g fill="#95ec69"><rect x="260" y="185" width="345" height="72" rx="9"/><path d="M605 204l12 9-12 9"/>
+<rect x="215" y="415" width="390" height="72" rx="9"/><path d="M605 434l12 9-12 9"/>
+<rect x="424" y="933" width="181" height="72" rx="9"/><path d="M605 952l12 9-12 9"/></g>
+<g fill="#fff"><rect x="115" y="291" width="305" height="72" rx="9"/><path d="M115 310l-12 9 12 9"/>
+<rect x="115" y="822" width="166" height="72" rx="9"/><path d="M115 841l-12 9 12 9"/></g>
+<g font-size="28"><text x="281" y="231">你今天去哪里玩了？</text><text x="136" y="337">就在公园散步</text><text x="237" y="461">你这是想出去玩了吧</text><text x="136" y="868">哈哈哈</text><text x="445" y="979">周末再说</text></g>
+</g>
+<!-- Fictional transparent dog reaction sticker: no lettering and no photo frame. -->
+<g transform="translate(123 536)" stroke="#5a3726" stroke-width="5" stroke-linejoin="round">
+<path d="M64 45Q19 18 18 104Q24 141 65 115M160 46Q208 19 211 101Q207 136 168 121" fill="#b8743b"/>
+<path d="M51 59Q104 21 171 58L182 140Q169 195 112 197Q50 191 39 141Z" fill="#ddb076"/>
+<path d="M54 146Q41 172 29 185Q24 207 49 217Q67 215 76 191M164 149Q192 164 199 192Q199 219 174 216Q158 207 148 190" fill="#ddb076"/>
+<ellipse cx="84" cy="102" rx="10" ry="18" fill="#352116"/>
+<ellipse cx="140" cy="102" rx="10" ry="18" fill="#352116"/>
+<ellipse cx="86" cy="96" rx="3" ry="6" fill="#fff" stroke="none"/>
+<ellipse cx="142" cy="96" rx="3" ry="6" fill="#fff" stroke="none"/>
+<ellipse cx="112" cy="144" rx="43" ry="33" fill="#f6e1b7"/>
+<path d="M102 130Q112 122 123 130Q124 142 112 145Q100 141 102 130" fill="#352116"/>
+<path d="M90 151Q112 177 134 151" fill="none"/>
+<path d="M109 166Q108 185 122 185Q133 179 127 166" fill="#ef8d8c"/>
+<g stroke="#b78955" stroke-width="4"><path d="M5 51L-5 41M218 52l12-13M5 71l-13-2M218 73l17-2"/></g>
+</g>
+<path d="M0 1060H720" stroke="#d1d1d1"/><rect x="78" y="1080" width="465" height="44" rx="6" fill="#fff"/>
+<g fill="none" stroke="#555" stroke-width="3"><circle cx="37" cy="1100" r="18"/><circle cx="585" cy="1100" r="18"/><circle cx="659" cy="1100" r="18"/><path d="M648 1100h22M659 1089v22"/></g>
+</svg>

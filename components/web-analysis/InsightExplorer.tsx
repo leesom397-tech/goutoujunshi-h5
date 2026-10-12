@@ -1,9 +1,10 @@
 "use client";
 
 import { useId, useState, type CSSProperties } from "react";
-import { ArrowRight, ChartNoAxesCombined, CheckCheck, ChevronRight, GitBranch, Lightbulb, MessageCircle, ScanEye, Sparkles } from "lucide-react";
+import { ArrowRight, ChartNoAxesCombined, CheckCheck, ChevronLeft, ChevronRight, GitBranch, Lightbulb, MessageCircle, ScanEye, Sparkles } from "lucide-react";
 import { followup, message, type Json } from "./client";
 import "./insight-explorer.css";
+import "./insight-compact.css";
 
 type Insight = { title: string; observed: string; interpretation: string; alternative: string; verify: string };
 type StepKey = "observed" | "interpretation" | "alternative" | "verify";
@@ -61,7 +62,36 @@ function CompositionRing({ rows, total, label }: { rows: { key: string; label: s
   return <div className="ix-composition"><div className="ix-ring"><svg viewBox="0 0 160 160" role="img" aria-label={rows.map(row => `${row.label} ${row.value}，共 ${total}`).join("；")}><circle className="ix-ring-base" cx="80" cy="80" r="62" fill="none" strokeWidth="12"/>{rows.filter(row => row.value > 0).map(row => { const value = row.value / total * 100, start = offset; offset += value; return <circle key={row.key} className={"ix-ring-value ix-tone-" + row.key} cx="80" cy="80" r="62" fill="none" strokeWidth="12" pathLength="100" strokeDasharray={`${value} ${100 - value}`} strokeDashoffset={-start} transform="rotate(-90 80 80)"/>; })}</svg><div><strong>{total}</strong><span>{label}</span></div></div><div className="ix-counts">{rows.map(row => <div key={row.key}><span><i className={"ix-dot ix-tone-" + row.key}/>{row.label}</span><b>{row.value}<small> / {total}</small></b></div>)}</div></div>;
 }
 
-export function InsightExplorer({ report, kind, owner, publicExample = false }: { report: Json; kind: "chat" | "social"; owner?: string; publicExample?: boolean }) {
+/** The compact reader keeps the existing selection rules, but displays the complete source text. */
+function completeInsightText(report: Json, kind: "chat" | "social", insight: Insight): Insight {
+  const source = kind === "chat" ? report.decision || {} : report.moments || report;
+  const full = (value: unknown, fallback: string) => typeof value === "string" && value.trim() ? value.trim() : fallback;
+  const pattern = source.interactionInsight;
+  if (pattern && (words(pattern.label, 60) || "本轮互动线索") === insight.title && words(pattern.interpretation) === insight.interpretation) {
+    return { title: full(pattern.label, insight.title), observed: full(pattern.observed, insight.observed), interpretation: full(pattern.interpretation, insight.interpretation), alternative: full(pattern.alternative, insight.alternative), verify: full(pattern.verify, insight.verify) };
+  }
+  const row = records(source.hypotheses).find(item => words(item.title, 60) === insight.title && words(item.possibility) === insight.interpretation);
+  return row ? { title: full(row.title, insight.title), observed: full(row.evidence, insight.observed), interpretation: full(row.possibility, insight.interpretation), alternative: full(row.alternative, insight.alternative), verify: full(row.verify, insight.verify) } : insight;
+}
+
+function CompactInsight({ insight, index, total, onSelect }: { insight: Insight; index: number; total: number; onSelect: (index: number) => void }) {
+  const labels: Record<StepKey, string> = { observed: "依据", interpretation: "倾向解释", alternative: "另一种解释", verify: "下一步" };
+  return <section className="insight-explorer ix-compact" id="insights" aria-label="深层洞察">
+    <header className="ix-compact-heading">
+      <div><span className="ix-compact-eyebrow"><Lightbulb size={17}/>深层洞察</span><h2>{insight.title}</h2></div>
+      <nav className="ix-compact-pager" aria-label="切换洞察">
+        {total > 1 && <button type="button" aria-label="上一条洞察" disabled={index === 0} onClick={() => onSelect(index - 1)}><ChevronLeft size={17}/><span>上一条</span></button>}
+        <span className="ix-compact-position" aria-live="polite" aria-atomic="true">第 <strong>{index + 1}</strong> / {total} 条</span>
+        {total > 1 && <button type="button" aria-label="下一条洞察" disabled={index === total - 1} onClick={() => onSelect(index + 1)}><span>下一条</span><ChevronRight size={17}/></button>}
+      </nav>
+    </header>
+    <dl className="ix-compact-content">
+      {steps.filter(step => insight[step.key]).map(step => { const StepIcon = step.icon; return <div className={"ix-compact-row ix-compact-" + step.key} key={step.key}><dt><StepIcon size={18}/>{labels[step.key]}</dt><dd>{insight[step.key]}</dd></div>; })}
+    </dl>
+  </section>;
+}
+
+export function InsightExplorer({ report, kind, owner, publicExample = false, compact = false }: { report: Json; kind: "chat" | "social"; owner?: string; publicExample?: boolean; compact?: boolean }) {
   const id = useId(), [selectedIndex, setSelectedIndex] = useState(0), [selectedStep, setSelectedStep] = useState<StepKey>("interpretation");
   const [followupError, setFollowupError] = useState("");
   const data = insightExplorerData(report, kind), insight = data.insights[Math.min(selectedIndex, data.insights.length - 1)];
@@ -76,6 +106,7 @@ export function InsightExplorer({ report, kind, owner, publicExample = false }: 
     try { followup(report, owner, kind === "chat" ? "聊天洞察追问" : report.moments ? "朋友圈洞察追问" : "社交洞察追问", insightFollowupFocus(insight, step.key, action)); }
     catch (cause) { setFollowupError(message(cause)); }
   }
+  if (compact) return insight ? <CompactInsight insight={completeInsightText(report, kind, insight)} index={Math.min(selectedIndex, data.insights.length - 1)} total={data.insights.length} onSelect={setSelectedIndex}/> : null;
   return <section className="insight-explorer" id="insights" aria-label="互动洞察画布">
     <header className="ix-heading"><div><span className="ix-eyebrow"><Sparkles size={15}/>洞察，可以继续深入</span><h2>从看见的线索，到可验证的判断。</h2><p>{insight ? "展开每一步，看清推测从哪里来，也看看它何时需要改变。" : "先读本组材料的真实构成，再结合上下文理解。"}</p></div>{insight && <span className="ix-evidence-badge"><ScanEye size={15}/>{data.insights.length} 条有材料依据的推测</span>}</header>
     <div className={"ix-layout" + (chart && insight ? " ix-with-chart" : "")}>

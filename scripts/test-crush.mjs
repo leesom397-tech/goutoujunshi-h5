@@ -1176,6 +1176,23 @@ await test("chat OCR comparison rejects unapproved images before model upload",a
     assert.equal(upstreamCalls,0);
   }finally{globalThis.fetch=originalFetch;}
 });
+await test("sticker diagnostic accepts only its synthetic fixture and returns metadata without text or user changes",async()=>{
+  let modelCalls=0;
+  const api=load("app/api/wechat/process/route.ts",{"cloudflare:workers":{env:{WECHAT_CALLBACK_TOKEN:"fictional-operator"}},"@/db":{getD1:()=>db},"../callback/route":{},"@/lib/crush/screenshot":{readScreenshotQuickData:async(_image,side,_model,_failure,mode)=>{
+    modelCalls++;assert.equal(side,"right");assert.equal(mode,"recognition");
+    return {raw:{lines:[["right","text","你今天去哪里玩了？"],["left","text","就在公园散步"],["right","text","你这是想出去玩了吧"],["left","sticker",""],["left","text","哈哈哈"],["right","text","周末再说"]],photoClues:[]}};
+  }}});
+  const call=(authorized,imageData)=>api.POST(new Request("https://test/api/wechat/process",{method:"POST",headers:{"Content-Type":"application/json",...(authorized?{"X-Wechat-Queue-Token":"fictional-operator"}:{})},body:JSON.stringify({kind:"screenshot-sticker-diagnostic",imageData})}));
+  assert.equal((await call(false,"data:image/png;base64,YQ==")).status,404);
+  assert.equal((await call(true,"data:image/png;base64,YQ==")).status,400);
+  assert.equal(modelCalls,0);
+  const image="data:image/png;base64,"+readFileSync("scripts/fixtures/wechat-wordless-sticker.png").toString("base64");
+  const response=await call(true,image);assert.equal(response.status,200);
+  const result=await response.json();assert.equal(result.status,"ok");assert.equal(result.stickerCount,1);assert.equal(result.wordless,true);assert.equal(result.photoClueCount,0);assert.equal(result.stickerSender,"other");
+  assert.equal(result.wechatReplies,0);assert.equal(result.profileWrites,0);assert.equal(result.creditCharges,0);
+  assert.ok(!JSON.stringify(result).includes("fictional-operator")&&!JSON.stringify(result).includes("你今天去哪里玩了"));
+  assert.equal((await call(true,image)).status,429);assert.equal(modelCalls,1);
+});
 const voicePending=load("lib/crush/voice-pending.ts");
 await test("voice identity is explicit, numbered and never inferred from the audio",()=>{
   assert.equal(voicePending.voiceRoleCommand("这是我说的").role,"self");

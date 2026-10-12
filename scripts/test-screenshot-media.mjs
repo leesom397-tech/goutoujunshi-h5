@@ -35,6 +35,7 @@ const mocks={
 };
 const screenshot=load('lib/crush/screenshot.ts',mocks);
 const photoApi=load('lib/screenshot-photo.ts');
+const mediaApi=load('lib/screenshot-media.ts');
 const base={layout:'wechat-one-to-one',complete:true,lines:[row('right','text','今天忙吗？'),row('left','sticker','我想你了'),row('left','image','')],photoClues:[{...photo,lineIndex:2,side:'left',speaker:'self'}]};
 let passed=0;
 async function test(name,fn){await fn();passed++;console.log('PASS '+name);}
@@ -79,10 +80,9 @@ await test('photo ownership follows the actual linked bubble and selfSide, never
   assert.equal(direct.speaker,'other','even a supplied speaker must not override bubble position');
 });
 
-await test('conflicting, invalid, non-photo and old unlinked clues remain unknown',()=>{
+await test('unlinked old photo-only clues remain unknown; mixed stickers require an exact image binding',()=>{
   const cases=[
     {...photo,lineIndex:2,side:'right'},
-    {...photo,lineIndex:1,side:'left'},
     {...photo,lineIndex:-1,side:'left'},
     {...photo,lineIndex:1.5,side:'left'},
     {...photo,lineIndex:80,side:'left'},
@@ -92,18 +92,107 @@ await test('conflicting, invalid, non-photo and old unlinked clues remain unknow
     photo,
   ];
   for(const raw of cases){
-    const clue=screenshot.prepareScreenshot({...base,photoClues:[raw]},'right').decision.photoClues[0];
+    const photoOnly={...base,lines:[base.lines[0],row('left','text','今天想喝茶'),base.lines[2]],photoClues:[raw]};
+    const clue=screenshot.prepareScreenshot(photoOnly,'right').decision.photoClues[0];
     assert.equal(clue.speaker,'unknown',JSON.stringify(raw));
     assert.equal(clue.side,'unknown');
     assert.equal(clue.lineId,'');
     assert.equal(clue.observation,photo.observation);
+    assert.deepEqual(screenshot.prepareScreenshot({...base,photoClues:[raw]},'right').decision.photoClues,[],'mixed sticker/image cannot accept an unlinked or conflicting clue');
   }
   assert.deepEqual(photoApi.screenshotPhotoClues([photo]),[photo],'legacy fields remain compatible');
+  assert.deepEqual(screenshot.prepareScreenshot({...base,photoClues:[{...photo,lineIndex:1,side:'left'}]},'right').decision.photoClues,[],'a real sticker index cannot be a photo clue');
   const unknown=screenshot.prepareScreenshot({...base,lines:[row('right','text','今天忙吗？'),row('unknown','image','')],photoClues:[{...photo,lineIndex:1}]},'right').decision.photoClues[0];
   assert.equal(unknown.speaker,'unknown');
   assert.equal(unknown.side,'unknown');
   const noIdentity=photoApi.bindScreenshotPhotoClues([{...photo,lineIndex:2}],base.lines,'unknown')[0];
   assert.equal(noIdentity.speaker,'unknown');
+});
+
+await test('wordless dog stickers retain the sender and position without becoming photos, unread text or pet questions',()=>{
+  const fixture={...base,lines:[row('right','text','这是想出去玩了吧'),row('left','sticker',''),row('left','text','哈哈哈')],photoClues:[{...photo,lineIndex:1,side:'left',observation:'一只狗',verify:'这是你的狗吗？'}],nextStep:'问问这是你的狗吗？',replyDraft:'这是你的狗吗？',replyOptions:[{...reply,text:'这是你的狗吗？'}]};
+  for(const selfSide of ['right','left']){
+    const result=screenshot.prepareScreenshot(fixture,selfSide);
+    assert.equal(result.count,2);
+    assert.equal(result.skipped,1);
+    assert.equal(result.decision.unreadText,0);
+    assert.equal(result.decision.partial,false);
+    assert.deepEqual(result.decision.photoClues,[]);
+    assert.deepEqual(result.decision.mediaBubbles,[{kind:'sticker',side:'left',speaker:selfSide==='left'?'self':'other',lineIndex:1,lineId:'bubble-1',text:''}]);
+    assert.doesNotMatch(result.text,/狗/,'sticker contents cannot enter typed evidence');
+    assert.doesNotMatch(result.decision.nextStep+result.decision.replyDraft+result.brief,/你的狗/);
+    assert.deepEqual(result.decision.replyOptions,[]);
+  }
+  const legitimate=screenshot.prepareScreenshot({...fixture,lines:[row('right','text','这是你家的狗吗？'),row('left','sticker',''),row('left','text','对，我养了三年')],replyOptions:[{...reply,text:'你的狗真可爱'}]},'right');
+  assert.equal(legitimate.decision.replyOptions.length,1,'explicit typed discussion of ownership is not erased');
+  const finalSticker=screenshot.prepareScreenshot({...fixture,lines:[row('right','text','周末再说'),row('left','text','哈哈哈'),row('left','sticker','')],replyDraft:reply.text,replyOptions:[reply]},'right');
+  assert.equal(finalSticker.decision.partial,false);
+  assert.equal(finalSticker.decision.replyDraft,'','no stale reply to the previous text when the last bubble is wordless');
+  assert.deepEqual(finalSticker.decision.replyOptions,[]);
+});
+
+await test('explicit legacy sticker clues are hidden while ordinary dog photos stay available',()=>{
+  for(const clue of [{...photo,observation:'狗狗表情包'},{...photo,location:'第3个贴纸'},{...photo,kind:'gif'},{...photo,mediaKind:'sticker'}]){
+    assert.equal(photoApi.isStickerPhotoClue(clue),true);
+    assert.deepEqual(photoApi.screenshotPhotoClues([clue]),[]);
+  }
+  const dogPhoto={...photo,observation:'草地上一只可爱的狗'};
+  assert.equal(photoApi.isStickerPhotoClue(dogPhoto),false,'dog/cute alone does not establish sticker classification');
+  assert.equal(photoApi.screenshotPhotoClues([dogPhoto]).length,1);
+  assert.equal(screenshot.prepareScreenshot({...base,photoClues:[{...dogPhoto,lineIndex:2,side:'left'}]},'right').decision.photoClues.length,1);
+  for(const observation of ['电脑外壳上的贴纸和水杯','不是表情包，是草地上的小狗照片','并非动图，只有公园里的狗','贴着贴纸的茶杯']){
+    assert.equal(photoApi.isStickerPhotoClue({...photo,observation}),false,observation);
+    assert.equal(photoApi.screenshotPhotoClues([{...photo,observation}]).length,1);
+  }
+  assert.equal(photoApi.isStickerPhotoClue({...photo,mediaKind:'image',observation:'电脑屏幕上有表情包'}),false,'explicit photo classification precedes text fallback');
+});
+
+await test('missing photo indices, incidental dog idioms and a separate tea photo cannot license pet ownership',()=>{
+  const missing=[row('right','text','今天加班累成狗了'),row('left','sticker',''),row('left','text','哈哈哈')];
+  const dogClue={...photo,observation:'一只狗',verify:'这是你的狗吗？'};
+  for(const raw of [dogClue,{...dogClue,lineIndex:99},{...dogClue,lineIndex:1},{...dogClue,lineIndex:0}]){
+    const result=screenshot.prepareScreenshot({...base,lines:missing,photoClues:[raw],nextStep:'问问这是你的狗吗？',replyDraft:'这是你的狗吗？',replyOptions:[{...reply,text:'这是你的狗吗？'}]},'right');
+    assert.deepEqual(result.decision.photoClues,[]);
+    assert.equal(result.decision.replyDraft,'');
+    assert.deepEqual(result.decision.replyOptions,[]);
+    assert.doesNotMatch(result.decision.nextStep,/你的狗/);
+  }
+  const mixed=[missing[0],missing[1],row('left','image',''),missing[2]];
+  const tea=photoApi.bindScreenshotPhotoClues([{...photo,lineIndex:2,side:'left'}],mixed,'right');
+  for(const text of ['累成狗了','这个狗狗表情太好笑了','这是你的狗狗表情包吗？','单身狗一枚']){
+    const rows=[row('right','text',text),...mixed.slice(1)];
+    assert.equal(mediaApi.unsupportedStickerPetClaim('这是你的狗吗？',rows,tea),true,text);
+    const result=screenshot.prepareScreenshot({...base,lines:rows,photoClues:[{...photo,lineIndex:2,side:'left'}],nextStep:'问问这是你的狗吗？',replyOptions:[{...reply,text:'这是你的狗吗？'}]},'right');
+    assert.equal(result.decision.photoClues.length,1,'real tea photo survives');
+    assert.deepEqual(result.decision.replyOptions,[]);
+    assert.doesNotMatch(result.decision.nextStep,/你的狗/);
+  }
+  const dog=photoApi.bindScreenshotPhotoClues([{...dogClue,lineIndex:2,side:'left'}],mixed,'right');
+  assert.equal(mediaApi.unsupportedStickerPetClaim('这是你的狗吗？',mixed,dog),false,'an actual bound dog photo can support a question without asserting ownership');
+  assert.equal(mediaApi.unsupportedStickerPetClaim('这是你的狗吗？',mixed,[{...dogClue,lineIndex:2}]),true,'an unbound model-provided index does not authorize the pet question');
+  for(const text of ['我家狗最近掉毛','我养了一只狗','你喜欢猫还是狗？']){
+    assert.equal(mediaApi.unsupportedStickerPetClaim('这是你的狗吗？',[row('right','text',text),...missing.slice(1)]),false,text);
+  }
+});
+
+await test('quick reuse passes wordless stickers as media and never sends their mistaken photo clues to the text model',async()=>{
+  const ocr={layout:base.layout,lines:[['right','text','这是想出去玩了吧'],['left','sticker',''],['left','text','哈哈哈']],photoClues:[{...photo,lineIndex:1,side:'left',observation:'一只狗'}]};
+  let calls=0;
+  const module=load('lib/crush/screenshot.ts',{...mocks,'@/lib/qwen':{...mocks['@/lib/qwen'],qwenChat:async(messages)=>{
+    calls++;
+    const input=JSON.parse(messages[1].content);
+    assert.deepEqual(input.photoClues,[]);
+    assert.deepEqual(input.lines,ocr.lines);
+    assert.equal(input.speakerLines[1].kind,'sticker');
+    assert.match(messages[0].content,/这是你的狗吗/);
+    return JSON.stringify({annotations:input.lines.map(line=>line[1]==='sticker'?[[],[],'insufficient','']:tags()),shouldReply:false,replyOptions:[]});
+  }}});
+  const result=await module.readScreenshotFromQuick(ocr,'right',[],'');
+  assert.equal(calls,1,'classification adds no extra model round trip');
+  assert.equal(result.count,2);
+  assert.equal(result.decision.partial,false);
+  assert.equal(result.decision.mediaBubbles[0].kind,'sticker');
+  assert.deepEqual(result.decision.photoClues,[]);
 });
 
 await test('uncertain sticker lettering or side is not invented, and a final media bubble cannot trigger another reply',()=>{

@@ -5,7 +5,8 @@ import {resolve,dirname} from "node:path";
 import ts from "typescript";
 import sharp from "sharp";
 if(process.argv[2]!=="--synthetic-only")throw Error("SYNTHETIC_ONLY_FLAG_REQUIRED");
-if(process.argv[3]&&!(["--quick-text","--quick-text-ten","--quick-text-ten-noocr"].includes(process.argv[3])))throw Error("SYNTHETIC_ONLY_FLAG_REQUIRED");
+if(process.argv[3]&&!(["--quick-text","--quick-text-ten","--quick-text-ten-noocr","--sticker"].includes(process.argv[3])))throw Error("SYNTHETIC_ONLY_FLAG_REQUIRED");
+const stickerProbe=process.argv[3]==="--sticker";
 const tenLines=process.argv[3]?.startsWith("--quick-text-ten")||false;
 const nativeRequire=createRequire(import.meta.url),root=resolve(".");
 const config=readFileSync(".env.local","utf8");
@@ -29,8 +30,8 @@ if(!apiKey){
 }
 const workspace=variable("DASHSCOPE_WORKSPACE_ID")||worker.vars?.DASHSCOPE_WORKSPACE_ID;
 if(!apiKey||!workspace||!/^[A-Za-z0-9-]{3,100}$/.test(workspace))throw Error("LOCAL_QWEN_CONFIGURATION_MISSING");
-const png=await sharp(readFileSync(tenLines?"scripts/fixtures/wechat-screenshot-10.svg":"scripts/fixtures/wechat-screenshot.svg")).png().toBuffer();
-await sharp(png).toFile(tenLines?"outputs/wechat-screenshot-synthetic-10.png":"outputs/wechat-screenshot-synthetic.png");
+const png=await sharp(readFileSync(stickerProbe?"scripts/fixtures/wechat-wordless-sticker.svg":tenLines?"scripts/fixtures/wechat-screenshot-10.svg":"scripts/fixtures/wechat-screenshot.svg")).png().toBuffer();
+await sharp(png).toFile(stickerProbe?"outputs/wechat-wordless-sticker-synthetic.png":tenLines?"outputs/wechat-screenshot-synthetic-10.png":"outputs/wechat-screenshot-synthetic.png");
 const qwen={
   qwenKey:()=>apiKey,parseQwenJson:raw=>JSON.parse(raw.replace(/^\s*\x60\x60\x60(?:json)?\s*|\s*\x60\x60\x60\s*$/g,"").trim()),qwenPublicError:()=> "SYNTHETIC_PROBE_PROVIDER_UNAVAILABLE",
   async qwenChat(messages,options){
@@ -60,8 +61,22 @@ function load(file,cache=new Map()){
 }
 const screenshot=load("lib/crush/screenshot.ts"),started=Date.now();
 const image="data:image/png;base64,"+png.toString("base64");
+if(stickerProbe){
+  const quick=await screenshot.readScreenshotQuickData(image,"right",undefined,undefined,"recognition");
+  const bubbles=quick?.raw?.lines||[];
+  const sticker=bubbles.find(row=>Array.isArray(row)&&row[1]==="sticker");
+  const classificationPassed=bubbles.length===6&&sticker?.[0]==="left"&&sticker?.[2]===""&&!(quick.raw.photoClues||[]).length;
+  console.log(JSON.stringify({syntheticOnly:true,classificationPassed,bubbleKinds:bubbles.map(row=>row[1]),elapsedMs:Date.now()-started}));
+  if(!classificationPassed)throw Error("SYNTHETIC_STICKER_CLASSIFICATION_FAILED");
+  const result=await screenshot.readScreenshotFromQuick(quick.raw,"right",[],"这是虚构截图测试，无用户资料。",26000,undefined,4,undefined,true);
+  const passed=result.count===5&&result.decision.mediaBubbles?.some(row=>row.kind==="sticker"&&row.speaker==="other"&&row.text==="")&&result.decision.photoClues?.length===0&&result.decision.unreadText===0&&result.decision.partial===false&&!/你的狗|养了多久|什么品种/.test(JSON.stringify(result.decision));
+  console.log(JSON.stringify({syntheticOnly:true,passed,elapsedMs:Date.now()-started,lineCount:result.count,mediaBubbles:result.decision.mediaBubbles,photoClues:result.decision.photoClues?.length,partial:result.decision.partial,dbWrites:0,wechatReplies:0}));
+  if(!passed)process.exitCode=1;
+}else{
 const expected=tenLines?["周末有空吗？","有空，你想做什么？","新开了一家咖啡店。","听起来不错。","周六下午一起去？","可以，几点？","三点怎么样？","三点可以。","那我把位置发你。","好，收到位置我过去。"]:["周日一起去看电影吧？","好呀，你下午有空吗？","有空，三点在电影院门口见。"];
 const result=process.argv[3]?.startsWith("--quick-text")?await (async()=>{const quick=process.argv[3]==="--quick-text-ten-noocr"?{raw:{layout:"wechat-one-to-one",lines:expected.map((text,i)=>[i%2?"right":"left","text",text])}}:await screenshot.readScreenshotQuickData(image,"right");if(!quick?.raw)throw Error("QUICK_OCR_UNAVAILABLE");console.log(JSON.stringify({quickLineCount:quick.raw.lines?.length}));return screenshot.readScreenshotFromQuick(quick.raw,"right",[],"这是合成测试，当前对象为测试对象小芳。");})():await screenshot.readScreenshot(image,"right",[],"这是合成测试，当前对象为测试对象小芳。");
 const passed=result.count===expected.length&&result.prepared.lines.map(v=>v.text).every((text,i)=>text.replace(/[？?。.!！]/g,"")===expected[i].replace(/[？?。.!！]/g,""))&&result.prepared.lines.map(v=>v.speaker).join(",")==="other,self,other"+(tenLines?",self,other,self,other,self,other,self":"");
 console.log(JSON.stringify({syntheticOnly:true,passed,elapsedMs:Date.now()-started,lineCount:result.count,speakers:result.prepared.lines.map(v=>v.speaker),intents:result.prepared.lines.map(v=>v.annotation.intent.map(t=>t.key)),dbWrites:0,wechatReplies:0}));
 if(!passed)process.exitCode=1;
+
+}

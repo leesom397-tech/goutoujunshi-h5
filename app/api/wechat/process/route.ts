@@ -180,6 +180,26 @@ export async function POST(request:Request){
       return new Response(bytes,{headers:{"Content-Type":"image/jpeg","Cache-Control":"no-store","X-Card-Elapsed-Ms":String(Date.now()-now),"X-Synthetic-Only":"true"}});
     }catch(error){return Response.json({syntheticOnly:true,status:"card_failed",stage,...(error instanceof CardRenderFailure?{browserPhase:error.phase,browserStatus:error.browserStatus}:{}),...(error instanceof WechatMediaUploadRejected?{wechatCode:error.code,httpStatus:error.httpStatus}:{}),elapsedMs:Date.now()-now,wechatReplies:0,profileWrites:0},{status:503});}
   }
+  if(data?.kind==="screenshot-sticker-diagnostic"){
+    // Auth is checked above. Only this committed fictional screenshot is
+    // accepted; no customer images, profile writes or credit charges.
+    if(typeof data.imageData!=="string"||data.imageData.length>200000||!/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(data.imageData))return new Response("invalid fixture",{status:400});
+    const bytes=Buffer.from(data.imageData.split(",")[1],"base64");
+    if(createHash("sha256").update(bytes).digest("hex")!=="3daffcfad5328d0715e0dc89996ddc0ae5fee45ba3e6ff4c5cea80ac2eeac26b")return new Response("invalid fixture",{status:400});
+    const now=Date.now(),slot=await getD1().prepare("INSERT OR IGNORE INTO coach_crush_budget (id,uses,expires_at) VALUES (?,1,?)").bind("screenshot-sticker-diagnostic:"+Math.floor(now/60000),now+120000).run();
+    if(!slot.meta.changes)return Response.json({status:"rate_limited"},{status:429});
+    let failureKind:QuickScreenshotFailure|undefined;
+    const quick=await readScreenshotQuickData(data.imageData,"right",undefined,kind=>{failureKind=kind;},"recognition");
+    if(!quick?.raw)return Response.json({syntheticOnly:true,status:"quick_unavailable",failureKind,elapsedMs:Date.now()-now,wechatReplies:0,profileWrites:0,creditCharges:0},{status:503,headers:{"Cache-Control":"no-store"}});
+    const rows=quick.raw.lines||[],stickers=rows.filter(row=>Array.isArray(row)&&row[1]==="sticker");
+    const sticker=stickers[0],photos=Array.isArray(quick.raw.photoClues)?quick.raw.photoClues:[];
+    const expected=["你今天去哪里玩了","就在公园散步","你这是想出去玩了吧","","哈哈哈","周末再说"];
+    const expectedSides=["right","left","right","left","left","right"],clean=(value:unknown)=>String(value||"").replace(/[？?。.!！\s]/g,"");
+    const transcriptMatched=rows.length===expected.length&&rows.every((row,index)=>Array.isArray(row)&&row[0]===expectedSides[index]&&row[1]===(index===3?"sticker":"text")&&clean(row[2])===expected[index]);
+    const wordless=Array.isArray(sticker)&&sticker[2]==="",sender=Array.isArray(sticker)&&sticker[0]==="left"?"other":"unknown";
+    const passed=transcriptMatched&&stickers.length===1&&wordless&&sender==="other"&&photos.length===0;
+    return Response.json({syntheticOnly:true,status:passed?"ok":"media_mismatch",elapsedMs:Date.now()-now,transcriptMatched,bubbleCount:rows.length,bubbleKinds:rows.map(row=>Array.isArray(row)?row[1]:"invalid"),stickerCount:stickers.length,wordless,stickerSender:sender,photoClueCount:photos.length,wechatReplies:0,profileWrites:0,creditCharges:0},{headers:{"Cache-Control":"no-store"}});
+  }
   if(data?.kind==="screenshot-diagnostic"||data?.kind==="screenshot-full-ten-diagnostic"||data?.kind==="screenshot-staged-diagnostic"||data?.kind==="screenshot-parallel-diagnostic"||data?.kind==="screenshot-quick-diagnostic"||data?.kind==="screenshot-quick-ten-diagnostic"||data?.kind==="screenshot-quick-ten-vl-diagnostic"||data?.kind==="screenshot-ocr-ten-diagnostic"||data?.kind==="screenshot-quick-text-diagnostic"||data?.kind==="screenshot-quick-text-ten-diagnostic"||data?.kind==="screenshot-quick-text-ten-wide-diagnostic"){
     // Operator-only and pinned to the committed fictional fixture. No user uploads,
     // WeChat messages, profile reads or persistent reports may enter this probe.

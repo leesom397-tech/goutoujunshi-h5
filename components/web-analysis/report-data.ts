@@ -3,11 +3,29 @@ type Row = Record<string, any>;
 export const profileLabels: Record<string, string> = { ageRange: "年龄", city: "常住地", education: "学历", occupation: "职业", relationshipStatus: "婚恋状态", childrenPlan: "婚育想法", lifestyle: "生活方式", stage: "关系阶段", howMet: "认识方式", values: "价值观", boundaries: "边界" };
 export const validScore = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100;
 
+// A screenshot can contain useful dimensions before there is enough evidence
+// for a combined score. Keep those dimensions, including genuine zero values.
+export function reportAffinity(report: Row): Row | null {
+  if (report.affinityStatus === "unread_media") return null;
+  const candidates = [report.affinity, report.decision?.affinityPreview].filter(value => value && typeof value === "object");
+  const usable = (value: Row) => validScore(value.value) || (Array.isArray(value.dimensions) && value.dimensions.some((row: Row) => row && row.status !== "insufficient" && validScore(row.value)));
+  return candidates.find(usable) || candidates[0] || null;
+}
+
+const readableMessage = (line: Row) => typeof line?.text === "string" && !!line.text.trim() && !/^\s*[\[【](?:图片|照片|语音|视频|文件|表情(?:包)?|贴纸|动图|image|sticker|gif)(?:[\]】]|[：:])/i.test(line.text);
+
 // A complete chart of *visible evidence*, rather than an invented affection score.
 // Zero means that this excerpt contains no matching cue; it says nothing about
 // the person's feelings outside the material supplied by the user.
 export function visibleSignalProfile(lines: Row[] = []) {
-  const other = lines.filter(line => line?.speaker === "other" && typeof line.text === "string" && line.text.trim());
+  const seen = new Set<string>();
+  const other = lines.filter(line => {
+    if (line?.speaker !== "other" || !readableMessage(line)) return false;
+    const key = line.sourceLineId || line.id ? JSON.stringify([line.sourceLineId || line.id, line.speaker, line.text]) : "";
+    if (key && seen.has(key)) return false;
+    if (key) seen.add(key);
+    return true;
+  });
   const rules = [
     { key: "initiative", label: "主动延续", test: (text: string) => /[？?]|下次|改天|周[一二三四五六日天]|要不要|你觉得/.test(text) },
     { key: "engagement", label: "回应投入", test: (text: string) => text.replace(/\s/g, "").length >= 16 },
@@ -31,7 +49,7 @@ export function interactionMetrics(lines: Row[] = []) {
   const seen = new Set<string>(), turns: Row[] = [];
   let interrupted = true;
   for (const line of lines) {
-    if (!line || !["self", "other"].includes(line.speaker) || typeof line.text !== "string" || !line.text.trim() || /^\s*[\[【](?:图片|语音|视频|文件|表情)/.test(line.text)) { interrupted = true; continue; }
+    if (!line || !["self", "other"].includes(line.speaker) || !readableMessage(line)) { interrupted = true; continue; }
     const key = line.sourceLineId || line.id ? JSON.stringify([line.sourceLineId || line.id, line.speaker, line.text]) : "";
     if (key && seen.has(key)) continue;
     if (key) seen.add(key);
@@ -72,7 +90,7 @@ export function mergeChatReports(reports: Row[]): Row | null {
   if (!last) return null;
   return { ...last, lines: reports.flatMap((report, index) => (report.lines || []).map((line: Row, position: number) => ({ ...line, sourceLineId: line.id, id: `${index + 1}:${line.id || position}`, screenshotNumber: index + 1 }))),
     annotations: reports.flatMap((report, index) => (report.annotations || []).map((row: Row) => ({ ...row, lineId: `${index + 1}:${row.lineId}` }))),
-    decision: { ...last.decision, photoClues: reports.flatMap((report, index) => (report.decision?.photoClues || []).map((clue: Row) => ({ ...clue, location: `图 ${index + 1} · ${clue.location || "照片"}` }))) } };
+    decision: { ...last.decision, photoClues: reports.flatMap((report, index) => (report.decision?.photoClues || []).map((clue: Row) => ({ ...clue, location: `图 ${index + 1} · ${clue.location || "照片"}` }))), mediaBubbles: reports.flatMap((report, index) => (report.decision?.mediaBubbles || []).map((bubble: Row) => ({ ...bubble, lineId: `${index + 1}:${bubble.lineId}`, screenshotNumber: index + 1 }))) } };
 }
 
 export function socialPrevious(report: Row) {
