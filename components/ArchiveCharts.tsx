@@ -5,7 +5,7 @@ import type { ArchiveState } from "@/app/archive/types";
 import "./chart-tools.css";
 
 const known = (value: number | null | undefined): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100;
-type RadarRow = { label: string; value: number | null; evidence?: string; description?: string };
+type RadarRow = { label: string; value: number | null; count?: number; evidence?: string; description?: string };
 const dimensionHints: Record<string, string> = {
   主动表达: "结合主动发起话题、提问和推进安排的具体表现理解。",
   回应承接: "看对方是否回应了你真正表达的内容与感受。",
@@ -27,11 +27,15 @@ export function ArchiveRadar({ rows, labels = [], mode = "score" }: { rows: Rada
   const items = Array.from({ length: 6 }, (_, index) => ({
     label: rows[index]?.label || labels[index] || "维度 " + (index + 1),
     value: known(rows[index]?.value) ? rows[index].value : null,
+    count: Number.isInteger(rows[index]?.count) && rows[index].count! >= 0 ? rows[index].count! : null,
     evidence: rows[index]?.evidence || "",
     description: rows[index]?.description || "",
   }));
   const knownCount = items.filter(item => item.value !== null).length;
-  const displayValue = (value: number | null) => value === null ? "待了解" : mode === "evidence" ? `${Math.round(value / 25)} 句` : `${value} / 100`;
+  // Legacy evidence callers used 25 units per match; new callers pass the
+  // actual count separately so normalizing the plot never changes its labels.
+  const evidenceCount = (item: typeof items[number]) => item.count ?? (item.value === null ? null : Math.round(item.value / 25));
+  const displayValue = (item: typeof items[number]) => item.value === null ? "待了解" : mode === "evidence" ? `${evidenceCount(item)} 句` : `${item.value} / 100`;
   const active = items[Math.min(selectedIndex, 5)];
   const xy = (index: number, radius: number) => [180 + Math.cos(-Math.PI / 2 + index * Math.PI / 3) * radius, 145 + Math.sin(-Math.PI / 2 + index * Math.PI / 3) * radius];
   return <div className="cz-chart-tool cz-radar-tool">
@@ -44,7 +48,7 @@ export function ArchiveRadar({ rows, labels = [], mode = "score" }: { rows: Rada
         const label = xy(index, 126), point = item.value === null ? null : xy(index, item.value);
         return <g key={index} className="cz-radar-node" data-selected={selectedIndex === index}>
           <text x={label[0]} y={label[1]} textAnchor="middle" dominantBaseline="middle" className={item.value === null ? "cz-chart-unknown" : ""}>{item.label}</text>
-          {point && <g role="button" tabIndex={0} aria-pressed={selectedIndex === index} aria-label={item.label + "，" + displayValue(item.value) + "，查看依据"} aria-describedby={detailId} onClick={() => setSelectedIndex(index)} onFocus={() => setSelectedIndex(index)} onKeyDown={event => { if (["Enter", " "].includes(event.key)) { event.preventDefault(); setSelectedIndex(index); } }}>
+          {point && <g role="button" tabIndex={0} aria-pressed={selectedIndex === index} aria-label={item.label + "，" + displayValue(item) + "，查看依据"} aria-describedby={detailId} onClick={() => setSelectedIndex(index)} onFocus={() => setSelectedIndex(index)} onKeyDown={event => { if (["Enter", " "].includes(event.key)) { event.preventDefault(); setSelectedIndex(index); } }}>
             <circle className="cz-chart-hit" cx={point[0]} cy={point[1]} r="14"/>
             <circle className="cz-chart-selection" cx={point[0]} cy={point[1]} r="10"/>
             <circle className="cz-chart-dot" cx={point[0]} cy={point[1]} r="4.5"/>
@@ -55,16 +59,16 @@ export function ArchiveRadar({ rows, labels = [], mode = "score" }: { rows: Rada
     <div className="cz-dimension-controls" aria-label="选择查看的维度">
       {items.map((item, index) => <button className="cz-dimension-button" type="button" key={index} aria-pressed={selectedIndex === index} aria-controls={detailId} onClick={() => setSelectedIndex(index)}>
         <span><span>{item.label}</span>{selectedIndex === index && <Check size={13}/>}</span>
-        <strong>{displayValue(item.value)}</strong>
+        <strong>{displayValue(item)}</strong>
         {item.value !== null && <span className="cz-dimension-track" aria-hidden="true"><i style={{ width: item.value + "%" }}/></span>}
       </button>)}
     </div>
     <div className="cz-chart-detail" id={detailId} aria-live="polite" aria-atomic="true">
-      <div><strong>{active.label}</strong><span>{active.value === null ? "材料待补充" : displayValue(active.value)}</span></div>
-      <p>{active.evidence || (mode === "evidence" ? active.value ? `本段匹配 ${Math.round(active.value / 25)} 句，原话在图表下方可核对。` : "本段未见对应原话；不代表对方没有这种表现。" : active.value === null ? "这项还没有足够材料，保留为空，不纳入已知维度参考。" : active.description || dimensionHints[active.label] || "这是已有材料下的维度参考值，可结合原话与实际互动核对。")}</p>
+      <div><strong>{active.label}</strong><span>{active.value === null ? "材料待补充" : displayValue(active)}</span></div>
+      <p>{active.evidence || (mode === "evidence" ? active.value === null ? "这项材料待补充，暂不统计。" : evidenceCount(active) ? `本段匹配 ${evidenceCount(active)} 句，原话在图表下方可核对。` : "本段未见对应原话；不代表对方没有这种表现。" : active.value === null ? "这项还没有足够材料，保留为空，不纳入已知维度参考。" : active.description || dimensionHints[active.label] || "这是已有材料下的维度参考值，可结合原话与实际互动核对。")}</p>
       {active.evidence && active.description && <small>{active.description}</small>}
     </div>
-    <p className="cz-chart-note">{mode === "evidence" ? "仅统计本段可见原话；0 句表示本段未见，不代表对方没有这种表现。" : "未知项保留空缺；六项齐全时连接成图。分数用于对照材料，不是喜欢你的概率。"}</p>
+    <p className="cz-chart-note">{mode === "evidence" ? "图形比较本段匹配次数，不是好感概率。同一句可属于多类；0 句表示本段未见。" : "未知项保留空缺；六项齐全时连接成图。分数用于对照材料，不是喜欢你的概率。"}</p>
   </div>;
 }
 

@@ -15,7 +15,7 @@
 .page .entryModes :global(.ax-mode-top) { display: contents; }
 .page .entryModes :global(.ax-mode-symbol) { width: 36px; height: 36px; border-radius: 10px; flex: none; }
 .page .entryModes :global(.ax-mode-choice), .page .entryModes :global(.ax-mode) > small, .page .entryModes :global(.ax-mode) strong > span { display: none; }
-.page .entryModes :global(.ax-mode) strong { margin: 0; font-size: 14px; line-height: 1.5; }
+.page .entryModes :global(.ax-mode) strong { margin: 0; font-size: 16px; line-height: 1.5; }
 .page :global(#analysis-example) { scroll-margin-top: 24px; margin-bottom: 28px; }
 .page :global(.ax-workspace[data-ready=false]) { grid-template-columns: minmax(0,1fr); }
 .page :global(.ax-workspace[data-ready=false] .ax-materials) { padding: 26px; }
@@ -25,7 +25,7 @@
   .page .entryModes button:global(.ax-mode) { justify-content:center; gap:7px; padding:12px 7px; min-height:60px; }
   .page .entryModes :global(.ax-mode-symbol) { width:26px; height:30px; background:transparent; }
   .page .entryModes :global(.ax-mode-symbol) svg { width:18px; }
-  .page .entryModes :global(.ax-mode) strong { font-size:12px; }
+  .page .entryModes :global(.ax-mode) strong { font-size:14px; }
   .page :global(.ax-workspace[data-ready=false] .ax-materials) { padding:20px; }
   .page :global(.ax-mode-heading) { flex-wrap:wrap; gap:8px; }
 }
@@ -268,6 +268,22 @@
   border-color: #e6d5c7;
 }
 .page :global(.ax-result-next) { background: linear-gradient(125deg, #faf0e5, #fffaf5); }
+.page :global(.ax-mode-heading) > span { font-size: 14px; line-height: 1.7; }
+.page :global(.ax-section-heading) h2,
+.page :global(.ax-mode-heading) h2 { font-size: 24px; line-height: 1.5; }
+.page :global(.ax-materials) :global(.ax-upload-tip),
+.page :global(.ax-confirm) :global(.wa-field),
+.page :global(.ax-confirm) :global(.wa-check),
+.page :global(.ax-confirm) :global(.wa-muted),
+.page :global(.ax-outcome-item) p { font-size: 16px; line-height: 1.8; color: #51453c; }
+.page :global(.ax-dropzone) > strong { font-size: 18px; line-height: 1.7; }
+.page :global(.ax-upload-action) { font-size: 16px; min-height: 46px; }
+.page :global(.ax-paste-hint),
+.page :global(.ax-upload-limits),
+.page :global(.ax-section-number),
+.page :global(.ax-count) { font-size: 13px; line-height: 1.7; color: #706154; }
+.page :global(.ax-confirm) :global(.wa-field) input,
+.page :global(.ax-confirm) :global(.wa-field) select { font-size: 16px; }
 .page :is(button, a, input, select, textarea, summary):focus-visible,
 .page :global(.ax-dropzone):focus-visible {
   outline: 3px solid #c68b73;
@@ -281,7 +297,7 @@
   .page button:global(.ax-mode) { padding: 15px 11px; }
   .page :global(.ax-steps) { margin-top: 18px; padding: 14px 12px; }
   .page :global(.ax-steps) li { gap: 7px; }
-  .page :global(.ax-steps) strong { white-space: nowrap; font-size: 11px; }
+  .page :global(.ax-steps) strong { white-space: nowrap; font-size: 13px; }
   .page :global(.ax-steps) small { display: none; }
 }
 @media (max-width: 380px) {

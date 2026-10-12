@@ -5,8 +5,8 @@ import { Pause, Play } from "lucide-react";
 import styles from "./GlassStudy.module.css";
 
 const vertex = `attribute vec2 position; void main(){ gl_Position=vec4(position,0.,1.); }`;
-// Full-bleed optical texture: fixed vertical glass ribs, with a very slow
-// light travelling through the scene behind them. Texture coordinates stay fixed.
+// Fixed glass geometry, with a broad travelling light and a sharper reflection.
+// Texture coordinates stay fixed so changing the light never bends the ribs.
 const fragment = `
 precision highp float;
 uniform vec2 resolution;
@@ -18,12 +18,17 @@ void main(){
  float ratio=resolution.x/resolution.y;
  vec2 tex=uv;
  if(ratio<1.2) tex.x=(tex.x-.5)*(ratio/materialAspect)+.5;
- float right=smoothstep(.30,.72,tex.x);
- float phase=time*.28;
  vec3 col=texture2D(material,tex).rgb;
- float beam=sin(phase+tex.x*4.4-tex.y*1.8)*.10*right;
- float facets=smoothstep(.67,.98,col.r)*.5+.5;
- col+=vec3(1.,.84,.68)*beam*facets;
+ float right=smoothstep(.18,.58,uv.x);
+ float center=.54+.38*sin(time*.56-.8);
+ float axis=uv.x+.14*(uv.y-.5);
+ float beamDistance=(axis-center)/.17;
+ float reflectionDistance=(axis-center-.025)/.042;
+ float beam=exp(-beamDistance*beamDistance);
+ float reflection=exp(-reflectionDistance*reflectionDistance);
+ float exposure=.86+.20*beam+.08*reflection;
+ vec3 light=col*exposure+vec3(1.,.87,.73)*(.10*beam+.09*reflection);
+ col=mix(col,light,right);
  gl_FragColor=vec4(clamp(col,0.,1.),1.);
 }`;
 
@@ -77,7 +82,7 @@ export function GlassStudy() {
  return <div className={styles.study} data-glass-ready={ready} data-motion={isPaused?"paused":"playing"} data-motion-explicit={paused!==null}>
   <img className={styles.fallback} src="/images/aurora-fluted-light-v5.webp" alt="" aria-hidden="true" fetchPriority="high"/>
   <canvas ref={canvas} className={`${styles.canvas} ${ready?styles.ready:''}`} aria-hidden="true"/>
-
-  {<button type="button" className={styles.control} onClick={toggle} aria-label={isPaused?'播放光影':'暂停光影'} aria-pressed={isPaused}>{isPaused?<Play size={12}/>:<Pause size={12}/>}<span>{isPaused?'播放光影':'光影播放中'}</span></button>}
+  <div className={styles.sweep} aria-hidden="true"/>
+  <button type="button" className={styles.control} onClick={toggle} aria-label={isPaused?'播放光影':'暂停光影'} aria-pressed={isPaused}>{isPaused?<Play size={16} aria-hidden="true"/>:<Pause size={16} aria-hidden="true"/>}</button>
  </div>;
 }
