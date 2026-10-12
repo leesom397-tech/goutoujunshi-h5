@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { ArrowRight, BookOpen, BriefcaseBusiness, Camera, ChartNoAxesCombined, Check, CircleHelp, Clock3, Coffee, Copy, Eye, FileText, HandHeart, House, Layers3, Lightbulb, MapPin, Megaphone, MessageCircle, Plane, Quote, Repeat2, ScanLine, Send, ShieldCheck, Smile, Sparkles, Trophy, UserRound, Users, type LucideIcon } from "lucide-react";
 import type { Json } from "./client";
+import { CaptureEvidence } from "./CaptureEvidence";
 import { profileLabels } from "./report-data";
 import "./social-reading-panels.css";
 
@@ -15,7 +16,7 @@ const basicIcons: Record<string, LucideIcon> = { ageRange: UserRound, city: MapP
 
 function SourceEvidence({ value }: { value: unknown }) {
   const evidence = text(value);
-  return evidence ? <p className="srp-evidence"><Quote size={15}/><span>依据：{evidence}</span></p> : null;
+  return evidence ? <><p className="srp-evidence"><Quote size={15}/><span>依据：{evidence}</span></p><CaptureEvidence quote={evidence}/></> : null;
 }
 
 function StatisticsBars({ title, items, icon: Icon, tone, source }: { title: string; items: Json[]; icon: LucideIcon; tone: "teal" | "amber"; source: Json }) {

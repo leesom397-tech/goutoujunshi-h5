@@ -33,7 +33,7 @@ export default function ReportPage() {
   }
   useEffect(() => { generation.current++; setSaved(null); setReportOwner(null); if (owner) void load(); return () => { generation.current++; }; }, [owner]);
   async function remove() {
-    if (!current || deleting || !window.confirm("删除这份报告？这次分析中的全部截图解读将一起删除，删除后不能恢复。")) return;
+    if (!current || deleting || !window.confirm("删除这份报告？这次分析中的全部解读将一起删除，删除后不能恢复。")) return;
     const scope = owner, ticket = generation.current;
     setDeleting(true); setError("");
     try { const response = await fetch(`/api/web/report?id=${encodeURIComponent(current.report.reportId || current.report.id)}`, { method: "DELETE", cache: "no-store" }); const result = await response.json().catch(() => ({})) as Json; if (!response.ok) throw new Error(result.error || "报告暂未删除，请重试。"); if (scope === owner && ticket === generation.current) window.location.assign("/reports"); }
@@ -43,6 +43,6 @@ export default function ReportPage() {
   return <div className={ui.page}><WebNav/><main className={ui.wrap}>
     <AuroraPageHero eyebrow="已保存的分析" title={title} description="回到这次分析，接着查看原话、依据与下一步。"><a className={ui.secondary} href="/reports"><ArrowLeft size={17}/>返回历史报告</a><a className={ui.primary} href={`/analyze?mode=${kind}`}><ScanLine size={17}/>继续分析新材料</a></AuroraPageHero>
     <AccountNotice state={account}/><ErrorNotice error={error}/>{error && <button className={ui.secondary} onClick={() => void load()}>重新读取报告</button>}{loading && owner && !error && <p role="status">正在读取报告…</p>}
-    {current && <><div className={styles.saved}><BookmarkCheck size={20}/><span><strong>完整报告已保存</strong>{current.totalCount > 1 ? `包含 ${current.totalCount} 张截图，按上传顺序整理。` : "长期保存在当前账号，可随时从「历史」打开。"}</span></div>{kind === "chat" ? <ChatReport key={current.report.reportId} report={current.report} account={account.account} styleReportIds={current.entries?.map((entry: Json) => entry.id).filter(Boolean)}/> : <SocialReport key={current.report.reportId} report={current.report} account={account.account} subjectId={current.subjectId || current.report.subjectId || ""} targetSelf={!!current.targetSelf}/>}<div className={styles.footer}><a href="/reports"><ArrowLeft size={16}/>返回历史报告</a><button type="button" disabled={deleting} onClick={() => void remove()}><Trash2 size={16}/>{deleting ? "正在删除…" : "删除这份报告"}</button></div></>}
+    {current && <><div className={styles.saved}><BookmarkCheck size={20}/><span><strong>完整报告已保存</strong>{current.report.captureOrigin ? `本次分析包含 ${current.totalCount || 1} 条采集记录，可从判断旁回看本机原文。` : current.totalCount > 1 ? `包含 ${current.totalCount} 张截图，按上传顺序整理。` : "长期保存在当前账号，可随时从「历史」打开。"}</span></div>{kind === "chat" ? <ChatReport key={current.report.reportId} report={current.report} account={account.account} styleReportIds={current.entries?.map((entry: Json) => entry.id).filter(Boolean)}/> : <SocialReport key={current.report.reportId} report={current.report} account={account.account} subjectId={current.subjectId || current.report.subjectId || ""} targetSelf={!!current.targetSelf}/>}<div className={styles.footer}><a href="/reports"><ArrowLeft size={16}/>返回历史报告</a><button type="button" disabled={deleting} onClick={() => void remove()}><Trash2 size={16}/>{deleting ? "正在删除…" : "删除这份报告"}</button></div></>}
   </main></div>;
 }

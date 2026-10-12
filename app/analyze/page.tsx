@@ -5,6 +5,8 @@ import { AnalysisIllustration } from "@/components/web-analysis/Visuals";
 import { WebNav } from "@/components/WebNav";
 import { AnalysisAuthGate } from "@/components/AnalysisAuthGate";
 import { AnalysisExample } from "@/components/web-analysis/AnalysisExample";
+import { CaptureEntry } from "@/components/CaptureEntry";
+import { getCaptureLibrary, linkReportSources } from "@/lib/desktop-capture-vault";
 import ui from "@/components/AuroraUI.module.css";
 import { AuroraPageHero } from "@/components/AuroraPageHero";
 import { AccountNotice, ErrorNotice, PersonSelect, InlinePerson, api, message, priceLabel, hasPrice, useAccount, type Json, WebError } from "@/components/web-analysis/client";
@@ -33,25 +35,50 @@ export default function AnalyzePage() {
   const [restoringReport, setRestoringReport] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [clock, setClock] = useState(Date.now());
+  const [captureSource, setCaptureSource] = useState<{libraryId:string;sourceIds:string[]}|null>(null);
+  const captureFiles = useRef(new WeakMap<File, string>());
   useEffect(() => { if(!busy)return; const timer=setInterval(()=>setClock(Date.now()),1000); return ()=>clearInterval(timer); }, [busy]);
   const [showAuth, setShowAuth] = useState(false), [pendingAuth, setPendingAuth] = useState(false), [authComplete, setAuthComplete] = useState(false);
   useEffect(() => { const search = new URLSearchParams(window.location.search); const selected = search.get("mode") || search.get("kind"); if (["chat", "social", "moments", "profile"].includes(selected || "")) setMode(selected === "profile" ? "social" : selected!); setSubject(search.get("subjectId") || ""); setTargetSelf(search.get("target") === "self"); return () => { generation.current++; controller.current?.abort(); }; }, []);
   useEffect(() => { const next = files.map(file => URL.createObjectURL(file)); setPreviews(next); return () => next.forEach(URL.revokeObjectURL); }, [files]);
   useEffect(() => {
     generation.current++; controller.current?.abort(); setBusy(false); preparingRef.current=false; setPreparing(false); setPrevious(null); setPreviousCount(0); setConsent(false); setLinkConsent(false); setUrl(''); setLinkResult(null); setTask(null); setResult(null); setResultSources([]); setFiles([]); setStatus(null); setLastReport(null); setRestoringReport(false); setRestoredOwner(owner||null);setSameCity(false);
-    if(!owner)return; let current=true;
+    setCaptureSource(null); captureFiles.current = new WeakMap(); setSubject(""); if(!owner)return; let current=true;
     const query=new URLSearchParams(window.location.search),savedId=query.get('reportId');
+    setSubject(query.get('subjectId') || '');
+    const restoreTask = (saved: UploadTask) => { setTask(saved);setMode(saved.mode);setFiles(saved.files);setSubject(saved.parameters.subjectId||'');setSide(saved.parameters.selfSide||'');setTargetSelf(saved.parameters.target==='self');setSameCity(saved.parameters.knownContext?.sameCity===true);setCompare(saved.parameters.compareWithSelf===true);setPrevious(saved.parameters.previous||null);setPreviousCount(saved.parameters.previousCount||0);setStatus({status:'saved'}); if(saved.parameters.captureSource)setCaptureSource(saved.parameters.captureSource); };
+    if(query.get('capture')==='1' && !savedId) {
+      void (async()=>{
+        try {
+          const saved = await uploadStore(owner);
+          if (!current) return;
+          if (saved) { restoreTask(saved); return; }
+          const handoff=JSON.parse(sessionStorage.getItem(`chengzi-capture:${owner}:handoff`)||'null');
+          if(!handoff?.libraryId||!Array.isArray(handoff.sourceIds))throw Error('采集材料未找到，请返回采集页重新选择。');
+          const library=await getCaptureLibrary(owner,handoff.libraryId);
+          if(!current)return;
+          if(!library)throw Error('本机采集原文已移除，请返回采集页重新采集。');
+          const rows=handoff.sourceIds.map((id:string)=>library.records.find(row=>row.localId===id)).filter(Boolean);
+          const images:File[]=[];
+          for(const row of rows)for(const img of row.images||[]){const raw=atob(img.data),bytes=Uint8Array.from(raw,c=>c.charCodeAt(0)),file=new File([bytes],img.name,{type:img.mime});images.push(file);captureFiles.current.set(file,row.localId);}
+          if(!images.length||images.length>9)throw Error('每次最多分析9张采集截图，请返回采集页调整。');
+          setMode(library.kind);setFiles(images);setCaptureSource({libraryId:library.id,sourceIds:rows.map((row:any)=>row.localId)});setStatus(null);
+        }catch(e){if(current)setError(message(e));}
+      })();
+      return()=>{current=false;};
+    }
     void api('/api/web/report/list?page=1&pageSize=1').then(value=>{if(current)setLastReport(value.reports?.[0]||null);}).catch(()=>{});
     if(savedId){
       setRestoringReport(true);
-      void api('/api/web/report?id='+encodeURIComponent(savedId)).then(value=>{
+      const sourceRepair = (async () => { const key = `chengzi-capture:${owner}:link:${savedId}`; try { const source = JSON.parse(sessionStorage.getItem(key) || 'null'); if (source?.libraryId && Array.isArray(source.sourceIds)) { await linkReportSources(owner, savedId, source); sessionStorage.removeItem(key); sessionStorage.removeItem(`chengzi-capture:${owner}:handoff`); } } catch { if (current) setError('报告已保存，本机原文关联暂未恢复。请检查浏览器存储后刷新，无需再次分析。'); } })();
+      void sourceRepair.then(() => api('/api/web/report?id='+encodeURIComponent(savedId))).then(value=>{
         if(!current)return; const restored={...value.report,...(value.kind==='chat'||value.report?.lines ? {entries:Array.isArray(value.entries)?value.entries:[value.report]} : {}),reportId:value.reportId||savedId,subjectId:value.subjectId||value.report?.subjectId||null,targetSelf:value.targetSelf??value.report?.targetSelf,totalCount:value.totalCount||value.report?.totalCount,selfSide:value.selfSide||value.report?.selfSide};
         setResult(restored);setMode(value.kind==='moments'?'moments':value.kind==='social'?'social':'chat');setSubject(restored.subjectId||'');setTargetSelf(!!restored.targetSelf);setSide(restored.selfSide||'');
       }).catch(e=>{if(current)setError(message(e));}).finally(()=>{if(current)setRestoringReport(false);});
     } else void uploadStore(owner).then(saved=>{
       if(!current)return;
       if(!saved){try{if(['mode','kind','subjectId','target','new'].some(key=>query.has(key)))return;const stored=JSON.parse(sessionStorage.getItem(`chengzi-analysis:${owner}`)||'null');if(stored?.result){setResult(stored.result);setMode(stored.mode);setSubject(stored.result.subjectId||'');setTargetSelf(!!stored.result.targetSelf);}}catch{}return;}
-      setTask(saved);setMode(saved.mode);setFiles(saved.files);setSubject(saved.parameters.subjectId||'');setSide(saved.parameters.selfSide||'');setTargetSelf(saved.parameters.target==='self');setSameCity(saved.parameters.knownContext?.sameCity===true);setCompare(saved.parameters.compareWithSelf===true);setPrevious(saved.parameters.previous||null);setPreviousCount(saved.parameters.previousCount||0);setStatus({status:'saved'});
+      restoreTask(saved);
     }).catch(e=>{if(current)setError(message(e));});
     return()=>{current=false;};
   },[owner]);
@@ -64,7 +91,7 @@ export default function AnalyzePage() {
       preparingRef.current = true; setPreparing(true); setError("");
       try {
         const prepared: File[] = [];
-        for (const file of files) { prepared.push(await prepareSocialImage(file)); if (current !== generation.current) return; }
+        for (const file of files) { const converted = await prepareSocialImage(file); if (current !== generation.current) return; const sourceId=captureFiles.current.get(file); if(sourceId)captureFiles.current.set(converted,sourceId); prepared.push(converted); }
         setFiles(prepared);
       } catch (e) { if (current === generation.current) setError(message(e)); return; }
       finally { if (current === generation.current) { preparingRef.current = false; setPreparing(false); } }
@@ -73,7 +100,7 @@ export default function AnalyzePage() {
     const modeUrl = new URL(window.location.href); modeUrl.searchParams.set("mode", next); window.history.replaceState(null, "", modeUrl.pathname + modeUrl.search + modeUrl.hash);
     setMode(next); setResult(null); setResultSources([]); setPrevious(null); setPreviousCount(0); setConsent(false); setError(""); setStatus(null); setLinkResult(null); setLinkConsent(false);
   }
-  function resetMaterials() { setFiles([]); setResult(null); setResultSources([]); setPrevious(null); setPreviousCount(0); setConsent(false); setStatus(null); setError(""); }
+  function resetMaterials() { setCaptureSource(null); setFiles([]); setResult(null); setResultSources([]); setPrevious(null); setPreviousCount(0); setConsent(false); setStatus(null); setError(""); }
   function resetInterpretation() { setResult(null); setResultSources([]); setPrevious(null); setPreviousCount(0); setConsent(false); setStatus(null); setError(""); }
   function moveImage(index: number, direction: number) { if (disabled || index + direction < 0 || index + direction >= files.length) return; setFiles(current => { const next = [...current]; [next[index], next[index + direction]] = [next[index + direction], next[index]]; return next; }); setConsent(false); }
   function requestUpload() {
@@ -98,6 +125,7 @@ export default function AnalyzePage() {
   }
   async function selectFiles(list: FileList | File[] | null) {
     if (!list || disabled || preparingRef.current) return;
+    if (captureSource) { setError("本次已带入采集截图。补充材料请返回采集页，或点击重新分析后手动上传。"); return; }
     const additions = [...list], current = generation.current;
     if (!additions.length) return;
     if (!owner) { requestUpload(); return; }
@@ -126,10 +154,52 @@ export default function AnalyzePage() {
     return () => window.removeEventListener("paste", paste);
   }, [disabled, owner, files, mode, previousCount]);
   function scrollToStart() { window.scrollTo({ top: 0, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" }); }
-  function newAnalysis() { if (disabled) return; const nextUrl=new URL(window.location.href);nextUrl.searchParams.delete('reportId');nextUrl.searchParams.set('new','1');nextUrl.hash='';window.history.replaceState(null,'',nextUrl.pathname+nextUrl.search); resetMaterials(); setSubject(""); setSameCity(false); setSide(""); setLinkResult(null); try { sessionStorage.removeItem(`chengzi-analysis:${owner}`); } catch {} scrollToStart(); }
+  function newAnalysis() { if (disabled) return; const nextUrl=new URL(window.location.href);nextUrl.searchParams.delete('reportId');nextUrl.searchParams.delete('capture');nextUrl.searchParams.set('new','1');nextUrl.hash='';window.history.replaceState(null,'',nextUrl.pathname+nextUrl.search); resetMaterials(); setSubject(""); setSameCity(false); setSide(""); setLinkResult(null); try { sessionStorage.removeItem(`chengzi-analysis:${owner}`); } catch {} scrollToStart(); }
   function onStatus(value: Json) { setStatus(value); }
-  async function execute(currentTask: UploadTask) { setBusy(true); setError(""); controller.current?.abort(); const abort = new AbortController(); controller.current = abort; try { const completed = await runUpload(currentTask, onStatus, abort.signal); if (abort.signal.aborted) return; const savedResult = { ...completed.result, subjectId: currentTask.parameters.subjectId || null, targetSelf: currentTask.parameters.target === "self", totalCount: completed.totalCount || completed.result?.totalCount || (currentTask.parameters.previousCount || 0) + currentTask.files.length }; setResult(savedResult); setResultSources(currentTask.files); const savedId=savedResult.reportId || savedResult.entries?.[0]?.id; if(savedId){const nextUrl=new URL(window.location.href);nextUrl.searchParams.set('reportId',savedId);nextUrl.searchParams.set('mode',currentTask.mode);nextUrl.searchParams.delete('new');nextUrl.hash='analysis-result';window.history.replaceState(null,'',nextUrl.pathname+nextUrl.search+nextUrl.hash);setLastReport({id:savedId,kind:currentTask.mode});} try { sessionStorage.setItem(`chengzi-analysis:${currentTask.owner}`, JSON.stringify({ mode: currentTask.mode, result: savedResult })); } catch {} setTask(null); setFiles([]); setPrevious(null); setPreviousCount(0); setConsent(false); void account.refresh(); setTimeout(() => { resultRef.current?.focus({ preventScroll: true }); resultRef.current?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start" }); }, 100); } catch (e) { if (abort.signal.aborted) return; setError(message(e)); if ((e as WebError).details?.terminal) { setTask(null); const partial = (e as WebError).details?.partialResult; if (partial?.entries?.length) { setResult({ ...partial, subjectId: currentTask.parameters.subjectId || null, targetSelf: currentTask.parameters.target === "self", incomplete: true, totalCount: currentTask.files.length }); setResultSources(currentTask.files); } void account.refresh(); } } finally { if (!abort.signal.aborted) setBusy(false); } }
-  async function submit() { if (busy || !owner) return; if (task) { await execute(task); return; } if (!hasPrice(account.account, costKey)) { setError("本次价格暂未取回，请重新读取价格后再开始。"); return; } if (!files.length) { setError("先选择至少一张截图。"); return; } if (mode === "chat" && !["left", "right"].includes(side)) { setError("请确认截图里哪侧气泡是你。"); return; } if (!consent) { setError("请确认材料提供权与本次处理范围。"); return; } setBusy(true); setError(""); const activeGeneration = generation.current; try { if (mode === "chat") await api("/api/web/settings", { consent: true, allowImageProcessing: true, selfSide: side }); if (activeGeneration !== generation.current) return; const next: UploadTask = { owner, taskId: crypto.randomUUID(), path: mode === "chat" ? "/api/web/screenshot/batch" : "/api/web/social-profile", mode, files, expiresAt: Date.now() + 86_400_000, parameters: { confirmed: true, ...(mode === "chat" ? { selfSide: side, sessionId: crypto.randomUUID(), subjectId: subject || null } : { materialType: mode === "moments" ? "moments" : "profile", knownContext: {sameCity: !targetSelf && sameCity}, target: targetSelf ? "self" : "other", compareWithSelf: !targetSelf && compare, subjectId: targetSelf ? null : subject || null, previous: previous ? { ...previous, fit: !targetSelf && compare ? previous.fit : [] } : null, previousCount }) } }; await uploadStore(owner, next); if (activeGeneration !== generation.current) return; setTask(next); await execute(next); } catch (e) { setError(message(e)); setBusy(false); } }
+  async function execute(currentTask: UploadTask) {
+    setBusy(true); setError(""); controller.current?.abort();
+    const abort = new AbortController(); controller.current = abort;
+    try {
+      const completed = await runUpload(currentTask, onStatus, abort.signal);
+      if (abort.signal.aborted) return;
+      const savedResult = { ...completed.result, ...(currentTask.parameters.captureOrigin ? {captureOrigin:true} : {}), subjectId: currentTask.parameters.subjectId || null, targetSelf: currentTask.parameters.target === "self", totalCount: completed.totalCount || completed.result?.totalCount || (currentTask.parameters.previousCount || 0) + currentTask.files.length };
+      const savedId = savedResult.reportId || savedResult.entries?.[0]?.id;
+      if (savedId) {
+        const nextUrl = new URL(window.location.href);
+        nextUrl.searchParams.set('reportId', savedId); nextUrl.searchParams.set('mode', currentTask.mode);
+        nextUrl.searchParams.delete('new'); nextUrl.searchParams.delete('capture'); nextUrl.hash = 'analysis-result';
+        window.history.replaceState(null, '', nextUrl.pathname + nextUrl.search + nextUrl.hash);
+        setLastReport({ id: savedId, kind: currentTask.mode });
+      }
+      try { sessionStorage.setItem(`chengzi-analysis:${currentTask.owner}`, JSON.stringify({ mode: currentTask.mode, result: savedResult })); } catch {}
+      setTask(null); setFiles([]); setPrevious(null); setPreviousCount(0); setConsent(false);
+      const capture = currentTask.parameters.captureSource;
+      if (savedId && capture?.libraryId && Array.isArray(capture.sourceIds)) {
+        const linkKey = `chengzi-capture:${currentTask.owner}:link:${savedId}`;
+        try { sessionStorage.setItem(linkKey, JSON.stringify(capture)); } catch {}
+        try {
+          await linkReportSources(currentTask.owner, savedId, capture);
+          try { sessionStorage.removeItem(linkKey); sessionStorage.removeItem(`chengzi-capture:${currentTask.owner}:handoff`); } catch {}
+        } catch {
+          if (!abort.signal.aborted) setError("报告已保存并可正常阅读。本机原文暂未关联成功，刷新本页可重试关联，无需再次分析。");
+        }
+      }
+      if (abort.signal.aborted) return;
+      setResult(savedResult); setResultSources(currentTask.files);
+      void account.refresh();
+      setTimeout(() => { if (abort.signal.aborted) return; resultRef.current?.focus({ preventScroll: true }); resultRef.current?.scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth", block: "start" }); }, 100);
+    } catch (e) {
+      if (abort.signal.aborted) return;
+      setError(message(e));
+      if ((e as WebError).details?.terminal) {
+        setTask(null);
+        const partial = (e as WebError).details?.partialResult;
+        if (partial?.entries?.length) { setResult({ ...partial, subjectId: currentTask.parameters.subjectId || null, targetSelf: currentTask.parameters.target === "self", incomplete: true, totalCount: currentTask.files.length }); setResultSources(currentTask.files); }
+        void account.refresh();
+      }
+    } finally { if (!abort.signal.aborted) setBusy(false); }
+  }
+  async function submit() { if (busy || !owner) return; if (task) { await execute(task); return; } if (!hasPrice(account.account, costKey)) { setError("本次价格暂未取回，请重新读取价格后再开始。"); return; } if (!files.length) { setError("先选择至少一张截图。"); return; } if (mode === "chat" && !["left", "right"].includes(side)) { setError("请确认截图里哪侧气泡是你。"); return; } if (!consent) { setError("请确认材料提供权与本次处理范围。"); return; } setBusy(true); setError(""); const activeGeneration = generation.current; try { if (mode === "chat") await api("/api/web/settings", { consent: true, allowImageProcessing: true, selfSide: side }); if (activeGeneration !== generation.current) return; const next: UploadTask = { owner, taskId: crypto.randomUUID(), path: mode === "chat" ? "/api/web/screenshot/batch" : "/api/web/social-profile", mode, files, expiresAt: Date.now() + 86_400_000, parameters: { confirmed: true, ...(captureSource?{captureOrigin:true,captureSource:{libraryId:captureSource.libraryId,sourceIds:files.map(file=>captureFiles.current.get(file)).filter(Boolean)}}:{}), ...(mode === "chat" ? { selfSide: side, sessionId: crypto.randomUUID(), subjectId: subject || null } : { materialType: mode === "moments" ? "moments" : "profile", knownContext: {sameCity: !targetSelf && sameCity}, target: targetSelf ? "self" : "other", compareWithSelf: !targetSelf && compare, subjectId: targetSelf ? null : subject || null, previous: previous ? { ...previous, fit: !targetSelf && compare ? previous.fit : [] } : null, previousCount }) } }; await uploadStore(owner, next); if (activeGeneration !== generation.current) return; setTask(next); await execute(next); } catch (e) { setError(message(e)); setBusy(false); } }
   async function cancel() { if (!task || busy) return; setBusy(true); setError(""); try { try { await api(task.path, { taskId: task.taskId, uploadAction: "cancel" }); } catch (e) { if (![404, 410].includes((e as WebError).status)) throw e; } await uploadStore(task.owner, null); setTask(null); setStatus(null); setConsent(false); void account.refresh(); } catch (e) { setError(message(e)); } finally { setBusy(false); } }
   async function analyzeLink() { if (busy || !owner) return; if (!linkConsent) { setError("请确认读取公开主页并建立人物档案。"); return; } const activeGeneration = generation.current; setBusy(true); setError(""); try { linkId.current ||= crypto.randomUUID(); const data = await api("/api/web/social-link", { url: url.trim(), confirmed: true, requestId: linkId.current }); if (activeGeneration !== generation.current) return; setLinkResult(data); setSubject(data.subjectId || ""); linkId.current = null; void account.refresh(); } catch (e) { setError(message(e)); if ((e as WebError).details?.code === "CREDIT_RELEASED") linkId.current = null; } finally { setBusy(false); } }
   function continueBatch() { if (!result || disabled) return; setPrevious(socialPrevious(result)); setPreviousCount(result.totalCount || 0); setResult(null); setResultSources([]); setConsent(false); window.scrollTo({ top: 0, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" }); }
@@ -173,6 +243,8 @@ export default function AnalyzePage() {
       </ol>}
 
       {!visibleResult && !restoringReport && <>
+        {!captureSource && <CaptureEntry kind={mode}/>}
+        {captureSource && <p className="wa-status"><CheckCheck size={18}/>已带入采集截图。请核对顺序与身份，分析完成后可回看这些原图。</p>}
         <div className="ax-mode-heading"><h2>选择分析类型</h2><a href="#analysis-example">先看分析案例 ↓</a></div>
         <div className={`ax-modes ${styles.entryModes}`} role="tablist" aria-label="分析材料" onKeyDown={event => {
           if (disabled || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;

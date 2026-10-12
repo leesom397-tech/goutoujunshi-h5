@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { ArrowRight, ArrowUpRight, Check, CheckCheck, FileArchive, FileAudio, FileText, ImagePlus, LoaderCircle, ShieldCheck, Sparkles, UploadCloud, UsersRound } from "lucide-react";
 import Link from "next/link";
 import { AuroraPageHero } from "@/components/AuroraPageHero";
+import { CaptureEntry } from "@/components/CaptureEntry";
 import styles from "./import.module.css";
 import type { ProfileState } from "@/lib/profile";
 import { ReplyPaths } from "@/components/ReplyPaths";
@@ -198,6 +199,7 @@ export default function ImportPage() {
   return <main className={styles.page}><div className={styles.wrap}>
     <AuroraPageHero eyebrow="材料导入 · 长对话分析" title={<>把长对话，放在一起看。</>} description="上传文字、截图或录音，先核对双方身份，再看有原话依据的分析。">
     </AuroraPageHero>
+    <CaptureEntry/>
     <ol className={styles.steps} aria-label="导入步骤">
       {[{title:"添加材料",note:"上传文件或粘贴文字"},{title:"确认谁是你",note:"核对称呼与授权"},{title:"查看分析",note:"先看结果，再决定留档"}].map((step,index)=><li key={step.title} data-state={currentStep>index?"done":currentStep===index?"current":"waiting"} aria-current={currentStep===index?"step":undefined}><span className={styles.stepNumber}>{currentStep>index?<Check size={17} aria-hidden="true"/>:String(index+1).padStart(2,"0")}</span><div><strong>{step.title}</strong><small>{step.note}</small></div></li>)}
     </ol>

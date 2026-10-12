@@ -3,6 +3,7 @@
 import { useId, useState, type CSSProperties } from "react";
 import { ArrowRight, ChartNoAxesCombined, CheckCheck, ChevronLeft, ChevronRight, GitBranch, Lightbulb, MessageCircle, ScanEye, Sparkles } from "lucide-react";
 import { followup, message, type Json } from "./client";
+import { CaptureEvidence } from "./CaptureEvidence";
 import "./insight-explorer.css";
 import "./insight-compact.css";
 
@@ -86,7 +87,7 @@ function CompactInsight({ insight, index, total, onSelect }: { insight: Insight;
       </nav>
     </header>
     <dl className="ix-compact-content">
-      {steps.filter(step => insight[step.key]).map(step => { const StepIcon = step.icon; return <div className={"ix-compact-row ix-compact-" + step.key} key={step.key}><dt><StepIcon size={18}/>{labels[step.key]}</dt><dd>{insight[step.key]}</dd></div>; })}
+      {steps.filter(step => insight[step.key]).map(step => { const StepIcon = step.icon; return <div className={"ix-compact-row ix-compact-" + step.key} key={step.key}><dt><StepIcon size={18}/>{labels[step.key]}</dt><dd>{insight[step.key]}{step.key === "observed" && <CaptureEvidence quote={insight.observed}/>}</dd></div>; })}
     </dl>
   </section>;
 }

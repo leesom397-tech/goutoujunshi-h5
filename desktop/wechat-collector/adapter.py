@@ -1,0 +1,233 @@
+"""Read one explicitly selected Weixin UI; no cloud calls or automatic uploads.
+
+The user authorized existing website/Qwen analysis AFTER preview and confirmation.
+This adapter only returns local records to the paired browser preview. It has no
+HTTP client, database/key access, send-message API, or contact enumeration.
+UI navigation can bring Weixin forward and mark the selected chat read.
+"""
+import base64
+import io
+import re
+import sys
+from normalize import normalized_capture
+
+
+class CaptureError(Exception):
+    def __init__(self, code, message):
+        self.code, self.message = code, message
+        super().__init__(code)
+
+
+def _account(Navigator):
+    # Avoid upstream Contacts.check_my_info(): it derives wxid from process paths.
+    # Read ONLY the current account's visible WeChat ID in its own profile popup.
+    pane, _ = Navigator.open_my_profile(is_maximize=False)
+    try:
+        group = pane.child_window(control_type="Group", found_index=3).children()[1]
+        values = [item.window_text().strip() for item in group.descendants(control_type="Text")]
+        nickname = values[0] if values else ""
+        account = values[2] if len(values) > 2 else ""
+        account = re.sub(r"^(?:微信号|WeChat ID|Weixin ID|微信號)\s*[:：]?\s*", "", account, flags=re.I)
+        if not nickname or not re.fullmatch(r"[A-Za-z0-9_-]{5,80}", account):
+            raise CaptureError("ACCOUNT_UNREADABLE", "无法从本人资料确认当前微信号，已停止采集，避免不同账号的数据混在一起。")
+        return account, nickname
+    finally:
+        pane.close()
+
+
+def _image(item, name):
+    import win32gui
+    import win32process
+    foreground = win32gui.GetForegroundWindow()
+    if not foreground or win32process.GetWindowThreadProcessId(foreground)[1] != item.process_id():
+        raise CaptureError("FOCUS_CHANGED", "微信已不在前台，已跳过截图，请保持采集界面可见。")
+    image = item.capture_as_image()
+    if image.width < 20 or image.height < 20:
+        raise ValueError("invisible image region")
+    image.thumbnail((1600, 1600))
+    memory = io.BytesIO()
+    image.convert("RGB").save(memory, format="JPEG", quality=82)
+    if memory.tell() > 750000:
+        raise ValueError("preview too large")
+    return {"mime": "image/jpeg", "name": name, "data": base64.b64encode(memory.getvalue()).decode("ascii")}
+
+
+def _assert_target(main, friend, Texts, Tools):
+    selector = dict(Texts.CurrentChatNameText)
+    selector["title"] = friend
+    if not main.child_window(**selector).exists(timeout=1):
+        raise CaptureError("FRIEND_MISMATCH", "打开的聊天与所填好友备注不一致，已停止。请填写完整且唯一的备注。")
+    if Tools.is_group_chat(main):
+        raise CaptureError("GROUP_NOT_SUPPORTED", "目前只采集你指定的一对一聊天，不采集群聊。")
+
+
+def _chat(friend, limit, nickname, progress, modules):
+    Navigator, Tools, ui = modules
+    main = Navigator.open_dialog_window(friend=friend, search_pages=0, is_maximize=False)
+    _assert_target(main, friend, ui.Texts, Tools)
+    history = Navigator.open_chat_history(friend=friend, search_pages=0, is_maximize=False, close_weixin=False)
+    rows, warnings = [], []
+    try:
+        listing = history.child_window(**ui.Lists.ChatHistoryList)
+        if not listing.exists(timeout=2):
+            raise CaptureError("UI_UNREADABLE", "聊天记录列表不可读。请关闭微信弹窗，或改用网页截图上传。")
+        if Tools.select_chatHistoryList(history) is None:
+            raise CaptureError("NO_READABLE_MESSAGES", "没有可读取的聊天消息。")
+        last_runtime, repeats, media_count = None, 0, 0
+        for _ in range(limit * 4 + 20):
+            selected = [item for item in listing.children() if item.has_keyboard_focus()]
+            if selected:
+                item = selected[0]
+                runtime = tuple(item.element_info.runtime_id or [])
+                if runtime and runtime == last_runtime:
+                    repeats += 1
+                    if repeats >= 2:
+                        break
+                else:
+                    repeats = 0
+                    last_runtime = runtime
+                    class_name = item.class_name()
+                    if class_name != "mmui::ChatItemView":
+                        raw = item.window_text()
+                        stamp = ui.Regex_Patterns.Chathistory_Timestamp_pattern.search(raw)
+                        at = stamp.group(0) if stamp else ""
+                        content = (raw[:stamp.start()] + raw[stamp.end():]).strip() if stamp else raw.strip()
+                        sender, role = "", "unknown"
+                        for candidate, candidate_role in ((friend, "other"), (nickname, "self")):
+                            if candidate and (content == candidate or content.startswith(candidate + " ") or content.startswith(candidate + "\n")):
+                                sender, role = candidate, candidate_role
+                                content = content[len(candidate):].lstrip()
+                                break
+                        if friend == nickname:
+                            role = "unknown"
+                        if "ChatTextItemView" in class_name:
+                            kind = "text"
+                        elif re.match(r"^(?:\[|【)?(?:动画表情|動態貼圖|表情|貼圖|Sticker|Animated Stickers|Animated emoji)", content, re.I):
+                            kind = "sticker"
+                        elif re.match(r"^(?:\[|【)?(?:图片|圖片|Photo|Image)", content, re.I):
+                            kind = "image"
+                        else:
+                            kind = "other"
+                        row = {"kind": kind, "sender": sender, "senderRole": role, "at": at, "text": content,
+                               "source": {"rawText": raw, "uiClass": class_name, "timePrecision": "ui-label" if at else "unknown"}}
+                        if kind in ("image", "sticker", "other") and media_count < 30:
+                            try:
+                                row["images"] = [_image(item, f"chat-preview-{len(rows)+1}.jpg")]
+                                row["source"]["imageType"] = "visible-ui-preview"
+                                media_count += 1
+                            except Exception:
+                                warnings.append("部分媒体的界面预览无法截取，已保留原消息占位；未推测图片内容。")
+                        if not sender:
+                            warnings.append("部分消息发送人无法由界面确认，已标为未知，请导入前核对。")
+                        rows.append(row)
+                        progress(min(90, 15 + int(len(rows) / limit * 70)), f"已读取 {len(rows)} 条聊天")
+                        if len(rows) >= limit:
+                            break
+            listing.type_keys("{DOWN}", pause=0.05, set_foreground=True)
+        if not rows:
+            raise CaptureError("NO_READABLE_MESSAGES", "未读取到消息，请确认这位好友有本机可见的聊天记录。")
+        warnings.append("聊天采集从新到旧遍历，结果已按旧到新整理；时间保留界面原标签，未知时间不补写。")
+        if media_count:
+            warnings.append("图片和表情仅保存消息区域的可见预览，不是原始文件；语音与视频未转写。")
+        return rows, warnings
+    finally:
+        try:
+            history.type_keys("{ESC}")
+            history.close()
+        except Exception:
+            pass
+
+
+def _moments(friend, limit, progress, modules):
+    Navigator, Tools, ui = modules
+    main = Navigator.open_dialog_window(friend=friend, search_pages=0, is_maximize=False)
+    _assert_target(main, friend, ui.Texts, Tools)
+    window, _ = Navigator.open_friend_moments(friend=friend, search_pages=0, is_maximize=False)
+    listing = window.child_window(**ui.Lists.MomentsList)
+    detail = window.child_window(**ui.Lists.SnsDetailList)
+    back = window.child_window(**ui.Buttons.BackButton)
+    if not listing.exists(timeout=2):
+        raise CaptureError("MOMENTS_UNREADABLE", "朋友圈列表不可读，可能未开放、暂无内容或当前微信版本界面不兼容。")
+    Tools.activate_momentsList(listing)
+    rows, warnings, seen = [], [], set()
+    idle = 0
+    for _ in range(limit * 5 + 20):
+        listing.type_keys("{DOWN}", pause=0.12, set_foreground=True)
+        selected = [item for item in listing.children(control_type="ListItem") if item.has_keyboard_focus()]
+        if not selected:
+            idle += 1
+            if idle >= 5:
+                break
+            continue
+        item = selected[0]
+        runtime = tuple(item.element_info.runtime_id or [])
+        if runtime in seen:
+            idle += 1
+            if idle >= 3:
+                break
+            continue
+        seen.add(runtime)
+        if item.class_name() in ("mmui::AlbumBaseCell", "mmui::AlbumTopCell"):
+            continue
+        idle = 0
+        item.click_input()
+        if not detail.exists(timeout=1):
+            warnings.append("部分朋友圈无法打开详情，已跳过。")
+            continue
+        try:
+            items = detail.children(control_type="ListItem")
+            if not items:
+                continue
+            content_item = items[0]
+            raw = content_item.window_text()
+            matches = list(ui.Regex_Patterns.Snsdetail_Timestamp_pattern.finditer(raw))
+            stamp = matches[-1] if matches else None
+            at = stamp.group(0).strip() if stamp else ""
+            content = (raw[:stamp.start()] + raw[stamp.end():]).strip() if stamp else raw.strip()
+            if content.startswith(friend):
+                content = content[len(friend):].lstrip()
+            row = {"kind": "post", "sender": friend, "senderRole": "other", "at": at, "text": content,
+                   "source": {"rawText": raw, "imageType": "visible-ui-preview", "timePrecision": "ui-label" if at else "unknown"}}
+            try:
+                row["images"] = [_image(content_item, f"moment-preview-{len(rows)+1}.jpg")]
+            except Exception:
+                warnings.append("部分朋友圈详情截图未获取，已保留可读文字。")
+            rows.append(row)
+            progress(min(90, 15 + int(len(rows) / limit * 70)), f"已读取 {len(rows)} 条朋友圈")
+        finally:
+            if detail.exists(timeout=0.2):
+                back.click_input()
+                listing.wait("ready", timeout=2)
+        if len(rows) >= limit:
+            break
+    if not rows:
+        raise CaptureError("NO_VISIBLE_MOMENTS", "没有读到可见朋友圈。可能被限制可见、暂无内容或界面不可读；不会绕过可见范围。")
+    warnings.append("只采集当前账号可见的朋友圈；配图为详情区域预览，可能只显示部分缩略图，未下载完整照片或视频。")
+    warnings.append("朋友圈时间保留原界面标签，未出现完整日期的内容不会推测年份。")
+    return rows, warnings
+
+
+def capture(request, progress):
+    if sys.platform != "win32":
+        raise CaptureError("UNSUPPORTED_PLATFORM", "本采集器仅支持Windows。Mac请使用网页屏幕共享采集。")
+    import pythoncom
+    pythoncom.CoInitialize()
+    try:
+        from pyweixin import Navigator, Tools, GlobalConfig
+        from pyweixin import Uielements as ui
+        GlobalConfig.close_weixin = False
+        GlobalConfig.is_maximize = False
+        progress(5, "正在核对当前微信账号")
+        account, nickname = _account(Navigator)
+        modules = Navigator, Tools, ui
+        if request["kind"] == "chat":
+            rows, warnings = _chat(request["friend"], request["limit"], nickname, progress, modules)
+        else:
+            rows, warnings = _moments(request["friend"], request["limit"], progress, modules)
+        progress(95, "正在核对采集账号并整理原文")
+        final_account, _ = _account(Navigator)
+        if account != final_account:
+            raise CaptureError("ACCOUNT_CHANGED", "采集期间微信账号发生变化，结果已丢弃，请重新采集。")
+        return normalized_capture(request["kind"], request["friend"], account, rows, warnings)
+    finally:
+        pythoncom.CoUninitialize()

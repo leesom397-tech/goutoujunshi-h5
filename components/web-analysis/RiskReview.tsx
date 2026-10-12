@@ -4,6 +4,7 @@ import { ArrowRight, Eye, HeartHandshake, Quote, Repeat2, Shield, TriangleAlert 
 import { relationshipRiskReview } from "@/lib/relationship-risk";
 import type { Json } from "./client";
 import styles from "./RiskReview.module.css";
+import { CaptureEvidence } from "./CaptureEvidence";
 
 const kinds = {
   safety: { label: "安全与边界", Icon: Shield },
@@ -28,7 +29,7 @@ export function RiskReview({ report }: { report: Json }) {
       return <article className={styles.signal} key={`${signal.kind}:${signal.title}:${index}`} data-risk-kind={signal.kind}>
         <div className={styles.signalType}><span><Icon size={17}/>{kind.label}</span><b>{signal.kind === "safety" && signal.level === "警惕" ? <><TriangleAlert size={15}/>警惕</> : "需确认"}</b></div>
         <h3>{signal.title}</h3>
-        <div className={styles.evidence}><span><Quote size={15}/>材料依据</span><blockquote>{signal.evidence}</blockquote></div>
+        <div className={styles.evidence}><span><Quote size={15}/>材料依据</span><blockquote>{signal.evidence}</blockquote><CaptureEvidence quote={signal.evidence}/></div>
         <div className={styles.meaning}><strong>可能影响</strong><p>{signal.reading}</p></div>
         {signal.alternative && <p className={styles.alternative}><Eye size={16}/><span><strong>也可能：</strong>{signal.alternative}</span></p>}
         <div className={styles.action}><ArrowRight size={18}/><div><strong>你可以怎么做</strong><p>{signal.action}</p></div></div>

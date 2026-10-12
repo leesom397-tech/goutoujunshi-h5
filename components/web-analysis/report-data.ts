@@ -89,9 +89,9 @@ export function historicalTrend(points: Row[] = [], subjectId: string, reportId:
 export function mergeChatReports(reports: Row[]): Row | null {
   const last = reports.at(-1);
   if (!last) return null;
-  const merged:Row = { ...last, lines: reports.flatMap((report, index) => (report.lines || []).map((line: Row, position: number) => ({ ...line, sourceLineId: line.id, id: `${index + 1}:${line.id || position}`, screenshotNumber: index + 1 }))),
+  const merged:Row = { ...last, lines: reports.flatMap((report, index) => (report.lines || []).map((line: Row, position: number) => ({ ...line, sourceLineId: line.id, id: `${index + 1}:${line.id || position}`, screenshotNumber: report.captureFormat === "records" ? undefined : index + 1 }))),
     annotations: reports.flatMap((report, index) => (report.annotations || []).map((row: Row) => ({ ...row, lineId: `${index + 1}:${row.lineId}` }))),
-    decision: { ...last.decision, photoClues: reports.flatMap((report, index) => (report.decision?.photoClues || []).map((clue: Row) => ({ ...clue, location: `图 ${index + 1} · ${clue.location || "照片"}` }))), mediaBubbles: reports.flatMap((report, index) => (report.decision?.mediaBubbles || []).map((bubble: Row) => ({ ...bubble, lineId: `${index + 1}:${bubble.lineId}`, screenshotNumber: index + 1 }))) } };
+    decision: { ...last.decision, photoClues: reports.flatMap((report, index) => (report.decision?.photoClues || []).map((clue: Row) => ({ ...clue, location: `图 ${index + 1} · ${clue.location || "照片"}` }))), mediaBubbles: reports.flatMap((report, index) => (report.decision?.mediaBubbles || []).map((bubble: Row) => ({ ...bubble, lineId: `${index + 1}:${bubble.lineId}`, screenshotNumber: report.captureFormat === "records" ? undefined : index + 1 }))) } };
   merged.riskReview=relationshipRiskReview({...merged,riskReview:{signals:reports.flatMap(report=>relationshipRiskReview(report).signals)}});
   return merged;
 }

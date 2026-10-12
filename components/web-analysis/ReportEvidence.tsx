@@ -3,6 +3,7 @@ import {isStickerPhotoClue} from "@/lib/screenshot-photo";
 import { useEffect, useState } from "react";
 import { ChartNoAxesCombined, Images, BookOpen, UserRound, ArrowUpRight, MessageCircle, HeartHandshake, Heart, CalendarCheck, CircleHelp, History, ShieldAlert, Quote, ArrowRight } from "lucide-react";
 import { api, type Json } from "./client";
+import { CaptureEvidence } from "./CaptureEvidence";
 import { historicalTrend, interactionMetrics, profileLabels, reportAffinity, validScore, visibleSignalProfile } from "./report-data";
 import styles from "./ReportEvidence.module.css";
 
@@ -79,7 +80,7 @@ export function InteractionEvidence({ report, owner }: { report: Json; owner?: s
     </div>
     {(affinity?.boundaryApplied || metrics.boundary) && <p className={styles.boundary}><ShieldAlert size={19}/>对方表达了明确边界，先停止推进。</p>}
     {(evidence || nextStep) && <div className={styles.signalBasis}>
-      {evidence && <div><span><Quote size={17} aria-hidden="true"/>判断依据 · 原话</span><blockquote>{evidence}</blockquote></div>}
+      {evidence && <div><span><Quote size={17} aria-hidden="true"/>判断依据 · 原话</span><blockquote>{evidence}</blockquote><CaptureEvidence quote={evidence}/></div>}
       {nextStep && <div><span><ArrowRight size={17} aria-hidden="true"/>接下来怎么做</span><p>{nextStep}</p></div>}
     </div>}
     {knownDimensions > 0 ? <AffinityRadar dimensions={dimensions}/> : <div className={styles.fallback}>
