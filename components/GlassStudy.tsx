@@ -1,34 +1,44 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { Pause, Play } from "lucide-react";
 import styles from "./GlassStudy.module.css";
 
 const vertex = `attribute vec2 position; void main(){ gl_Position=vec4(position,0.,1.); }`;
-// Fixed glass geometry, with a broad travelling light and a sharper reflection.
-// Texture coordinates stay fixed so changing the light never bends the ribs.
+// The vertical ribs move in coordinated groups. Their horizontal displacement
+// depends only on x, so the dense glass stays upright as the refraction changes.
 const fragment = `
 precision highp float;
 uniform vec2 resolution;
 uniform float time;
 uniform float materialAspect;
+uniform float materialWidth;
 uniform sampler2D material;
 void main(){
  vec2 uv=gl_FragCoord.xy/resolution;
  float ratio=resolution.x/resolution.y;
- vec2 tex=uv;
- if(ratio<1.2) tex.x=(tex.x-.5)*(ratio/materialAspect)+.5;
+ float crop=ratio<1.2?ratio/materialAspect:1.;
+ float field=uv.x;
+ float depth=smoothstep(.08,.48,field);
+ float glide=.012*sin(field*12.+time*.62)+.006*sin(field*23.-time*.41);
+ float lift=.047*sin(field*11.-time*.55)+.019*sin(field*22.+time*.38);
+ // Overscan keeps both ends filled as neighbouring ribs rise and settle.
+ vec2 tex=vec2((uv.x-.5)*crop*.95+.5,uv.y*.85+.075);
+ tex.x+=glide*crop*depth;
+ tex.y+=lift*(.45+.55*depth);
  vec3 col=texture2D(material,tex).rgb;
- float right=smoothstep(.18,.58,uv.x);
- float center=.54+.38*sin(time*.56-.8);
- float axis=uv.x+.14*(uv.y-.5);
- float beamDistance=(axis-center)/.17;
- float reflectionDistance=(axis-center-.025)/.042;
- float beam=exp(-beamDistance*beamDistance);
- float reflection=exp(-reflectionDistance*reflectionDistance);
- float exposure=.86+.20*beam+.08*reflection;
- vec3 light=col*exposure+vec3(1.,.87,.73)*(.10*beam+.09*reflection);
- col=mix(col,light,right);
+ float stepX=1.3/materialWidth;
+ vec3 left=texture2D(material,tex-vec2(stepX,0.)).rgb;
+ vec3 right=texture2D(material,tex+vec2(stepX,0.)).rgb;
+ float slope=dot(right-left,vec3(.299,.587,.114))*5.;
+ vec3 normal=normalize(vec3(-slope,.12,1.));
+ // A changing angle lights the individual glass faces, never a travelling beam.
+ vec3 light=normalize(vec3(.65*sin(time*.47)+.3,.32,1.));
+ float diffuse=max(dot(normal,light),0.);
+ float edge=smoothstep(.035,.28,abs(slope));
+ float glint=pow(max(dot(normal,normalize(light+vec3(0.,0.,1.))),0.),18.);
+ col*=.94+.10*diffuse;
+ col+=vec3(1.,.88,.75)*glint*edge*.095;
  gl_FragColor=vec4(clamp(col,0.,1.),1.);
 }`;
 
@@ -74,7 +84,7 @@ export function GlassStudy() {
   const resume=()=>{dirty=true;wake();};
   node.addEventListener('webglcontextlost',contextLost);node.addEventListener('glass-resume',resume);
   media.addEventListener('change',change);document.addEventListener('visibilitychange',visibility);
-  asset.onload=()=>{if(disposed||lost)return;gl.bindTexture(gl.TEXTURE_2D,texture);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,gl.RGB,gl.UNSIGNED_BYTE,asset);gl.uniform1f(gl.getUniformLocation(program,'materialAspect'),asset.naturalWidth/asset.naturalHeight);loaded=true;resize();draw();setReady(true);wake();};
+  asset.onload=()=>{if(disposed||lost)return;gl.bindTexture(gl.TEXTURE_2D,texture);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,gl.RGB,gl.UNSIGNED_BYTE,asset);gl.uniform1f(gl.getUniformLocation(program,'materialAspect'),asset.naturalWidth/asset.naturalHeight);gl.uniform1f(gl.getUniformLocation(program,'materialWidth'),asset.naturalWidth);loaded=true;resize();draw();setReady(true);wake();};
   asset.src='/images/aurora-fluted-light-v5.webp';
   return()=>{disposed=true;asset.onload=null;gl.deleteTexture(texture);cancelAnimationFrame(raf);observer.disconnect();intersection.disconnect();media.removeEventListener('change',change);document.removeEventListener('visibilitychange',visibility);node.removeEventListener('webglcontextlost',contextLost);node.removeEventListener('glass-resume',resume);gl.deleteBuffer(buffer);gl.deleteProgram(program);gl.deleteShader(vs);gl.deleteShader(fs);};
  },[]);
@@ -82,7 +92,7 @@ export function GlassStudy() {
  return <div className={styles.study} data-glass-ready={ready} data-motion={isPaused?"paused":"playing"} data-motion-explicit={paused!==null}>
   <img className={styles.fallback} src="/images/aurora-fluted-light-v5.webp" alt="" aria-hidden="true" fetchPriority="high"/>
   <canvas ref={canvas} className={`${styles.canvas} ${ready?styles.ready:''}`} aria-hidden="true"/>
-  <div className={styles.sweep} aria-hidden="true"/>
+  <div className={styles.fallbackRibs} aria-hidden="true">{Array.from({length:36},(_,index)=><i key={index} style={{'--rib':index} as CSSProperties}/>)}</div>
   <button type="button" className={styles.control} onClick={toggle} aria-label={isPaused?'播放光影':'暂停光影'} aria-pressed={isPaused}>{isPaused?<Play size={16} aria-hidden="true"/>:<Pause size={16} aria-hidden="true"/>}</button>
  </div>;
 }

@@ -1,17 +1,16 @@
-.study{position:relative;min-width:0;width:100%;height:100%;isolation:isolate;overflow:hidden;background:#fffaf5}
+.study{position:relative;min-width:0;width:100%;height:100%;isolation:isolate;overflow:hidden;background:#fffaf5;container-type:size}
 .canvas{position:absolute;inset:0;width:100%;height:100%;opacity:0;transition:opacity .8s ease}
 .canvas.ready{opacity:1}
-.fallback{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;animation:glass-light-drift 5.6s ease-in-out infinite alternate;object-position:center}
-.sweep{position:absolute;inset:-10% -30%;pointer-events:none;background:linear-gradient(105deg,transparent 34%,#fff5df15 42%,#fff5e26b 49%,#fff8e896 51%,#fff5df25 57%,transparent 65%);animation:glass-light-sweep 5.6s ease-in-out infinite alternate;mix-blend-mode:screen;mask-image:linear-gradient(90deg,transparent 15%,#000 45%)}
+.fallback{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;object-position:center}
+.fallbackRibs{position:absolute;inset:0;display:flex;overflow:hidden;pointer-events:none}
+.fallbackRibs i{display:block;flex:1;min-width:0;height:116%;margin-top:-8cqh;background-image:url('/images/aurora-fluted-light-v5.webp');background-size:3600% 100%;background-position:calc(var(--rib) * 100% / 35) center;animation:glass-rib-rise 5.5s ease-in-out infinite alternate;animation-delay:calc(var(--rib) * -.37s)}
 .study .control{position:absolute;z-index:3;bottom:18px;right:24px;display:grid;place-items:center;width:40px;min-width:40px;height:40px;padding:0;background:#fff9;border:1px solid #ffffffb0;border-radius:50%;color:#654639;cursor:pointer;transition:background .2s,border-color .2s;box-shadow:0 2px 8px #773d2420}
 .study .control:hover{background:#fff;border-color:#a67058}
 .study .control:focus-visible{outline:2px solid #a25f45;outline-offset:4px}
-@media(max-width:700px){.fallback{object-fit:cover}.study .control{bottom:15px;right:20px}}
+@media(max-width:700px){.fallback{object-fit:cover}.fallbackRibs i{background-size:275.3cqh 100%;background-position-x:calc(50% + (17.5 - var(--rib)) * 100cqw / 36)}.study .control{bottom:15px;right:20px}}
 @media(prefers-reduced-motion:reduce){.canvas{transition:none}}
 
-.study[data-motion=paused] :is(.fallback,.sweep){animation-play-state:paused}
-.study[data-glass-ready=true] .fallback{animation:none}
-.study[data-glass-ready=true] .sweep{display:none}
-@keyframes glass-light-drift{from{filter:brightness(.9) saturate(1.02)}to{filter:brightness(1.08) saturate(.98)}}
-@keyframes glass-light-sweep{from{transform:translateX(-35%)}to{transform:translateX(30%)}}
-@media(prefers-reduced-motion:reduce){.study:not([data-motion-explicit=true]) :is(.fallback,.sweep){animation:none}.study:not([data-motion-explicit=true]) .sweep{display:none}}
+.study[data-motion=paused] .fallbackRibs i{animation-play-state:paused}
+.study[data-glass-ready=true] .fallbackRibs{display:none}
+@keyframes glass-rib-rise{from{transform:translateY(-3%);filter:brightness(.95)}to{transform:translateY(3%);filter:brightness(1.05)}}
+@media(prefers-reduced-motion:reduce){.study:not([data-motion-explicit=true]) .fallbackRibs i{animation:none;transform:none;filter:none}}
