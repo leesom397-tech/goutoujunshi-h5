@@ -8,6 +8,7 @@ import {suggestScreenshotEvents} from "@/lib/crush/archive";
 import {qwenPublicError} from "@/lib/qwen";
 import {readableReport} from "@/lib/crush/evidence";
 import type {CrushResult} from "@/lib/crush/types";
+import {env} from "cloudflare:workers";
 
 export const runtime="edge";
 const json=(data:unknown,status=200)=>Response.json(data,{status,headers:{"Cache-Control":"no-store"}});
@@ -68,29 +69,44 @@ export async function analyzeScreenshot(request:Request,owner:string){
     await reserveBudget(owner,"chat");
     const existing=JSON.parse(thread.data||"[]");
     const selfSide=settings.image_self_side as "left"|"right";
+    const runtime=env as unknown as {WECHAT_CALLBACK_TOKEN?:string;SOCIAL_PROFILE_JOBS?:DurableObjectNamespace};
+    const taskId=request.headers.get("x-screenshot-task");
+    const internal=!!runtime.WECHAT_CALLBACK_TOKEN && request.headers.get("x-screenshot-job-key")===runtime.WECHAT_CALLBACK_TOKEN && uuid(taskId);
+    const stub=internal && runtime.SOCIAL_PROFILE_JOBS ? runtime.SOCIAL_PROFILE_JOBS.get(runtime.SOCIAL_PROFILE_JOBS.idFromName(owner)) as unknown as {screenshotCheckpoint:(task:string,id:string,owner:string,token:string,update?:unknown)=>Promise<{raw?:import("@/lib/crush/screenshot").QuickScreenshotOutput}>} : null;
+    const checkpoint=async(update?:unknown)=>{
+      if(!stub)return null;
+      try{return await stub.screenshotCheckpoint(taskId!,body.requestId as string,owner,runtime.WECHAT_CALLBACK_TOKEN!,update);}
+      catch{console.warn("screenshot_checkpoint_unavailable");return null;}
+    };
+    const cached=await checkpoint();
     // Mobile clients have a finite request window.  First separate OCR from
     // the text-only analysis, which is faster and has proved more resilient
     // for long screenshots than one oversized vision request.  If OCR cannot
     // complete, keep a bounded legacy pass as a compatibility fallback.
     stage="ocr";
+    await checkpoint({phase:cached?.raw?"text_analysis":"ocr"});
     const ocrStarted=Date.now();
     const [profile,quick]=await Promise.all([
       loadProfileContext(owner,subject,"",1000),
-      readScreenshotQuickData(body.image,selfSide,undefined,kind=>{
+      cached?.raw ? Promise.resolve({raw:cached.raw}) : readScreenshotQuickData(body.image,selfSide,undefined,kind=>{
         console.warn("miniapp_screenshot_quick_unavailable",{kind});
-      })
+      },"recognition")
     ]);
     ocrMs=Date.now()-ocrStarted;
     stage="text_analysis";
+    await checkpoint({phase:"text_analysis",...(quick?.raw?{raw:quick.raw}:{})});
     const textStarted=Date.now();
     let parsed;
     let source="full_fallback";
     if(quick?.raw){
       try{
-        parsed=await readScreenshotFromQuick(quick.raw,selfSide,existing,profile,26000,undefined,4);
+        parsed=await readScreenshotFromQuick(quick.raw,selfSide,existing,profile,26000,undefined,4,undefined,true);
         source="quick_text";
       }catch(error){
         console.warn("miniapp_screenshot_text_analysis_unavailable",{kind:error instanceof Error?error.name:"unknown"});
+        // Network/provider failures cannot be fixed by reading the same image
+        // again. The durable retry reuses the OCR checkpoint instead.
+        if(!(error instanceof SyntaxError || error instanceof CrushError && error.status===422))throw error;
         parsed=await readScreenshot(body.image,selfSide,existing,profile,30000);
       }
     }else{
@@ -98,6 +114,7 @@ export async function analyzeScreenshot(request:Request,owner:string){
     }
     textMs=Date.now()-textStarted;
     stage="save";
+    await checkpoint({phase:"save"});
     const current=await getSettings(owner);
     if(!current?.consent_at||current.consent_at!==settings.consent_at||current.image_consent_at!==settings.image_consent_at||current.image_self_side!==settings.image_self_side)throw new CrushError("截图处理授权已改变，本次停止保存。",409);
     const result=await analyzeLines(owner,parsed.text,{sourceKey:"web-image:"+body.requestId,channelKey:thread.channel_key,subjectId:subject,threadId:thread.id,prepared:parsed.prepared,skipAffinity:true,decision:parsed.decision,budgetMode:"deep"});
@@ -107,5 +124,5 @@ export async function analyzeScreenshot(request:Request,owner:string){
     }
     console.info("screenshot_analysis_ready",{elapsedMs:Date.now()-started,ocrMs,textMs,lineCount:parsed.count,source,imageBytes:Math.floor(body.image.length*3/4)});
     return json(result);
-  }catch(error){console.warn("screenshot_analysis_failed",{stage,elapsedMs:Date.now()-started,errorType:error instanceof CrushError?"validation_"+error.status:error instanceof Error&&["TimeoutError","AbortError","TypeError"].includes(error.name)?error.name:"other"});return json({error:error instanceof CrushError?error.message:qwenPublicError(error,"截图识别这次没有完成，未生成判断；请稍后重试。")},error instanceof CrushError?error.status:503);}
+  }catch(error){console.warn("screenshot_analysis_failed",{stage,elapsedMs:Date.now()-started,errorType:error instanceof CrushError?"validation_"+error.status:error instanceof Error&&["TimeoutError","AbortError","TypeError"].includes(error.name)?error.name:"other"});return json({error:error instanceof CrushError?error.message:qwenPublicError(error,"截图识别这次没有完成，未生成判断；请稍后重试。"),...(error instanceof Error&&["QWEN_AUTH_FAILED","QWEN_BALANCE_EMPTY","QWEN_API_KEY_MISSING","QWEN_WORKSPACE_MISSING"].includes(error.message)?{retryable:false}:{})},error instanceof CrushError?error.status:503);}
 }

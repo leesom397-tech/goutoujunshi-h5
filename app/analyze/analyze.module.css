@@ -16,7 +16,7 @@
 .page .entryModes :global(.ax-mode-symbol) { width: 36px; height: 36px; border-radius: 10px; flex: none; }
 .page .entryModes :global(.ax-mode-choice), .page .entryModes :global(.ax-mode) > small, .page .entryModes :global(.ax-mode) strong > span { display: none; }
 .page .entryModes :global(.ax-mode) strong { margin: 0; font-size: 16px; line-height: 1.5; }
-.page :global(#analysis-example) { scroll-margin-top: 24px; margin-bottom: 28px; }
+.page :global(#analysis-example) { scroll-margin-top: 24px; margin: 32px 0 28px; }
 .page :global(.ax-workspace[data-ready=false]) { grid-template-columns: minmax(0,1fr); }
 .page :global(.ax-workspace[data-ready=false] .ax-materials) { padding: 26px; }
 .page :global(.ax-workspace[data-ready=false] .ax-dropzone) { min-height: 230px; }
@@ -303,4 +303,19 @@
 @media (max-width: 380px) {
   .page { width: calc(100% - 28px); }
   .page :global(.wa-card) { padding: 18px 15px; }
+}
+
+/* Keep the real upload target in view before the example report. */
+.page :global([data-aurora-hero]) { min-height:0; padding:22px 28px; margin-bottom:20px; }
+.page :global([data-aurora-hero]) h1 { margin:9px 0 6px; }
+.page :global(.ax-mode-heading) > a { font-size:14px; color:#945e49; text-underline-offset:4px; }
+.page :global(.ax-upload-illustration) { width:64px; height:64px; margin:0 auto 8px; }
+.page :global(.ax-upload-illustration) svg { width:100%; height:100%; }
+@media(max-width:700px){
+ .page :global([data-aurora-hero]) { padding:16px 20px; margin-bottom:18px; }
+ .page :global([data-aurora-hero]) h1 { font-size:26px; }
+ .page :global(.ax-mode-heading) h2 { font-size:20px; }
+ .page :global(.ax-mode-heading) { margin-bottom:12px; }
+ .page .entryModes { margin-bottom:18px; }
+ .page :global(.ax-upload-illustration) { width:48px; height:48px; }
 }

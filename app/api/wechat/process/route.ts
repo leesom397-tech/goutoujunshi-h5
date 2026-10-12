@@ -25,7 +25,7 @@ export async function POST(request:Request){
   if(!config.WECHAT_CALLBACK_TOKEN||request.headers.get("X-Wechat-Queue-Token")!==config.WECHAT_CALLBACK_TOKEN)return new Response("not found",{status:404});
   const body=await readOperatorJson(request);
   if(body instanceof Response)return body;
-  const data=body as {kind?:string;token?:string;openKfId?:string;externalUserId?:string;ownerId?:string;reportId?:string;messageId?:string;imageData?:string;page?:number;probeId?:string;lane?:string}|null;
+  const data=body as {recognitionOnly?:boolean;kind?:string;token?:string;openKfId?:string;externalUserId?:string;ownerId?:string;reportId?:string;messageId?:string;imageData?:string;page?:number;probeId?:string;lane?:string}|null;
   if(data?.kind==="voice-brand-operator")return handleVoiceBrandOperator(data as Record<string,unknown>);
   if(data?.kind==="queue-probe-start"){
     // Operator-only, synthetic queue round trip. No customer identifiers or
@@ -227,12 +227,12 @@ export async function POST(request:Request){
       }
       if(data.kind==="screenshot-quick-text-diagnostic"||tenLines&&data.kind!=="screenshot-full-ten-diagnostic"){
         diagnosticStage="quick_ocr";
-        const quick=await readScreenshotQuickData(data.imageData,"right",undefined,kind=>{quickFailure=kind;});
+        const quick=await readScreenshotQuickData(data.imageData,"right",undefined,kind=>{quickFailure=kind;},data.recognitionOnly===true?"recognition":"preview");
         if(!quick?.raw)return Response.json({syntheticOnly:true,status:"quick_unavailable",...(quickFailure?{failureKind:quickFailure}:{}),elapsedMs:Date.now()-now,wechatReplies:0,profileWrites:0},{status:503});
         const ocrMs=Date.now()-now;
         diagnosticStage="text_analysis";
         let modelOptionCount=-1;
-        const analyzed=await readScreenshotFromQuick(quick.raw,"right",[],"仅为虚构性能测试，不对应真实用户或对象。",26000,timing=>batchTimings.push(timing),wide?4:2,count=>{modelOptionCount=count;});
+        const analyzed=await readScreenshotFromQuick(quick.raw,"right",[],"仅为虚构性能测试，不对应真实用户或对象。",26000,timing=>batchTimings.push(timing),wide?4:2,count=>{modelOptionCount=count;},data.recognitionOnly===true);
         const expected=tenLines?["周末有空吗？","有空，你想做什么？","新开了一家咖啡店。","听起来不错。","周六下午一起去？","可以，几点？","三点怎么样？","三点可以。","那我把位置发你。","好，收到位置我过去。"]:["周日一起去看电影吧？","好呀，你下午有空吗？","有空，三点在电影院门口见。"];
         const clean=(value:string)=>value.replace(/[？?。.!！\s]/g,"");
         const verified=analyzed.count===expected.length&&analyzed.prepared.lines.every((line,index)=>clean(line.text)===clean(expected[index])&&line.speaker===(index%2?"self":"other"));

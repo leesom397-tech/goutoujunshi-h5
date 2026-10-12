@@ -78,7 +78,7 @@ for (const concurrency of [2, 4]) {
   assert.deepEqual(value.prepared.lines.map(line => line.speaker), rig.words.map((_, index) => index % 2 ? "self" : "other"));
   assert.deepEqual(rig.calls.map(call => call.batch), [0, 1, 2, 3, 4, 5, 6, 7]);
   assert.ok(rig.calls.every(call => call.attempt === 1 && call.options.timeoutMs === 26000 && call.options.fast === true && call.options.json === true));
-  assert.ok(rig.calls.every(call => call.options.maxTokens === (call.batch === 7 ? Math.max(2600, 5 * 230 + 1250) : 5 * 230 + 150)), "model output budgets are unchanged");
+  assert.ok(rig.calls.every(call => call.options.maxTokens === (call.batch === 7 ? Math.max(3000, 5 * 230 + 1650) : 5 * 230 + 150)), "model output budgets are unchanged");
 }
 
 const retry = screenshotRig(4);

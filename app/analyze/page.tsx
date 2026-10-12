@@ -27,6 +27,8 @@ export default function AnalyzePage() {
   const account = useAccount(), [mode, setMode] = useState("chat"), [files, setFiles] = useState<File[]>([]), [previews, setPreviews] = useState<string[]>([]), [side, setSide] = useState(""), [subject, setSubject] = useState(""), [targetSelf, setTargetSelf] = useState(false), [compare, setCompare] = useState(true), [consent, setConsent] = useState(false), [linkConsent, setLinkConsent] = useState(false), [busy, setBusy] = useState(false), [preparing, setPreparing] = useState(false), [task, setTask] = useState<UploadTask | null>(null), [status, setStatus] = useState<Json | null>(null), [result, setResult] = useState<Json | null>(null), [error, setError] = useState(""), [url, setUrl] = useState(""), [linkResult, setLinkResult] = useState<Json | null>(null), [previous, setPrevious] = useState<Json | null>(null), [previousCount, setPreviousCount] = useState(0), [resultSources, setResultSources] = useState<File[]>([]), [restoredOwner, setRestoredOwner] = useState<string | null>(null);
   const controller = useRef<AbortController | null>(null), generation = useRef(0), preparingRef = useRef(false), owner = account.account?.account?.userId, linkId = useRef<string | null>(null), resultRef = useRef<HTMLDivElement>(null), fileInputRef = useRef<HTMLInputElement>(null), dragDepth = useRef(0);
   const [dragging, setDragging] = useState(false);
+  const [clock, setClock] = useState(Date.now());
+  useEffect(() => { if(!busy)return; const timer=setInterval(()=>setClock(Date.now()),1000); return ()=>clearInterval(timer); }, [busy]);
   const [showAuth, setShowAuth] = useState(false), [pendingAuth, setPendingAuth] = useState(false), [authComplete, setAuthComplete] = useState(false);
   useEffect(() => { const search = new URLSearchParams(window.location.search); const selected = search.get("mode") || search.get("kind"); if (["chat", "social", "moments", "profile"].includes(selected || "")) setMode(selected === "profile" ? "social" : selected!); setSubject(search.get("subjectId") || ""); setTargetSelf(search.get("target") === "self"); return () => { generation.current++; controller.current?.abort(); }; }, []);
   useEffect(() => { const next = files.map(file => URL.createObjectURL(file)); setPreviews(next); return () => next.forEach(URL.revokeObjectURL); }, [files]);
@@ -130,10 +132,7 @@ export default function AnalyzePage() {
   return <>
     <WebNav/>
     <main className={`wa-shell ax-shell ${styles.page}`}>
-      <AuroraPageHero eyebrow="从材料到判断" title={mode === "chat" ? "聊天分析" : mode === "moments" ? "朋友圈分析" : "社交主页分析"} description={selectedMode.description}>
-        {!visibleResult && <button className={ui.primary} disabled={disabled} onClick={requestUpload}><ImagePlus size={17}/>{selectedMode.upload}<ArrowRight size={16}/></button>}
-        {!hasMaterials && <a className={ui.secondary} href="#analysis-example">先看分析案例<ArrowDown size={16}/></a>}
-      </AuroraPageHero>
+      <AuroraPageHero eyebrow="从材料到判断" title={mode === "chat" ? "聊天分析" : mode === "moments" ? "朋友圈分析" : "社交主页分析"} description={selectedMode.description}/>
       {owner && account.error && <AccountNotice state={account}/>}
       {pendingAuth && <p role="status" className="wa-muted">正在确认账户，请稍等…</p>}
       {authComplete && owner && !hasMaterials && <p role="status" className="wa-muted">已登录，点击下方选图即可继续。</p>}
@@ -149,7 +148,7 @@ export default function AnalyzePage() {
       </ol>}
 
       {!visibleResult && <>
-        <div className="ax-mode-heading"><h2>选择分析类型</h2><span>先看案例，再分析自己的材料</span></div>
+        <div className="ax-mode-heading"><h2>选择分析类型</h2><a href="#analysis-example">先看分析案例 ↓</a></div>
         <div className={`ax-modes ${styles.entryModes}`} role="tablist" aria-label="分析材料" onKeyDown={event => {
           if (disabled || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
           event.preventDefault(); const keys = ["chat", "moments", "social"]; const index = keys.indexOf(mode);
@@ -165,7 +164,6 @@ export default function AnalyzePage() {
           </button>)}
         </div>
 
-        {!hasMaterials && <div id="analysis-example"><AnalysisExample mode={mode as "chat" | "moments" | "social"} onUpload={requestUpload}/></div>}
 
         {owner && !priceReady && !task && <section className="wa-card ax-price-warning" role="status">
           <p>本次价格暂未取回。你可以继续整理材料，取回价格后再开始。</p>
@@ -179,7 +177,6 @@ export default function AnalyzePage() {
                 <div><span className="ax-section-number">01 · 添加材料</span><h2 id="analysis-material-title">{selectedMode.upload}</h2></div>
                 <span className="ax-count" aria-live="polite">{files.length + previousCount} / 9 张</span>
               </div>
-              <p className="wa-muted ax-upload-tip">{selectedMode.tip}</p>
               {previousCount > 0 && <p className="wa-status">继续整理上一批 {previousCount} 张资料，还可补充 {9 - previousCount} 张。</p>}
 
               <div className="ax-dropzone" id="analysis-upload" data-dragging={dragging} data-disabled={disabled}
@@ -192,8 +189,8 @@ export default function AnalyzePage() {
                 onDragOver={event => { event.preventDefault(); event.dataTransfer.dropEffect = disabled ? "none" : "copy"; }}
                 onDragLeave={event => { event.preventDefault(); dragDepth.current = Math.max(0, dragDepth.current - 1); if (!dragDepth.current) setDragging(false); }}
                 onDrop={event => { event.preventDefault(); dragDepth.current = 0; setDragging(false); if (!disabled) void selectFiles(event.dataTransfer.files); }}>
-                <div className="ax-upload-illustration" aria-hidden="true"><AnalysisIllustration mode={mode}/></div>
-                <strong>{dragging ? "松开鼠标，添加截图" : preparing ? "正在整理图片…" : files.length ? "继续添加截图" : "点击选图，也可以直接拖进来"}</strong>
+                <div className="ax-upload-illustration" aria-hidden="true"><CloudUpload/></div>
+                <strong>{dragging ? "松开鼠标，添加截图" : preparing ? "正在整理图片…" : files.length ? "继续添加截图" : "点击上传截图，或拖到这里"}</strong>
                 <span className="ax-upload-action">{preparing ? <LoaderCircle size={18} className="ax-spin"/> : <ImagePlus size={18}/>}<span>{!owner ? "登录后上传" : "从相册选择 / 拍照"}</span><ArrowRight size={16}/></span>
                 <small className="ax-paste-hint"><Clipboard size={14}/>电脑上可直接粘贴截图 · Ctrl / ⌘ + V</small>
               </div>
@@ -201,6 +198,7 @@ export default function AnalyzePage() {
               <p className="ax-upload-limits" id="analysis-upload-limits">JPG / PNG · 每组最多 9 张 · {mode === "chat" ? "每张不超过 5 MB" : "原图每张不超过 12 MB，大图在本机自动优化"}</p>
               {preparing && <p className="ax-preparing" role="status"><LoaderCircle size={17} className="ax-spin"/>正在本机整理图片，请稍等…</p>}
 
+              <p className="wa-muted ax-upload-tip">{selectedMode.tip}</p>
               {files.length > 0 && <>
                 <div className="ax-material-toolbar"><strong>已选择 {files.length} 张</strong><span>按阅读顺序排列 · 点图片查看原图</span></div>
                 <div className="wa-images ax-images">
@@ -253,9 +251,9 @@ export default function AnalyzePage() {
               <ErrorNotice error={error}/>
 
               {task && <section className="wa-status ax-task" aria-live="polite">
-                <div className="ax-task-title">{busy ? <LoaderCircle size={19} className="ax-spin"/> : <RotateCcw size={19}/>}<strong>{status?.status === "uploading" ? "上传中 · " + completed + "/" + total + " 张" : status?.status === "saved" ? "发现上次未完成的任务" : busy ? "分析中 · " + completed + "/" + total + " 张" : "任务已保留，点击继续"}</strong></div>
-                <p>{status?.phase === "summarize" ? "识别完成，正在整理人物评价。" : "进度已保存，离开页面后可回来继续查看。"}</p>
-                <progress max={Math.max(1, total)} value={Math.min(completed, Math.max(1, total))} aria-label="材料处理进度"/>
+                <div className="ax-task-title">{busy ? <LoaderCircle size={19} className="ax-spin"/> : <RotateCcw size={19}/>}<strong>{status?.status === "uploading" ? "上传中 · " + completed + "/" + total + " 张" : status?.status === "saved" ? "发现上次未完成的任务" : busy ? (status?.retryAt ? "连接恢复中" : status?.phase === "ocr" ? "正在识别聊天原文" : status?.phase === "text_analysis" ? "正在分析语气与互动信号" : status?.phase === "save" ? "正在保存完整报告" : status?.phase === "summarize" ? "正在整理人物评价" : "正在处理截图") + " · 第 " + Math.min(completed + 1, total) + "/" + total + " 张" : "任务已保留，点击继续"}</strong></div>
+                <p>{status?.startedAt ? "已用时 " + Math.max(0, Math.floor((clock-status.startedAt)/1000)) + " 秒。" : ""}{status?.retryAt ? "连接暂时不稳定，正在重试，不会重复扣费。" : status?.phase === "text_analysis" ? "原文已识别，正在生成逐句解读与回复建议。" : status?.phase === "save" ? "分析已完成，正在保存。" : status?.phase === "summarize" ? "识别完成，正在整理人物评价。" : "进度已保存，可以离开页面，稍后回来查看。"}</p>
+                <progress max={Math.max(1, total)} value={busy && status?.status !== "uploading" ? undefined : Math.min(completed, Math.max(1, total))} aria-label="材料处理进度"/>
                 <details><summary>任务详情</summary><small>任务编号：{task.taskId}</small></details>
               </section>}
 
@@ -300,6 +298,7 @@ export default function AnalyzePage() {
             </section>
           </aside>}
         </div>
+        {!hasMaterials && <div id="analysis-example"><AnalysisExample mode={mode as "chat" | "moments" | "social"} onUpload={requestUpload}/></div>}
       </>}
 
       {status?.preview && !result && <section className="wa-card ax-live-preview"><h2>已识别内容 · 非最终结论</h2><p>{status.preview.summary}</p>{(status.preview.posts || []).map((post: Json, index: number) => <p key={index}>{post.date} · {post.content}</p>)}<p className="wa-muted">这里只展示部分截图内容，完整人物评价在全部材料整理后生成。</p></section>}

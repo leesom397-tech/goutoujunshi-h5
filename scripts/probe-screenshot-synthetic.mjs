@@ -39,7 +39,7 @@ const qwen={
       body:JSON.stringify({model:"qwen3.8-flash",messages,max_tokens:options.maxTokens,enable_thinking:false,response_format:{type:"json_object"}}),
       signal:AbortSignal.timeout(options.timeoutMs)
     });
-    if(!response.ok)throw Error("PROVIDER_HTTP_"+response.status);
+    if(!response.ok){console.log(JSON.stringify({providerHttpStatus:response.status}));throw Error("PROVIDER_HTTP_"+response.status);}
     const data=await response.json(),content=data.choices?.[0]?.message?.content;if(!content)throw Error("PROVIDER_EMPTY");
     if(process.argv[3]?.startsWith("--quick-text")&&!options.vision){let shape={keys:[],annotationsType:"missing",annotationCount:-1,annotationKeys:[],firstShape:"missing",firstKeys:[]};try{const value=JSON.parse(content);shape={keys:Object.keys(value),annotationsType:Array.isArray(value.annotations)?"array":typeof value.annotations,annotationCount:Array.isArray(value.annotations)?value.annotations.length:-1,annotationKeys:value.annotations&&!Array.isArray(value.annotations)&&typeof value.annotations==="object"?Object.keys(value.annotations):[],firstShape:Array.isArray(value.annotations?.[0])?"array":typeof value.annotations?.[0],firstKeys:value.annotations?.[0]&&typeof value.annotations[0]==="object"&&!Array.isArray(value.annotations[0])?Object.keys(value.annotations[0]):[]};}catch{}console.log(JSON.stringify({textAnalysisShape:shape}));}
     return content;
