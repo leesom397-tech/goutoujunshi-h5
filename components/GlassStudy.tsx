@@ -75,7 +75,7 @@ export function GlassStudy() {
  return <div className={styles.study} data-glass-ready={ready}>
   <img className={styles.fallback} src="/images/aurora-fluted-light-v2.webp" alt="" aria-hidden="true" fetchPriority="high"/>
   <canvas ref={canvas} className={`${styles.canvas} ${ready?styles.ready:''}`} aria-hidden="true"/>
-  
+
   {ready&&!reduced&&<button type="button" className={styles.control} onClick={toggle} aria-label={paused?'播放光影':'暂停光影'} aria-pressed={paused}>{paused?<Play size={12}/>:<Pause size={12}/>}</button>}
  </div>;
 }
