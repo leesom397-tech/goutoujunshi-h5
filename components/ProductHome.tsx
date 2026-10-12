@@ -32,7 +32,7 @@ export function KnowledgeEvidence() {
     <div className={styles.evidenceHeading}>
       <span className={styles.evidenceKicker}><BookOpen size={17} strokeWidth={1.5}/>研究方法 × 你的真实互动</span>
       <h2>循证驱动的关系分析系统</h2>
-      <p>参考体系涵盖 <strong>{knowledgeOrigin.referenceCount} 条参考来源</strong>，融合心理学、法学与社会学知识，整理为可供 AI 按问题调用的结构化知识库。</p>
+      <p>参考体系涵盖 <strong>{knowledgeOrigin.referenceCount} 条参考来源</strong>，融合心理学、法学与社会学知识，整理为可供成子智能体按问题调用的结构化知识库。</p>
       <ul className={styles.theoryTags} aria-label="参考理论与研究领域">{['亲密关系','依恋理论','大五人格','戈特曼婚姻研究','婚姻与沟通','社会交换与承诺'].map(label=><li key={label}>{label}</li>)}</ul>
     </div>
     <div className={styles.stats} aria-label="方法资料规模">
