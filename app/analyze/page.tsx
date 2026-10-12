@@ -3,6 +3,9 @@ import { useEffect, useRef, useState } from "react";
 import { ScanLine, Link2, MessageSquare, Images, UserRound, Sparkles, Coins, ArrowRight, ArrowUp, ArrowDown, Check, CheckCheck, Clipboard, CloudUpload, FileCheck2, FolderHeart, ImagePlus, LoaderCircle, Plus, RotateCcw, ShieldCheck, SlidersHorizontal, X } from "lucide-react";
 import { AnalysisIllustration } from "@/components/web-analysis/Visuals";
 import { WebNav } from "@/components/WebNav";
+import { AnalysisAuthGate } from "@/components/AnalysisAuthGate";
+import { AnalysisExample } from "@/components/web-analysis/AnalysisExample";
+import ui from "@/components/AuroraUI.module.css";
 import { AuroraPageHero } from "@/components/AuroraPageHero";
 import { AccountNotice, ErrorNotice, PersonSelect, InlinePerson, api, message, priceLabel, hasPrice, useAccount, type Json, WebError } from "@/components/web-analysis/client";
 import { runUpload, uploadStore, type UploadTask } from "@/components/web-analysis/uploads";
@@ -24,6 +27,7 @@ export default function AnalyzePage() {
   const account = useAccount(), [mode, setMode] = useState("chat"), [files, setFiles] = useState<File[]>([]), [previews, setPreviews] = useState<string[]>([]), [side, setSide] = useState(""), [subject, setSubject] = useState(""), [targetSelf, setTargetSelf] = useState(false), [compare, setCompare] = useState(true), [consent, setConsent] = useState(false), [linkConsent, setLinkConsent] = useState(false), [busy, setBusy] = useState(false), [preparing, setPreparing] = useState(false), [task, setTask] = useState<UploadTask | null>(null), [status, setStatus] = useState<Json | null>(null), [result, setResult] = useState<Json | null>(null), [error, setError] = useState(""), [url, setUrl] = useState(""), [linkResult, setLinkResult] = useState<Json | null>(null), [previous, setPrevious] = useState<Json | null>(null), [previousCount, setPreviousCount] = useState(0), [resultSources, setResultSources] = useState<File[]>([]), [restoredOwner, setRestoredOwner] = useState<string | null>(null);
   const controller = useRef<AbortController | null>(null), generation = useRef(0), preparingRef = useRef(false), owner = account.account?.account?.userId, linkId = useRef<string | null>(null), resultRef = useRef<HTMLDivElement>(null), fileInputRef = useRef<HTMLInputElement>(null), dragDepth = useRef(0);
   const [dragging, setDragging] = useState(false);
+  const [showAuth, setShowAuth] = useState(false), [pendingAuth, setPendingAuth] = useState(false), [authComplete, setAuthComplete] = useState(false);
   useEffect(() => { const search = new URLSearchParams(window.location.search); const selected = search.get("mode") || search.get("kind"); if (["chat", "social", "moments", "profile"].includes(selected || "")) setMode(selected === "profile" ? "social" : selected!); setSubject(search.get("subjectId") || ""); setTargetSelf(search.get("target") === "self"); return () => { generation.current++; controller.current?.abort(); }; }, []);
   useEffect(() => { const next = files.map(file => URL.createObjectURL(file)); setPreviews(next); return () => next.forEach(URL.revokeObjectURL); }, [files]);
   useEffect(() => { generation.current++; controller.current?.abort(); setBusy(false); preparingRef.current = false; setPreparing(false); setPrevious(null); setPreviousCount(0); setConsent(false); setLinkConsent(false); setUrl(""); setLinkResult(null); setTask(null); setResult(null); setResultSources([]); setFiles([]); setStatus(null); setRestoredOwner(owner || null); if (!owner) return; let current = true; void uploadStore(owner).then(saved => { if (!current) return; if (!saved) { try { const query = new URLSearchParams(window.location.search); if (["mode", "kind", "subjectId", "target"].some(key => query.has(key))) return; const stored = JSON.parse(sessionStorage.getItem(`chengzi-analysis:${owner}`) || "null"); if (stored) { setResult(stored.result); setMode(stored.mode); setSubject(stored.result.subjectId || ""); setTargetSelf(!!stored.result.targetSelf); } } catch {} return; } setTask(saved); setMode(saved.mode); setFiles(saved.files); setSubject(saved.parameters.subjectId || ""); setSide(saved.parameters.selfSide || ""); setTargetSelf(saved.parameters.target === "self"); setCompare(saved.parameters.compareWithSelf === true); setPrevious(saved.parameters.previous || null); setPreviousCount(saved.parameters.previousCount || 0); setStatus({ status: "saved" }); }).catch(e => setError(message(e))); return () => { current = false; }; }, [owner]);
@@ -48,10 +52,31 @@ export default function AnalyzePage() {
   function resetMaterials() { setFiles([]); setResult(null); setResultSources([]); setPrevious(null); setPreviousCount(0); setConsent(false); setStatus(null); setError(""); }
   function resetInterpretation() { setResult(null); setResultSources([]); setPrevious(null); setPreviousCount(0); setConsent(false); setStatus(null); setError(""); }
   function moveImage(index: number, direction: number) { if (disabled || index + direction < 0 || index + direction >= files.length) return; setFiles(current => { const next = [...current]; [next[index], next[index + direction]] = [next[index + direction], next[index]]; return next; }); setConsent(false); }
+  function requestUpload() {
+    if (disabled) return;
+    if (!owner && account.loading) { setPendingAuth(true); return; }
+    if (!owner) { setShowAuth(true); return; }
+    fileInputRef.current?.click();
+  }
+  useEffect(() => {
+    if (!pendingAuth || account.loading) return;
+    setPendingAuth(false);
+    if (!owner) setShowAuth(true);
+    else document.getElementById("analysis-upload")?.focus();
+  }, [pendingAuth, account.loading, owner]);
+  async function authenticated() {
+    await account.refresh();
+    setShowAuth(false); setAuthComplete(true);
+    requestAnimationFrame(() => {
+      const target = document.getElementById("analysis-upload");
+      target?.scrollIntoView({ block: "center", behavior: "smooth" }); target?.focus({ preventScroll: true });
+    });
+  }
   async function selectFiles(list: FileList | File[] | null) {
     if (!list || disabled || preparingRef.current) return;
     const additions = [...list], current = generation.current;
-    if (!additions.length || !owner) return;
+    if (!additions.length) return;
+    if (!owner) { requestUpload(); return; }
     if (files.length + additions.length + previousCount > 9) { setError(`每组最多 9 张，还能添加 ${Math.max(0, 9 - files.length - previousCount)} 张。`); return; }
     const maximum = mode === "chat" ? 5_000_000 : 12_000_000;
     if (additions.some(file => !["image/jpeg", "image/png"].includes(file.type) || !file.size || file.size > maximum)) { setError(`请选择每张 ${mode === "chat" ? 5 : 12} MB 内的有效 JPG 或 PNG 图片。`); return; }
@@ -65,7 +90,7 @@ export default function AnalyzePage() {
   }
   useEffect(() => {
     const paste = (event: ClipboardEvent) => {
-      if (disabled || !owner) return;
+      if (disabled) return;
       const target = event.target as HTMLElement | null;
       if (target?.closest("input, textarea, [contenteditable='true']")) return;
       const images = Array.from(event.clipboardData?.items || []).filter(item => item.kind === "file" && item.type.startsWith("image/")).map(item => item.getAsFile()).filter((file): file is File => !!file);
@@ -105,11 +130,15 @@ export default function AnalyzePage() {
   return <>
     <WebNav/>
     <main className={`wa-shell ax-shell ${styles.page}`}>
-      <AuroraPageHero eyebrow="关系分析" title="分析材料" description="从一组真实材料开始，读懂互动，找到适合你的回应。" />
+      <AuroraPageHero eyebrow="从材料到判断" title={mode === "chat" ? "聊天分析" : mode === "moments" ? "朋友圈分析" : "社交主页分析"} description={selectedMode.description}>
+        {!visibleResult && <button className={ui.primary} disabled={disabled} onClick={requestUpload}><ImagePlus size={17}/>{selectedMode.upload}<ArrowRight size={16}/></button>}
+        {!hasMaterials && <a className={ui.secondary} href="#analysis-example">先看分析案例<ArrowDown size={16}/></a>}
+      </AuroraPageHero>
+      {owner && account.error && <AccountNotice state={account}/>}
+      {pendingAuth && <p role="status" className="wa-muted">正在确认账户，请稍等…</p>}
+      {authComplete && owner && !hasMaterials && <p role="status" className="wa-muted">已登录，点击下方选图即可继续。</p>}
 
-      <AccountNotice state={account}/>
-
-      <ol className="ax-steps" aria-label="分析进度">
+      {hasMaterials && <ol className="ax-steps" aria-label="分析进度">
         {steps.map((step, index) => {
           const number = index + 1, isDone = number < currentStep || !!visibleResult;
           return <li key={index} data-state={isDone ? "done" : number === currentStep ? "current" : "next"} aria-current={number === currentStep ? "step" : undefined}>
@@ -117,11 +146,11 @@ export default function AnalyzePage() {
             <span><strong><span className="ax-step-number">0{number} · </span>{step.label}</strong><small>{step.detail}</small></span>
           </li>;
         })}
-      </ol>
+      </ol>}
 
       {!visibleResult && <>
-        <div className="ax-mode-heading"><h2>这次想了解什么？</h2><span>选择一种材料开始</span></div>
-        <div className="ax-modes" role="tablist" aria-label="分析材料" onKeyDown={event => {
+        <div className="ax-mode-heading"><h2>选择分析类型</h2><span>先看案例，再分析自己的材料</span></div>
+        <div className={`ax-modes ${styles.entryModes}`} role="tablist" aria-label="分析材料" onKeyDown={event => {
           if (disabled || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
           event.preventDefault(); const keys = ["chat", "moments", "social"]; const index = keys.indexOf(mode);
           const next = event.key === "Home" ? 0 : event.key === "End" ? 2 : (index + (event.key === "ArrowRight" ? 1 : -1) + 3) % 3;
@@ -136,12 +165,14 @@ export default function AnalyzePage() {
           </button>)}
         </div>
 
+        {!hasMaterials && <div id="analysis-example"><AnalysisExample mode={mode as "chat" | "moments" | "social"} onUpload={requestUpload}/></div>}
+
         {owner && !priceReady && !task && <section className="wa-card ax-price-warning" role="status">
           <p>本次价格暂未取回。你可以继续整理材料，取回价格后再开始。</p>
           <div className="wa-actions"><button onClick={() => void account.refresh()}><RotateCcw size={16}/>重新读取价格</button><a href="/account">到账户核对</a></div>
         </section>}
 
-        <div className="ax-workspace" id="analysis-workspace" role="tabpanel" aria-labelledby={"analysis-mode-" + mode}>
+        <div className="ax-workspace" data-ready={hasMaterials} id="analysis-workspace" role="tabpanel" aria-labelledby={"analysis-mode-" + mode}>
           <div className="ax-main-column">
             <section className="wa-card ax-materials" aria-labelledby="analysis-material-title">
               <div className="ax-section-heading">
@@ -151,16 +182,16 @@ export default function AnalyzePage() {
               <p className="wa-muted ax-upload-tip">{selectedMode.tip}</p>
               {previousCount > 0 && <p className="wa-status">继续整理上一批 {previousCount} 张资料，还可补充 {9 - previousCount} 张。</p>}
 
-              <div className="ax-dropzone" data-dragging={dragging} data-disabled={disabled || !owner}
-                role="button" tabIndex={disabled || !owner ? -1 : 0}
+              <div className="ax-dropzone" id="analysis-upload" data-dragging={dragging} data-disabled={disabled}
+                role="button" tabIndex={disabled ? -1 : 0}
                 aria-label={owner ? "添加分析截图，支持选择文件、拖放或粘贴图片" : "登录后添加分析截图"}
-                aria-describedby="analysis-upload-limits" aria-disabled={disabled || !owner}
-                onClick={() => { if (!disabled && owner) fileInputRef.current?.click(); }}
-                onKeyDown={event => { if (["Enter", " "].includes(event.key) && !disabled && owner) { event.preventDefault(); fileInputRef.current?.click(); } }}
-                onDragEnter={event => { event.preventDefault(); if (disabled || !owner) return; dragDepth.current++; setDragging(true); }}
-                onDragOver={event => { event.preventDefault(); event.dataTransfer.dropEffect = disabled || !owner ? "none" : "copy"; }}
+                aria-describedby="analysis-upload-limits" aria-disabled={disabled}
+                onClick={requestUpload}
+                onKeyDown={event => { if (["Enter", " "].includes(event.key) && !disabled) { event.preventDefault(); requestUpload(); } }}
+                onDragEnter={event => { event.preventDefault(); if (disabled) return; dragDepth.current++; setDragging(true); }}
+                onDragOver={event => { event.preventDefault(); event.dataTransfer.dropEffect = disabled ? "none" : "copy"; }}
                 onDragLeave={event => { event.preventDefault(); dragDepth.current = Math.max(0, dragDepth.current - 1); if (!dragDepth.current) setDragging(false); }}
-                onDrop={event => { event.preventDefault(); dragDepth.current = 0; setDragging(false); if (!disabled && owner) void selectFiles(event.dataTransfer.files); }}>
+                onDrop={event => { event.preventDefault(); dragDepth.current = 0; setDragging(false); if (!disabled) void selectFiles(event.dataTransfer.files); }}>
                 <div className="ax-upload-illustration" aria-hidden="true"><AnalysisIllustration mode={mode}/></div>
                 <strong>{dragging ? "松开鼠标，添加截图" : preparing ? "正在整理图片…" : files.length ? "继续添加截图" : "点击选图，也可以直接拖进来"}</strong>
                 <span className="ax-upload-action">{preparing ? <LoaderCircle size={18} className="ax-spin"/> : <ImagePlus size={18}/>}<span>{!owner ? "登录后上传" : "从相册选择 / 拍照"}</span><ArrowRight size={16}/></span>
@@ -187,7 +218,7 @@ export default function AnalyzePage() {
               </>}
             </section>
 
-            <section className="wa-card ax-confirm" id="analysis-confirm" aria-labelledby="analysis-confirm-title">
+            {hasMaterials && <section className="wa-card ax-confirm" id="analysis-confirm" aria-labelledby="analysis-confirm-title">
               <div className="ax-section-heading"><div><span className="ax-section-number">02 · 确认分析</span><h2 id="analysis-confirm-title">把分析对象和范围说清楚</h2></div><FileCheck2 size={23}/></div>
               {mode === "chat" ? <div className="ax-side-setting">
                 <label className="wa-field">截图中哪侧气泡是你？
@@ -246,10 +277,10 @@ export default function AnalyzePage() {
                 <button disabled={disabled || !owner || !url.trim() || !linkConsent || !hasPrice(account.account, "profile")} onClick={() => void analyzeLink()}>读取并建立档案 · {priceLabel(account.account, "profile")}</button>
                 {linkResult && <p role="status">{linkResult.message} <a href={"/archive?subjectId=" + linkResult.subjectId}>查看 {linkResult.label} 的线索<ArrowRight size={15}/></a></p>}
               </details>}
-            </section>
+            </section>}
           </div>
 
-          <aside className="ax-aside">
+          {hasMaterials && <aside className="ax-aside">
             <section className="wa-card ax-outcome">
               <figure className="wa-feature-visual ax-feature-visual" aria-hidden="true"><img src="/visuals/conversation-daylight.webp" alt=""/><span><Sparkles size={14}/>把线索连成理解</span></figure>
               <span className="ax-section-number">分析之后，你会得到</span>
@@ -267,7 +298,7 @@ export default function AnalyzePage() {
               {needsCredits && !task && <p className="ax-credit-warning">当前余额不足，开通积分后再开始分析。</p>}
               <span className="ax-credit-reassurance"><ShieldCheck size={15}/>失败释放本次预留积分</span>
             </section>
-          </aside>
+          </aside>}
         </div>
       </>}
 
@@ -306,5 +337,6 @@ export default function AnalyzePage() {
         </>}
       </div>
     </main>
+    <AnalysisAuthGate open={showAuth} onClose={() => setShowAuth(false)} returnTo={`/analyze?mode=${mode}`} contextLabel={selectedMode.label} onSuccess={authenticated}/>
   </>;
 }

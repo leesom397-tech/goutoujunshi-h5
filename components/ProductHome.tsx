@@ -18,13 +18,33 @@ const disabled=loading||!!error;
 return <div className={styles.page}>
 <section className={styles.hero}>
 
-<div className={styles.heroCopy}><span className={styles.eyebrow}>成子 · 关系决策智能体</span><h1>看懂当下这一句。<br/><span>让下一步，更清晰。</span></h1><p>从聊天里的细节，到一段关系的走向。<br/>理解互动信号，记住每一次相处。</p><div className={styles.actions}><button disabled={disabled} onClick={()=>onStart('/analyze?mode=chat')}>开始分析 <ArrowRight size={17}/></button><a href="#tools">探索全部功能 <ArrowUpRight size={16}/></a></div><span className={styles.privacy}>你的内容，只用于你的关系分析。</span></div>
+<div className={styles.heroCopy}><span className={styles.eyebrow}>成子 · 关系决策智能体</span><h1>看懂当下这一句。<br/><span>让下一步，更清晰。</span></h1><p>从聊天里的细节，到一段关系的走向。<br/>理解互动信号，记住每一次相处。</p><div className={styles.actions}><button onClick={()=>onStart('/analyze?mode=chat')}>开始分析 <ArrowRight size={17}/></button><a href="#tools">探索全部功能 <ArrowUpRight size={16}/></a></div><span className={styles.privacy}>你的内容，只用于你的关系分析。</span></div>
 <div className={styles.art}><GlassStudy/></div>
 </section>
 {loading&&<p className={styles.status} data-session-state role="status">正在确认账户…</p>}{error&&<div className={styles.error} data-session-error role="alert">{error}<button onClick={onRetry}>重新连接</button></div>}
 <KnowledgeEvidence/>
-<section id="tools" className={styles.tools}><header><div><span className={styles.eyebrow}>从线索到行动</span><h2>你想从哪里开始？</h2></div><a href={signedIn?'/account':'/login'}>{signedIn?'我的账户':'登录账户'} <ArrowUpRight size={16}/></a></header><div className={styles.grid} data-feature-grid>{features.map(({href,icon:Icon,title,text,action},i)=><button className={styles.tool} data-feature-entry key={href} disabled={disabled} onClick={()=>onStart(href)}><span className={styles.icon}><Icon size={23} strokeWidth={1.4}/></span><span className={styles.toolCopy}><strong>{title}</strong><span>{text}</span><small>{action} <ArrowRight size={15}/></small></span><span className={styles.index}>0{i+1}</span></button>)}</div></section>
+<section id="tools" className={styles.tools}><header><div><span className={styles.eyebrow}>从线索到行动</span><h2>你想从哪里开始？</h2></div><a href={signedIn?'/account':'/login'}>{signedIn?'我的账户':'登录账户'} <ArrowUpRight size={16}/></a></header><div className={styles.grid} data-feature-grid>{features.map(({href,icon:Icon,title,text,action},i)=><button className={styles.tool} data-feature-entry key={href} disabled={!href.startsWith('/analyze?') && disabled} onClick={()=>onStart(href)}><span className={styles.icon}><Icon size={23} strokeWidth={1.4}/></span><span className={styles.toolCopy}><strong>{title}</strong><span>{text}</span><small>{action} <ArrowRight size={15}/></small></span><span className={styles.index}>0{i+1}</span></button>)}</div></section>
 <nav className={styles.utilities} aria-label="更多工具">{[['/reports','历史报告'],['/import','导入聊天记录'],['/archive?tab=self','我的资料']].map(([href,label])=><button key={href} disabled={disabled} onClick={()=>onStart(href)}>{label}<ArrowUpRight size={14}/></button>)}<span>分析前确认积分费用 · <a href="/privacy">数据与隐私</a></span></nav>
 </div>;
 }
-export function KnowledgeEvidence(){return <section className={styles.evidence} data-knowledge-evidence aria-label="资料库依据"><div className={styles.author}><BookOpen size={22} strokeWidth={1.3}/><div><strong>有依据，也有温度。</strong><span>成子 · 心理学硕士 · 全网百万粉丝</span></div></div><div className={styles.stats}>{[[library.referenceDocuments,'篇参考文档'],[knowledgeVolume,'万字资料'],[knowledgeDomains.length,'类关系主题']].map(([n,label])=><div key={label}><b>{n}</b><span>{label}</span></div>)}</div><a href="/library">探索资料库 <ArrowUpRight size={16}/></a></section>;}
+export function KnowledgeEvidence() {
+  return <section className={styles.evidence} data-knowledge-evidence aria-label="资料依据与分析方法">
+    <div className={styles.evidenceHeading}>
+      <span className={styles.evidenceKicker}><BookOpen size={17} strokeWidth={1.5}/>成子的分析方法</span>
+      <h2>基于资料与研究方法构建的关系分析系统</h2>
+      <p>按问题匹配相关资料，再结合你的具体处境，给出有依据的判断与行动建议。</p>
+    </div>
+    <div className={styles.stats} aria-label="方法资料规模">
+      {[[library.referenceDocuments, "份", "参考文档"], [knowledgeVolume, "万字", "方法资料"], [knowledgeDomains.length, "类", "关系主题"]].map(([value, unit, label]) => <div key={label}><b>{value}<small>{unit}</small></b><span>{label}</span></div>)}
+    </div>
+    <ol className={styles.methodFlow} aria-label="从资料依据到行动建议">
+      <li><span className={styles.methodNumber}>01</span><div><strong>资料依据</strong><small>按问题匹配相关资料</small></div><ArrowRight size={17} aria-hidden="true"/></li>
+      <li><span className={styles.methodNumber}>02</span><div><strong>结合你的具体处境</strong><small>聊天内容与已确认的人物记忆</small></div><ArrowRight size={17} aria-hidden="true"/></li>
+      <li><span className={styles.methodNumber}>03</span><div><strong>判断与下一步</strong><small>看懂依据，也知道怎么做</small></div></li>
+    </ol>
+    <div className={styles.evidenceFooter}>
+      <span className={styles.author}>成子 · 心理学硕士 · 全网百万粉丝</span>
+      <a href="/library">查看资料来源与分析方法 <ArrowUpRight size={16}/></a>
+    </div>
+  </section>;
+}

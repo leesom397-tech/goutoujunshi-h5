@@ -6,7 +6,7 @@ import styles from "./GlassStudy.module.css";
 
 const vertex = `attribute vec2 position; void main(){ gl_Position=vec4(position,0.,1.); }`;
 // Full-bleed optical texture: fixed vertical glass ribs, with a very slow
-// light travelling through the scene behind them. The ribs never move sideways.
+// light travelling through the scene behind them. Texture coordinates stay fixed.
 const fragment = `
 precision highp float;
 uniform vec2 resolution;
@@ -19,10 +19,8 @@ void main(){
  if(ratio<1.2) tex.x=(tex.x-.5)*(ratio/2.)+.5;
  float right=smoothstep(.30,.72,tex.x);
  float phase=time*.28;
- float depth=1.-smoothstep(.45,.96,tex.y);
- tex.y+=(sin(phase+tex.x*3.5)*.027+sin(phase*.64+tex.x*6.)*.009)*right*depth;
  vec3 col=texture2D(material,tex).rgb;
- float beam=sin(phase+tex.x*4.4-tex.y*1.8)*.065*right;
+ float beam=sin(phase+tex.x*4.4-tex.y*1.8)*.10*right;
  float facets=smoothstep(.67,.98,col.r)*.5+.5;
  col+=vec3(1.,.84,.68)*beam*facets;
  gl_FragColor=vec4(clamp(col,0.,1.),1.);
@@ -71,12 +69,12 @@ export function GlassStudy() {
   node.addEventListener('webglcontextlost',contextLost);node.addEventListener('glass-resume',resume);
   media.addEventListener('change',change);document.addEventListener('visibilitychange',visibility);
   asset.onload=()=>{if(disposed||lost)return;gl.bindTexture(gl.TEXTURE_2D,texture);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,gl.RGB,gl.UNSIGNED_BYTE,asset);loaded=true;resize();draw();setReady(true);wake();};
-  asset.src='/images/aurora-fluted-light-v2.webp';
+  asset.src='/images/aurora-fluted-light-v3.webp';
   return()=>{disposed=true;asset.onload=null;gl.deleteTexture(texture);cancelAnimationFrame(raf);observer.disconnect();intersection.disconnect();media.removeEventListener('change',change);document.removeEventListener('visibilitychange',visibility);node.removeEventListener('webglcontextlost',contextLost);node.removeEventListener('glass-resume',resume);gl.deleteBuffer(buffer);gl.deleteProgram(program);gl.deleteShader(vs);gl.deleteShader(fs);};
  },[]);
  const toggle=()=>{pauseRef.current=!isPaused;setPaused(!isPaused);canvas.current?.dispatchEvent(new Event('glass-resume'));};
  return <div className={styles.study} data-glass-ready={ready} data-motion={isPaused?"paused":"playing"} data-motion-explicit={paused!==null}>
-  <img className={styles.fallback} src="/images/aurora-fluted-light-v2.webp" alt="" aria-hidden="true" fetchPriority="high"/>
+  <img className={styles.fallback} src="/images/aurora-fluted-light-v3.webp" alt="" aria-hidden="true" fetchPriority="high"/>
   <canvas ref={canvas} className={`${styles.canvas} ${ready?styles.ready:''}`} aria-hidden="true"/>
 
   {<button type="button" className={styles.control} onClick={toggle} aria-label={isPaused?'播放光影':'暂停光影'} aria-pressed={isPaused}>{isPaused?<Play size={12}/>:<Pause size={12}/>}<span>{isPaused?'播放光影':'光影播放中'}</span></button>}

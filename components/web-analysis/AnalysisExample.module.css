@@ -1,0 +1,80 @@
+.example { display: grid; gap: 20px; min-width: 0; margin-top: 27px; color: #272421; }
+.heading { display: flex; justify-content: space-between; align-items: end; flex-wrap: wrap; gap: 20px 28px; }
+.eyebrow { display: inline-flex; align-items: center; gap: 7px; color: #a37055; font-size: 11px; line-height: 1.7; letter-spacing: .04em; }
+.heading h2 { margin: 9px 0 0; color: #272421; font-size: 23px; font-weight: 550; line-height: 1.5; letter-spacing: -.035em; }
+.benefits { display: flex; flex-wrap: wrap; gap: 9px 15px; padding-bottom: 4px; }
+.benefits > span { display: inline-flex; align-items: center; gap: 5px; color: #89705b; font-size: 11px; line-height: 1.6; }
+.benefits svg { color: #b38461; }
+.caseLabel { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; padding: 12px 15px; border: 1px solid #ebdfd1; border-radius: 12px; background: #fcf5eb; }
+.caseLabel > span { display: inline-flex; align-items: center; gap: 7px; color: #986e4d; font-size: 11px; font-weight: 550; white-space: nowrap; }
+.caseLabel p { margin: 0; color: #8f7762; font-size: 11px; line-height: 1.8; }
+.preview { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: 18px; }
+.example .summaryCard, .example .chartCard { display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; gap: 0; min-width: 0; min-height: 320px; width: 100%; margin: 0; padding: 27px; border: 1px solid #e9dacc; border-radius: 23px; color: #272421; background: linear-gradient(140deg, #fffefd, #fffaf3); box-shadow: inset 0 1px #fff, 0 13px 32px #78503109; font: inherit; text-align: left; cursor: pointer; transition: border-color .2s, box-shadow .2s; }
+.example .summaryCard { background: linear-gradient(100deg, #fffaf5f7, #fffaf5e5), url('/images/aurora-fluted-light-v3.webp') 60% center / cover; }
+.example button.summaryCard:not(:disabled):hover, .example button.chartCard:not(:disabled):hover { transform: none; border-color: #caab8d; box-shadow: inset 0 1px #fff, 0 17px 35px #78503114; }
+.example button.summaryCard:not(:disabled):hover { background: linear-gradient(100deg, #fffaf5f7, #fffaf5e5), url('/images/aurora-fluted-light-v3.webp') 60% center / cover; }
+.example button.chartCard:not(:disabled):hover { background: linear-gradient(140deg, #fffefd, #fffaf3); }
+.cardKicker { display: flex; align-items: center; gap: 7px; color: #956e4f; font-size: 11px; font-weight: 500; line-height: 1.7; }
+.cardKicker > span { margin-left: auto; color: #a3866b; font-size: 10px; font-weight: 400; }
+.caseTitle { display: block; margin: 22px 0 14px; color: #3c2e23; font-size: 23px; font-weight: 550; line-height: 1.5; letter-spacing: -.035em; }
+.judgment { display: block; margin-bottom: 23px; color: #816752; font-size: 13px; font-weight: 400; line-height: 1.95; overflow-wrap: anywhere; }
+.cardAction { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: auto; padding-top: 15px; border-top: 1px solid #eadccc; color: #a66e4b; font-size: 12px; font-weight: 550; line-height: 1.6; }
+.chartTop { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.chartTop > span { display: flex; align-items: center; gap: 7px; color: #8a6548; font-size: 12px; font-weight: 550; }
+.chartTop > b { color: #57402c; font-size: 25px; font-weight: 500; letter-spacing: -.05em; font-variant-numeric: tabular-nums; }
+.chartUnit { display: block; margin: 10px 0 19px; color: #a1866c; font-size: 10px; font-weight: 400; line-height: 1.7; }
+.bars { display: grid; gap: 14px; width: 100%; }
+.barRow { display: grid; grid-template-columns: 64px minmax(20px, 1fr) auto; align-items: center; gap: 11px; min-width: 0; color: #876a52; font-size: 11px; font-weight: 400; line-height: 1.5; }
+.barRow > b { min-width: 33px; color: #956d4a; font-size: 10px; font-weight: 500; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.track { display: block; height: 8px; overflow: hidden; border-radius: 6px; background: #eee2d4; box-shadow: inset 0 1px 2px #8b613008; }
+.track i { display: block; height: 100%; border-radius: 6px; background: linear-gradient(90deg, #dcb594, #bd7c59); box-shadow: inset 0 1px #fbe0c477; }
+.barRow:nth-child(2n) .track i { background: linear-gradient(90deg, #e2c4a1, #c59b6d); }
+.chartNote { display: block; margin: 18px 0; color: #967b62; font-size: 10px; font-weight: 400; line-height: 1.8; }
+.context { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.excerpt { display: flex; align-items: start; gap: 13px; min-width: 0; padding: 20px 22px; border: 1px solid #ece0d3; border-radius: 17px; background: #fffdf8; }
+.excerpt > svg { flex: none; margin-top: 2px; color: #bf9571; }
+.excerpt small { color: #a18165; font-size: 10px; line-height: 1.6; }
+.excerpt blockquote { margin: 8px 0 0; color: #77604d; font-size: 12px; font-weight: 400; line-height: 1.9; }
+.nextStep { min-width: 0; padding: 20px 22px; border: 1px solid #e8d8c7; border-radius: 17px; background: linear-gradient(135deg, #fbf1e4, #fffaf3); }
+.nextStep > span { display: inline-flex; align-items: center; gap: 7px; color: #a17650; font-size: 11px; font-weight: 500; }
+.nextStep p { margin: 9px 0 0; color: #7f6147; font-size: 12px; line-height: 1.9; }
+.example .detailsToggle { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 49px; padding: 13px 18px; border: 1px solid #d8b697; border-radius: 12px; background: linear-gradient(180deg, #faeeda, #f2e1c8); color: #795333; font: inherit; font-size: 13px; font-weight: 600; line-height: 1.6; cursor: pointer; box-shadow: inset 0 1px #fff5e6, 0 5px 11px #9664380a; }
+.example button.detailsToggle:not(:disabled):hover { transform: none; border-color: #bf936b; background: linear-gradient(180deg, #f4e4cb, #ecd7b8); color: #674222; box-shadow: inset 0 1px #fff5e6, 0 7px 15px #96643812; }
+.expanded { min-width: 0; padding-top: 5px; }
+.expandedHeading { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 16px 0 20px; }
+.expandedHeading > span { display: flex; align-items: center; gap: 8px; color: #9a7454; font-size: 12px; font-weight: 550; }
+.example .close { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 37px; padding: 8px 11px; border: 1px solid #e0cbb8; border-radius: 9px; background: #fffaf2; color: #996f4d; font: inherit; font-size: 11px; font-weight: 500; cursor: pointer; box-shadow: none; }
+.example button.close:not(:disabled):hover { transform: none; background: #f3e5d4; border-color: #ceac8a; box-shadow: none; }
+.footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 17px 25px; padding: 21px 0 4px; border-top: 1px solid #eadecf; }
+.footer p { margin: 0; color: #7c5d44; font-size: 13px; line-height: 1.8; }
+.footer small { display: block; margin-top: 4px; color: #a08368; font-size: 11px; line-height: 1.8; }
+.example .upload { display: inline-flex; align-items: center; justify-content: center; gap: 9px; min-height: 44px; padding: 11px 17px; border: 1px solid #dfa087; border-radius: 10px; background: linear-gradient(180deg, #f0b59e, #e6a087); color: #4c3024; font: inherit; font-size: 12px; font-weight: 600; line-height: 1.6; cursor: pointer; box-shadow: inset 0 1px #ffe3d1, 0 6px 13px #ad62421a; }
+.example button.upload:not(:disabled):hover { transform: none; background: linear-gradient(180deg, #ecab92, #df9278); color: #4c3024; border-color: #cb8e73; box-shadow: inset 0 1px #ffe3d1, 0 7px 17px #ad624224; }
+.example button:focus-visible { outline: 3px solid #c79973; outline-offset: 3px; }
+
+@media (max-width: 800px) {
+  .heading { align-items: start; gap: 15px; }
+  .preview { grid-template-columns: minmax(0, 1fr); gap: 15px; }
+  .example .summaryCard, .example .chartCard { min-height: 0; padding: 24px; }
+  .context { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .caseTitle { font-size: 22px; }
+}
+@media (max-width: 480px) {
+  .example { gap: 17px; margin-top: 22px; }
+  .heading h2 { font-size: 20px; }
+  .benefits { gap: 8px 11px; }
+  .benefits > span { font-size: 10px; }
+  .caseLabel { padding: 11px 13px; gap: 5px; }
+  .caseLabel p { font-size: 10px; }
+  .example .summaryCard, .example .chartCard { padding: 21px; border-radius: 20px; }
+  .cardKicker { flex-wrap: wrap; }
+  .cardKicker > span { font-size: 10px; }
+  .caseTitle { margin-top: 19px; font-size: 20px; }
+  .judgment { font-size: 12px; }
+  .chartTop > b { font-size: 24px; }
+  .barRow { grid-template-columns: 61px minmax(15px, 1fr) auto; gap: 8px; }
+  .excerpt, .nextStep { padding: 18px; }
+  .footer { align-items: stretch; gap: 14px; }
+  .example .upload { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) { .example .summaryCard, .example .chartCard { transition: none; } }

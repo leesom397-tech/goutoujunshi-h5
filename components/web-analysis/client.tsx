@@ -13,20 +13,23 @@ export async function api(path: string, body?: Json, signal?: AbortSignal): Prom
 }
 export const message = (error: unknown) => error instanceof Error ? error.message : "暂时无法完成，请稍后重试。";
 export function useAccount() {
+  const [loading, setLoading] = useState(true);
   const [account, setAccount] = useState<Json | null>(null), [people, setPeople] = useState<Json[]>([]), [error, setError] = useState(""), [unauthorized, setUnauthorized] = useState(false);
   const generation = useRef(0), mounted = useRef(true), owner = useRef<string | null>(null);
   async function refresh() {
     const current = ++generation.current;
     const active = () => mounted.current && current === generation.current;
+    setLoading(true);
     try {
       const value = await api("/api/account/credits"); if (!active()) return;
       if (owner.current !== value.account?.userId) { setPeople([]); owner.current = value.account?.userId || null; }
       setAccount(value); setUnauthorized(false); setError("");
       const profile = await api("/api/web/profile").catch(e => { if (e instanceof WebError && e.status === 401) throw e; return null; }); if (active() && profile) setPeople(profile.enabled && !profile.paused ? profile.subjects || [] : []);
     } catch (e) { if (!active()) return; setError(message(e)); const loggedOut = e instanceof WebError && e.status === 401; setUnauthorized(loggedOut); if (loggedOut) { setAccount(null); setPeople([]); owner.current = null; } }
+    finally { if (active()) setLoading(false); }
   }
   useEffect(() => { mounted.current = true; void refresh(); const focus = () => { if (!document.hidden) void refresh(); }; window.addEventListener("focus", focus); window.addEventListener("chengzi:credits-changed", focus); return () => { mounted.current = false; generation.current++; window.removeEventListener("focus", focus); window.removeEventListener("chengzi:credits-changed", focus); }; }, []);
-  return { account, people, error, unauthorized, refresh };
+  return { account, people, error, unauthorized, loading, refresh };
 }
 export function ErrorNotice({ error }: { error: string }) { return error ? <p className="wa-error" role="alert">{error}</p> : null; }
 export function AccountNotice({ state }: { state: ReturnType<typeof useAccount> }) {

@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowRight } from "lucide-react";
 import "./phone-register-form.css";
 
-type Props = { onSuccess?: () => void; compact?: boolean; returnTo?: string };
+type Props = { onSuccess?: () => void; onLogin?: () => void; onBusyChange?: (busy: boolean) => void; compact?: boolean; returnTo?: string };
 
 function destination(override?: string) {
   const raw = override || new URLSearchParams(window.location.search).get("return_to") || "/account";
@@ -11,7 +11,7 @@ function destination(override?: string) {
   try { const url = new URL(raw, window.location.origin); return url.origin === window.location.origin ? url.pathname + url.search + url.hash : "/account"; } catch { return "/account"; }
 }
 
-export function PhoneRegisterForm({ onSuccess, compact = false, returnTo }: Props) {
+export function PhoneRegisterForm({ onSuccess, onLogin, onBusyChange, compact = false, returnTo }: Props) {
   const [username, setUsername] = useState(""); const [phone, setPhone] = useState(""); const [code, setCode] = useState("");
   const [password, setPassword] = useState(""); const [confirm, setConfirm] = useState("");
   const [agree, setAgree] = useState(false); const [busy, setBusy] = useState(false); const [sending, setSending] = useState(false);
@@ -20,6 +20,7 @@ export function PhoneRegisterForm({ onSuccess, compact = false, returnTo }: Prop
   const [loginHref, setLoginHref] = useState("/login");
   useEffect(() => { setLoginHref("/login?return_to=" + encodeURIComponent(destination(returnTo))); }, [returnTo]);
   useEffect(() => { const timer = window.setInterval(() => setSeconds(Math.max(0, Math.ceil((deadline.current - Date.now()) / 1000))), 500); return () => window.clearInterval(timer); }, []);
+  useEffect(() => { onBusyChange?.(busy || sending); }, [busy, sending, onBusyChange]);
 
   async function sendCode() {
     if (inFlight.current || busy || deadline.current > Date.now()) return;
@@ -70,7 +71,7 @@ export function PhoneRegisterForm({ onSuccess, compact = false, returnTo }: Prop
       <label>确认密码<input value={confirm} onChange={e => setConfirm(e.target.value)} autoComplete="new-password" type="password" required minLength={8} maxLength={128} disabled={busy || loginRequired}/></label>
       <label className="register-consent"><input type="checkbox" required checked={agree} onChange={e => { setAgree(e.target.checked); setCodeError(""); }} disabled={busy || sending}/><span>我已阅读并同意<a href="/privacy" target="_blank" rel="noreferrer">数据与使用说明</a>，用于手机号验证及账户注册。</span></label>
       {error && <div className="login-error" role="alert">{error}</div>}{notice && <div className="register-notice" role="status">{notice}</div>}
-      {loginRequired ? <a className="phone-register-submit" href={loginHref}>前往登录<ArrowRight size={18}/></a> : <button className="phone-register-submit" disabled={busy || sending} type="submit">{busy ? "正在创建…" : "创建账户"}<ArrowRight size={18}/></button>}
-    </form><div className="phone-register-help">已有账号？<a href={loginHref}>直接登录</a></div>
+      {loginRequired ? onLogin ? <button type="button" className="phone-register-submit" onClick={onLogin}>前往登录<ArrowRight size={18}/></button> : <a className="phone-register-submit" href={loginHref}>前往登录<ArrowRight size={18}/></a> : <button className="phone-register-submit" disabled={busy || sending} type="submit">{busy ? "正在创建…" : "创建账户"}<ArrowRight size={18}/></button>}
+    </form><div className="phone-register-help">已有账号？{onLogin ? <button type="button" onClick={onLogin} disabled={busy || sending}>直接登录</button> : <a href={loginHref}>直接登录</a>}</div>
   </div>;
 }

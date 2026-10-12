@@ -1,0 +1,58 @@
+.dialog {
+  width: min(490px, calc(100% - 32px));
+  max-height: min(90dvh, 840px);
+  margin: auto;
+  padding: 0;
+  position: fixed;
+  border: 1px solid #e9d7c8;
+  border-radius: 23px;
+  background: #fffaf5;
+  color: #272421;
+  box-shadow: 0 24px 90px #69433135, inset 0 1px #fff;
+  overflow: auto;
+  overscroll-behavior: contain;
+  font-family: "PingFang SC", "Microsoft YaHei", sans-serif;
+}
+.dialog::backdrop { background: #4434296b; backdrop-filter: blur(7px); }
+.dialog *, .dialog *::before, .dialog *::after { box-sizing: border-box; }
+.close { position: absolute; top: 13px; right: 13px; z-index: 2; display: grid; place-items: center; width: 37px; height: 37px; padding: 0; border: 1px solid #e8d5c6; border-radius: 50%; background: #fffcf6dc; color: #916851; cursor: pointer; }
+.close:hover { background: #f7e6d8; }
+.header { padding: 33px 32px 25px; background: linear-gradient(90deg, #fffaf5 8%, #fffaf5d9 52%, #fffaf557), url('/images/aurora-fluted-light-v3.webp') right center / cover; border-bottom: 1px solid #eddfd3; }
+.eyebrow { display: block; padding-right: 28px; color: #a36f53; font-size: 11px; letter-spacing: .04em; }
+.header h2 { margin: 16px 0 10px; color: #302620; font-size: 25px; font-weight: 550; letter-spacing: -.035em; line-height: 1.5; }
+.header p { max-width: 320px; margin: 0; color: #806b5c; font-size: 12px; line-height: 1.9; }
+.body { padding: 25px 32px 24px; }
+.tabs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; padding: 4px; margin-bottom: 24px; border: 1px solid #eedccc; border-radius: 12px; background: #f9ede2; }
+.tabs button { min-height: 40px; border: 0; border-radius: 8px; background: transparent; color: #9b7860; font: inherit; font-size: 13px; cursor: pointer; }
+.tabs button[aria-selected="true"] { background: #fffefa; color: #945b42; box-shadow: 0 2px 7px #80573c0a; }
+.pane[hidden] { display: none; }
+.fields { border: 0; padding: 0; margin: 0; min-width: 0; }
+.loginForm { display: grid; gap: 16px; }
+.loginForm > label, .dialog :global(.phone-register-form) label { display: grid; gap: 8px; color: #80634d; font-size: 12px; line-height: 1.75; }
+.loginForm input:not([type="checkbox"]), .dialog :global(.phone-register-form) input:not([type="checkbox"]) { width: 100%; min-width: 0; min-height: 44px; padding: 11px 13px; border: 1px solid #e2cdbb; border-radius: 10px; background: #fffdf9; color: #342a22; font: inherit; font-size: 15px; box-shadow: none; }
+.loginForm input::placeholder, .dialog :global(.phone-register-form) input::placeholder { color: #a18a76; }
+.loginForm .check, .dialog :global(.phone-register-form .register-consent) { display: flex; gap: 9px; align-items: flex-start; font-size: 11px; color: #917961; line-height: 1.85; margin: 1px 0 3px; }
+.check input, .dialog :global(.register-consent) input { flex: none; width: 16px; height: 16px; margin-top: 3px; accent-color: #bd8764; }
+.submit, .dialog :global(.phone-register-submit) { display: flex; align-items: center; justify-content: center; gap: 9px; min-height: 45px; width: 100%; border: 1px solid #df9b83; border-radius: 10px; background: linear-gradient(180deg, #f0b39d, #e79b80); color: #482d23; font: inherit; font-size: 13px; font-weight: 550; text-decoration: none; box-shadow: inset 0 1px #ffddcb, 0 5px 12px #ae5f3612; cursor: pointer; }
+.submit:hover, .dialog :global(.phone-register-submit):hover { background: linear-gradient(180deg, #eaa389, #e08c71); }
+.help { margin: 18px 0 0; color: #937d69; font-size: 12px; text-align: center; }
+.help button, .dialog :global(.phone-register-help) button { padding: 3px 5px; border: 0; background: transparent; color: #a76c4f; font: inherit; font-weight: 550; cursor: pointer; }
+.privacy { display: flex; justify-content: center; align-items: center; gap: 5px; flex-wrap: wrap; margin: 22px 0 0; color: #a18b76; font-size: 10px; line-height: 1.7; }
+.privacy a, .dialog :global(.register-consent) a { color: #a47759; text-decoration: underline; text-underline-offset: 3px; }
+.dialog :global(.phone-register-form) { color: #705641; }
+.dialog :global(.phone-register-form) h2 { font-size: 18px; font-weight: 550; color: #443122; margin: 0 0 8px; }
+.dialog :global(.phone-register-form) > p { font-size: 11px; line-height: 1.85; color: #987b63; margin-bottom: 20px; }
+.dialog :global(.phone-register-form) form { display: grid; gap: 14px; }
+.dialog :global(.register-code-row) { display: grid; grid-template-columns: minmax(0, 1fr) 111px; gap: 9px; align-items: end; }
+.dialog :global(.register-code-button) { height: 44px; border: 1px solid #dec3aa; border-radius: 10px; background: #f9eadb; color: #936440; padding: 9px 8px; font: inherit; font-size: 11px; box-shadow: none; cursor: pointer; }
+.dialog :global(.phone-register-help) { color: #987d65; text-align: center; font-size: 12px; margin-top: 18px; }
+.error, .dialog :global(.login-error), .dialog :global(.register-code-error) { padding: 11px 13px; border: 1px solid #e8c6b1; border-radius: 9px; background: #fff0e5; color: #9f5634; font-size: 12px; line-height: 1.8; }
+.dialog :global(.register-notice) { border: 1px solid #e5d1b4; background: #fcf1dc; color: #8e7045; border-radius: 9px; font-size: 12px; line-height: 1.8; padding: 11px 13px; }
+.dialog button:disabled { opacity: .55; cursor: not-allowed; box-shadow: none; }
+.dialog :is(a, button, input):focus-visible { outline: 2px solid #c48a65; outline-offset: 3px; }
+@media(max-width: 540px) {
+  .dialog { width: calc(100% - 24px); max-height: 92dvh; border-radius: 20px; }
+  .header { padding: 29px 23px 23px; }
+  .header h2 { font-size: 23px; }
+  .body { padding: 22px 23px; }
+}

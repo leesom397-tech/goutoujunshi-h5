@@ -80,7 +80,7 @@ await Promise.all(["/workspace", "/register", "/login", "/sales", "/privacy", "/
   }
   return { title, visibleCharacters: visible.length, previousBrandVisible: false };
 })));
-await Promise.all(["/visuals/relationship-daylight.webp", "/visuals/conversation-daylight.webp", "/icon-192.png", "/images/aurora-fluted-light-v2.webp"].map(path => check("deployed visual asset", path, response => {
+await Promise.all(["/visuals/relationship-daylight.webp", "/visuals/conversation-daylight.webp", "/icon-192.png", "/images/aurora-fluted-light-v3.webp"].map(path => check("deployed visual asset", path, response => {
   requireValue(response.status === 200, `Expected image 200, received ${response.status}.`);
   requireValue(String(response.headers["content-type"]).startsWith("image/"), "Wrong image content type.");
   return { image: true };
