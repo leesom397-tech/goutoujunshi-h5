@@ -1,3 +1,4 @@
+import {cleanRelationshipRiskReview} from "./relationship-risk";
 import { CONTENT_TAGS, COPY_TAGS, uniqueMomentsPosts, momentsStatistics } from "./moments-statistics";
 import { cleanSocialPhotoClues } from "./social-photo-clues";
 const text = (v: unknown, n = 180) => typeof v === "string" ? v.trim().slice(0,n).replace(/1[3-9]\d{9}/g,"[手机号已隐去]").replace(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g,"[邮箱已隐去]") : "";
@@ -29,6 +30,8 @@ export function cleanMomentsReport(input: unknown) {
   const behaviorClues=list(v.behaviorClues,6).map(x=>({dimension:text(x.dimension,24),sourceType:text(x.sourceType,20),quote:text(x.quote,80),reading:text(x.reading,160),alternative:text(x.alternative,100)})).filter(x=>behaviorDimensions.includes(x.dimension)&&["行动自述","态度表达","转发内容"].includes(x.sourceType)&&x.quote&&x.reading&&x.alternative&&posts.some(p=>p.content.includes(x.quote)||p.evidence.includes(x.quote))).slice(0,4).map(x=>({...x,evidence:posts.find(p=>p.content.includes(x.quote)||p.evidence.includes(x.quote))!.evidence}));
   const report = {
     summary,
+    ...(v.riskReview?{riskReview:cleanRelationshipRiskReview(v.riskReview)}:{}),
+    ...(v.targetSelf===true?{targetSelf:true}:{}),
     approach:v.approach && text(v.approach.attitude,100) && text(v.approach.evidence,180) ? {attitude:text(v.approach.attitude,100),emotion:text(v.approach.emotion,100),pace:text(v.approach.pace,100),avoid:text(v.approach.avoid,100),evidence:text(v.approach.evidence,180),...(text(v.approach.adjustWhen,140)?{adjustWhen:text(v.approach.adjustWhen,140)}:{})} : null,
     behaviorClues,hasBehaviorClues:behaviorClues.length>0,
     fitSummary:text(v.fitSummary,240),

@@ -488,10 +488,11 @@ await test("revocation during model call blocks result persistence",async()=>{
 await test("source-key dedup does not consume another model budget",async()=>{
   const before=calls;await service.analyzeLines("A","对方：周日可以见面",options);assert.equal(calls,before);
 });
-await test("expired reports are unreadable and cleanup deletes retained content",async()=>{
+await test("completed reports remain readable and survive legacy expiry cleanup",async()=>{
   sqlite.prepare("UPDATE coach_crush_reports SET expires_at=1 WHERE id=?").run(firstReport.id);
-  await assert.rejects(service.ownedReport("A",firstReport.id),e=>e.status===404);
-  await service.cleanupCrush();assert.equal(sqlite.prepare("SELECT COUNT(*) n FROM coach_crush_reports WHERE id=?").get(firstReport.id).n,0);
+  assert.equal((await service.ownedReport("A",firstReport.id)).id,firstReport.id);
+  await service.cleanupCrush();assert.equal(sqlite.prepare("SELECT COUNT(*) n FROM coach_crush_reports WHERE id=?").get(firstReport.id).n,1);
+  assert.equal((await service.ownedReport("A",firstReport.id)).id,firstReport.id,"completed content remains accessible after temporary context cleanup");
 });
 const emotion=load("vendor/crush-monitor/shared/labels.ts").EMOTIONS,intents=load("vendor/crush-monitor/shared/intents.ts").INTENTS;
 const env={JEV_API_KEY:"fake-test-key"};
@@ -2553,9 +2554,11 @@ await test("social-profile compares optional basics locally without sending them
   assert.equal(selfResult.fitSummary,"");
   assert.deepEqual(selfResult.commonPoints,[]);
   const disabled=await (await post(false)).json();
-  assert.deepEqual(disabled.fit,[]);
+  assert.equal(disabled.fit.length,6,"visible profile dimensions remain available without a personal comparison");
+  assert.ok(disabled.fit.every(item=>item.score===null),"disabled comparison must not generate a two-person fit score");
+  assert.ok(disabled.fit.every(item=>!/29 岁|杭州|28–33 岁/.test(item.selfNeed||"")),"disabled comparison must not include private self basics");
   assert.equal(disabled.fitScore,null);
-  assert.equal(disabled.fitSummary,"");
+  assert.doesNotMatch(disabled.fitSummary,/29 岁|杭州|28–33 岁/);
   for(const scenario of [{kind:"profile",readable:false},{kind:"chat",readable:true}]) {
     const invalidRoute=load("app/api/miniapp/social-profile/route.ts",{
       "@/db":{getD1:()=>db},

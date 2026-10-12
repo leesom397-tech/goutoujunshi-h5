@@ -14,9 +14,9 @@ type ChartRow = { label: string; value: number; display: string; icon: LucideIco
 type ExampleProps = { mode: ExampleMode; onUpload: () => void };
 
 const descriptions: Record<ExampleMode, { label: string; title: string; benefits: string[] }> = {
-  chat: { label: "聊天", title: "他主动约下一次，是礼貌还是靠近？", benefits: ["语气与意图", "互动信号", "回复备选"] },
-  moments: { label: "朋友圈", title: "一组动态，怎样找到相处的切入点？", benefits: ["内容分布", "动态里的线索", "自然开场"] },
-  social: { label: "社交主页", title: "一张主页，能看出哪些可聊线索？", benefits: ["可见资料", "事实与推测", "可聊话题"] },
+  chat: { label: "聊天", title: "他主动约下一次，是礼貌还是靠近？", benefits: ["语气与意图", "互动信号", "风险与预期", "回复备选"] },
+  moments: { label: "朋友圈", title: "一组动态，怎样找到相处的切入点？", benefits: ["内容分布", "动态里的线索", "风险与预期", "自然开场"] },
+  social: { label: "社交主页", title: "一张主页，能看出哪些可聊线索？", benefits: ["可见资料", "事实与推测", "风险与预期", "可聊话题"] },
 };
 const signalIcons: LucideIcon[] = [ArrowUpRight, MessagesSquare, HeartHandshake, UserRound, Heart, CalendarCheck];
 

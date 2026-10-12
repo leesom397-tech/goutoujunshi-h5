@@ -1,3 +1,4 @@
+import {relationshipRiskReview} from "@/lib/relationship-risk";
 type Row = Record<string, any>;
 
 export const profileLabels: Record<string, string> = { ageRange: "年龄", city: "常住地", education: "学历", occupation: "职业", relationshipStatus: "婚恋状态", childrenPlan: "婚育想法", lifestyle: "生活方式", stage: "关系阶段", howMet: "认识方式", values: "价值观", boundaries: "边界" };
@@ -88,15 +89,19 @@ export function historicalTrend(points: Row[] = [], subjectId: string, reportId:
 export function mergeChatReports(reports: Row[]): Row | null {
   const last = reports.at(-1);
   if (!last) return null;
-  return { ...last, lines: reports.flatMap((report, index) => (report.lines || []).map((line: Row, position: number) => ({ ...line, sourceLineId: line.id, id: `${index + 1}:${line.id || position}`, screenshotNumber: index + 1 }))),
+  const merged:Row = { ...last, lines: reports.flatMap((report, index) => (report.lines || []).map((line: Row, position: number) => ({ ...line, sourceLineId: line.id, id: `${index + 1}:${line.id || position}`, screenshotNumber: index + 1 }))),
     annotations: reports.flatMap((report, index) => (report.annotations || []).map((row: Row) => ({ ...row, lineId: `${index + 1}:${row.lineId}` }))),
     decision: { ...last.decision, photoClues: reports.flatMap((report, index) => (report.decision?.photoClues || []).map((clue: Row) => ({ ...clue, location: `图 ${index + 1} · ${clue.location || "照片"}` }))), mediaBubbles: reports.flatMap((report, index) => (report.decision?.mediaBubbles || []).map((bubble: Row) => ({ ...bubble, lineId: `${index + 1}:${bubble.lineId}`, screenshotNumber: index + 1 }))) } };
+  merged.riskReview=relationshipRiskReview({...merged,riskReview:{signals:reports.flatMap(report=>relationshipRiskReview(report).signals)}});
+  return merged;
 }
 
 export function socialPrevious(report: Row) {
   const short = (value: unknown, max: number) => typeof value === "string" ? value.slice(0, max) : "";
   const rows = (items: Row[] | undefined, count: number, lengths: Record<string, number>) => (items || []).slice(0, count).map(item => Object.fromEntries(Object.entries(lengths).map(([key, max]) => [key, short(item[key], max)])));
-  return { summary: short(report.summary, 180), visibleFacts: rows(report.visibleFacts, 8, { title: 32, evidence: 120, meaning: 100 }), positives: rows(report.positives, 3, { title: 32, evidence: 120, meaning: 100 }), cautions: rows(report.cautions, 3, { title: 32, evidence: 120, meaning: 100 }),
+  const riskReview=relationshipRiskReview(report);
+  const retainedFacts=[...riskReview.signals.map(signal=>({title:"先前材料中的原话",evidence:signal.evidence,meaning:"先前分析引用的原话，结合本批内容复核。"})),...(report.visibleFacts||[])];
+  return { riskReview, summary: short(report.summary, 180), visibleFacts: rows(retainedFacts, 8, { title: 32, evidence: 240, meaning: 100 }), positives: rows(report.positives, 3, { title: 32, evidence: 120, meaning: 100 }), cautions: rows(report.cautions, 3, { title: 32, evidence: 120, meaning: 100 }),
     hypotheses: rows(report.hypotheses, 2, { title: 40, evidence: 120, possibility: 140, alternative: 100, verify: 100 }), riskSignals: rows(report.riskSignals, 2, { category: 32, evidence: 120, check: 100, level: 2 }), fit: rows(report.fit, 2, { dimension: 24, selfNeed: 90, evidence: 120, reading: 100, conclusion: 90, status: 3 }), profileBasics: rows(report.profileBasics, 7, { field: 20, value: 70, evidence: 100 }), unknowns: (report.unknowns || []).slice(0, 5).map((item: string) => short(item, 70)), questions: (report.questions || []).slice(0, 3).map((item: string) => short(item, 90)) };
 }
 

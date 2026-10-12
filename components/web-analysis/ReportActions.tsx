@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Copy, Download, Check, FileText } from "lucide-react";
 import type { Json } from "./client";
+import { relationshipRiskReview } from "@/lib/relationship-risk";
 import "./report-actions.css";
 
 function summaryText(report: Json, kind: "chat" | "social", publicExample = false) {
@@ -17,6 +18,15 @@ function summaryText(report: Json, kind: "chat" | "social", publicExample = fals
   }
   if (data.nextStep) lines.push("建议下一步", data.nextStep, "");
   if (data.approach) { lines.push("相处建议"); for (const [key, label] of [["attitude", "态度"], ["emotion", "情绪承接"], ["pace", "节奏"], ["adjustWhen", "何时调整"]]) if (data.approach[key]) lines.push(label + "：" + data.approach[key]); lines.push(""); }
+  if (!report.targetSelf && report.target !== "self") {
+    const review = relationshipRiskReview(report);
+    lines.push("风险与关系预期", review.summary, "");
+    for (const signal of review.signals) {
+      const category = signal.kind === "safety" ? "安全与边界" : signal.kind === "expectation" ? "关系预期" : "互动模式";
+      lines.push(`${category} · ${signal.title}`, "依据：" + signal.evidence, "可能影响：" + signal.reading,
+        ...(signal.alternative ? ["另一种解释：" + signal.alternative] : []), "建议：" + signal.action, "");
+    }
+  }
   lines.push("这些是基于当前材料的分析与待验证推测，不代表对方的确定想法。请结合原话、边界和后续实际反馈判断。");
   return lines.filter(value => typeof value === "string").join("\n");
 }
