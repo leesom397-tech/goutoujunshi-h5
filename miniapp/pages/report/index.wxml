@@ -99,6 +99,6 @@
       </block>
     </view>
     <button class="back-top" data-section="judgment" bindtap="jumpReport">回到本轮判断</button>
-    <view class="foot">报告保留 7 天，过期后需重新分析。</view>
+    <view class="foot">完整报告及其中的聊天原话长期保存，由你决定何时删除。</view>
   </block>
 </view>

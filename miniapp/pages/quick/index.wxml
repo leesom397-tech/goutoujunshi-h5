@@ -69,10 +69,10 @@
         </view>
         <view class="upload-section">
           <view class="step">03 · 确认后开始</view>
-          <text class="privacy-summary">截图交由阿里云百炼识别，聊天文字与报告保留 7 天。</text>
+          <text class="privacy-summary">截图交由阿里云百炼识别；完整报告长期保存，由你决定何时删除。</text>
           <button class="disclosure-button" bindtap="togglePrivacyDetails" aria-expanded="{{showPrivacyDetails}}"><text>{{showPrivacyDetails ? '收起处理与保存说明' : '查看处理与保存说明'}}</text><view class="disclosure-chevron {{showPrivacyDetails ? 'expanded' : ''}}"/></button>
           <view wx:if="{{showPrivacyDetails}}" class="privacy-details">
-            <text>截图会逐张交由阿里云百炼识别。聊天文字与报告保留 7 天；选定人物后保存互动摘要，用于长期趋势。</text>
+            <text>截图会逐张交由阿里云百炼识别。完整报告及其中的聊天原话保存至你主动删除；用于接续分析的临时聊天记录保留 7 天。选定人物后另存互动摘要，用于长期趋势。</text>
             <text>为断点续传，本机会保存临时图片副本；取回结果或取消上传时清理，清理失败会在下次进入时重试。未完成上传的本机副本在任务过期后再次处理时清理；服务端副本仅临时处理。</text>
           </view>
           <checkbox-group bindchange="agree"><label class="consent"><checkbox value="yes" checked="{{agreed}}" color="#965a42"/><text>我有权提供这 {{imageCount}} 张本人单聊截图，已核对顺序及本人气泡侧，同意上述处理与保存范围。</text></label></checkbox-group>
