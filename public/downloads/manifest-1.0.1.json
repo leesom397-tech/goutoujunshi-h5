@@ -1,0 +1,28 @@
+{
+  "version": "1.0.1",
+  "bytes": 39064172,
+  "sha256": "35bcf07c35a2294d6584a3fa42fa9a4f25b57c2cbce7a2f7074ae878a2fd3e6d",
+  "exeSha256": "d8ea5fbe3d8859fd50d210af8854d2867c9e0774be447bb434b0db11d7ff9136",
+  "parts": [
+    {
+      "name": "chengzi-wechat-collector-1.0.1.part01.bin",
+      "bytes": 12582912,
+      "sha256": "dd370e4b495519f4c5df301bff455ae39f057b11a68975fee36c835fe00b5d75"
+    },
+    {
+      "name": "chengzi-wechat-collector-1.0.1.part02.bin",
+      "bytes": 12582912,
+      "sha256": "fe0aead8bc73240d8068cbd6d1640ae953ff1fbe440668a781458790da3feea6"
+    },
+    {
+      "name": "chengzi-wechat-collector-1.0.1.part03.bin",
+      "bytes": 12582912,
+      "sha256": "6458522dbf008b071e29780f75fb7277e7ded694f3a7c9120cb9f3c993fe30d3"
+    },
+    {
+      "name": "chengzi-wechat-collector-1.0.1.part04.bin",
+      "bytes": 1315436,
+      "sha256": "36a14dbdc7b28a34b54761c83a8a1e1798ac33b2a03f4967b9da129e42776052"
+    }
+  ]
+}

@@ -1,17 +1,22 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight, Check, CheckCheck, Download, FileText, HardDrive, History, Images, Link2, LoaderCircle, MessageSquare, Monitor, Plug, Search, ShieldCheck, Square, Trash2, UploadCloud, X } from "lucide-react";
+import { ArrowRight, Check, CheckCheck, Download, FileText, HardDrive, History, Images, Link2, LoaderCircle, MessageSquare, Monitor, Plug, Search, ShieldCheck, Square, Trash2, UploadCloud, FileVideo, X } from "lucide-react";
 import { WebNav } from "@/components/WebNav";
 import { AuroraPageHero } from "@/components/AuroraPageHero";
 import { ScreenCapture, type CapturedFrame } from "@/components/ScreenCapture";
+import { VideoImport, type ImportedVideoFrame, type VideoImportContext } from "@/components/VideoImport";
 import { api, message, useAccount, AccountNotice, PersonSelect, hasPrice, priceLabel, WebError, type Json } from "@/components/web-analysis/client";
 import { bridgeRequest, type BridgeHealth } from "@/lib/desktop-bridge-client";
 import { saveCaptureBatch, listCaptureLibraries, getCaptureLibrary, pendingCaptureRecords, linkReportSources, removeCaptureLibrary, type CaptureLibrary, type CaptureLibrarySummary } from "@/lib/desktop-capture-vault";
-import { type CaptureKind, type CaptureBatch, type StoredCaptureRecord } from "@/lib/desktop-capture";
+import { captureLibraryId, type CaptureKind, type CaptureBatch, type StoredCaptureRecord } from "@/lib/desktop-capture";
+import { matchImportedVideoFrames } from "@/lib/video-import";
 import { CAPTURE_ANALYSIS_LIMIT, captureAnalysisInput, captureReadableText } from "@/lib/capture-analysis-input";
 import ui from "@/components/AuroraUI.module.css";
 import styles from "./capture.module.css";
 import "@/components/web-analysis/web-analysis.css";
+
+const visualSource = (row: StoredCaptureRecord) => ["screen-capture", "video-import"].includes(String(row.source.method));
+const videoTime = (seconds: number) => `${Math.floor(seconds / 60).toString().padStart(2,"0")}:${Math.floor(seconds % 60).toString().padStart(2,"0")}`;
 
 type Job = { status: string; progress?: number; message?: string; result?: CaptureBatch; error?: string | {message?:string} };
 type Receipt = { requestId: string; libraryId: string; sourceIds: string[]; subjectId: string; kind: CaptureKind };
@@ -22,13 +27,21 @@ const remember = (key: string, value: unknown) => { if (value === null) sessionS
 export default function CapturePage() {
   const account = useAccount(), owner: string = account.account?.account?.userId || "";
   const generation = useRef(0), abort = useRef<AbortController | null>(null), token = useRef(""), recordList = useRef<HTMLDivElement | null>(null), openingLibrary = useRef(0);
-  const [method, setMethod] = useState<"desktop" | "window">("desktop"), [kind, setKind] = useState<CaptureKind>("chat"), [friend, setFriend] = useState(""), [wechatAccount, setWechatAccount] = useState(""), [code, setCode] = useState(""), [limit, setLimit] = useState(40), [health, setHealth] = useState<BridgeHealth | null>(null), [connected, setConnected] = useState(false);
+  const [method, setMethod] = useState<"desktop" | "window" | "video">("desktop"), [kind, setKind] = useState<CaptureKind>("chat"), [friend, setFriend] = useState(""), [wechatAccount, setWechatAccount] = useState(""), [code, setCode] = useState(""), [limit, setLimit] = useState(40), [health, setHealth] = useState<BridgeHealth | null>(null), [connected, setConnected] = useState(false);
   const [busy, setBusy] = useState(false), [analyzing, setAnalyzing] = useState(false), [error, setError] = useState(""), [note, setNote] = useState(""), [jobId, setJobId] = useState(""), [progress, setProgress] = useState(0);
   const [library, setLibrary] = useState<CaptureLibrary | null>(null), [libraries, setLibraries] = useState<CaptureLibrarySummary[]>([]), [stats, setStats] = useState<{added:number;repeated:number;total:number}|null>(null), [query, setQuery] = useState(""), [selected, setSelected] = useState<string[]>([]), [subject, setSubject] = useState(""), [consent, setConsent] = useState(false), [receipt, setReceipt] = useState<Receipt | null>(null), [reportId, setReportId] = useState(""), [image, setImage] = useState<string | null>(null);
   const locked = busy || analyzing;
   const [recordPage, setRecordPage] = useState(0);
   const scopeKey = (name: string) => `chengzi-capture:${owner}:${name}`;
-  useEffect(() => { const params = new URLSearchParams(window.location.search); if (params.get("kind") === "moments") { setKind("moments"); setLimit(10); } if (/Mac/i.test(navigator.platform)) setMethod("window"); }, []);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("kind") === "moments") { setKind("moments"); setLimit(10); }
+    const requested = params.get("method");
+    if (requested === "computer") setMethod(/Mac/i.test(navigator.platform) && navigator.maxTouchPoints < 2 ? "window" : "desktop");
+    else if (requested === "video" || requested === "window" || requested === "desktop") setMethod(requested);
+    else if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent) || /Mac/i.test(navigator.platform) && navigator.maxTouchPoints > 1) setMethod("video");
+    else if (/Mac/i.test(navigator.platform)) setMethod("window");
+  }, []);
   useEffect(() => {
     const current = ++generation.current; abort.current?.abort(); token.current = "";
     setConnected(false); setLibrary(null); setLibraries([]); setSelected([]); setStats(null); setReceipt(null); setConsent(false); setFriend(""); setWechatAccount(""); setSubject(""); setQuery(""); setRecordPage(0); setReportId(""); setImage(null); setBusy(false); setAnalyzing(false); setJobId(""); setNote(""); setError("");
@@ -43,14 +56,17 @@ export default function CapturePage() {
   }, [owner]);
   useEffect(() => { recordList.current?.scrollTo({ top: 0 }); }, [recordPage, query, library?.id]);
   const pending = library ? pendingCaptureRecords(library) : [];
-  const chosen = library?.records.filter(r => selected.includes(r.localId)) || [];
-  const isWindow = chosen.length > 0 && chosen.every(r => r.source.method === "screen-capture");
+  const selectedRows = library?.records.filter(r => selected.includes(r.localId)) || [];
+  const chosen = selectedRows.length && selectedRows.every(visualSource)
+    ? selected.map(id => selectedRows.find(row => row.localId === id)).filter((row): row is StoredCaptureRecord => !!row)
+    : selectedRows;
+  const isWindow = chosen.length > 0 && chosen.every(visualSource);
   const costKey = (library?.kind || kind) === "moments" ? "profile" : "analysisSmall";
   async function refreshLibraries(scope = owner, ticket = generation.current) { const items = await listCaptureLibraries(scope); if (ticket === generation.current) setLibraries(items); }
   function selectionIssue(value: CaptureLibrary, rows: StoredCaptureRecord[]) {
-    const windowFrames = rows.length > 0 && rows.every(row => row.source.method === "screen-capture"), max = windowFrames ? 9 : CAPTURE_ANALYSIS_LIMIT[value.kind];
-    if (rows.length > max) return `每批最多选择 ${max} ${windowFrames ? "张窗口截图" : value.kind === "chat" ? "条聊天" : "条动态"}，请先分析这一批，再处理其余原文。`;
-    if (windowFrames) return rows.reduce((count, row) => count + (row.images?.length || 0), 0) > 9 ? "每批最多选择 9 张窗口截图。" : "";
+    const windowFrames = rows.length > 0 && rows.every(visualSource), max = windowFrames ? 9 : CAPTURE_ANALYSIS_LIMIT[value.kind];
+    if (rows.length > max) return `每批最多选择 ${max} ${windowFrames ? "张采集画面" : value.kind === "chat" ? "条聊天" : "条动态"}，请先分析这一批，再处理其余原文。`;
+    if (windowFrames) return rows.reduce((count, row) => count + (row.images?.length || 0), 0) > 9 ? "每批最多选择 9 张采集画面。" : "";
     const chars = rows.reduce((count, row) => count + row.text.length, 0);
     if (chars > (value.kind === "chat" ? 10000 : 22000)) return "所选文字较长，请先分析这一批，再继续选择其余内容。";
     if (rows.some(row => row.text.length > 6000 || value.kind === "chat" && captureReadableText(row).length > 1780)) return "这条原文太长，暂不能整条加入本批，请使用文字导入或截图分析。";
@@ -67,18 +83,18 @@ export default function CapturePage() {
     setSelected(next); setConsent(false); setError("");
   }
   function mediaNotice(record: StoredCaptureRecord) {
-    if (record.source.method === "screen-capture") return "";
+    if (visualSource(record)) return "";
     if (record.kind === "sticker" && !record.ocrTextVerified) return "这是表情包占位，未读取图中文字，不作为对方原话分析。";
     if (record.kind === "image") return record.images?.length ? "图片已保留。本次聊天文字分析不读取图片内容，可使用截图分析。" : "仅识别到图片占位，尚未读取图片内容。";
     if (record.kind === "other") return "这是媒体或系统提示，尚未读取为可分析的聊天正文。";
     return "";
   }
   function selectPending(value: CaptureLibrary) {
-    const pendingRows = pendingCaptureRecords(value), max = pendingRows.every(r => r.source.method === "screen-capture") ? 9 : CAPTURE_ANALYSIS_LIMIT[value.kind];
+    const pendingRows = pendingCaptureRecords(value), max = pendingRows.every(visualSource) ? 9 : CAPTURE_ANALYSIS_LIMIT[value.kind];
     const ids: string[] = [], rows: StoredCaptureRecord[] = [];
     for (const row of pendingRows) {
       if (ids.length >= max) break;
-      if (value.kind === "chat" && row.source.method !== "screen-capture" && !captureReadableText(row).trim()) continue;
+      if (value.kind === "chat" && !visualSource(row) && !captureReadableText(row).trim()) continue;
       if (selectionIssue(value, [...rows, row])) continue;
       ids.push(row.localId); rows.push(row);
     }
@@ -93,6 +109,7 @@ export default function CapturePage() {
     await refreshLibraries(scope, ticket);
     if (ticket !== generation.current) return;
     setNote(result.added ? "采集完成。先核对原文与身份，再分析选中的内容。" : "没有新增材料。未完成分析的原文仍可继续处理。");
+    return result;
   }
   async function connect() {
     if (!owner) return;
@@ -156,10 +173,39 @@ export default function CapturePage() {
     try { await accept({ version: 1, kind, friend: friend.trim(), account: `window:${wechatAccount.trim()}`, capturedAt: new Date().toISOString(), warnings: ["这是你授权共享的窗口画面。时间与说话人需要在截图分析中识别、核对；图片重复判断不代表消息已全部去重。"], records: frames.map((frame, i) => ({ id: `screen:${frame.id}`, kind: "image", sender: "", senderRole: "unknown", at: "", text: "", source: { label: `窗口采集 · 第 ${i + 1} 张`, method: "screen-capture", capturedAt: frame.at }, images: [{ mime: "image/jpeg", data: frame.data, name: `微信窗口-${i + 1}.jpg` }] })) }, scope, ticket); }
     finally { if (ticket === generation.current) setBusy(false); }
   }
+  async function videoReady(frames: ImportedVideoFrame[], context: VideoImportContext) {
+    if (!owner) throw Error("请先登录，再保存录屏材料。");
+    const scope = owner, ticket = generation.current; setBusy(true);
+    const controller = new AbortController(); abort.current?.abort(); abort.current = controller;
+    try {
+      const previous = await getCaptureLibrary(scope, captureLibraryId({ ownerId: scope, kind, friend: context.fileName.slice(0, 100), account: `recording:${context.videoId}` }));
+      if (ticket !== generation.current) return;
+      frames = await matchImportedVideoFrames(frames, previous?.records || [], { videoId: context.videoId, signal: controller.signal });
+      if (ticket !== generation.current) return;
+      const result = await accept({ version: 1, kind, friend: context.fileName.slice(0, 100), account: `recording:${context.videoId}`, capturedAt: new Date().toISOString(),
+        warnings: ["本次只保留你选中的录屏画面，原视频没有上传。分析顺序以你确认的顺序为准；视频时间不是消息发送时间。重复画面已核对，仍可能有重叠消息；语音和视频声音未转写。"],
+        records: frames.map(frame => ({ id: `video:${context.videoId}:${frame.id}`, kind: "image", sender: "", senderRole: "unknown", at: "", text: "",
+          source: { label: `录屏 ${videoTime(frame.videoTime)} · ${context.fileName.slice(0, 150)}`, method: "video-import", videoTime: frame.videoTime, fileName: context.fileName.slice(0, 150), duration: context.duration, segmentStart: context.start, segmentEnd: context.end },
+          images: [{ mime: "image/jpeg", data: frame.data, name: `录屏-${videoTime(frame.videoTime).replace(":", "分")}-${frame.id.slice(0, 10)}.jpg` }] }))
+      }, scope, ticket);
+      if (ticket === generation.current && result) {
+        const rows = pendingCaptureRecords(result.library);
+        const sourceIds = frames.map(frame => rows.find(row => row.id === `video:${context.videoId}:${frame.id}`)?.localId).filter((id): id is string => !!id);
+        setSelected(sourceIds);
+        if (sourceIds.length) {
+          remember(`chengzi-capture:${scope}:handoff`, { libraryId: result.library.id, sourceIds });
+          window.location.assign(`/analyze?mode=${kind}&capture=1`);
+        } else {
+          setNote("本次选中的画面都已分析过，可在下方打开已有报告；补充新内容请改选其他时间段。");
+          requestAnimationFrame(() => { if (ticket === generation.current) document.getElementById("capture-preview")?.scrollIntoView({ block: "start", behavior: "smooth" }); });
+        }
+      }
+    } finally { if (ticket === generation.current) setBusy(false); }
+  }
   async function analyze() {
     if (!owner || !library || !chosen.length || locked) return;
     if (isWindow) {
-      if (chosen.length > 9) { setError("每次最多分析 9 张窗口截图，请减少勾选。"); return; }
+      if (chosen.length > 9) { setError("每次最多分析 9 张采集画面，请减少勾选。"); return; }
       remember(scopeKey("handoff"), { libraryId: library.id, sourceIds: chosen.map(r => r.localId) });
       window.location.assign(`/analyze?mode=${library.kind}&capture=1`); return;
     }
@@ -195,18 +241,19 @@ export default function CapturePage() {
   const visible = (library?.records || []).filter(r => !query || [r.text, r.sender, r.at, r.source.label].join(" ").includes(query));
   const pageCount = Math.max(1, Math.ceil(visible.length / 50)), currentPage = Math.min(recordPage, pageCount - 1);
   const display = visible.slice(currentPage * 50, (currentPage + 1) * 50);
+  const kindPicker = <div className={styles.kinds} aria-label="采集内容">{([{key:"chat",label:"聊天记录",Icon:MessageSquare},{key:"moments",label:"朋友圈",Icon:Images}] as const).map(({key,label,Icon}) => <button disabled={locked || !!receipt} aria-pressed={kind === key} key={key} onClick={() => { if(key === kind)return; setKind(key); setLimit(key === "chat" ? 40 : 10); setLibrary(null); setSelected([]); setStats(null); setReportId(""); setConsent(false); setSubject(""); setNote(""); setError(""); }}><Icon size={18}/>{label}</button>)}</div>;
   return <div className={ui.page}><WebNav/><main className={`${ui.wrap} ${styles.page}`}>
-    <AuroraPageHero eyebrow="电脑微信 · 材料采集" title="把聊天带进来，少截几张图。" description="选定好友，采集聊天或朋友圈。原文先在本机预览，重复内容自动核对。"><a className={ui.secondary} href="/reports"><History size={17}/>历史报告</a><a className={ui.secondary} href="/analyze"><UploadCloud size={17}/>手动上传截图</a></AuroraPageHero>
-    <ol className={styles.steps} aria-label="采集步骤">{["连接电脑微信", "采集并核对原文", "分析选中的内容"].map((text, i) => <li key={text} data-active={(reportId || analyzing || receipt ? 2 : library ? 1 : 0) === i}><span>{reportId || (i === 0 && (connected || library)) ? <Check size={18}/> : `0${i + 1}`}</span><strong>{text}</strong></li>)}</ol>
+    <AuroraPageHero eyebrow={method === "video" ? "手机录屏 · 材料导入" : "电脑微信 · 材料采集"} title={method === "video" ? "录一段，少截很多张。" : "把聊天带进来，少截几张图。"} description={method === "video" ? "在微信里慢慢滑动并录屏，自动挑出清晰画面。先预览，再确认分析。" : "选定好友，采集聊天或朋友圈。原文先在本机预览，重复内容自动核对。"}>{method === "video" && <a className={ui.primary} href="#recording-upload"><FileVideo size={18}/>选择手机录屏</a>}<a className={ui.secondary} href="/reports"><History size={17}/>历史报告</a><a className={ui.secondary} href="/analyze"><UploadCloud size={17}/>手动上传截图</a></AuroraPageHero>
+    <ol className={styles.steps} aria-label="采集步骤">{(method === "video" ? ["选择录屏", "提取并核对画面", "确认后分析"] : ["连接电脑微信", "采集并核对原文", "分析选中的内容"]).map((text, i) => <li key={text} data-active={(reportId || analyzing || receipt ? 2 : library ? 1 : 0) === i}><span>{reportId || (i === 0 && (connected || library)) ? <Check size={18}/> : `0${i + 1}`}</span><strong>{text}</strong></li>)}</ol>
     <AccountNotice state={account}/>
     {receipt && <p className={styles.warning}>有一份分析尚待取回。请继续本次分析，完成后再切换材料；原请求会保留，避免重复处理。</p>}
-    <div className={styles.layout}>
+    <div className={`${styles.layout} ${method === "video" ? styles.videoLayout : ""}`}>
       <aside className={styles.controls}>
-        <section className={styles.panel}><h2><Monitor size={22}/>选择采集方式</h2><div className={styles.methods}><button disabled={locked || !!receipt} aria-pressed={method === "desktop"} onClick={() => setMethod("desktop")}><Plug size={20}/><span>自动读取<small>Windows · 需启动助手</small></span></button><button disabled={locked || !!receipt} aria-pressed={method === "window"} onClick={() => setMethod("window")}><Monitor size={20}/><span>窗口采集<small>Mac / Windows</small></span></button></div>
+        <section className={styles.panel}><h2><Monitor size={22}/>选择采集方式</h2><div className={styles.methods}><button disabled={locked || !!receipt} aria-pressed={method === "desktop"} onClick={() => setMethod("desktop")}><Plug size={20}/><span>自动读取<small>Windows · 需启动助手</small></span></button><button disabled={locked || !!receipt} aria-pressed={method === "window"} onClick={() => setMethod("window")}><Monitor size={20}/><span>窗口采集<small>Mac / Windows</small></span></button><button disabled={locked || !!receipt} aria-pressed={method === "video"} onClick={() => setMethod("video")}><FileVideo size={20}/><span>手机录屏<small>苹果 / 安卓 · 视频导入</small></span></button></div>
           {method === "desktop" && <div className={styles.connect}><p>首次使用：下载并解压助手，双击启动，填入助手显示的连接码。</p><a className={ui.secondary} href="/downloads/chengzi-wechat-collector-windows.zip" download><Download size={18}/>下载 Windows 采集助手</a><small>Windows 10 / 11 · 微信 4.1 系列 · 无需安装 Python</small>{connected ? <div className={styles.connected}><CheckCheck size={19}/><strong>已连接本机助手</strong><button disabled={locked} onClick={() => { token.current = ""; setConnected(false); remember(scopeKey("connection"), null); }}>断开</button></div> : <div className={styles.pair}><label htmlFor="capture-code">助手连接码</label><div><input id="capture-code" inputMode="text" autoCapitalize="characters" autoComplete="off" maxLength={8} value={code} onChange={e => setCode(e.target.value)} placeholder="输入连接码" disabled={locked}/><button className={ui.primary} disabled={!owner || locked || code.trim().length < 4} onClick={() => void connect()}>{busy ? <LoaderCircle size={17}/> : <Link2 size={17}/>}连接</button></div></div>}{health?.message && !health.ready && <p>{health.message}</p>}</div>}
-          <div className={styles.kinds} aria-label="采集内容">{([{key:"chat",label:"聊天记录",Icon:MessageSquare},{key:"moments",label:"朋友圈",Icon:Images}] as const).map(({key,label,Icon}) => <button disabled={locked || !!receipt} aria-pressed={kind === key} key={key} onClick={() => { setKind(key); setLimit(key === "chat" ? 40 : 10); }}><Icon size={18}/>{label}</button>)}</div>
-          <label className={styles.field}>微信好友<input value={friend} disabled={locked} maxLength={100} onChange={e => setFriend(e.target.value)} placeholder="填写准确的好友备注或昵称"/></label>
-          {method === "desktop" ? <><label className={styles.field}>这次读取<select value={limit} disabled={locked} onChange={e => setLimit(Number(e.target.value))}>{(kind === "chat" ? [20,40,80,120] : [5,10,20]).map(n => <option key={n} value={n}>最近 {n} 条{kind === "chat" ? "消息" : "动态"}</option>)}</select></label><button className={`${ui.primary} ${styles.full}`} disabled={!owner || !connected || locked || !!receipt || !friend.trim() || !!jobId} onClick={() => void capture()}><Download size={18}/>开始采集{kind === "chat" ? "聊天" : "朋友圈"}</button>{jobId && <div className={styles.job}><p role="status">{busy ? note : "有一项采集任务可继续查看"}</p><progress max={100} value={progress} aria-label="采集进度"/>{!busy && <button className={ui.secondary} onClick={() => void capture(true)} disabled={!connected}>继续查看</button>}<button className={ui.secondary} onClick={() => void cancel()}><Square size={15}/>停止采集</button></div>}</> : <label className={styles.field}>当前微信号<input value={wechatAccount} disabled={locked} maxLength={100} onChange={e => setWechatAccount(e.target.value)} placeholder="用于区分你使用的不同微信账号"/><small>仅在这台浏览器中区分材料，不是登录密码。</small></label>}
+          {method !== "video" && kindPicker}
+          {method !== "video" && <label className={styles.field}>微信好友<input value={friend} disabled={locked} maxLength={100} onChange={e => setFriend(e.target.value)} placeholder="填写准确的好友备注或昵称"/></label>}
+          {method === "desktop" ? <><label className={styles.field}>这次读取<select value={limit} disabled={locked} onChange={e => setLimit(Number(e.target.value))}>{(kind === "chat" ? [20,40,80,120] : [5,10,20]).map(n => <option key={n} value={n}>最近 {n} 条{kind === "chat" ? "消息" : "动态"}</option>)}</select></label><button className={`${ui.primary} ${styles.full}`} disabled={!owner || !connected || locked || !!receipt || !friend.trim() || !!jobId} onClick={() => void capture()}><Download size={18}/>开始采集{kind === "chat" ? "聊天" : "朋友圈"}</button>{jobId && <div className={styles.job}><p role="status">{busy ? note : "有一项采集任务可继续查看"}</p><progress max={100} value={progress} aria-label="采集进度"/>{!busy && <button className={ui.secondary} onClick={() => void capture(true)} disabled={!connected}>继续查看</button>}<button className={ui.secondary} onClick={() => void cancel()}><Square size={15}/>停止采集</button></div>}</> : method === "window" ? <label className={styles.field}>当前微信号<input value={wechatAccount} disabled={locked} maxLength={100} onChange={e => setWechatAccount(e.target.value)} placeholder="用于区分你使用的不同微信账号"/><small>仅在这台浏览器中区分材料，不是登录密码。</small></label> : <p className={styles.muted}>选择一位好友的聊天或朋友圈录屏。每次提取一段，核对清晰画面后再继续。</p>}
         </section>
         {libraries.length > 0 && <section className={styles.panel}><h2><HardDrive size={21}/>本机原文</h2><p className={styles.muted}>同一浏览器继续使用，已分析条目自动跳过。</p><div className={styles.libraries}>{libraries.map(item => <button key={item.id} disabled={locked || !!receipt} aria-pressed={library?.id === item.id} onClick={() => void openLibrary(item.id)}>{item.kind === "chat" ? <MessageSquare size={19}/> : <Images size={19}/>}<span><strong>{item.friend}</strong><small>{item.kind === "chat" ? "聊天" : "朋友圈"} · {item.total} 条 · 待分析 {item.pending} 条</small></span><ArrowRight size={17}/></button>)}</div></section>}
       </aside>
@@ -214,11 +261,12 @@ export default function CapturePage() {
         {error && <p className={styles.error} role="alert">{error}</p>}
         {note && !busy && <p className={styles.status} role="status"><CheckCheck size={18}/>{note}</p>}
         {method === "window" && <ScreenCapture sessionKey={JSON.stringify([owner, kind, friend.trim(), wechatAccount.trim()])} disabled={!owner || locked || !!receipt || !friend.trim() || !wechatAccount.trim()} onReady={framesReady}/>}
-        {library ? <section className={styles.preview}><div className={styles.previewHead}><div><span className={styles.eyebrow}>原文预览 · 仅在本机保存</span><h2>{library.friend}<small>{library.kind === "chat" ? "聊天记录" : "朋友圈"}</small></h2></div><button className={styles.delete} disabled={locked || !!receipt} onClick={() => void removeLibrary()} aria-label="删除本机原文"><Trash2 size={18}/></button></div>
+        {method === "video" && <div id="recording-upload" className={styles.recordingUpload}>{kindPicker}<VideoImport sessionKey={JSON.stringify([owner, kind])} disabled={!owner || locked || !!receipt} onReady={videoReady}/></div>}
+        {library ? <section id="capture-preview" className={styles.preview}><div className={styles.previewHead}><div><span className={styles.eyebrow}>原文预览 · 仅在本机保存</span><h2>{library.friend}<small>{library.kind === "chat" ? "聊天记录" : "朋友圈"}</small></h2></div><button className={styles.delete} disabled={locked || !!receipt} onClick={() => void removeLibrary()} aria-label="删除本机原文"><Trash2 size={18}/></button></div>
           <div className={styles.stats}><div><strong>{stats?.added ?? pending.length}</strong><span>{stats ? "本次新增" : "尚未分析"}</span></div><div><strong>{stats?.repeated ?? library.records.length - pending.length}</strong><span>{stats ? "重复跳过" : "已分析"}</span></div><div><strong>{library.records.length}</strong><span>本机共保存</span></div></div>
           {library.warnings.length > 0 && <p className={styles.warning}>{library.warnings.join(" ")}</p>}
           <div className={styles.previewTools}><label><Search size={18}/><input placeholder="搜索原文、时间或说话人" value={query} onChange={e => { setQuery(e.target.value); setRecordPage(0); }}/></label><button disabled={locked || !!receipt} onClick={() => selectPending(library)}>选择待分析</button></div>
-          <div ref={recordList} className={styles.records} aria-label="采集原文列表">{display.map(record => { const done = !pending.some(r => r.localId === record.localId), notice = mediaNotice(record); return <article key={record.localId} data-selected={selected.includes(record.localId)}><label className={styles.recordCheck}><input type="checkbox" checked={selected.includes(record.localId)} disabled={locked || done || !!receipt} onChange={e => toggleRecord(record,e.target.checked)}/><span><strong>{library.kind === "chat" ? record.senderRole === "self" ? "我" : record.senderRole === "other" ? library.friend : record.sender || "身份待核对" : `第 ${library.records.indexOf(record) + 1} 条动态`}</strong><small>{record.at || "原文未显示时间"}{done ? " · 已分析" : ""}</small></span></label>{record.text && <p>{record.text}</p>}{record.images?.length ? <div className={styles.recordImages}>{record.images.map((img,n) => <button key={n} onClick={() => setImage(`data:${img.mime};base64,${img.data}`)} aria-label={`查看${record.source.label}的图片${n+1}`}><img src={`data:${img.mime};base64,${img.data}`} alt={img.name}/></button>)}</div> : null}{notice && <p className={styles.mediaNotice}><Images size={16}/>{notice}</p>}<small className={styles.source}>{record.source.label}{record.kind === "sticker" ? " · 表情包" : ""}</small></article>; })}{!display.length && <p className={styles.muted}>没有找到匹配的原文，请换个关键词。</p>}</div>
+          <div ref={recordList} className={styles.records} aria-label="采集原文列表">{display.map(record => { const done = !pending.some(r => r.localId === record.localId), notice = mediaNotice(record); return <article key={record.localId} data-selected={selected.includes(record.localId)}><label className={styles.recordCheck}><input type="checkbox" checked={selected.includes(record.localId)} disabled={locked || done || !!receipt} onChange={e => toggleRecord(record,e.target.checked)}/><span><strong>{visualSource(record) ? `第 ${library.records.indexOf(record) + 1} 张采集画面` : library.kind === "chat" ? record.senderRole === "self" ? "我" : record.senderRole === "other" ? library.friend : record.sender || "身份待核对" : `第 ${library.records.indexOf(record) + 1} 条动态`}</strong><small>{record.source.method === "video-import" ? `录屏位置 ${videoTime(Number(record.source.videoTime) || 0)}` : record.at || "原文未显示时间"}{done ? " · 已分析" : ""}</small></span></label>{record.text && <p>{record.text}</p>}{record.images?.length ? <div className={styles.recordImages}>{record.images.map((img,n) => <button key={n} onClick={() => setImage(`data:${img.mime};base64,${img.data}`)} aria-label={`查看${record.source.label}的图片${n+1}`}><img src={`data:${img.mime};base64,${img.data}`} alt={img.name}/></button>)}</div> : null}{notice && <p className={styles.mediaNotice}><Images size={16}/>{notice}</p>}<small className={styles.source}>{record.source.label}{record.kind === "sticker" ? " · 表情包" : ""}</small></article>; })}{!display.length && <p className={styles.muted}>没有找到匹配的原文，请换个关键词。</p>}</div>
           <nav className={styles.pagination} aria-label="原文分页"><p className={styles.pageSummary}>{visible.length ? `${currentPage * 50 + 1}–${Math.min((currentPage + 1) * 50, visible.length)}` : "0"} / {visible.length} 条 · 已选 {selected.length} 条</p><div><button className={ui.secondary} disabled={currentPage === 0} onClick={() => setRecordPage(currentPage - 1)}>上一页</button><span>{currentPage + 1} / {pageCount}</span><button className={ui.secondary} disabled={currentPage >= pageCount - 1} onClick={() => setRecordPage(currentPage + 1)}>下一页</button></div></nav>
           <div className={styles.analysis}><div><h3><FileText size={21}/>分析选中的 {chosen.length} 条</h3><p>只处理你勾选的材料。{isWindow ? "下一步核对截图顺序和左右身份。" : `每批最多 ${CAPTURE_ANALYSIS_LIMIT[library.kind]} 条，较长内容可分批处理。`}</p></div>{!isWindow && <><PersonSelect people={account.people} value={subject} onChange={setSubject} disabled={locked || !!receipt}/><label className={styles.consent}><input type="checkbox" checked={consent} disabled={locked} onChange={e => setConsent(e.target.checked)}/><span>我已核对身份与材料，有权提供所选内容，并同意发送给阿里云百炼千问分析。</span></label></>}
           {reportId && <a className={styles.reportLink} href={`/report?id=${reportId}`}><CheckCheck size={20}/><span>完整报告已保存<strong>打开报告，回看原文依据</strong></span><ArrowRight size={20}/></a>}

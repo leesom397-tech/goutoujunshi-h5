@@ -1,7 +1,7 @@
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $manifest = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'manifest.json') -Raw | ConvertFrom-Json
-if ($manifest.version -ne '1.0.0') { throw 'Unsupported package version.' }
+if ($manifest.version -ne '1.0.1') { throw 'Unsupported package version.' }
 $base = [IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA 'Chengzi\WechatCollector'))
 $install = [IO.Path]::GetFullPath((Join-Path $base $manifest.version))
 if (-not $install.StartsWith($base + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Invalid installation path.' }
@@ -13,7 +13,7 @@ if (-not (Test-Path -LiteralPath $exe)) {
     $output = [IO.File]::Open($archive, [IO.FileMode]::Create, [IO.FileAccess]::Write)
     try {
         foreach ($part in $manifest.parts) {
-            if ($part.name -notmatch '^chengzi-wechat-collector-1\.0\.0\.part[0-9]{2}\.bin$') { throw 'Invalid part name.' }
+            if ($part.name -notmatch '^chengzi-wechat-collector-1\.0\.1\.part[0-9]{2}\.bin$') { throw 'Invalid part name.' }
             if ($part.sha256 -notmatch '^[a-f0-9]{64}$') { throw 'Invalid checksum.' }
             $target = Join-Path $install $part.name
             $url = 'https://coach.lovetalk.love/downloads/' + $part.name

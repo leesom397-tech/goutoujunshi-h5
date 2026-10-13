@@ -61,10 +61,36 @@ def _assert_target(main, friend, Texts, Tools):
         raise CaptureError("GROUP_NOT_SUPPORTED", "目前只采集你指定的一对一聊天，不采集群聊。")
 
 
+def _open_target(friend, modules):
+    # Never delegate candidate selection to upstream search_friend: it chooses
+    # the first equal name and can fall back to an online phone/ID lookup.
+    Navigator, Tools, ui = modules
+    main = Navigator.open_weixin(is_maximize=False)
+    main.child_window(**ui.SideBar.Weixin).click_input()
+    edits = main.descendants(**ui.Main_window.Search)
+    if not edits:
+        raise CaptureError("SEARCH_UNREADABLE", "微信搜索框不可读，请关闭弹窗后重试。")
+    search = edits[1] if len(edits) == 2 else edits[0]
+    search.click_input()
+    search.set_text(friend)
+    try:
+        listing = main.child_window(**ui.Lists.SearchResult).wait("ready", timeout=4)
+        candidates = [item for item in listing.children(control_type="ListItem")
+                      if item.class_name() == "mmui::SearchContentCellView" and item.window_text().strip() == friend]
+    except Exception:
+        raise CaptureError("FRIEND_NOT_FOUND", "未找到这个完整备注的本地联系人，请核对微信里显示的完整名称。")
+    if not candidates:
+        raise CaptureError("FRIEND_NOT_FOUND", "未找到这个完整备注的本地联系人，请核对微信里显示的完整名称。")
+    if len(candidates) != 1:
+        raise CaptureError("FRIEND_AMBIGUOUS", "微信里有多个同名搜索项，请给目标好友设置唯一备注后重试。")
+    candidates[0].click_input()
+    _assert_target(main, friend, ui.Texts, Tools)
+    return main
+
+
 def _chat(friend, limit, nickname, progress, modules):
     Navigator, Tools, ui = modules
-    main = Navigator.open_dialog_window(friend=friend, search_pages=0, is_maximize=False)
-    _assert_target(main, friend, ui.Texts, Tools)
+    main = _open_target(friend, modules)
     history = Navigator.open_chat_history(friend=friend, search_pages=0, is_maximize=False, close_weixin=False)
     rows, warnings = [], []
     try:
@@ -109,7 +135,7 @@ def _chat(friend, limit, nickname, progress, modules):
                         else:
                             kind = "other"
                         row = {"kind": kind, "sender": sender, "senderRole": role, "at": at, "text": content,
-                               "source": {"rawText": raw, "uiClass": class_name, "timePrecision": "ui-label" if at else "unknown"}}
+                               "source": {"uiClass": class_name, "timePrecision": "ui-label" if at else "unknown"}}
                         if kind in ("image", "sticker", "other") and media_count < 30:
                             try:
                                 row["images"] = [_image(item, f"chat-preview-{len(rows)+1}.jpg")]
@@ -138,11 +164,23 @@ def _chat(friend, limit, nickname, progress, modules):
             pass
 
 
+def _moments_window(main, window):
+    # Weixin 4.1.15 embeds the selected friend's album directly in the main
+    # window; upstream still returns an older, now absent nested WeChat pane.
+    if not window.exists(timeout=0.3):
+        visible_lists = [item for item in main.descendants(control_type="List")
+                         if item.element_info.automation_id == "sns_list" and item.is_visible()]
+        if len(visible_lists) != 1:
+            raise CaptureError("MOMENTS_UNREADABLE", "指定好友的朋友圈界面无法唯一确认，已停止采集。")
+        return main
+    return window
+
+
 def _moments(friend, limit, progress, modules):
     Navigator, Tools, ui = modules
-    main = Navigator.open_dialog_window(friend=friend, search_pages=0, is_maximize=False)
-    _assert_target(main, friend, ui.Texts, Tools)
+    main = _open_target(friend, modules)
     window, _ = Navigator.open_friend_moments(friend=friend, search_pages=0, is_maximize=False)
+    window = _moments_window(main, window)
     listing = window.child_window(**ui.Lists.MomentsList)
     detail = window.child_window(**ui.Lists.SnsDetailList)
     back = window.child_window(**ui.Buttons.BackButton)
@@ -187,7 +225,7 @@ def _moments(friend, limit, progress, modules):
             if content.startswith(friend):
                 content = content[len(friend):].lstrip()
             row = {"kind": "post", "sender": friend, "senderRole": "other", "at": at, "text": content,
-                   "source": {"rawText": raw, "imageType": "visible-ui-preview", "timePrecision": "ui-label" if at else "unknown"}}
+                   "source": {"imageType": "visible-ui-preview", "timePrecision": "ui-label" if at else "unknown"}}
             try:
                 row["images"] = [_image(content_item, f"moment-preview-{len(rows)+1}.jpg")]
             except Exception:

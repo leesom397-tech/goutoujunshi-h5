@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 UPSTREAM_COMMIT = "8589baa049bb91d3a500602c167f07b2f8397a13"
 
 

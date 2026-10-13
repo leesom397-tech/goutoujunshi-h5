@@ -4,11 +4,11 @@ import json
 from pathlib import Path
 import shutil
 import zipfile
+from normalize import VERSION
 
 ROOT = Path(__file__).resolve().parent
 APP = ROOT / "dist" / "ChengziWeChatCollector"
 RELEASE = ROOT / "dist" / "release"
-VERSION = "1.0.0"
 
 
 def sha(path):
@@ -36,7 +36,7 @@ def main():
                 dest = licenses / info.name / path.relative_to(info)
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(path, dest)
-    archive = Path(shutil.make_archive(str(ROOT / "dist" / "chengzi-wechat-collector-1.0.0-full"), "zip", APP.parent, APP.name))
+    archive = Path(shutil.make_archive(str(ROOT / "dist" / f"chengzi-wechat-collector-{VERSION}-full"), "zip", APP.parent, APP.name))
     parts = []
     with archive.open("rb") as stream:
         index = 1
@@ -48,11 +48,13 @@ def main():
             index += 1
     manifest = {"version": VERSION, "bytes": archive.stat().st_size, "sha256": sha(archive), "exeSha256": sha(executable), "parts": parts}
     (RELEASE / "manifest.json").write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+    shutil.copy2(RELEASE / "manifest.json", RELEASE / f"manifest-{VERSION}.json")
     with zipfile.ZipFile(RELEASE / "chengzi-wechat-collector-windows.zip", "w", zipfile.ZIP_DEFLATED) as installer:
         installer.writestr("启动成子助手.cmd", '@echo off\r\ncd /d "%~dp0"\r\npowershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%~dp0install.ps1"\r\nif errorlevel 1 pause\r\n')
         installer.writestr("install.ps1", (ROOT / "install.ps1").read_text(encoding="utf-8").encode("utf-8-sig"))
         installer.write(RELEASE / "manifest.json", "manifest.json")
         installer.write(ROOT / "README.md", "使用说明.md")
+    shutil.copy2(RELEASE / "chengzi-wechat-collector-windows.zip", RELEASE / f"chengzi-wechat-collector-windows-{VERSION}.zip")
     print(json.dumps({"release": str(RELEASE), "fullBytes": manifest["bytes"], "partCount": len(parts), "bootstrapBytes": (RELEASE / "chengzi-wechat-collector-windows.zip").stat().st_size}, ensure_ascii=False))
 
 

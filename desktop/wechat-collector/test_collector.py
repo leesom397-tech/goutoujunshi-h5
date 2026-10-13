@@ -10,7 +10,7 @@ import re
 
 from bridge import BridgeError, CollectorState, ORIGINS, server_for
 from normalize import normalized_capture
-from adapter import CaptureError, _account, _chat, _assert_target
+from adapter import CaptureError, _account, _chat, _assert_target, _open_target, _moments_window
 
 
 def fake_capture(conn, request):
@@ -49,6 +49,50 @@ class NormalizationTest(unittest.TestCase):
 
 
 class AdapterTest(unittest.TestCase):
+    def test_moments_new_embedded_ui_requires_unique_visible_album(self):
+        old = SimpleNamespace(exists=lambda **kwargs: True)
+        missing = SimpleNamespace(exists=lambda **kwargs: False)
+        album = SimpleNamespace(element_info=SimpleNamespace(automation_id="sns_list"), is_visible=lambda: True)
+        other = SimpleNamespace(element_info=SimpleNamespace(automation_id="session_list"), is_visible=lambda: True)
+        controls = [other, album]
+        main = SimpleNamespace(descendants=lambda **kwargs: controls)
+        self.assertIs(_moments_window(main, old), old)
+        self.assertIs(_moments_window(main, missing), main)
+        controls.append(album)
+        with self.assertRaises(CaptureError):
+            _moments_window(main, missing)
+        controls[:] = [other]
+        with self.assertRaises(CaptureError):
+            _moments_window(main, missing)
+
+    def test_target_selection_requires_one_exact_local_match(self):
+        clicks = []
+        def item(name):
+            return SimpleNamespace(class_name=lambda: "mmui::SearchContentCellView", window_text=lambda: name,
+                                   click_input=lambda: clicks.append(name))
+        candidates = [item("虚构测试人")]
+        listing = SimpleNamespace(wait=lambda *args, **kwargs: listing, children=lambda **kwargs: candidates)
+        search = SimpleNamespace(click_input=lambda: None, set_text=lambda value: None)
+        main = SimpleNamespace(descendants=lambda **kwargs: [search], child_window=lambda **kwargs:
+                               listing if kwargs.get("auto_id") == "search_list" else SimpleNamespace(click_input=lambda: None))
+        navigator = SimpleNamespace(open_weixin=lambda **kwargs: main)
+        ui = SimpleNamespace(SideBar=SimpleNamespace(Weixin={}), Main_window=SimpleNamespace(Search={}),
+                             Lists=SimpleNamespace(SearchResult={"auto_id": "search_list"}), Texts={})
+        with patch("adapter._assert_target") as asserted:
+            self.assertIs(_open_target("虚构测试人", (navigator, None, ui)), main)
+            asserted.assert_called_once()
+        self.assertEqual(clicks, ["虚构测试人"])
+        candidates.append(item("虚构测试人"))
+        with self.assertRaises(CaptureError) as error:
+            _open_target("虚构测试人", (navigator, None, ui))
+        self.assertEqual(error.exception.code, "FRIEND_AMBIGUOUS")
+        self.assertEqual(len(clicks), 1)
+        candidates[:] = [item("虚构测试人 同名后缀")]
+        with self.assertRaises(CaptureError) as error:
+            _open_target("虚构测试人", (navigator, None, ui))
+        self.assertEqual(error.exception.code, "FRIEND_NOT_FOUND")
+        self.assertEqual(len(clicks), 1)
+
     def test_chat_order_speakers_and_duplicate_text_without_real_wechat(self):
         class Item:
             def __init__(self, index, text):
@@ -59,7 +103,7 @@ class AdapterTest(unittest.TestCase):
             def window_text(self): return self.text
         class Listing:
             index = 0
-            items = [Item(1, "好友 2026-10-13 10:03 嗯"), Item(2, "我 2026-10-13 10:02 嗯"), Item(3, "好友 2026-10-13 10:01 嗯"), Item(4, "未确认来源 没有时间标签")]
+            items = [Item(1, "好友 2026-10-13 10:03 嗯"), Item(2, "我 2026-10-13 10:02 嗯"), Item(3, "好友 2026-10-13 10:01 嗯"), Item(4, "未确认来源 " + "较长原文" * 600)]
             def exists(self, **kwargs): return True
             def children(self): return [self.items[self.index]]
             def type_keys(self, *args, **kwargs): self.index = min(self.index + 1, len(self.items) - 1)
@@ -69,12 +113,16 @@ class AdapterTest(unittest.TestCase):
         navigator = SimpleNamespace(open_dialog_window=lambda **kwargs: main, open_chat_history=lambda **kwargs: history)
         tools = SimpleNamespace(is_group_chat=lambda window: False, select_chatHistoryList=lambda window: object())
         ui = SimpleNamespace(Texts=SimpleNamespace(CurrentChatNameText={}), Lists=SimpleNamespace(ChatHistoryList={}), Regex_Patterns=SimpleNamespace(Chathistory_Timestamp_pattern=re.compile(r"2026-10-13 \d{2}:\d{2}")))
-        rows, warnings = _chat("好友", 4, "我", lambda *args: None, (navigator, tools, ui))
+        with patch("adapter._open_target", return_value=main):
+            rows, warnings = _chat("好友", 4, "我", lambda *args: None, (navigator, tools, ui))
         self.assertEqual([r["text"] for r in rows[:3]], ["嗯", "嗯", "嗯"])
         self.assertEqual([r["senderRole"] for r in rows], ["other", "self", "other", "unknown"])
         self.assertEqual(rows[-1]["at"], "")
         self.assertEqual(rows[0]["at"], "2026-10-13 10:03")
         self.assertTrue(any("未知" in warning for warning in warnings))
+        self.assertNotIn("rawText", rows[0]["source"])
+        self.assertEqual(rows[-1]["text"], "未确认来源 " + "较长原文" * 600)
+        self.assertTrue(all(not isinstance(value, str) or len(value) <= 2000 for row in rows for value in row["source"].values()))
 
     def test_account_identity_must_be_visible_and_group_is_refused(self):
         def account_pane(values):

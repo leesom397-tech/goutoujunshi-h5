@@ -53,7 +53,11 @@ export default defineConfig(async () => {
   return {
     server: {
       ...(managedLinux ? { host: "0.0.0.0", allowedHosts: ["terminal.local"] } : {}),
-      ...(isCodexSeatbeltSandbox ? { watch: { useFsEvents: false, usePolling: true } } : {}),
+      watch: {
+        // Native packaging locks its EXE on Windows; it is not web HMR input.
+        ignored: ["**/desktop/**/build/**", "**/desktop/**/dist/**", "**/desktop/**/.venv/**"],
+        ...(isCodexSeatbeltSandbox ? { useFsEvents: false, usePolling: true } : {}),
+      },
     },
     plugins: [
       vinext(),

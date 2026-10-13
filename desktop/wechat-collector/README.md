@@ -13,7 +13,7 @@
 ## 实际能力与限制
 
 - Windows 10/11 x64，已登录的微信 4.1.6+，实际兼容性仍受微信 UI 更新、缩放和账号 UI 可见性影响。Mac 不运行此助手。
-- 本机只读探测验证于微信 **4.1.15.13**：可访问主窗口。未自动打开用户聊天，未把个人内容用于测试。
+- **1.0.1** 已在微信 **4.1.15.13** 完成用户明确授权的指定联系人实测：两次各 20 条聊天，发送人与原文顺序核对通过；第二次网页本地导入新增 0 条。另验证 3 条当前可见朋友圈；测试材料仅保留本机，不包含在安装包中。
 - 通过 UI 自动化读取用户点选的一位好友，不遍历全部联系人，不读取/解密微信数据库，不发送消息、点赞、评论或下载聊天文件。
 - 会从本人资料弹窗的**可见微信号**确认账号；采集结束再核对，发生切号即丢弃结果。未读取到账号标识则报错，不使用固定“local”账号合并。
 - 目前限一对一聊天；群聊明确拒绝。发送人无法确认时保留 `unknown`，不把未知默认当对方。
@@ -21,7 +21,7 @@
 - 图片/表情和朋友圈配图保存的是**可见消息/详情区域截图**，可能仅含缩略图。不是原始媒体下载。语音、视频未转写。不绕过朋友圈可见范围。
 - 微信不给 UI 消息稳定 ID；`id` 为空，`source.contentFingerprint` 仅供诊断，不能拿它代替消息 ID 去重。网页依靠顺序重叠做增量去重。
 - 多账号同时登录、重名好友、不可访问的 UI、锁屏或其他弹窗会导致失败；不会用整屏无差别截图替代指定好友采集。
-- 未做真实私人会话的自动采集验收。首次采集请用你指定的测试好友，核对账号、发送人和内容后再确认导入。
+- 搜索仅接受一个精确匹配的本地联系人；出现多个同名项会停止，不默认选第一人，也不触发网络手机/账号查找。首次采集仍请核对账号、发送人和内容后再确认导入。
 
 ## 固定上游与许可
 
@@ -65,6 +65,6 @@ py -3.12 -m venv .venv
 | `GET /jobs/{jobId}` | `{jobId,status:'running'|'completed'|'failed'|'cancelled',progress,message,result?,error?:{code,message}}` |
 | `POST /jobs/{jobId}/cancel` | `{}` → `{jobId,status}`；终止子进程并丢弃结果 |
 
-`result` 为 `{version:1,kind,friend,account,capturedAt,records,warnings}`；record 为 `{id:'',kind,sender,senderRole,at,text,source,images?}`。`images` 为 `{mime:'image/jpeg',name,data:<base64>}`，不接收本地路径。source 包含界面位置标签、原文、原时间标签、顺序、采集方法及上游版本。
+`result` 为 `{version:1,kind,friend,account,capturedAt,records,warnings}`；record 为 `{id:'',kind,sender,senderRole,at,text,source,images?}`。`images` 为 `{mime:'image/jpeg',name,data:<base64>}`，不接收本地路径。完整原文保留在 `text`，source 包含界面位置标签、原时间标签、顺序、采集方法及上游版本，不重复存放长段正文。
 
 错误不含聊天正文、路径或上游异常堆栈。请求体最多4 KiB，同一时刻最多一个采集，3分钟强制超时，HTTP并发最多12个连接。无任意文件读取、命令执行或代理接口。
