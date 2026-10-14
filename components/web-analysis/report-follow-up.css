@@ -30,3 +30,5 @@
 .rf-automatic a,.rf-automatic button{transition:transform .18s ease,box-shadow .18s ease}.rf-automatic a:hover,.rf-automatic button:not(:disabled):hover{transform:translateY(-1px);box-shadow:0 5px 14px #78462c0b}
 @media(max-width:650px){.rf-observations{grid-template-columns:1fr;gap:17px}.rf-automatic .rf-actions{display:grid;grid-template-columns:1fr}.rf-automatic .rf-actions>*{width:100%}.rf-automatic .rf-free{white-space:normal}}
 @media(prefers-reduced-motion:reduce){.rf-automatic a,.rf-automatic button{transition:none}.rf-automatic a:hover,.rf-automatic button:hover{transform:none}}
+
+.rf-compact{display:flex;align-items:flex-start;gap:8px;margin:18px 0;padding:12px 15px;border-left:3px solid #c9b29c;background:#faf5ed;color:#75614f;font-size:15px;line-height:1.75;flex-wrap:wrap}.rf-compact>svg{flex-shrink:0;margin-top:5px}.rf-compact>span{flex:1;min-width:180px}.rf-compact a,.rf-history-link{display:inline-flex;align-items:center;gap:5px;font-size:14px;color:#945e46;text-decoration:none}.rf-history-link{margin-top:10px}.rf-automatic .rf-heading h2{font-size:21px;display:flex;align-items:center;gap:8px;margin:0}.rf-automatic .rf-heading{margin-top:24px}

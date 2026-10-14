@@ -1,5 +1,93 @@
 .section { --signal: #477968; --signal-soft: #edf5f0; }
 .section h2 > svg { color: var(--signal); flex-shrink: 0; }
+.dashboardIntro { margin: 10px 0 22px; color: #657267; font-size: 16px; line-height: 1.8; }
+.priority { display: flex; gap: 12px; margin: 18px 0 24px; padding: 20px; border: 1px solid #e6b8a9; border-left: 4px solid #ad5947; border-radius: 14px; background: #fff4ee; color: #7d3f32; }
+.priority > svg { flex-shrink: 0; margin-top: 3px; }
+.priority strong { font-size: 19px; }
+.priority p { margin: 8px 0; line-height: 1.75; font-size: 16px; }
+.priority blockquote { padding: 0; margin: 10px 0 0; border: 0; background: transparent; font-size: 15px; color: #89594d; overflow-wrap: anywhere; }
+.composition { display: grid; grid-template-columns: 200px minmax(0, 1fr); align-items: center; gap: 36px; padding: 22px 28px; border: 1px solid #e1e9df; border-radius: 20px; background: #f7faf5; }
+.donut { position: relative; width: 200px; height: 200px; }
+.donut > svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.donutTrack { fill: none; stroke: #e3e9df; stroke-width: 16; }
+.donutSegment { fill: none; stroke-width: 16; }
+.donut > div { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 5px; }
+.donut strong { color: #304a3a; font-size: 48px; line-height: 1.15; font-weight: 650; font-variant-numeric: tabular-nums; }
+.donut span { color: #657667; font-size: 14px; }
+.compositionBody { min-width: 0; }
+.compositionBody h3 { margin: 0 0 14px; font-size: 20px; color: #304939; }
+.legend { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 22px; }
+.legend > div { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.legend > div > span { display: inline-flex; align-items: center; gap: 7px; font-size: 15px; color: #465b49; }
+.legend i { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+.legend svg { flex-shrink: 0; }
+.legend strong { margin-left: auto; font-size: 19px; white-space: nowrap; color: #334a3c; }
+.legend small { color: #768375; font-size: 12px; white-space: nowrap; font-weight: 400; }
+.compositionBody > p { margin: 16px 0 0; color: #6a7969; font-size: 13px; line-height: 1.75; }
+.sampleBar { display: flex; flex-wrap: wrap; gap: 8px 23px; padding: 18px 0; color: #7a8277; font-size: 14px; }
+.sampleBar strong { color: #4b624e; font-weight: 600; }
+.fourDimensions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 17px; }
+.cueCard { min-width: 0; padding: 23px; border: 1px solid #e3e8de; border-top: 3px solid; border-radius: 16px; background: #fffefa; }
+.cueCard header { display: flex; align-items: center; gap: 9px; }
+.cueCard header > svg { flex-shrink: 0; }
+.cueCard header h3 { margin: 0; color: #334836; font-size: 19px; }
+.cueCard header > strong { margin-left: auto; font-size: 27px; color: #425c45; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cueCard header small { font-size: 13px; font-weight: 400; color: #8b9286; }
+.cueCard h4 { margin: 16px 0; font-size: 17px; color: #344737; line-height: 1.65; }
+.cueQuote { padding: 13px 15px; border-radius: 10px; background: #f3f6ef; overflow-wrap: anywhere; }
+.cueQuote > span { display: flex; align-items: center; gap: 6px; color: #70806c; font-size: 12px; }
+.cueQuote > span > svg { flex-shrink: 0; }
+.cueQuote blockquote { margin: 8px 0 0; padding: 0; border: 0; background: transparent; font-size: 16px; color: #3c4d3d; line-height: 1.75; }
+.cueQuote .quoteContext { margin: 0 0 11px; padding-bottom: 10px; border-bottom: 1px solid #e2e9dc; font-size: 14px; color: #7b8475; line-height: 1.7; }
+.cueBasis { margin: 13px 0 0; color: #7d8778; font-size: 13px; line-height: 1.8; }
+.referenceDetails { margin-top: 21px; border-top: 1px solid #e2e8de; }
+.referenceDetails > summary { padding: 19px 0; font-size: 15px; font-weight: 600; color: #507051; cursor: pointer; }
+.referenceDetails > summary:hover { color: #233f2a; }
+.referenceDetails > summary:focus-visible { outline: 2px solid #628772; outline-offset: 4px; }
+.allCues { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.allCues > section { min-width: 0; }
+.allCues h3 { margin: 0 0 12px; color: #4b634f; font-size: 17px; }
+.allCues .cueQuote + .cueQuote { margin-top: 10px; }
+.referenceTitle { margin: 25px 0 0; color: #4b634f; font-size: 18px; }
+.referenceDetails .dimensions { margin-top: 16px; }
+.history > div { flex: 1; min-width: 0; }
+.trendPlot { width: 100%; margin-top: 13px; }
+.trendPlot > svg { display: block; width: 100%; height: auto; max-height: 230px; overflow: visible; }
+.trendPlot text { font-size: 12px; fill: #647b65; font-family: inherit; }
+.trendGrid { stroke: #e3e9df; stroke-width: 1; }
+.trendLine { fill: none; stroke: #588266; stroke-width: 2; stroke-linejoin: round; }
+.trendPlot circle { fill: #588266; stroke: #fff; stroke-width: 2; }
+.trendDates { display: flex; gap: 9px; flex-wrap: wrap; }
+.trendDates > a { display: flex; flex-direction: column; gap: 3px; padding: 8px 11px; font-size: 12px; color: #5e7862; border: 1px solid #e1e8db; border-radius: 9px; text-decoration: none; }
+.trendDates > a:hover { background: #f0f6eb; border-color: #a9bca0; }
+.trendDates > a > span { color: #879180; font-size: 11px; }
+@media (max-width: 760px) {
+ .composition { grid-template-columns: 150px minmax(0, 1fr); padding: 18px; gap: 18px; }
+ .donut { width: 150px; height: 150px; }
+ .donut strong { font-size: 39px; }
+ .donut span { font-size: 12px; }
+ .legend { grid-template-columns: minmax(0, 1fr); gap: 7px; }
+ .compositionBody h3 { font-size: 18px; }
+ .cueCard { padding: 18px; }
+}
+@media (max-width: 520px) {
+ .dashboardIntro { font-size: 15px; }
+ .composition { grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 16px; }
+ .donut { width: 178px; height: 178px; }
+ .compositionBody { width: 100%; }
+ .compositionBody h3 { text-align: center; }
+ .legend { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px 15px; }
+ .legend > div > span { font-size: 13px; gap: 5px; }
+ .legend svg { display: none; }
+ .legend strong { font-size: 17px; }
+ .legend > div > small { display: none; }
+ .fourDimensions, .allCues { grid-template-columns: minmax(0, 1fr); }
+ .cueCard header h3 { font-size: 19px; }
+ .priority { padding: 15px; gap: 9px; }
+ .priority strong { font-size: 17px; }
+ .priority p { font-size: 15px; }
+ .sampleBar { gap: 6px 17px; font-size: 13px; }
+}
 .affinitySummary { display: grid; grid-template-columns: 190px minmax(0, 1fr); align-items: center; gap: 32px; padding: 20px 0 24px; margin-bottom: 22px; border-bottom: 1px solid #e6e9e2; }
 .scoreRing { position: relative; width: 190px; height: 190px; }
 .scoreRing > svg { display: block; width: 100%; height: 100%; transform: rotate(-90deg); }

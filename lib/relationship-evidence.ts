@@ -1,6 +1,6 @@
 /** A read-only comparison of saved material. Never sends it to a model or records a guessed outcome. */
 export type RelationshipSourceReport = { id: string; kind?: string; createdAt: number; report: Record<string, any>; entries?: Record<string, any>[] };
-export type RelationshipQuote = { reportId: string; lineId?: string; date: string; label: string; text: string; kind: "recognized-text" | "extracted-content" | "profile-field" | "user-feedback" };
+export type RelationshipQuote = { reportId: string; lineId?: string; date: string; label: string; text: string; kind: "recognized-text" | "extracted-content" | "profile-field" | "quoted-post" | "user-feedback" };
 export type RelationshipEvidenceCard = { kind: "change" | "consistency" | "action" | "feedback"; title: string; reading: string; explanation: string; question: string; observe: string; sources: RelationshipQuote[] };
 export type RelationshipEvidenceReview = { cards: RelationshipEvidenceCard[]; note: string };
 const text = (value: unknown, max = 400) => typeof value === "string" ? value.trim().slice(0, max) : "";
@@ -29,28 +29,61 @@ function claims(value: string): { field: Field; value: string }[] {
   const aim=goal(value);if(aim&&/我|只想|认真|不想|以结婚/.test(value))found.push({field:"relationshipStatus",value:aim});
   return found;
 }
-type Evidence = RelationshipQuote & { speaker: "self" | "other"; savedAt: number; claims: {field:Field;value:string}[] };
+
+/** A retained moments caption is not assumed to be verbatim. Only explicit,
+ * attributable quotations or an exact independently retained quote qualify. */
+function postQuotes(content:string,entry:Record<string,any>):string[]{
+ const reject=/转发|转载|歌词|电影台词|书摘|名言|摘抄|引用|朋友说|别人说|他说|她说|海报|图中人物|图里的人|照片上|图片文字|图中文字/;
+ if(reject.test(content))return [];
+ const quoted=Array.from(content.matchAll(/[“「『"‘']([^”」』"’']{4,500})[”」』"’']/g)).map(match=>match[1].trim());
+ const exact=array(entry.moments?.behaviorClues).concat(array(entry.behaviorClues)).map(row=>text(row?.quote,500))
+  .filter(value=>value.length>=4&&content.includes(value)&&!reject.test(content));
+ return [...new Set([...quoted,...exact])].filter(value=>/^我(?:现在|目前|一直|认为|觉得|希望|想|会|愿意|不|很|比较|挺|非常|特别|最|重视|看重|注重|住|在|是|做)/.test(value)&&!relayed(value)&&!oldTime(value)&&!/[？?]/.test(value));
+}
+function valuesCommunication(value:string,profile=false){
+ if(relayed(value)||oldTime(value)||media(value)||/[？?]|不重视|不看重|不想沟通|不会沟通|不是|以前|曾经/.test(value))return false;
+ return /我(?:一直|很|比较|挺|非常|特别|最)?(?:重视|看重|注重).{0,6}(?:沟通|交流|把话说清)/.test(value)||
+ /我.{0,8}(?:有分歧|有矛盾|有问题).{0,12}(?:愿意|希望|会|想).{0,6}(?:好好聊|沟通|说清|谈)/.test(value)||
+ profile&&/^(?:重视|看重|注重)沟通/.test(value);
+}
+function disagreementQuestion(value:string){
+ return !media(value)&&!relayed(value)&&/(?:我.{0,6}(?:介意|不舒服|难过|不同意|不理解)|我们.{0,6}(?:分歧|矛盾)|这件事.{0,8}(?:不舒服|介意)|你.{0,8}(?:失约|取消|生气))/.test(value)&&/(?:聊|谈|说清|解释|沟通|为什么|能不能|可以)/.test(value);
+}
+function disagreementResponse(value:string):"closed"|"open"|""{
+ if(media(value)||relayed(value.replace(/听你说/g,"听取你的表达"))||oldTime(value)||/[？?]|不是|并非|没(?:有)?说|不代表/.test(value))return "";
+ // A temporary pause, a promised time, or refusal to keep discussing after a
+ // clear boundary does not establish unwillingness to communicate.
+ if(/(?:现在|今天|暂时).{0,8}(?:不方便|没空|累|忙)|(?:晚点|晚上|明天|等我|过一会).{0,12}(?:聊|谈|说)|已经说清|说过了|不要再联系|别再联系/.test(value))return "";
+ if(/(?:没什么|没必要|没啥)好?(?:谈|聊|解释)|(?:别再|不要再)(?:说|提|聊)(?:这个|这件事)|不想(?:谈|聊|听你说)(?:这个|这件事)|你(?:就是)?(?:太敏感|想太多)|(?:^|[，。；])随便你/.test(value))return "closed";
+ if(/我(?:愿意|想|会).{0,6}(?:听你说|听你的想法|解释|好好聊)|(?:我们|我和你).{0,6}(?:把这件事说清|好好聊|一起商量)|你先说.{0,6}(?:我听|听着)/.test(value))return "open";
+ return "";
+}
+
+type Evidence = RelationshipQuote & { segment?:string;position?:number;speaker: "self" | "other"; savedAt: number; claims: {field:Field;value:string}[] };
 function extract(report: RelationshipSourceReport): Evidence[] {
   const rows: Evidence[] = [], entries = report.entries?.length ? report.entries : [report.report];
-  for (const entry of entries) {
+  for (const [entryIndex,entry] of entries.entries()) {
     if (!entry || entry.targetSelf === true || entry.target === "self") continue;
     let date = "";
-    for (const line of array(entry.lines)) {
+    for (const [position,line] of array(entry.lines).entries()) {
       const raw = text(line?.timestampRaw), explicit = dateIn(raw); if (explicit) date = explicit; else if (raw && !/^\s*(?:上午|下午|晚上|凌晨|早上)?\s*\d{1,2}[:：]\d{2}\s*$/.test(raw)) date = "";
       const quote = text(line?.text, 800); if (!["self","other"].includes(line?.speaker) || !quote || media(quote)) continue;
-      rows.push({reportId:report.id,lineId:text(line.id,80),date,label:line.speaker==="other"?"对方聊天识别原文":"我方聊天识别原文",text:quote,kind:"recognized-text",speaker:line.speaker,savedAt:report.createdAt,claims:line.speaker==="other"?claims(quote):[]});
+      rows.push({reportId:report.id,segment:report.id+":"+entryIndex,position,lineId:text(line.id,80),date,label:line.speaker==="other"?"对方聊天识别原文":"我方聊天识别原文",text:quote,kind:"recognized-text",speaker:line.speaker,savedAt:report.createdAt,claims:line.speaker==="other"?claims(quote):[]});
     }
     for (const post of array(entry.moments?.posts)) {
       const quote=text(post?.content,800);if(!quote)continue;
+      for(const original of postQuotes(quote,entry))rows.push({reportId:report.id,date:dateIn(post.date),label:"朋友圈明确引文 · "+(text(post.evidence,100)||"动态配文"),text:original,kind:"quoted-post",speaker:"other",savedAt:report.createdAt,claims:claims(original)});
       // These saved captions can include a model's compact photo description, not the person's exact words.
       rows.push({reportId:report.id,date:dateIn(post.date),label:"已保存的动态内容摘录（含图片描述）",text:quote,kind:"extracted-content",speaker:"other",savedAt:report.createdAt,claims:[]});
     }
     for (const field of array(entry.profileBasics)) {
-      if (!["city","occupation","relationshipStatus"].includes(field?.field) || !text(field.evidence)) continue;
+      if (!text(field.evidence)) continue;
+      const knownField=["city","occupation","relationshipStatus"].includes(field?.field);
+      if(!knownField&&!valuesCommunication(text(field.value),true))continue;
       const value=text(field.value,120);if(!value)continue;
       const normalized=field.field==="relationshipStatus"?goal(value):field.field==="city"?value.match(cities)?.[0]||value:value;
       if (!normalized) continue;
-      rows.push({reportId:report.id,date:"",label:"主页资料提取 · "+text(field.evidence,100),text:value,kind:"profile-field",speaker:"other",savedAt:report.createdAt,claims:[{field:field.field,value:normalized}]});
+      rows.push({reportId:report.id,date:"",label:"主页资料提取 · "+text(field.evidence,100),text:value,kind:"profile-field",speaker:"other",savedAt:report.createdAt,claims:knownField?[{field:field.field,value:normalized}]:[]});
     }
   }
   return rows;
@@ -80,11 +113,25 @@ export function relationshipEvidenceReview(data: Record<string, unknown>, subjec
     if(kind==='boundary')cards.push({kind:'change',title:'本次出现了明确停止联系的表达',reading:'先尊重这条边界，不继续用邀约检验态度。',explanation:'这是一条当前可见的明确表达，不需要靠互动分数决定是否尊重。',question:'',observe:'停止主动推进；不要反复追问或试探。',sources:[quoteOf(fresh)]});
     else if(oldInvite)cards.push({kind:'action',title:kind==='recap'?'出现见面回顾线索，仍需核对是否对应原邀约':'从见面意愿，到更具体的安排线索',reading:ordered?'较晚日期的材料出现了新的具体表达，可以接着核对落实情况。':'两份材料可分别核对，但日期不足以确认先后或属于同一次约定。',explanation:kind==='recap'?'聊天在回顾见面，不等于系统已确认赴约；也不能把变化归因于之前的建议。':'提出时间、买票或订位比单纯说想见面更具体，但仍不代表已经赴约。',question:kind==='recap'?'你说的这次见面，是之前约的那一次吗？':'那我们把具体时间和地点确认一下，你看方便吗？',observe:'核对是不是同一件事，再看双方是否确认、如期发生；不把缺少后续材料当成爽约。',sources:sourcePair(oldInvite,fresh)});
   }
+  // Compare a stated preference with an actual response to a visible disagreement.
+  // No response gap, date gap, or generic short answer is treated as avoidance.
+  const stated=publicOther(earlier).reverse().find(row=>valuesCommunication(row.text,row.kind==="profile-field"))||
+    publicOther(current).find(row=>valuesCommunication(row.text,row.kind==="profile-field"));
+  if(stated){
+    for(let i=1;i<current.length;i++){
+      const request=current[i-1],response=current[i];
+      if(request.speaker!=="self"||response.speaker!=="other"||request.kind!=="recognized-text"||response.kind!=="recognized-text"||request.reportId!==response.reportId||request.segment!==response.segment||response.position!==(request.position??-2)+1||!disagreementQuestion(request.text))continue;
+      const behavior=disagreementResponse(response.text);if(!behavior||stated.text===response.text)continue;
+      cards.push({kind:"consistency",title:behavior==="closed"?"重视沟通的自述，与本次分歧回应需要对照":"重视沟通的自述，本次回应有对应表达",reading:behavior==="closed"?"你明确提出不适并请求沟通，对方这句回应暂未接住具体问题。只说明本次回应，不给人贴标签。":"你明确提出不适并请求沟通，对方表达了愿意听或商量；能否聊清楚仍要看后续。",explanation:behavior==="closed"?"可能是当时情绪或截取不完整；一次回应不能证明长期回避沟通。":"愿意听是一条当下表达，仍不等于已理解、解决或长期都能做到。",question:behavior==="closed"?"这件事我还有点不舒服。等我们都平静一些，能不能把具体的点说清楚？":"那我先说说在意的地方，也想听听你的想法。",observe:"只在双方愿意且安全时继续；核对有没有回应具体问题，不以回复速度判断沟通意愿。",sources:[quoteOf(stated),quoteOf(request),quoteOf(response)]});
+      break;
+    }
+  }
   const labels={city:'所在地',occupation:'职业',relationshipStatus:'关系目标'};
   for(const field of ['city','occupation','relationshipStatus'] as const) {
     const latest=publicOther(current).reverse().find(row=>row.claims.some(claim=>claim.field===field));if(!latest)continue;
     const value=latest.claims.find(claim=>claim.field===field)!.value;
-    const prior=publicOther(earlier).reverse().find(row=>row.claims.some(claim=>claim.field===field&&claim.value!==value&&!claim.value.includes(value)&&!value.includes(claim.value)));if(!prior)continue;
+    const prior=publicOther(earlier).reverse().find(row=>row.claims.some(claim=>claim.field===field));if(!prior)continue;
+    const previousValue=prior.claims.find(claim=>claim.field===field)!.value;if(previousValue===value||previousValue.includes(value)||value.includes(previousValue))continue;
     if(field==='occupation'){const a=prior.claims.find(claim=>claim.field===field)!.value;const compatible=[/老师|教师/,/工程师|程序员/];if(compatible.some(group=>group.test(a)&&group.test(value)))continue;}
     if(field==='relationshipStatus'){const a=prior.claims.find(claim=>claim.field===field)!.value;if(['期待稳定交往','考虑婚姻'].includes(a)&&['期待稳定交往','考虑婚姻'].includes(value))continue;}
     const explanations={city:'可能涉及搬家、出差或主页更新较慢，先区分常住地与临时所在地。',occupation:'可能是兼任、转岗或对职业的不同概括；两处表述不同本身不能证明隐瞒。',relationshipStatus:'期待可能随时间变化，也可能一个说恋爱、一个说婚姻；先核对现在的想法。'};

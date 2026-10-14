@@ -33,6 +33,38 @@ const unknown=report(2,['周六两点见。']);unknown.report.lines[0].timestamp
 const feedback={actionFeedback:[{reportId:id(1),outcome:'positive',note:'见面聊得开心',recordedAt:1500,eventDate:'2026-10-01'},{reportId:id(1),outcome:'not_done',note:'更正：还没有行动',recordedAt:1800,eventDate:''},{reportId:id(1),outcome:'positive',note:'未来反馈不应该进入旧报告',recordedAt:3000,eventDate:'2026-10-03'}]};
 const correction=review(feedback,subject,id(2),[old,fresh]).cards.find(c=>c.kind==='feedback');assert.match(correction.title,/还没有执行/);assert.equal(correction.sources[0].date,'');assert.doesNotMatch(JSON.stringify(correction),/未来反馈/);
 
+
+const quotedMoment=report(1,[],{moments:{posts:[{date:"2026-10-01",content:"配文：“我现在住在上海。”",evidence:"动态1"}]}});
+const cross=review({},subject,id(2),[quotedMoment,report(2,["我现在住在深圳。"])]);
+assert.equal(cross.cards.length,1);assert.equal(cross.cards[0].sources[0].kind,"quoted-post");assert.match(cross.cards[0].sources[0].label,/朋友圈明确引文/);
+const exactMoment=report(1,[],{moments:{posts:[{content:"我现在住在上海。",date:"2026-10-01"}],behaviorClues:[{quote:"我现在住在上海。"}]}});
+assert.equal(review({},subject,id(2),[exactMoment,report(2,["我现在住在深圳。"])]).cards.length,1,"matching separately retained quote can be compared");
+for(const content of ["海报写着“我现在住在上海。”","转发朋友：“我现在住在上海。”","图片文字：“我现在住在上海。”","歌词：“我现在住在上海。”","配文：“朋友说我现在住在上海。”"]){
+ assert.equal(review({},subject,id(2),[report(1,[],{moments:{posts:[{content,date:"2026-10-01"}]}}),report(2,["我现在住在深圳。"])]).cards.length,0,"unattributed content: "+content);
+}
+assert.equal(review({},subject,id(2),[report(1,[],{moments:{posts:[{content:"他可能住在上海，照片像上海街景"}],behaviorClues:[{quote:"我现在住在上海。"}]}}),report(2,["我现在住在深圳。"])]).cards.length,0,"behavior quote must actually occur in post content");
+const statement=report(1,["我很重视沟通。"]);
+const scene=response=>({...report(2),report:{subjectId:subject,lines:[{id:"question",speaker:"self",timestampRaw:"2026-10-02",text:"我有点不舒服，可以把这件事聊清楚吗？"},{id:"answer",speaker:"other",text:response}]}});
+const closing=review({},subject,id(2),[statement,scene("没什么好谈的，你太敏感。")]).cards.find(c=>c.title.includes("分歧回应"));
+assert.ok(closing);assert.equal(closing.sources.length,3);assert.match(closing.explanation,/一次回应不能证明/);
+const opening=review({},subject,id(2),[statement,scene("我愿意听你说，我们一起商量。")]).cards.find(c=>c.title.includes("对应表达"));assert.ok(opening);assert.match(opening.explanation,/不等于已理解/);
+for(const reply of ["现在不方便，晚上再聊。","我累了，晚点聊。","我不是不想谈这个。","她说没什么好谈的。","好的","不要再联系我。"]){
+ assert.equal(review({},subject,id(2),[statement,scene(reply)]).cards.filter(c=>c.title.includes("沟通的自述")).length,0,"not disagreement avoidance: "+reply);
+}
+assert.equal(review({},subject,id(2),[statement,report(2,["没什么好谈的，你太敏感。"])]).cards.filter(c=>c.title.includes("沟通的自述")).length,0,"no visible disagreement context");
+assert.equal(review({},subject,id(2),[report(1,["我不重视沟通。"]),scene("没什么好谈的")]).cards.filter(c=>c.title.includes("沟通的自述")).length,0,"negated statement");
+const interrupted=scene("没什么好谈的");interrupted.report.lines.splice(1,0,{speaker:"unknown",text:"[无法识别]"});
+assert.equal(review({},subject,id(2),[statement,interrupted]).cards.filter(c=>c.title.includes("沟通的自述")).length,0,"unknown line interrupts adjacency");
+const split=report(2,[],{entries:[]});split.entries=[{lines:[{speaker:"self",text:"我有点不舒服，可以把这件事聊清楚吗？"}]},{lines:[{speaker:"other",text:"没什么好谈的"}]}];
+assert.equal(review({},subject,id(2),[statement,split]).cards.filter(c=>c.title.includes("沟通的自述")).length,0,"separate screenshot segments are not an adjacent response");
+console.log("PASS: exact quoted moments/chat cross-check, communication statement plus visible disagreement response, exclusions and adjacency.");
+
+
+const repeatCity=review({},subject,id(3),[report(1,["我现在住在上海。"]),report(2,["我现在住在深圳。"]),report(3,["我现在住在深圳。"])]);
+assert.equal(repeatCity.cards.length,0,"repeating latest stated city is not a new contradiction with older superseded city");
+const reversed=review({},subject,id(2),[report(1,["我现在住在上海。"]),report(2,[],{moments:{posts:[{content:"配文：“我现在住在深圳。”",date:"2026-10-02"}]}})]);
+assert.equal(reversed.cards[0].sources[1].kind,"quoted-post","chat to explicitly quoted moments also works");
+
 const sql=new DatabaseSync(':memory:');sql.exec(`CREATE TABLE coach_profiles(owner_id TEXT,consent_at INTEGER,paused INTEGER);CREATE TABLE coach_subjects(id TEXT,owner_id TEXT,status TEXT,data TEXT);CREATE TABLE coach_saved_reports(id TEXT,owner_id TEXT,subject_id TEXT,kind TEXT,status TEXT,result TEXT,created_at INTEGER,report_ids TEXT);CREATE TABLE coach_crush_threads(id TEXT,owner_id TEXT,subject_id TEXT);CREATE TABLE coach_crush_reports(id TEXT,thread_id TEXT,owner_id TEXT,status TEXT,result TEXT,created_at INTEGER);`);
 sql.prepare('INSERT INTO coach_profiles VALUES (?,?,?)').run('owner-a',1,0);sql.prepare('INSERT INTO coach_profiles VALUES (?,?,?)').run('owner-b',1,0);
 for(const [person,owner]of[[subject,'owner-a'],['person-b','owner-a'],['person-c','owner-b']])sql.prepare('INSERT INTO coach_subjects VALUES (?,?,?,?)').run(person,owner,'active','{}');

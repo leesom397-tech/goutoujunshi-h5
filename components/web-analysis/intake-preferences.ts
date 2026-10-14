@@ -33,6 +33,17 @@ export function rememberCaptureSubject(owner: string, libraryId: string, subject
   try { storage(store)?.setItem(key(owner, "library", libraryId), JSON.stringify({ subjectId })); } catch {}
 }
 
+/** Explicit choice wins. A new capture must not inherit an unrelated last-used person. */
+export function resolveIntakeIdentity(input: {owner:string;mode:string;allowedIds:string[];requestedSubjectId?:string|null;captureLibraryId?:string;targetSelf?:boolean}, store?:Store): IntakePreference & {source:"explicit"|"capture"|"history"|"none";needsChoice:boolean} {
+  const none = {subjectId:"",source:"none" as const,needsChoice:!input.targetSelf};
+  if(!input.owner||input.targetSelf)return none;
+  let subjectId="",source:"explicit"|"capture"|"history"|"none"="none";
+  if(typeof input.requestedSubjectId==='string') { subjectId=input.allowedIds.includes(input.requestedSubjectId)?input.requestedSubjectId:"";source=subjectId?"explicit":"none"; }
+  else if(input.captureLibraryId) { subjectId=captureIntakeSubject(input.owner,input.captureLibraryId,input.allowedIds,store);source=subjectId?"capture":"none"; }
+  else { subjectId=lastIntakeSubject(input.owner,input.mode,input.allowedIds,store);source=subjectId?"history":"none"; }
+  return {...readIntakePreference(input.owner,subjectId,store),source,needsChoice:!subjectId};
+}
+
 const fingerprints = new WeakMap<Blob, Promise<string>>();
 export function imageFingerprint(file: Blob): Promise<string> {
   let value = fingerprints.get(file);

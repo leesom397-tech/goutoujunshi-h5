@@ -20,9 +20,12 @@ import "@/components/web-analysis/web-analysis.css";
 import "./analyze-experience.css";
 import styles from "./analyze.module.css";
 import intake from "@/components/web-analysis/Intake.module.css";
-import { lastIntakeSubject, readIntakePreference, rememberIntakePreference, captureIntakeSubject, rememberCaptureSubject, uniqueIntakeImages } from "@/components/web-analysis/intake-preferences";
+import { resolveIntakeIdentity, readIntakePreference, rememberIntakePreference, rememberCaptureSubject, uniqueIntakeImages } from "@/components/web-analysis/intake-preferences";
 import { intakeHref, intakeReturnTo } from "@/components/web-analysis/intake-navigation";
 import { useIntakeDraft } from "@/components/web-analysis/useIntakeDraft";
+import { useAnalyzedIntake } from "@/components/web-analysis/useAnalyzedIntake";
+import { recordSuccessfulImages } from "@/components/web-analysis/intake-history";
+import { LiveAnalysis, type Recognition } from "@/components/web-analysis/LiveAnalysis";
 
 const analysisModes = [
   { key: "chat", label: "聊天截图", intent: "读懂这轮互动", description: "看情绪与回应，找到适合你的下一句。", upload: "上传双方聊天截图", tip: "截取完整对话，保留前后语境；按聊天的阅读顺序排列。", Icon: MessageSquare },
@@ -38,13 +41,19 @@ export default function AnalyzePage() {
   const [lastReport, setLastReport] = useState<Json | null>(null);
   const [restoringReport, setRestoringReport] = useState(false);
   const [dragging, setDragging] = useState(false);
-  const [clock, setClock] = useState(Date.now());
+  const [forceReanalyze, setForceReanalyze] = useState(false);
+  const [reviewBusy,setReviewBusy] = useState(false);
+  const reviewController = useRef<AbortController | null>(null);
   const [captureSource, setCaptureSource] = useState<{libraryId:string;sourceIds:string[]}|null>(null);
   const captureFiles = useRef(new WeakMap<File, string>());
   const preferenceHydrated = useRef("");
   const originalFiles = useRef(new WeakMap<File, File>());
   const [rememberedChoice, setRememberedChoice] = useState(false), [editPerson, setEditPerson] = useState(false), [materialNote, setMaterialNote] = useState(""), [returnTo, setReturnTo] = useState("");
   const [recoveryReady, setRecoveryReady] = useState(false);
+  const history = useAnalyzedIntake({scope:{owner:owner || "",subjectId:subject,mode,targetSelf,selfSide:side},files,enabled:recoveryReady && owner === restoredOwner && !account.loading && !task && !result});
+  const effectiveFiles = forceReanalyze ? files : history.fresh;
+  useEffect(() => { setForceReanalyze(false); setConsent(false); }, [files,subject,mode,targetSelf,side,owner]);
+  useEffect(() => { if(history.repeated.length)setConsent(false); }, [history.repeated.length]);
   const draft = useIntakeDraft({owner:owner || "",mode,subjectId:subject,targetSelf,files,selfSide:side,sameCity,compare,returnTo,previous,previousCount,captureSource,fileSourceIds:files.map(file => captureFiles.current.get(file) || "")}, recoveryReady && owner === restoredOwner && !account.loading && preferenceHydrated.current === owner, busy || preparing || !!task, !!result || restoringReport);
   function restoreDraft() {
     const saved = draft.available; if (!saved || saved.owner !== owner || files.length || task || busy || preparing) return;
@@ -52,12 +61,11 @@ export default function AnalyzePage() {
     setCaptureSource(saved.captureSource || null); saved.files.forEach((file,index) => { const source = saved.fileSourceIds?.[index]; if (source) captureFiles.current.set(file,source); });
     setReturnTo(value => value || intakeReturnTo(saved.returnTo)); setConsent(false); setError(""); setMaterialNote("已恢复材料与顺序。请核对后确认分析，恢复草稿不会扣积分。"); draft.dismiss();
   }
-  useEffect(() => { if(!busy)return; const timer=setInterval(()=>setClock(Date.now()),1000); return ()=>clearInterval(timer); }, [busy]);
   const [showAuth, setShowAuth] = useState(false), [pendingAuth, setPendingAuth] = useState(false), [authComplete, setAuthComplete] = useState(false);
-  useEffect(() => { const search = new URLSearchParams(window.location.search); const selected = search.get("mode") || search.get("kind"); if (["chat", "social", "moments", "profile"].includes(selected || "")) setMode(selected === "profile" ? "social" : selected!); setSubject(search.get("subjectId") || ""); setTargetSelf(search.get("target") === "self"); return () => { generation.current++; controller.current?.abort(); }; }, []);
+  useEffect(() => { const search = new URLSearchParams(window.location.search); const selected = search.get("mode") || search.get("kind"); if (["chat", "social", "moments", "profile"].includes(selected || "")) setMode(selected === "profile" ? "social" : selected!); setSubject(search.get("subjectId") || ""); setTargetSelf(search.get("target") === "self"); return () => { generation.current++; controller.current?.abort(); reviewController.current?.abort(); }; }, []);
   useEffect(() => { const next = files.map(file => URL.createObjectURL(file)); setPreviews(next); return () => next.forEach(URL.revokeObjectURL); }, [files]);
   useEffect(() => {
-    generation.current++; controller.current?.abort(); setRecoveryReady(false); setBusy(false); preparingRef.current=false; setPreparing(false); setPrevious(null); setPreviousCount(0); setConsent(false); setLinkConsent(false); setUrl(''); setLinkResult(null); setTask(null); setResult(null); setResultSources([]); setFiles([]); setStatus(null); setLastReport(null); setRestoringReport(false); setRestoredOwner(owner||null);setSameCity(false);
+    generation.current++; controller.current?.abort(); reviewController.current?.abort(); setReviewBusy(false); setRecoveryReady(false); setBusy(false); preparingRef.current=false; setPreparing(false); setPrevious(null); setPreviousCount(0); setConsent(false); setLinkConsent(false); setUrl(''); setLinkResult(null); setTask(null); setResult(null); setResultSources([]); setFiles([]); setStatus(null); setLastReport(null); setRestoringReport(false); setRestoredOwner(owner||null);setSameCity(false);
     setCaptureSource(null); captureFiles.current = new WeakMap(); originalFiles.current = new WeakMap(); preferenceHydrated.current = ""; setRememberedChoice(false); setEditPerson(false); setMaterialNote(""); setSubject(""); setSide(""); setTargetSelf(false); setCompare(true); setReturnTo(""); if(!owner)return; let current=true;
     const query=new URLSearchParams(window.location.search),savedId=query.get('reportId');
     setSubject(query.get('subjectId') || '');
@@ -106,10 +114,8 @@ export default function AnalyzePage() {
     preferenceHydrated.current = owner;
     if (task || query.has('reportId') || targetSelf) return;
     const allowed = account.people.map(person => String(person.id));
-    const requested = subject || query.get('subjectId') || '';
-    const chosen = requested && allowed.includes(requested) ? requested : captureSource ? captureIntakeSubject(owner, captureSource.libraryId, allowed) : query.has('subjectId') ? '' : lastIntakeSubject(owner, mode, allowed);
-    const saved = readIntakePreference(owner, chosen);
-    setSubject(chosen); setSide(saved.selfSide || ''); setSameCity(saved.sameCity === true); setRememberedChoice(!!chosen); setEditPerson(!chosen);
+    const saved = resolveIntakeIdentity({owner,mode,allowedIds:allowed,requestedSubjectId:subject || (query.has('subjectId') ? query.get('subjectId') : undefined),captureLibraryId:captureSource?.libraryId,targetSelf});
+    setSubject(saved.subjectId); setSide(saved.selfSide || ''); setSameCity(saved.sameCity === true); setRememberedChoice(!!saved.subjectId); setEditPerson(saved.needsChoice);
   }, [owner, restoredOwner, account.loading, account.people, captureSource, task, targetSelf, subject, mode]);
   function choosePerson(value: string) {
     if (disabled) return;
@@ -125,7 +131,7 @@ export default function AnalyzePage() {
     setSide(value); setConsent(false); setResult(null); setRememberedChoice(false);
     rememberIntakePreference(owner || '', mode, {subjectId:subject, selfSide:value as 'left'|'right'});
   }
-  const costKey = mode === "chat" ? files.length <= 3 ? "analysisSmall" : files.length <= 6 ? "analysisMedium" : "analysisLarge" : "profile";
+  const costKey = mode === "chat" ? (task?.files.length || effectiveFiles.length) <= 3 ? "analysisSmall" : (task?.files.length || effectiveFiles.length) <= 6 ? "analysisMedium" : "analysisLarge" : "profile";
   const disabled = busy || preparing || !!task;
   async function changeMode(next: string) {
     if (disabled || preparingRef.current || next === mode) return;
@@ -209,9 +215,11 @@ export default function AnalyzePage() {
     try {
       const completed = await runUpload(currentTask, value=>{if(!abort.signal.aborted)onStatus(value);}, abort.signal);
       if (abort.signal.aborted) return;
+      if (completed.status === "awaiting_review") { setStatus(completed); return; }
       const savedResult = { ...completed.result, ...(currentTask.parameters.captureOrigin ? {captureOrigin:true} : {}), ...(currentTask.mode === "chat" ? {selfSide:currentTask.parameters.selfSide} : {}), subjectId: currentTask.parameters.subjectId || null, targetSelf: currentTask.parameters.target === "self", totalCount: completed.totalCount || completed.result?.totalCount || (currentTask.parameters.previousCount || 0) + currentTask.files.length };
       if (currentTask.parameters.subjectId && currentTask.parameters.target !== "self") rememberIntakePreference(currentTask.owner, currentTask.mode, {subjectId:currentTask.parameters.subjectId, ...(currentTask.mode === "chat" ? {selfSide:currentTask.parameters.selfSide} : {sameCity:currentTask.parameters.knownContext?.sameCity===true})});
       const savedId = savedResult.reportId || savedResult.entries?.[0]?.id;
+      if (savedId) void recordSuccessfulImages({owner:currentTask.owner,subjectId:currentTask.parameters.subjectId || "",mode:currentTask.mode,targetSelf:currentTask.parameters.target === "self",selfSide:savedResult.selfSide},currentTask.files,{status:completed.status,reportId:savedId,partial:completed.partial === true || savedResult.partial === true || savedResult.decision?.partial === true || (Array.isArray(savedResult.entries) && savedResult.entries.some((entry:Json)=>entry.partial===true || entry.decision?.partial===true || entry.incomplete===true)),incomplete:savedResult.incomplete === true});
       if (savedId) {
         const nextUrl = new URL(window.location.href);
         nextUrl.searchParams.set('reportId', savedId); nextUrl.searchParams.set('mode', currentTask.mode);
@@ -247,11 +255,54 @@ export default function AnalyzePage() {
       }
     } finally { if (!abort.signal.aborted) setBusy(false); }
   }
-  async function submit() { if (busy || !owner) return; if (task) { await execute(task); return; } if (!hasPrice(account.account, costKey)) { setError("本次价格暂未取回，请重新读取价格后再开始。"); return; } if (!files.length) { setError("先选择至少一张截图。"); return; } if (mode === "chat" && !["left", "right"].includes(side)) { setError("请确认截图里哪侧气泡是你。"); return; } if (!consent) { setError("请确认材料提供权与本次处理范围。"); return; } setBusy(true); setError(""); const activeGeneration = generation.current; try { if (mode === "chat") await api("/api/web/settings", { consent: true, allowImageProcessing: true, selfSide: side }); if (activeGeneration !== generation.current) return; const next: UploadTask = { owner, returnTo, taskId: crypto.randomUUID(), path: mode === "chat" ? "/api/web/screenshot/batch" : "/api/web/social-profile", mode, files, expiresAt: Date.now() + 86_400_000, parameters: { confirmed: true, ...(captureSource?{captureOrigin:true,captureSource:{libraryId:captureSource.libraryId,sourceIds:files.map(file=>captureFiles.current.get(file)).filter(Boolean)}}:{}), ...(mode === "chat" ? { selfSide: side, sessionId: crypto.randomUUID(), subjectId: subject || null } : { materialType: mode === "moments" ? "moments" : "profile", knownContext: {sameCity: !targetSelf && sameCity}, target: targetSelf ? "self" : "other", compareWithSelf: !targetSelf && compare, subjectId: targetSelf ? null : subject || null, previous: previous ? { ...previous, fit: !targetSelf && compare ? previous.fit : [] } : null, previousCount }) } }; await uploadStore(owner, next); if (activeGeneration !== generation.current) return; void draft.discard(); setTask(next); await execute(next); } catch (e) { setError(message(e)); setBusy(false); } }
-  async function cancel() { if (!task || busy) return; setBusy(true); setError(""); try { try { await api(task.path, { taskId: task.taskId, uploadAction: "cancel" }); } catch (e) { if (![404, 410].includes((e as WebError).status)) throw e; } await uploadStore(task.owner, null); setTask(null); setStatus(null); setConsent(false); void account.refresh(); } catch (e) { setError(message(e)); } finally { setBusy(false); } }
-  async function analyzeLink() { if (busy || !owner) return; if (!linkConsent) { setError("请确认读取公开主页并建立人物档案。"); return; } const activeGeneration = generation.current; setBusy(true); setError(""); try { linkId.current ||= crypto.randomUUID(); const data = await api("/api/web/social-link", { url: url.trim(), confirmed: true, requestId: linkId.current }); if (activeGeneration !== generation.current) return; setLinkResult(data); setSubject(data.subjectId || ""); linkId.current = null; void account.refresh(); } catch (e) { setError(message(e)); if ((e as WebError).details?.code === "CREDIT_RELEASED") linkId.current = null; } finally { setBusy(false); } }
+  async function submit() { if (busy || !owner) return; if (task) { await execute(task); return; } if (!hasPrice(account.account, costKey)) { setError("本次价格暂未取回，请重新读取价格后再开始。"); return; } if (!history.ready || history.checking) { setError("正在核对重复材料，请稍等。"); return; } if (!effectiveFiles.length) { setError(files.length ? "这些截图已有报告，可以直接回看，或选择重新分析。" : "先选择至少一张截图。"); return; } if (mode === "chat" && !["left", "right"].includes(side)) { setError("请确认截图里哪侧气泡是你。"); return; } if (!consent) { setError("请确认材料提供权与本次处理范围。"); return; } setBusy(true); setError(""); const activeGeneration = generation.current; try { if (mode === "chat") await api("/api/web/settings", { consent: true, allowImageProcessing: true, selfSide: side }); if (activeGeneration !== generation.current) return; const next: UploadTask = { owner, returnTo, taskId: crypto.randomUUID(), path: mode === "chat" ? "/api/web/screenshot/batch" : "/api/web/social-profile", mode, files:effectiveFiles, expiresAt: Date.now() + 86_400_000, parameters: { confirmed: true, ...(captureSource?{captureOrigin:true,captureSource:{libraryId:captureSource.libraryId,sourceIds:effectiveFiles.map(file=>captureFiles.current.get(file)).filter(Boolean)}}:{}), ...(mode === "chat" ? { reviewOnDoubt:true, selfSide: side, sessionId: crypto.randomUUID(), subjectId: subject || null } : { materialType: mode === "moments" ? "moments" : "profile", knownContext: {sameCity: !targetSelf && sameCity}, target: targetSelf ? "self" : "other", compareWithSelf: !targetSelf && compare, subjectId: targetSelf ? null : subject || null, previous: previous ? { ...previous, fit: !targetSelf && compare ? previous.fit : [] } : null, previousCount }) } }; await uploadStore(owner, next); if (activeGeneration !== generation.current) return; void draft.discard(); setFiles(next.files); setTask(next); await execute(next); } catch (e) { if(activeGeneration===generation.current){setError(message(e)); setBusy(false);} } }
+  async function reviewIdentity(currentTask: UploadTask,signal:AbortSignal) {
+    const identity=await api("/api/account/credits",undefined,signal);
+    if(identity.account?.userId!==currentTask.owner)throw new WebError("登录账号已变化，请回到原账号继续。",401);
+  }
+  async function confirmReview(recognition:Recognition) {
+    if(!task || busy || reviewBusy || status?.status!=="awaiting_review")return;
+    const currentTask=task,activeGeneration=generation.current,abort=new AbortController();
+    reviewController.current?.abort();reviewController.current=abort;setReviewBusy(true);setError("");
+    try {
+      await reviewIdentity(currentTask,abort.signal);
+      if(activeGeneration!==generation.current || abort.signal.aborted)return;
+      await api(currentTask.path,{taskId:currentTask.taskId,reviewAction:"confirm",confirmed:true,index:recognition.index,requestId:recognition.requestId,revision:recognition.revision,selfSide:recognition.selfSide,lines:recognition.lines},abort.signal);
+      if(activeGeneration!==generation.current || abort.signal.aborted)return;
+      setReviewBusy(false);await execute(currentTask);
+    } catch(cause) {
+      if(activeGeneration!==generation.current||abort.signal.aborted)return;
+      setError(message(cause));
+      // The server may have accepted confirmation before the response was lost.
+      // Read the same task before offering any retry; never create another job.
+      try {
+        const fresh=await api(currentTask.path+"?taskId="+encodeURIComponent(currentTask.taskId),undefined,abort.signal);
+        if(activeGeneration!==generation.current||abort.signal.aborted)return;
+        setStatus(fresh);
+        if(fresh.status!=="awaiting_review"){setReviewBusy(false);await execute(currentTask);}
+      }catch{/* Keep the review and a visible same-task recovery action. */}
+    }
+    finally {if(activeGeneration===generation.current&&!abort.signal.aborted)setReviewBusy(false);}
+  }
+  async function cancel() {
+    if(!task || busy || reviewBusy)return;
+    const currentTask=task,activeGeneration=generation.current,abort=new AbortController(),review=status?.status==="awaiting_review";
+    reviewController.current?.abort();reviewController.current=abort;setReviewBusy(true);setError("");
+    try {
+      await reviewIdentity(currentTask,abort.signal);
+      if(activeGeneration!==generation.current || abort.signal.aborted)return;
+      try {await api(currentTask.path,{taskId:currentTask.taskId,...(review?{reviewAction:"cancel"}:{uploadAction:"cancel"})},abort.signal);} catch(cause) {if(![404,410].includes((cause as WebError).status))throw cause;}
+      const partial=review?await api(currentTask.path+"?taskId="+encodeURIComponent(currentTask.taskId),undefined,abort.signal).then(value=>value.partialResult).catch(()=>status?.partialResult):null;
+      await uploadStore(currentTask.owner,null);
+      if(activeGeneration!==generation.current || abort.signal.aborted)return;
+      setTask(null);setStatus(null);setConsent(false);
+      if(partial?.entries?.length){setResult({...partial,subjectId:currentTask.parameters.subjectId||null,selfSide:currentTask.parameters.selfSide,incomplete:true,totalCount:currentTask.files.length});setResultSources(currentTask.files);setFiles([]);}
+      void account.refresh();
+    }catch(cause){if(activeGeneration===generation.current&&!abort.signal.aborted)setError(message(cause));}
+    finally{if(activeGeneration===generation.current&&!abort.signal.aborted)setReviewBusy(false);}
+  }
+  async function analyzeLink() { if (busy || !owner) return; if (!linkConsent) { setError("请确认读取公开主页并建立人物档案。"); return; } const activeGeneration = generation.current; setBusy(true); setError(""); try { linkId.current ||= crypto.randomUUID(); const data = await api("/api/web/social-link", { url: url.trim(), confirmed: true, requestId: linkId.current }); if (activeGeneration !== generation.current) return; setLinkResult(data); setSubject(data.subjectId || ""); linkId.current = null; void account.refresh(); } catch (e) { if(activeGeneration===generation.current){setError(message(e)); if ((e as WebError).details?.code === "CREDIT_RELEASED") linkId.current = null;} } finally { if(activeGeneration===generation.current)setBusy(false); } }
   function continueBatch() { if (!result || disabled) return; setPrevious(socialPrevious(result)); setPreviousCount(result.totalCount || 0); setResult(null); setResultSources([]); setConsent(false); window.scrollTo({ top: 0, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" }); }
-  const total = status?.imageCount || task?.files.length || files.length, completed = status?.status === "uploading" ? status.uploadedCount ?? (Array.isArray(status.received) ? status.received.length : 0) : status?.recognizedCount || status?.completedCount || 0;
   const visibleResult = owner && owner === restoredOwner ? result : null; const reports: Json[] = visibleResult?.entries || [], combined = mergeChatReports(reports);
 
   const selectedMode = analysisModes.find(item => item.key === mode) || analysisModes[0];
@@ -263,7 +314,6 @@ export default function AnalyzePage() {
   const selectedPerson = account.people.find(person => person.id === subject);
   const resultSubject = visibleResult?.subjectId || combined?.subjectId;
   const resultCount = visibleResult?.totalCount || reports.length;
-  const partialEntries: Json[] = Array.isArray(status?.partialResult?.entries) ? status.partialResult.entries : [];
   const steps = [
     { label: "添加材料", detail: hasMaterials ? visibleResult ? "材料已处理" : files.length + " 张已选择" : "选择清晰截图", Icon: CloudUpload },
     { label: "确认分析", detail: currentStep > 2 ? "范围已确认" : "身份、费用与授权", Icon: FileCheck2 },
@@ -292,7 +342,8 @@ export default function AnalyzePage() {
         })}
       </ol>}
 
-      {!visibleResult && !restoringReport && <>
+      {task && !visibleResult && !restoringReport && <LiveAnalysis taskId={task.taskId} status={status} imageCount={task.files.length} previews={previews} busy={busy} reviewBusy={reviewBusy} error={error} onResume={()=>void execute(task)} onCancel={()=>void cancel()} onConfirmReview={recognition=>void confirmReview(recognition)}/>}
+      {!visibleResult && !restoringReport && !task && <>
         {owner && !targetSelf && selectedPerson && <section className={intake.remembered} aria-label="当前分析人物"><UserRound size={22}/><div><strong>继续了解 {selectedPerson.label}</strong><small>{mode === 'chat' && side ? `已沿用：${side==='left'?'左侧':'右侧'}是我 · ` : ''}新增材料会结合这个人物已有的资料；选错可以直接更换。</small></div>{editPerson?<PersonSelect people={account.people} value={subject} disabled={disabled} onChange={choosePerson} empty="本次不关联人物"/>:<button type="button" disabled={disabled} onClick={()=>setEditPerson(true)}>换个人</button>}{mode==='chat'&&side&&<button type="button" disabled={disabled} onClick={()=>chooseSide(side==='left'?'right':'left')}>改为{side==='left'?'右侧':'左侧'}是我</button>}</section>}
         {!captureSource && <CaptureEntry kind={mode} subjectId={targetSelf?'':subject} returnTo={returnTo}/>}
         {captureSource && <p className="wa-status"><CheckCheck size={18}/>已带入采集截图。请核对顺序与身份，分析完成后可回看这些原图。</p>}
@@ -357,6 +408,7 @@ export default function AnalyzePage() {
                   {files.map((file, index) => <div className="wa-image" key={file.name + "-" + index}>
                     <a href={previews[index]} target="_blank" rel="noreferrer" aria-label={"查看第 " + (index + 1) + " 张截图原图"}><img src={previews[index]} alt={"第 " + (index + 1) + " 张待分析截图"}/><span className="ax-image-number">{index + 1}</span></a>
                     <small title={file.name}>{file.name}</small>
+                    {history.repeated.some(row=>row.index===index) && <span className={intake.hint}><CheckCheck size={14}/>已分析{forceReanalyze ? " · 将重新分析" : " · 本次跳过"}</span>}
                     <div className="wa-image-order">
                       <button type="button" aria-label={"第 " + (index + 1) + " 张前移"} disabled={disabled || index === 0} onClick={() => moveImage(index, -1)}><ArrowUp size={14}/>前移</button>
                       <button type="button" aria-label={"第 " + (index + 1) + " 张后移"} disabled={disabled || index === files.length - 1} onClick={() => moveImage(index, 1)}><ArrowDown size={14}/>后移</button>
@@ -365,6 +417,9 @@ export default function AnalyzePage() {
                   </div>)}
                 </div>
                 <p className={intake.hint}>{mode==='chat'?'保留对话前后文；表情包属于表达线索。照片、表情或文字看不清时，请点原图核对，不需要逐张填写说明。':'保留文字与图片所在的整页，不需要逐张描述。小图或模糊内容可点原图核对后替换。'}</p>
+                {history.checking && <p className={intake.hint} role="status">正在核对是否有已分析过的截图…</p>}
+                {history.unavailable && <p className={intake.hint}>暂时无法核对历史记录，本次保留全部截图，请核对费用。</p>}
+                {history.repeated.length>0 && <section className={intake.partial} aria-label="重复材料"><h3><CheckCheck size={19}/>{files.length-history.repeated.length} 张新材料，{history.repeated.length} 张已分析</h3><p>{forceReanalyze ? "本次会重新分析全部截图，并按全部张数计费。" : "已分析过的截图默认跳过，费用按本次实际提交数量计算。"}</p><div className={intake.quickActions}>{[...new Set(history.repeated.map(row=>row.reportId))].map(id=><a key={id} href={"/report?id="+encodeURIComponent(id)} target="_blank" rel="noopener noreferrer">回看已有报告<ArrowRight size={14}/></a>)}</div><label className="wa-check"><input type="checkbox" checked={forceReanalyze} onChange={e=>{setForceReanalyze(e.target.checked);setConsent(false);}}/><span>仍要重新分析这些图（按全部张数重新计费）</span></label></section>}
                 <a className="ax-next-link" href="#analysis-confirm">核对后开始<ArrowRight size={16}/></a>
               </>}
             </section>
@@ -401,27 +456,18 @@ export default function AnalyzePage() {
               </section>}
 
               <div className="ax-order-summary" aria-live="polite">
-                <div><span>{selectedMode.label}</span><strong>{files.length ? files.length + " 张待分析" : task ? "继续已保存的任务" : "等待添加截图"}</strong></div>
-                <div><span>{previousCount > 0 ? "本次补图费用" : "本次费用"}</span><strong>{priceLabel(account.account, costKey)}</strong></div>
+                <div><span>{selectedMode.label}</span><strong>{effectiveFiles.length ? effectiveFiles.length + " 张待分析" : task ? "继续已保存的任务" : "等待添加截图"}</strong></div>
+                <div><span>{previousCount > 0 ? "本次补图费用" : "本次费用"}</span><strong>{files.length && !effectiveFiles.length ? "0 积分 · 可回看已有报告" : priceLabel(account.account, costKey)}</strong></div>
               </div>
               <label className="wa-check ax-consent"><input type="checkbox" checked={consent} disabled={disabled} onChange={e => { setConsent(e.target.checked); if (error === "请确认材料提供权与本次处理范围。") setError(""); }}/><span>我有权提供这些材料，同意将本次图片发送至阿里云百炼进行分析。上传中的图片会临时保存在当前浏览器以便断线续传，任务完成或取消后删除本机临时图片。</span></label>
               {mode === "chat" && <p className="wa-muted ax-retention"><ShieldCheck size={15}/>报告和识别出的文字长期保存到历史报告，由你决定何时删除。原截图不归档。</p>}
               <ErrorNotice error={error}/>
 
-              {task && <section className="wa-status ax-task" aria-live="polite">
-                <div className="ax-task-title">{busy ? <LoaderCircle size={19} className="ax-spin"/> : <RotateCcw size={19}/>}<strong>{status?.status === "uploading" ? "上传中 · " + completed + "/" + total + " 张" : status?.status === "saved" ? "发现上次未完成的任务" : busy ? (status?.retryAt ? "连接恢复中" : status?.phase === "ocr" ? "正在识别聊天原文" : status?.phase === "text_analysis" ? "正在分析语气与互动信号" : status?.phase === "save" ? "正在保存完整报告" : status?.phase === "summarize" ? "正在整理人物评价" : "正在处理截图") + " · 第 " + Math.min(completed + 1, total) + "/" + total + " 张" : "任务已保留，点击继续"}</strong></div>
-                <p>{status?.startedAt ? "已用时 " + Math.max(0, Math.floor((clock-status.startedAt)/1000)) + " 秒。" : ""}{status?.retryAt ? "连接暂时不稳定，正在重试，不会重复扣费。" : status?.phase === "text_analysis" ? "原文已识别，正在生成逐句解读与回复建议。" : status?.phase === "save" ? "分析已完成，正在保存。" : status?.phase === "summarize" ? "识别完成，正在整理人物评价。" : "进度已保存，可以离开页面，稍后回来查看。"}</p>
-                <progress max={Math.max(1, total)} value={Math.min(completed, Math.max(1, total))} aria-label="已完成材料数量"/>
-                <div className={intake.phase} aria-label="当前处理阶段"><span data-active={status?.status==='uploading'} data-done={['queued','running','done'].includes(status?.status)}>上传材料</span><span data-active={['ocr','recognize'].includes(status?.phase)} data-done={['text_analysis','summarize','save'].includes(status?.phase)}>识别内容</span><span data-active={['text_analysis','summarize'].includes(status?.phase)} data-done={status?.phase==='save'}>结合资料分析</span><span data-active={status?.phase==='save'}>保存报告</span></div>
-                {partialEntries.length>0 && <section className={intake.partial}><h3><CheckCheck size={18}/> 已完成 {partialEntries.length} 张，先看这些判断</h3>{partialEntries.slice(-2).map((entry,index)=><p key={entry.id||index}>{entry.decision?.judgment||entry.decision?.summary||entry.summary||'这一张的报告已经保存。'}</p>)}<a href={'/report?id='+encodeURIComponent(task.taskId)} target="_blank" rel="noreferrer">查看已完成部分<ArrowRight size={14}/></a><p className={intake.hint}>其余材料仍在继续处理，完整结果会在这里更新。</p></section>}
-                {!partialEntries.length && status?.preview?.summary && <section className={intake.partial}><h3>已识别的内容</h3><p>{status.preview.summary}</p><p className={intake.hint}>正在结合其余材料整理完整结论。</p></section>}
-                <details><summary>任务详情</summary><small>任务编号：{task.taskId}</small></details>
-              </section>}
 
               <div className="wa-actions ax-submit-row">
-                <button className="wa-primary ax-submit" disabled={busy || preparing || !owner || (!task && (!files.length || !priceReady))} onClick={() => void submit()}>
+                <button className="wa-primary ax-submit" disabled={busy || preparing || !owner || (!task && (!effectiveFiles.length || !priceReady || history.checking || !history.ready))} onClick={() => void submit()}>
                   {busy ? <LoaderCircle size={18} className="ax-spin"/> : <ScanLine size={18}/>}
-                  {busy ? "正在处理…" : task ? "继续查看上次任务" : "开始分析 · " + priceLabel(account.account, costKey)}
+                  {busy ? "正在处理…" : task ? "继续查看上次任务" : !effectiveFiles.length && files.length ? "截图均已分析，可回看报告" : "开始分析 · " + priceLabel(account.account, costKey)}
                   {!busy && <ArrowRight size={17}/>}
                 </button>
                 {task && !busy && <button onClick={() => void cancel()}>取消未完成上传</button>}
@@ -444,7 +490,7 @@ export default function AnalyzePage() {
 
             <section className="wa-card ax-credit-card" aria-label="本次积分">
               <div className="ax-credit-heading"><Coins size={19}/><h2>费用先说清楚</h2></div>
-              <strong className="ax-credit-price">{priceLabel(account.account, costKey)}</strong>
+              <strong className="ax-credit-price">{files.length && !effectiveFiles.length ? "0 积分" : priceLabel(account.account, costKey)}</strong>
               <p>{mode === "chat" ? "1–3 / 4–6 / 7–9 张按组计费" : "每组资料分析，补图新批次另计费"}</p>
               {account.account && <div className="ax-balance"><span>当前可用<strong>{balance} 积分</strong></span><a href="/account#contact">购买 / 开通<ArrowRight size={14}/></a></div>}
               {needsCredits && !task && <p className="ax-credit-warning">当前余额不足，开通积分后再开始分析。</p>}
@@ -454,9 +500,6 @@ export default function AnalyzePage() {
         </div>
         {!hasMaterials && <div id="analysis-example"><AnalysisExample mode={mode as "chat" | "moments" | "social"} onUpload={requestUpload}/></div>}
       </>}
-
-      {status?.preview && !result && <section className="wa-card ax-live-preview"><h2>已识别内容 · 非最终结论</h2><p>{status.preview.summary}</p>{(status.preview.posts || []).map((post: Json, index: number) => <p key={index}>{post.date} · {post.content}</p>)}<p className="wa-muted">这里只展示部分截图内容，完整人物评价在全部材料整理后生成。</p></section>}
-      {status?.partialResult?.entries?.length > 0 && !result && <section className="wa-card ax-live-preview"><h2>已完成的部分</h2><p className="wa-muted">以下仅为已识别图片，整组报告仍在生成。</p>{status?.partialResult.entries.map((entry: Json, index: number) => <div className="wa-insight" key={entry.id || index}><strong>第 {index + 1} 张</strong><p>{entry.decision?.judgment || entry.decision?.possibleIntent}</p>{entry.decision?.observation && <p>{entry.decision.observation}</p>}{(entry.lines || []).slice(0, 8).map((line: Json, position: number) => <blockquote className="wa-quote" key={position}>{line.speaker === "self" ? "我" : line.speaker === "other" ? "对方" : "待确认"}：{line.text}</blockquote>)}{entry.id && <a href={"/report?id=" + entry.id}>查看逐句报告</a>}</div>)}</section>}
 
       <div ref={resultRef} id="analysis-result" className="ax-result" tabIndex={-1}>
         {visibleResult && <>

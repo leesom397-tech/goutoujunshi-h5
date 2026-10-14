@@ -9,7 +9,7 @@ export async function runUpload(task: UploadTask, status: (value: Json) => void,
   if (task.expiresAt <= Date.now()) { await uploadStore(task.owner, null); throw new WebError("上传任务已过期，已清除本机临时任务。可重新确认图片并提交。", 410, { terminal: true }); }
   await sameOwner(task, signal);
   let state = await api(task.path, { ...task.parameters, taskId: task.taskId, uploadAction: "init", autoStart: true, imageCount: task.files.length }, signal);
-  if (["done", "error", "expired", "cancelled"].includes(state.status)) state = await api(`${task.path}?taskId=${encodeURIComponent(task.taskId)}`, undefined, signal);
+  if (["done", "error", "expired", "cancelled", "awaiting_review"].includes(state.status)) state = await api(`${task.path}?taskId=${encodeURIComponent(task.taskId)}`, undefined, signal);
   status(state);
   if (state.status === "uploading") {
     const received = new Set<number>(Array.isArray(state.received) ? state.received : []);
@@ -23,6 +23,7 @@ export async function runUpload(task: UploadTask, status: (value: Json) => void,
     if (state.status === "uploading") { state = await api(task.path, { taskId: task.taskId, uploadAction: "commit" }, signal); status(state); }
   }
   for (let attempt = 0; attempt < 240; attempt++) {
+    if (state.status === "awaiting_review") return state;
     if (state.status === "done") { if (!state.result || typeof state.result !== "object") throw new WebError("已完成的报告暂未完整返回，任务已保留，请继续查看。"); await uploadStore(task.owner, null); return state; }
     if (["error", "expired", "cancelled"].includes(state.status)) { const error = new WebError(state.error || "本组分析未完成，预留积分将退回，可重新发起。", 410, { terminal: true, partialResult: state.partialResult, imageCount: state.imageCount }); await uploadStore(task.owner, null); throw error; }
     await pause(signal);

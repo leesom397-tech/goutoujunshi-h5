@@ -1,10 +1,11 @@
 "use client";
 import {isStickerPhotoClue} from "@/lib/screenshot-photo";
 import { useEffect, useState } from "react";
-import { ChartNoAxesCombined, Images, BookOpen, UserRound, ArrowUpRight, MessageCircle, HeartHandshake, Heart, CalendarCheck, CircleHelp, History, ShieldAlert, Quote, ArrowRight } from "lucide-react";
+import { ChartNoAxesCombined, Images, BookOpen, UserRound, ArrowUpRight, MessageCircle, HeartHandshake, Heart, CalendarCheck, CircleHelp, History, ShieldAlert, ShieldCheck, Quote } from "lucide-react";
 import { api, type Json } from "./client";
 import { CaptureEvidence } from "./CaptureEvidence";
-import { historicalTrend, interactionMetrics, profileLabels, reportAffinity, validScore, visibleSignalProfile } from "./report-data";
+import { profileLabels, reportAffinity, validScore } from "./report-data";
+import { interactionDashboard, interactionTrend, type InteractionCue } from './interaction-dashboard';
 import styles from "./ReportEvidence.module.css";
 
 export function AffinityRadar({ dimensions }: { dimensions: Json[] }) {
@@ -32,64 +33,69 @@ export function AffinityRadar({ dimensions }: { dimensions: Json[] }) {
   </div>;
 }
 
+function CueQuote({ cue }: { cue: InteractionCue }) {
+  return <div className={styles.cueQuote}>
+    {cue.context && <p className={styles.quoteContext}>我：{cue.context}</p>}
+    <span><Quote size={14}/>{cue.label} · 对方原话</span><blockquote>{cue.text}</blockquote><CaptureEvidence quote={cue.text}/>
+  </div>;
+}
+
+function InteractionHistory({ points }: { points: Json[] }) {
+  const first=Date.parse(points[0].eventEnd),last=Date.parse(points.at(-1)!.eventEnd);
+  const xy=(point:Json)=>[48+(Date.parse(point.eventEnd)-first)/(last-first)*624,142-point.score*1.12];
+  return <div className={styles.trendPlot}>
+    <svg viewBox="0 0 720 185" role="img" aria-label={points.map(row=>row.eventEnd+'：互动参考指数 '+row.score).join('；')}>
+      {[0,50,100].map(value=><g key={value}><line x1="48" x2="672" y1={142-value*1.12} y2={142-value*1.12} className={styles.trendGrid}/><text x="34" y={146-value*1.12} textAnchor="end">{value}</text></g>)}
+      <polyline points={points.map(row=>xy(row).join(',')).join(' ')} className={styles.trendLine}/>
+      {points.map(row=>{const [x,y]=xy(row);return <g key={row.reportId}><circle cx={x} cy={y} r="5"/><text x={x} y={y-12} textAnchor="middle">{row.score}</text></g>;})}
+      <text x="48" y="174" textAnchor="start">{points[0].eventEnd}</text><text x="672" y="174" textAnchor="end">{points.at(-1)!.eventEnd}</text>
+    </svg>
+    <div className={styles.trendDates}>{points.map(row=><a key={row.reportId} href={'/report?id='+encodeURIComponent(row.reportId)}>{row.eventEnd}<span>{row.score} / 100</span></a>)}</div>
+    <p>历史保留原模型的互动参考指数，不是好感概率；数值变化不能说明建议已奏效。</p>
+  </div>;
+}
+
 export function InteractionEvidence({ report, owner }: { report: Json; owner?: string }) {
-  const affinity = reportAffinity(report), dimensions: Json[] = Array.isArray(affinity?.dimensions) ? affinity.dimensions.filter((row: Json) => row && typeof row.label === "string").slice(0, 6) : [], score = validScore(affinity?.value) ? Math.round(affinity.value) : null, metrics = interactionMetrics(report.lines);
-  const visibleProfile = visibleSignalProfile(report.lines || []);
-  const maximumMatches = Math.max(1, ...visibleProfile.map(row => row.count));
-  const knownDimensions = dimensions.filter(row => row.status !== "insufficient" && validScore(row.value)).length;
-  const visibleCount = visibleProfile.filter(row => row.count > 0).length;
-  const brief = (value: unknown, max = 110) => {
-    const text = typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
-    const sentence = text.match(/^.*?[。！？]/)?.[0] || text;
-    return sentence.length > max ? sentence.slice(0, max) + "…" : sentence;
-  };
-  const judgment = brief(report.decision?.judgment);
-  const evidence = typeof report.decision?.evidence === "string" ? report.decision.evidence.trim() : "";
-  const nextStep = brief(report.decision?.nextStep, 150);
-  const scoreScope = affinity?.valueScope === "full" ? "六维完整参考" : affinity?.valueScope === "partial" ? "已知维度参考" : "本轮参考";
-  const insufficientReason = knownDimensions ? "单项已有数据；当前材料不足以合成总分。" : metrics.otherTurnCount ? "暂未生成模型指数，以下展示原话中可数的线索。" : "缺少可读的对方原话，暂不计分。";
-  const [memory, setMemory] = useState<Json | null>(null);
-  const [trend, setTrend] = useState({ title: "待对照历史", note: "本次未关联人物，暂不对照历史。" }), [loading, setLoading] = useState(false);
-  useEffect(() => {
-    const controller = new AbortController();
-    setTrend({ title: "待对照历史", note: "本次未关联人物，暂不对照历史。" }); setMemory(null); setLoading(false);
-    if (!owner || !report.subjectId || !report.id) return () => controller.abort();
-    setLoading(true);
-    void api("/api/web/profile", undefined, controller.signal).then(profile => {
-      if (controller.signal.aborted) return;
-      if (!profile.enabled || profile.paused || !(profile.subjects || []).some((person: Json) => person.id === report.subjectId)) { setTrend({ title: "待对照历史", note: "当前人物档案未启用，暂不读取长期趋势。" }); return; }
-      setTrend(historicalTrend((profile.trends || []).find((item: Json) => item.subjectId === report.subjectId)?.points, report.subjectId, report.id));
-      setMemory((profile.signalHistory || []).filter((item: Json) => item.subjectId === report.subjectId && item.reportId !== report.id && Array.isArray(item.dimensions)).at(-1) || null);
-    }).catch(() => { if (!controller.signal.aborted) setTrend({ title: "历史暂未取回", note: "本次分析仍可查看，稍后可到人物档案查看长期趋势。" }); }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
-    return () => controller.abort();
-  }, [owner, report.id, report.subjectId]);
-  const signalIcons = [ArrowUpRight, MessageCircle, HeartHandshake, UserRound, Heart, CalendarCheck];
+  const dashboard=interactionDashboard(report), affinity=reportAffinity(report);
+  const dimensions:Json[]=Array.isArray(affinity?.dimensions)?affinity.dimensions.filter((row:Json)=>row&&typeof row.label==='string').slice(0,6):[];
+  const scope=[owner,report.subjectId,report.id].join('|');
+  const initial={title:'暂不能比较趋势',note:'还没有两段日期明确、去重且可比的独立互动。',delta:null,points:[] as Json[]};
+  const [historical,setHistorical]=useState<{scope:string;loading:boolean;trend:ReturnType<typeof interactionTrend>}|null>(null);
+  const current=historical?.scope===scope?historical:null,trend=current?.trend||initial;
+  useEffect(()=>{
+    const controller=new AbortController();
+    if(!owner||!report.subjectId||!report.id)return ()=>controller.abort();
+    setHistorical({scope,loading:true,trend:initial});
+    void (async()=>{
+      const account=await api('/api/account/credits',undefined,controller.signal);
+      if(controller.signal.aborted||account.account?.userId!==owner)return;
+      const profile=await api('/api/web/profile',undefined,controller.signal);
+      if(controller.signal.aborted)return;
+      if(!profile.enabled||profile.paused||!(profile.subjects||[]).some((person:Json)=>person.id===report.subjectId))return;
+      const value=interactionTrend((profile.trends||[]).find((row:Json)=>row.subjectId===report.subjectId)?.points,report.subjectId,report.id);
+      setHistorical({scope,loading:false,trend:value});
+    })().catch(()=>{if(!controller.signal.aborted)setHistorical({scope,loading:false,trend:{...initial,note:'历史暂未取回，本次的原话与线索仍可查看。'}});}).finally(()=>{if(!controller.signal.aborted)setHistorical(previous=>previous?.scope===scope?{...previous,loading:false}:previous);});
+    return ()=>controller.abort();
+  },[owner,report.id,report.subjectId,scope]);
+  const icons=[ArrowUpRight,MessageCircle,CalendarCheck,ShieldCheck];
+  let offset=0;
   return <section className={`wa-card ${styles.section}`} id="signals">
-    <h2><HeartHandshake size={23}/>好感信号</h2>
-    <div className={styles.affinitySummary} data-scored={score !== null}>
-      {score !== null ? <div className={styles.scoreRing} role="img" aria-label={`好感信号指数 ${score}/100，${scoreScope}；不是喜欢你的概率`}>
-        <svg viewBox="0 0 180 180" aria-hidden="true"><circle className={styles.ringTrack} cx="90" cy="90" r="78"/><circle className={styles.ringValue} cx="90" cy="90" r="78" pathLength="100" strokeDasharray="100" strokeDashoffset={100 - score} style={{ opacity: score === 0 ? 0 : 1 }}/></svg>
-        <div className={styles.ringContent}><Heart size={18} aria-hidden="true"/><strong>{score}<small>/100</small></strong><span>好感信号指数</span></div>
-      </div> : <div className={styles.scoreMissing}><CircleHelp size={24} aria-hidden="true"/><span>{knownDimensions ? "已有可判断的维度" : "本段可见线索"}</span><strong>{knownDimensions || visibleCount}<small>/6 项</small></strong><small>总指数待了解</small></div>}
-      <div className={styles.signalContext}>
-        <div className={styles.scopePills}><span>{score === null ? "暂不合成总分" : scoreScope}</span><span>有依据 {knownDimensions} / 6 维</span></div>
-        {judgment && <h3>{judgment}</h3>}
-        {score === null && <p className={styles.insufficient}>{insufficientReason}</p>}
-        <p className={styles.scoreNote}>指数来自本轮可见互动，不是对方喜欢你的概率。缺失维度不当作 0 分。</p>
+    <h2><HeartHandshake size={23}/>互动仪表</h2>
+    <p className={styles.dashboardIntro}>先看四件事：谁主动、怎么回应、有没有具体行动、是否尊重边界。</p>
+    {dashboard.priority&&<div className={styles.priority} role="note" aria-label="优先处理的边界或风险"><ShieldAlert size={22}/><div><strong>{dashboard.priority.title}</strong><p>{dashboard.priority.text}</p>{dashboard.priority.evidence&&<blockquote>{dashboard.priority.evidence}</blockquote>}</div></div>}
+    <div className={styles.composition}>
+      <div className={styles.donut}>
+        <svg viewBox="0 0 200 200" role="img" aria-label={dashboard.total?`四类线索构成，共 ${dashboard.total} 次匹配；同一句可匹配多类，不是好感概率`:'本段尚未匹配到可核对的四类线索'}>
+          <circle cx="100" cy="100" r="82" className={styles.donutTrack}/>
+          {dashboard.dimensions.filter(row=>row.count>0).map(row=>{const share=row.count/dashboard.total*100,start=offset;offset+=share;return <circle key={row.key} cx="100" cy="100" r="82" pathLength="100" stroke={row.color} strokeDasharray={`${share} ${100-share}`} strokeDashoffset={-start} className={styles.donutSegment}/>;})}
+        </svg><div><strong>{dashboard.total||'—'}</strong><span>{dashboard.total?'次线索匹配':'暂缺明确线索'}</span></div>
       </div>
+      <div className={styles.compositionBody}><h3>{dashboard.summary}</h3><div className={styles.legend}>{dashboard.dimensions.map((row,index)=>{const Icon=icons[index];return <div key={row.key}><span><i style={{background:row.color}}/><Icon size={17}/>{row.label}</span><strong>{dashboard.otherCount?row.count:'—'}<small>{dashboard.otherCount?' 次':''}</small></strong>{dashboard.total>0&&<small>{Math.round(row.count/dashboard.total*100)}%</small>}</div>;})}</div><p>占比按四类线索的总匹配次数计算；同一句可归入多类。包含边界提醒，不能把扇区大小理解为好感程度。</p></div>
     </div>
-    {(affinity?.boundaryApplied || metrics.boundary) && <p className={styles.boundary}><ShieldAlert size={19}/>对方表达了明确边界，先停止推进。</p>}
-    {(evidence || nextStep) && <div className={styles.signalBasis}>
-      {evidence && <div><span><Quote size={17} aria-hidden="true"/>判断依据 · 原话</span><blockquote>{evidence}</blockquote><CaptureEvidence quote={evidence}/></div>}
-      {nextStep && <div><span><ArrowRight size={17} aria-hidden="true"/>接下来怎么做</span><p>{nextStep}</p></div>}
-    </div>}
-    {knownDimensions > 0 ? <AffinityRadar dimensions={dimensions}/> : <div className={styles.fallback}>
-      <h3><ChartNoAxesCombined size={18}/>原话线索 · 按出现次数</h3>
-      <div className={styles.countGrid}>{visibleProfile.map((row, index) => { const Icon = signalIcons[index]; return <div className={styles.countRow} key={row.key}><div><span><Icon size={19}/>{row.label}</span><strong>{metrics.otherTurnCount ? <>{row.count}<small>句</small></> : "待了解"}</strong></div><div className={styles.track} aria-hidden="true"><i style={{ width: `${row.count / maximumMatches * 100}%` }}/></div><p>{row.evidence[0] ? `“${row.evidence[0]}”` : "本段未见对应原话"}</p></div>; })}</div>
-      <p className={styles.chartNote}>仅按可见原话统计；0 句表示本段未见，不是对方没有好感。</p>
-    </div>}
-    {owner && report.subjectId && <div className={styles.history}><History size={19}/><div><strong>{loading ? "正在对照之前的互动…" : trend.title}</strong><p>{trend.note}</p>{memory && <small>上次记录：{(memory.dimensions || []).filter((row: Json) => validScore(row.value)).length} 项有数据。历史记录与本次材料分别保留。</small>}</div></div>}
-    {report.affinityError && !knownDimensions && <p className={styles.chartNote}>{report.affinityError}</p>}
+    <div className={styles.sampleBar} aria-label="本次样本与依据"><span>可读原话 <strong>{dashboard.readableCount}</strong> 句</span><span>其中对方 <strong>{dashboard.otherCount}</strong> 句</span><span>依据把握：<strong>{dashboard.basis}</strong></span></div>
+    <div className={styles.fourDimensions}>{dashboard.dimensions.map((row,index)=>{const Icon=icons[index];return <article key={row.key} className={styles.cueCard} data-interaction-dimension={row.key} style={{borderTopColor:row.color}}><header><Icon size={22} style={{color:row.color}}/><h3>{row.label}</h3><strong>{dashboard.otherCount?row.count:'—'}<small>{dashboard.otherCount?' 处':''}</small></strong></header><h4>{row.conclusion}</h4>{row.cues[0]&&<CueQuote cue={row.key==='investment'?(row.cues.find(cue=>cue.kind==='已做自述')||row.cues[0]):row.cues[0]}/>}<p className={styles.cueBasis}>{row.basis}</p></article>;})}</div>
+    <details className={styles.referenceDetails}><summary>核对全部匹配原话与原模型参考</summary><div className={styles.allCues}>{dashboard.dimensions.map(row=><section key={row.key}><h3>{row.label} · {row.count} 处</h3>{row.cues.length?row.cues.map((cue,index)=><CueQuote key={cue.id+'-'+index} cue={cue}/>):<p className={styles.chartNote}>本段未见对应场景；不代表对方长期如此。</p>}</section>)}</div>{dimensions.length>0&&<><h3 className={styles.referenceTitle}>原模型六维参考</h3><p className={styles.chartNote}>与上方原话计数分别展示。没有依据的维度保留为空。</p><AffinityRadar dimensions={dimensions}/></>}</details>
+    {owner&&report.subjectId&&<div className={styles.history}><History size={20}/><div><strong>{current?.loading?'正在核对历史日期与重复材料…':trend.points.length>=2?trend.title:'暂不能比较趋势'}</strong>{trend.points.length>=2?<><p>{trend.note}</p><InteractionHistory points={trend.points}/></>:<p>{trend.note}</p>}</div></div>}
   </section>;
 }
 
