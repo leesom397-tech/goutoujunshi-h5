@@ -33,6 +33,8 @@ assert.deepEqual(recoverProfileFields(restored, facts, "person-a"), restored, "p
 assert.deepEqual(recoverProfileFields({}, facts, null), { city: "本人城市" }, "self profile excludes other people");
 assert.deepEqual(recoverProfileFields({}, facts, "person-b"), { values: "另一个人的价值观" });
 assert.deepEqual(recoverProfileFields({}, facts, "unknown"), {});
+assert.deepEqual(recoverProfileFields({city:""},facts,null),{city:""},"an explicit clear is not revived from accepted facts");
+assert.deepEqual(recoverProfileFields({city:null},facts,null),{city:null},"legacy explicitly empty values stay empty; only absent keys recover");
 assert.deepEqual(facts, before, "projection never rewrites source memories");
 assert.deepEqual(stored, { city: "手填城市", notes: "保留备注", socialProfileTask: "transient-task" }, "stored object is not mutated");
 console.log("PASS: seven basic fields, accepted-only recovery, self/person isolation, legacy labels, manual-value preservation, idempotency and no source mutation");

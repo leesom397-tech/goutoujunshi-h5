@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { Mic, Send, Phone, Square, MessageCircle, ScanLine, Compass, Plus, ArrowUpRight, Quote, SlidersHorizontal, CalendarDays, ShieldCheck, Coins, UserRound, ChevronRight } from "lucide-react";
+import { Mic, Send, Phone, Square, MessageCircle, ScanLine, Compass, Plus, ArrowUpRight, Quote, SlidersHorizontal, ShieldCheck, Coins, UserRound, ChevronRight } from "lucide-react";
 import { AssistantEmblem } from "@/components/web-analysis/Visuals";
 import { AuroraPageHero } from "@/components/AuroraPageHero";
 import styles from "./chat.module.css";
@@ -12,14 +12,10 @@ import { restoreConversation, conversationHistory, fitConversationRequest } from
 import "@/components/web-analysis/web-analysis.css";
 
 const conversationPresets = [
-  { id: "signals", title: "看懂 TA 的态度", hint: "把行为和自己的猜测分开", mode: "conversation", draft: "最近让我在意的一次互动是：\n我观察到的具体行为：\n我最想弄清楚的是：", icon: MessageCircle },
+  { id: "signals", title: "看懂 TA 的态度", hint: "把行为和自己的猜测分开", mode: "conversation", draft: "帮我看看下面这段互动里，对方是什么态度？\n", icon: MessageCircle },
   { id: "reply", title: "斟酌一句回复", hint: "自然表达，也照顾自己的边界", mode: "chat", draft: "我想表达的是：", icon: Quote },
-  { id: "invite", title: "自然发起邀约", hint: "一起推敲时机、说法和后续", mode: "conversation", draft: "我想约 TA 见面。\n我们目前的关系和最近互动：\n我想邀请的活动：\n请帮我判断时机，并拟一句自然、允许对方拒绝的邀约。", icon: CalendarDays },
-  { id: "boundaries", title: "把边界说清楚", hint: "既不委屈自己，也不伤害对方", mode: "conversation", draft: "让我不舒服的具体情况是：\n我能接受和不能接受的是：\n请帮我把感受和边界表达清楚。", icon: ShieldCheck },
-  { id: "needs", title: "理清我的期待", hint: "看见自己真正需要的相处方式", mode: "positioning", draft: "这段关系里，我最在意的是：\n我希望得到的相处方式：\n现在让我犹豫的地方：", icon: Compass },
-  { id: "practice", title: "练习一次沟通", hint: "带着真实场景，先把话练一遍", mode: "conversation", draft: "我想练习一次真实的沟通。\n对象和场景：\n我原本打算这样说：\n请先指出容易被误解的地方，给一版自然表达，再模拟对方的一种可能回应，让我继续练习。", icon: MessageCircle },
-  { id: "followup", title: "聊聊后来的进展", hint: "带着真实回应，调整下一步", mode: "conversation", draft: "这是最近的新回应或刚发生的事：\n\n请结合已有材料，告诉我判断有没有变化，以及现在最合适的一步。", icon: CalendarDays },
-  { id: "meeting", title: "见面前准备", hint: "结合共同话题，轻松聊起来", mode: "conversation", draft: "结合已有报告，帮我准备这次见面：3 个能自然聊起来的话题、1 句轻松的开场，以及需要留意的相处边界。引用已有依据，不补写未提供的个人经历。", icon: CalendarDays },
+  { id: "boundaries", title: "把边界说清楚", hint: "既不委屈自己，也不伤害对方", mode: "conversation", draft: "下面这种情况让我不舒服，怎么表达边界更合适？\n", icon: ShieldCheck },
+  { id: "needs", title: "看看适不适合我", hint: "结合你的偏好与现有资料", mode: "positioning", draft: "结合我已有的资料，帮我看看这种相处适不适合我：\n", icon: Compass },
 ] as const;
 export default function ChatPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -164,7 +160,7 @@ export default function ChatPage() {
   const isEmpty = visibleMessages.length === 0 && !currentContext;
   const historyContent = (
         <div className="wa-chat-history" role="log" aria-label="军师对话">
-          {visibleMessages.length === 0 && !currentContext && <section className="wa-chat-empty"><h2>也可以，从一个具体场景开始</h2><p>点选填入可编辑模板，确认后再发送。</p><div className="chat-scenario-grid">{conversationPresets.map(preset => { const Icon = preset.icon; return <button key={preset.id} type="button" data-preset={preset.id} disabled={controlsBusy || !owner || !ready} onClick={() => choosePreset(preset)}><Icon size={20} strokeWidth={1.7}/><span><strong>{preset.title}</strong><small>{preset.hint}</small></span><ArrowUpRight size={14}/></button>; })}</div></section>}
+          {visibleMessages.length === 0 && !currentContext && <section className="wa-chat-empty"><h2>也可以，从一个具体场景开始</h2><p>点选带入问题，也可以直接说。</p><div className="chat-scenario-grid">{conversationPresets.map(preset => { const Icon = preset.icon; return <button key={preset.id} type="button" data-preset={preset.id} disabled={controlsBusy || !owner || !ready} onClick={() => choosePreset(preset)}><Icon size={20} strokeWidth={1.7}/><span><strong>{preset.title}</strong><small>{preset.hint}</small></span><ArrowUpRight size={14}/></button>; })}</div></section>}
           {visibleMessages.map(item => <article className="wa-chat-message" data-role={item.role} key={item.id}><small>{item.role === "assistant" && <AssistantEmblem small/>}{item.role === "user" ? "你" : "成子军师"}</small><p>{item.content}</p>{item.evidence && <details><summary>判断依据</summary><p>{item.evidence}</p></details>}{item.replies?.length > 0 && <Replies options={item.replies} account={account.account}/>}</article>)}
           {busy && <div className="wa-chat-message wa-thinking" role="status"><span className="wa-thinking-dots" aria-hidden="true"><i/><i/><i/></span>正在结合你提供的情况整理建议…</div>}<div ref={end}/>
         </div>

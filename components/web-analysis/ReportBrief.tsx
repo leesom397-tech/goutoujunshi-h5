@@ -1,15 +1,18 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { riskAwarePresentation } from "@/lib/risk-aware-presentation";
 import { ArrowRight, ChartNoAxesCombined, Check, CircleHelp, Compass, Copy, Heart, Lightbulb, MessageCircle, Quote, ScanEye, Sparkles } from "lucide-react";
 import type { Json } from "./client";
 import { validScore, visibleSignalProfile } from "./report-data";
 import styles from "./ReportCard.module.css";
 import readerStyles from "./ReportReader.module.css";
+import {KeyEvidenceList} from "./ReportReadingTools";
 
 /** A usable reply in the first reading surface, without another navigation step. */
 export function ReportReplyPreview({ text, reason, label = "现在可以这样回" }: { text?: string; reason?: string; label?: string }) {
   const [copied, setCopied] = useState(false), [error, setError] = useState("");
+  useEffect(() => { setCopied(false); setError(""); }, [text]);
   if (!text?.trim()) return null;
   async function copy() {
     try { await navigator.clipboard.writeText(text!); setCopied(true); setError(""); }
@@ -25,7 +28,8 @@ const firstSentence = (value: unknown) => {
 const entries = (value: unknown): unknown[] => Array.isArray(value) ? value.filter(Boolean) : [];
 
 export function ChatReportBrief({ report }: { report: Json }) {
-  const decision = report.decision || {};
+  const presentation = riskAwarePresentation(report);
+  const decision = presentation.viewReport.decision || {};
   const lines: Json[] = Array.isArray(report.lines) ? report.lines : [];
   const annotations: Json[] = Array.isArray(report.annotations) ? report.annotations : [];
   const signals = visibleSignalProfile(lines);
@@ -42,7 +46,7 @@ export function ChatReportBrief({ report }: { report: Json }) {
     <div className="report-brief-heading"><span><Sparkles size={20} aria-hidden="true"/>先看这 30 秒</span><small>判断 → 依据 → 下一步</small></div>
     <div className="report-brief-grid">
       <article className="report-brief-main"><span className="report-brief-number"><Compass size={19} aria-hidden="true"/>01 / 当前判断</span><h3>{firstSentence(decision.interactionInsight?.label) || firstSentence(decision.judgment || decision.possibleIntent) || "先从本轮可见材料判断。"}</h3><p className="report-brief-caption">本轮暂定判断</p></article>
-      <article className="report-brief-evidence"><span className="report-brief-number"><Quote size={19} aria-hidden="true"/>02 / 关键原话</span><blockquote>{quote || lines.find(line => line.speaker === "other")?.text || "查看下方逐句依据"}</blockquote><div className="report-brief-tags"><MessageCircle size={16} aria-hidden="true"/>{tone.length ? `文字语气：${tone.join("、")}` : "语气要结合上下文核对"}</div></article>
+      <article className="report-brief-evidence"><span className="report-brief-number"><Quote size={19} aria-hidden="true"/>02 / 关键原话</span><KeyEvidenceList report={report} priorityEvidence={presentation.mode!=="normal"?presentation.evidence:undefined}/><div className="report-brief-tags"><MessageCircle size={16} aria-hidden="true"/>{tone.length ? `文字语气：${tone.join("、")}` : "语气要结合上下文核对"}</div></article>
       <article className="report-brief-action"><span className="report-brief-number"><ArrowRight size={19} aria-hidden="true"/>03 / 下一步</span><p>{firstSentence(decision.nextStep) || "先观察对方真实回应，再决定下一步。"}</p></article>
     </div>
     <div className="report-brief-chart">
@@ -54,7 +58,8 @@ export function ChatReportBrief({ report }: { report: Json }) {
 }
 
 export function SocialReportBrief({ report }: { report: Json }) {
-  const source = report.moments || report;
+  const presentation = riskAwarePresentation(report);
+  const source = presentation.viewReport.moments || presentation.viewReport;
   const hypotheses: Json[] = Array.isArray(source.hypotheses) ? source.hypotheses : [];
   const stats: Json | undefined = source.statistics;
   const rows: Json[] = Array.isArray(stats?.visibleContent) ? stats.visibleContent : [];
@@ -69,8 +74,8 @@ export function SocialReportBrief({ report }: { report: Json }) {
     <div className="report-brief-heading"><span><Sparkles size={20} aria-hidden="true"/>先看这 30 秒</span><small>看见 → 推测 → 怎么聊</small></div>
     <div className="report-brief-grid">
       <article className="report-brief-main"><span className="report-brief-number"><ScanEye size={19} aria-hidden="true"/>01 / 看到什么</span><h3>{firstSentence(source.summary || report.summary)}</h3><p className="report-brief-caption">{report.coverage || "仅根据这批可见材料"}</p></article>
-      <article className="report-brief-evidence"><span className="report-brief-number"><Lightbulb size={19} aria-hidden="true"/>02 / 可以怎样理解</span><h3>{hypotheses[0]?.title || "先分清可见事实与推测"}</h3><p>{firstSentence(hypotheses[0]?.possibility) || "更多材料有助于校正判断。"}</p></article>
-      <article className="report-brief-action"><span className="report-brief-number"><ArrowRight size={19} aria-hidden="true"/>03 / 下一步</span><p>{firstSentence(hypotheses[0]?.verify || source.approach?.attitude || report.approach?.attitude) || "从一个具体话题开始，观察真实回应。"}</p></article>
+      <article className="report-brief-evidence"><span className="report-brief-number"><Quote size={19} aria-hidden="true"/>02 / 关键依据</span><KeyEvidenceList report={report} priorityEvidence={presentation.mode!=="normal"?presentation.evidence:undefined}/></article>
+      <article className="report-brief-action"><span className="report-brief-number"><ArrowRight size={19} aria-hidden="true"/>03 / 下一步</span><p>{firstSentence(presentation.mode !== "normal" ? presentation.nextStep : hypotheses[0]?.verify || source.approach?.attitude || report.approach?.attitude) || "从一个具体话题开始，观察真实回应。"}</p></article>
     </div>
     {rows.length > 0 ? <div className="report-brief-chart"><div className="report-brief-score"><ChartNoAxesCombined size={20} aria-hidden="true"/><span>本批内容构成</span><strong>{stats?.total || 0}<span> 条动态</span></strong><small>仅统计可见动态</small></div><div className="report-brief-bars" role="img" aria-label={rows.map(row => `${row.label} ${row.count} 条，${row.percent}%`).join("；")}>{rows.slice(0, 6).map(row => <div key={row.label}><span>{row.label}</span><i><b style={{ width: `${Math.max(0, Math.min(100, Number(row.percent) || 0))}%` }}/></i><em>{row.percent}% · {row.count} 条</em></div>)}</div></div> : <div className="report-brief-chart report-brief-count-chart"><div className="report-brief-score"><ChartNoAxesCombined size={20} aria-hidden="true"/><span>本次报告的线索</span><strong>{total}<span> 项记录</span></strong><small>按报告条目计数，非概率</small></div><div className="report-brief-counts" role="img" aria-label={counts.map(row => `${row.label} ${row.value} 项`).join("；")}>{counts.map(row => { const Icon = row.icon; return <div key={row.label}><span><Icon size={17} aria-hidden="true"/>{row.label}</span><strong>{row.value}<small>项</small></strong><i><b style={{width:`${row.value / max * 100}%`}}/></i></div>; })}</div></div>}
     <p className="report-brief-hint"><ScanEye size={17} aria-hidden="true"/>点下方标签，查看对应图表与依据。</p>

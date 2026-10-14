@@ -21,6 +21,8 @@ import "./analyze-experience.css";
 import styles from "./analyze.module.css";
 import intake from "@/components/web-analysis/Intake.module.css";
 import { lastIntakeSubject, readIntakePreference, rememberIntakePreference, captureIntakeSubject, rememberCaptureSubject, uniqueIntakeImages } from "@/components/web-analysis/intake-preferences";
+import { intakeHref, intakeReturnTo } from "@/components/web-analysis/intake-navigation";
+import { useIntakeDraft } from "@/components/web-analysis/useIntakeDraft";
 
 const analysisModes = [
   { key: "chat", label: "聊天截图", intent: "读懂这轮互动", description: "看情绪与回应，找到适合你的下一句。", upload: "上传双方聊天截图", tip: "截取完整对话，保留前后语境；按聊天的阅读顺序排列。", Icon: MessageSquare },
@@ -42,18 +44,26 @@ export default function AnalyzePage() {
   const preferenceHydrated = useRef("");
   const originalFiles = useRef(new WeakMap<File, File>());
   const [rememberedChoice, setRememberedChoice] = useState(false), [editPerson, setEditPerson] = useState(false), [materialNote, setMaterialNote] = useState(""), [returnTo, setReturnTo] = useState("");
+  const [recoveryReady, setRecoveryReady] = useState(false);
+  const draft = useIntakeDraft({owner:owner || "",mode,subjectId:subject,targetSelf,files,selfSide:side,sameCity,compare,returnTo,previous,previousCount,captureSource,fileSourceIds:files.map(file => captureFiles.current.get(file) || "")}, recoveryReady && owner === restoredOwner && !account.loading && preferenceHydrated.current === owner, busy || preparing || !!task, !!result || restoringReport);
+  function restoreDraft() {
+    const saved = draft.available; if (!saved || saved.owner !== owner || files.length || task || busy || preparing) return;
+    setFiles(saved.files); setSide(["left","right"].includes(saved.selfSide) ? saved.selfSide : ""); setSameCity(saved.sameCity === true); setCompare(saved.compare !== false); setPrevious(saved.previous || null); setPreviousCount(saved.previousCount || 0);
+    setCaptureSource(saved.captureSource || null); saved.files.forEach((file,index) => { const source = saved.fileSourceIds?.[index]; if (source) captureFiles.current.set(file,source); });
+    setReturnTo(value => value || intakeReturnTo(saved.returnTo)); setConsent(false); setError(""); setMaterialNote("已恢复材料与顺序。请核对后确认分析，恢复草稿不会扣积分。"); draft.dismiss();
+  }
   useEffect(() => { if(!busy)return; const timer=setInterval(()=>setClock(Date.now()),1000); return ()=>clearInterval(timer); }, [busy]);
   const [showAuth, setShowAuth] = useState(false), [pendingAuth, setPendingAuth] = useState(false), [authComplete, setAuthComplete] = useState(false);
   useEffect(() => { const search = new URLSearchParams(window.location.search); const selected = search.get("mode") || search.get("kind"); if (["chat", "social", "moments", "profile"].includes(selected || "")) setMode(selected === "profile" ? "social" : selected!); setSubject(search.get("subjectId") || ""); setTargetSelf(search.get("target") === "self"); return () => { generation.current++; controller.current?.abort(); }; }, []);
   useEffect(() => { const next = files.map(file => URL.createObjectURL(file)); setPreviews(next); return () => next.forEach(URL.revokeObjectURL); }, [files]);
   useEffect(() => {
-    generation.current++; controller.current?.abort(); setBusy(false); preparingRef.current=false; setPreparing(false); setPrevious(null); setPreviousCount(0); setConsent(false); setLinkConsent(false); setUrl(''); setLinkResult(null); setTask(null); setResult(null); setResultSources([]); setFiles([]); setStatus(null); setLastReport(null); setRestoringReport(false); setRestoredOwner(owner||null);setSameCity(false);
+    generation.current++; controller.current?.abort(); setRecoveryReady(false); setBusy(false); preparingRef.current=false; setPreparing(false); setPrevious(null); setPreviousCount(0); setConsent(false); setLinkConsent(false); setUrl(''); setLinkResult(null); setTask(null); setResult(null); setResultSources([]); setFiles([]); setStatus(null); setLastReport(null); setRestoringReport(false); setRestoredOwner(owner||null);setSameCity(false);
     setCaptureSource(null); captureFiles.current = new WeakMap(); originalFiles.current = new WeakMap(); preferenceHydrated.current = ""; setRememberedChoice(false); setEditPerson(false); setMaterialNote(""); setSubject(""); setSide(""); setTargetSelf(false); setCompare(true); setReturnTo(""); if(!owner)return; let current=true;
     const query=new URLSearchParams(window.location.search),savedId=query.get('reportId');
     setSubject(query.get('subjectId') || '');
     setTargetSelf(query.get('target') === 'self');
-    const back = query.get('returnTo') || ''; if (/^\/(?:report|archive)\?/.test(back)) setReturnTo(back);
-    const restoreTask = (saved: UploadTask) => { if(saved.owner!==owner){setError('保存的任务与当前账号不一致，请回到原账号查看。');return;} setTask(saved);setMode(saved.mode);setFiles(saved.files);setSubject(saved.parameters.subjectId||'');setSide(saved.parameters.selfSide||'');setTargetSelf(saved.parameters.target==='self');setSameCity(saved.parameters.knownContext?.sameCity===true);setCompare(saved.parameters.compareWithSelf===true);setPrevious(saved.parameters.previous||null);setPreviousCount(saved.parameters.previousCount||0);setStatus({status:'saved'}); if(saved.parameters.captureSource)setCaptureSource(saved.parameters.captureSource); if(saved.parameters.confirmed===true)void execute(saved); };
+    setReturnTo(intakeReturnTo(query.get('returnTo')));
+    const restoreTask = (saved: UploadTask) => { if(saved.owner!==owner){setError('保存的任务与当前账号不一致，请回到原账号查看。');return;} setTask(saved);setReturnTo(value=>value || intakeReturnTo(saved.returnTo));setMode(saved.mode);setFiles(saved.files);setSubject(saved.parameters.subjectId||'');setSide(saved.parameters.selfSide||'');setTargetSelf(saved.parameters.target==='self');setSameCity(saved.parameters.knownContext?.sameCity===true);setCompare(saved.parameters.compareWithSelf===true);setPrevious(saved.parameters.previous||null);setPreviousCount(saved.parameters.previousCount||0);setStatus({status:'saved'}); if(saved.parameters.captureSource)setCaptureSource(saved.parameters.captureSource); if(saved.parameters.confirmed===true)void execute(saved); };
     if(query.get('capture')==='1' && !savedId) {
       void (async()=>{
         try {
@@ -69,8 +79,8 @@ export default function AnalyzePage() {
           const images:File[]=[];
           for(const row of rows)for(const img of row.images||[]){const raw=atob(img.data),bytes=Uint8Array.from(raw,c=>c.charCodeAt(0)),file=new File([bytes],img.name,{type:img.mime});images.push(file);captureFiles.current.set(file,row.localId);}
           if(!images.length||images.length>9)throw Error('每次最多分析9张采集截图，请返回采集页调整。');
-          setMode(library.kind);setFiles(images);setSubject(handoff.subjectId || '');setCaptureSource({libraryId:library.id,sourceIds:rows.map((row:any)=>row.localId)});setStatus(null);
-        }catch(e){if(current)setError(message(e));}
+          setMode(library.kind);setFiles(images);setSubject(handoff.subjectId || '');setReturnTo(value=>value || intakeReturnTo(handoff.returnTo));setCaptureSource({libraryId:library.id,sourceIds:rows.map((row:any)=>row.localId)});setStatus(null);
+        }catch(e){if(current)setError(message(e));}finally{if(current)setRecoveryReady(true);}
       })();
       return()=>{current=false;};
     }
@@ -81,12 +91,12 @@ export default function AnalyzePage() {
       void sourceRepair.then(() => api('/api/web/report?id='+encodeURIComponent(savedId))).then(value=>{
         if(!current)return; const restored={...value.report,...(value.kind==='chat'||value.report?.lines ? {entries:Array.isArray(value.entries)?value.entries:[value.report]} : {}),reportId:value.reportId||savedId,subjectId:value.subjectId||value.report?.subjectId||null,targetSelf:value.targetSelf??value.report?.targetSelf,totalCount:value.totalCount||value.report?.totalCount,selfSide:value.selfSide||value.report?.selfSide};
         setResult(restored);setMode(value.kind==='moments'?'moments':value.kind==='social'?'social':'chat');setSubject(restored.subjectId||'');setTargetSelf(!!restored.targetSelf);setSide(restored.selfSide||'');
-      }).catch(e=>{if(current)setError(message(e));}).finally(()=>{if(current)setRestoringReport(false);});
+      }).catch(e=>{if(current)setError(message(e));}).finally(()=>{if(current){setRestoringReport(false);setRecoveryReady(true);}});
     } else void uploadStore(owner).then(saved=>{
       if(!current)return;
       if(!saved){try{if(['mode','kind','subjectId','target','new'].some(key=>query.has(key)))return;const stored=JSON.parse(sessionStorage.getItem(`chengzi-analysis:${owner}`)||'null');if(stored?.result){setResult(stored.result);setMode(stored.mode);setSubject(stored.result.subjectId||'');setTargetSelf(!!stored.result.targetSelf);setSide(['left','right'].includes(stored.result.selfSide)?stored.result.selfSide:'');}}catch{}return;}
       restoreTask(saved);
-    }).catch(e=>{if(current)setError(message(e));});
+    }).catch(e=>{if(current)setError(message(e));}).finally(()=>{if(current)setRecoveryReady(true);});
     return()=>{current=false;};
   },[owner]);
   useEffect(() => {
@@ -237,7 +247,7 @@ export default function AnalyzePage() {
       }
     } finally { if (!abort.signal.aborted) setBusy(false); }
   }
-  async function submit() { if (busy || !owner) return; if (task) { await execute(task); return; } if (!hasPrice(account.account, costKey)) { setError("本次价格暂未取回，请重新读取价格后再开始。"); return; } if (!files.length) { setError("先选择至少一张截图。"); return; } if (mode === "chat" && !["left", "right"].includes(side)) { setError("请确认截图里哪侧气泡是你。"); return; } if (!consent) { setError("请确认材料提供权与本次处理范围。"); return; } setBusy(true); setError(""); const activeGeneration = generation.current; try { if (mode === "chat") await api("/api/web/settings", { consent: true, allowImageProcessing: true, selfSide: side }); if (activeGeneration !== generation.current) return; const next: UploadTask = { owner, taskId: crypto.randomUUID(), path: mode === "chat" ? "/api/web/screenshot/batch" : "/api/web/social-profile", mode, files, expiresAt: Date.now() + 86_400_000, parameters: { confirmed: true, ...(captureSource?{captureOrigin:true,captureSource:{libraryId:captureSource.libraryId,sourceIds:files.map(file=>captureFiles.current.get(file)).filter(Boolean)}}:{}), ...(mode === "chat" ? { selfSide: side, sessionId: crypto.randomUUID(), subjectId: subject || null } : { materialType: mode === "moments" ? "moments" : "profile", knownContext: {sameCity: !targetSelf && sameCity}, target: targetSelf ? "self" : "other", compareWithSelf: !targetSelf && compare, subjectId: targetSelf ? null : subject || null, previous: previous ? { ...previous, fit: !targetSelf && compare ? previous.fit : [] } : null, previousCount }) } }; await uploadStore(owner, next); if (activeGeneration !== generation.current) return; setTask(next); await execute(next); } catch (e) { setError(message(e)); setBusy(false); } }
+  async function submit() { if (busy || !owner) return; if (task) { await execute(task); return; } if (!hasPrice(account.account, costKey)) { setError("本次价格暂未取回，请重新读取价格后再开始。"); return; } if (!files.length) { setError("先选择至少一张截图。"); return; } if (mode === "chat" && !["left", "right"].includes(side)) { setError("请确认截图里哪侧气泡是你。"); return; } if (!consent) { setError("请确认材料提供权与本次处理范围。"); return; } setBusy(true); setError(""); const activeGeneration = generation.current; try { if (mode === "chat") await api("/api/web/settings", { consent: true, allowImageProcessing: true, selfSide: side }); if (activeGeneration !== generation.current) return; const next: UploadTask = { owner, returnTo, taskId: crypto.randomUUID(), path: mode === "chat" ? "/api/web/screenshot/batch" : "/api/web/social-profile", mode, files, expiresAt: Date.now() + 86_400_000, parameters: { confirmed: true, ...(captureSource?{captureOrigin:true,captureSource:{libraryId:captureSource.libraryId,sourceIds:files.map(file=>captureFiles.current.get(file)).filter(Boolean)}}:{}), ...(mode === "chat" ? { selfSide: side, sessionId: crypto.randomUUID(), subjectId: subject || null } : { materialType: mode === "moments" ? "moments" : "profile", knownContext: {sameCity: !targetSelf && sameCity}, target: targetSelf ? "self" : "other", compareWithSelf: !targetSelf && compare, subjectId: targetSelf ? null : subject || null, previous: previous ? { ...previous, fit: !targetSelf && compare ? previous.fit : [] } : null, previousCount }) } }; await uploadStore(owner, next); if (activeGeneration !== generation.current) return; void draft.discard(); setTask(next); await execute(next); } catch (e) { setError(message(e)); setBusy(false); } }
   async function cancel() { if (!task || busy) return; setBusy(true); setError(""); try { try { await api(task.path, { taskId: task.taskId, uploadAction: "cancel" }); } catch (e) { if (![404, 410].includes((e as WebError).status)) throw e; } await uploadStore(task.owner, null); setTask(null); setStatus(null); setConsent(false); void account.refresh(); } catch (e) { setError(message(e)); } finally { setBusy(false); } }
   async function analyzeLink() { if (busy || !owner) return; if (!linkConsent) { setError("请确认读取公开主页并建立人物档案。"); return; } const activeGeneration = generation.current; setBusy(true); setError(""); try { linkId.current ||= crypto.randomUUID(); const data = await api("/api/web/social-link", { url: url.trim(), confirmed: true, requestId: linkId.current }); if (activeGeneration !== generation.current) return; setLinkResult(data); setSubject(data.subjectId || ""); linkId.current = null; void account.refresh(); } catch (e) { setError(message(e)); if ((e as WebError).details?.code === "CREDIT_RELEASED") linkId.current = null; } finally { setBusy(false); } }
   function continueBatch() { if (!result || disabled) return; setPrevious(socialPrevious(result)); setPreviousCount(result.totalCount || 0); setResult(null); setResultSources([]); setConsent(false); window.scrollTo({ top: 0, behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "instant" : "smooth" }); }
@@ -264,7 +274,7 @@ export default function AnalyzePage() {
     <WebNav/>
     <main className={`wa-shell ax-shell ${styles.page}`}>
       <AuroraPageHero eyebrow="从材料到判断" title={mode === "chat" ? "聊天分析" : mode === "moments" ? "朋友圈分析" : "社交主页分析"} description={selectedMode.description}/>
-      {returnTo && <a className={intake.returnLink} href={returnTo}><History size={16}/>返回刚才的报告</a>}
+      {returnTo && <a className={intake.returnLink} href={returnTo}><History size={16}/>{returnTo.startsWith('/archive') ? '返回人物档案与对照' : '返回刚才的报告'}</a>}
       {restoringReport && <p className={styles.resumeBar} role="status"><LoaderCircle size={19} className="ax-spin"/>正在取回已保存的完整报告…</p>}
       {owner && !visibleResult && lastReport && !restoringReport && <a className={styles.resumeBar} href={`/report?id=${lastReport.id}#report-detail-action`}><History size={21}/><span><strong>继续看上次的报告</strong><small>之前的分析都在历史报告中</small></span><ArrowRight size={19}/></a>}
       {owner && !visibleResult && error && new URLSearchParams(typeof window==='undefined'?'':window.location.search).has('reportId') && <ErrorNotice error={error}/>}
@@ -284,7 +294,7 @@ export default function AnalyzePage() {
 
       {!visibleResult && !restoringReport && <>
         {owner && !targetSelf && selectedPerson && <section className={intake.remembered} aria-label="当前分析人物"><UserRound size={22}/><div><strong>继续了解 {selectedPerson.label}</strong><small>{mode === 'chat' && side ? `已沿用：${side==='left'?'左侧':'右侧'}是我 · ` : ''}新增材料会结合这个人物已有的资料；选错可以直接更换。</small></div>{editPerson?<PersonSelect people={account.people} value={subject} disabled={disabled} onChange={choosePerson} empty="本次不关联人物"/>:<button type="button" disabled={disabled} onClick={()=>setEditPerson(true)}>换个人</button>}{mode==='chat'&&side&&<button type="button" disabled={disabled} onClick={()=>chooseSide(side==='left'?'right':'left')}>改为{side==='left'?'右侧':'左侧'}是我</button>}</section>}
-        {!captureSource && <CaptureEntry kind={mode} subjectId={targetSelf?'':subject}/>}
+        {!captureSource && <CaptureEntry kind={mode} subjectId={targetSelf?'':subject} returnTo={returnTo}/>}
         {captureSource && <p className="wa-status"><CheckCheck size={18}/>已带入采集截图。请核对顺序与身份，分析完成后可回看这些原图。</p>}
         <div className="ax-mode-heading"><h2>选择分析类型</h2><a href="#analysis-example">先看分析案例 ↓</a></div>
         <div className={`ax-modes ${styles.entryModes}`} role="tablist" aria-label="分析材料" onKeyDown={event => {
@@ -316,6 +326,8 @@ export default function AnalyzePage() {
                 <span className="ax-count" aria-live="polite">{files.length + previousCount} / 9 张</span>
               </div>
               {previousCount > 0 && <p className="wa-status">继续整理上一批 {previousCount} 张资料，还可补充 {9 - previousCount} 张。</p>}
+              {draft.available && !files.length && !task && <section className={intake.partial} aria-label="本机上传草稿"><h3><FolderHeart size={20}/>有一份尚未分析的材料</h3><p>{draft.available.files.length} 张截图和原来顺序已暂存在这台浏览器，24 小时内可恢复。恢复后再由你确认分析。</p><div className="wa-actions"><button type="button" onClick={restoreDraft}>恢复材料</button><button type="button" onClick={()=>void draft.discard()}>丢弃草稿</button></div></section>}
+              {!!files.length && !task && draft.state && <p className={intake.hint} role="status">{draft.state}</p>}
 
               <div className="ax-dropzone" id="analysis-upload" data-dragging={dragging} data-disabled={disabled}
                 role="button" tabIndex={disabled ? -1 : 0}
@@ -471,6 +483,6 @@ export default function AnalyzePage() {
         </>}
       </div>
     </main>
-    <AnalysisAuthGate open={showAuth} onClose={() => setShowAuth(false)} returnTo={`/analyze?mode=${mode}`} contextLabel={selectedMode.label} onSuccess={authenticated}/>
+    <AnalysisAuthGate open={showAuth} onClose={() => setShowAuth(false)} returnTo={intakeHref('/analyze',{mode,subjectId:subject,returnTo,targetSelf})} contextLabel={selectedMode.label} onSuccess={authenticated}/>
   </>;
 }

@@ -132,6 +132,7 @@
         <text wx:if="{{followupError}}" class="error">{{followupError}}</text>
         <text wx:if="{{result.durationSeconds}}" class="elapsed">本次用时约 {{result.durationSeconds}} 秒（含上传）</text>
       </view>
+      <risk-review value="{{result.riskReview}}"/>
       <personal-connection value="{{result.personalConnection}}"/>
       <view id="report-replies" class="panel">
         <view class="step">02 · 回复选择</view><text class="panel-title">现在怎么回</text>
@@ -145,7 +146,8 @@
             <text wx:if="{{item.personalizedText}}" class="reply-original">原推荐：{{item.text}}</text>
             <button class="disclosure-button" data-index="{{replyIndex}}" bindtap="toggleReply" aria-expanded="{{item.expanded}}"><text>{{item.expanded ? '收起注意事项' : '查看注意事项'}}</text><view class="disclosure-chevron {{item.expanded ? 'expanded' : ''}}"/></button>
             <view wx:if="{{item.expanded}}" class="reply-details"><text>可能的代价：{{item.cost || '这份旧报告没有评估代价；发送前请结合对方的边界判断。'}}</text></view>
-            <button class="reply-more reply-personalize" data-index="{{replyIndex}}" disabled="{{!result.canPersonalize || rewriteBusy >= 0 || !pricesReady}}" bindtap="personalize">{{rewriteBusy === replyIndex ? '正在调整语气…' : '更像我一点 · ' + (pricesReady ? prices.text + ' 积分' : '价格读取中')}}</button>
+            <button wx:if="{{item.originalIndex !== null}}" class="reply-more reply-personalize" data-index="{{replyIndex}}" disabled="{{!result.canPersonalize || rewriteBusy >= 0 || !pricesReady}}" bindtap="personalize">{{rewriteBusy === replyIndex ? '正在调整语气…' : '更像我一点 · ' + (pricesReady ? prices.text + ' 积分' : '价格读取中')}}</button>
+            <text wx:if="{{item.originalIndex === null && item.adjusted}}" class="reply-note">这是依据当前风险给出的边界回复，可直接复制；未另收分析费用。</text>
             <text wx:if="{{!result.canPersonalize}}" class="reply-note">需要本批至少 3 句、合计 30 字的你的原话，才可参考你的语气。</text>
             <text wx:else class="reply-note">仅参考本轮确认是你说过的话。</text>
             <text wx:if="{{item.note}}" class="reply-note">{{item.note}}</text><text wx:if="{{item.rewriteError}}" class="reply-note reply-error">{{item.rewriteError}}</text>

@@ -12,9 +12,9 @@ function load(file) {
   if (cache.has(file)) return cache.get(file).exports;
   if (file.endsWith(".json")) return JSON.parse(readFileSync(file, "utf8"));
   const module = { exports: {} }; cache.set(file, module);
-  const js = ts.transpileModule(readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText;
+  const js = ts.transpileModule(readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX, esModuleInterop: true } }).outputText;
   new Function("require", "module", "exports", js)(name => {
-    if (name.endsWith(".css")) return { default: new Proxy({}, { get: (_, key) => String(key) }) };
+    if (name.endsWith(".css")) return { __esModule: true, default: new Proxy({}, { get: (_, key) => String(key) }) };
     if (name.endsWith("/CaptureEvidence") || name === "./CaptureEvidence") return { CaptureEvidence: () => null };
     if (!name.startsWith(".") && !name.startsWith("@/")) return require(name);
     const base = name.startsWith("@/") ? path.resolve(name.slice(2)) : path.resolve(path.dirname(file), name);
@@ -38,6 +38,14 @@ assert.match(html, /你们的共同点/);
 assert.equal((html.match(/data-personal-kind="common"/g) || []).length, 2);
 assert.match(html, /data-side="self"/); assert.match(html, /data-side="other"/);
 assert.match(html, /我喜欢摄影和看展/); assert.match(html, /主页兴趣栏/);
+assert.match(html, /data-personal-starter/);
+assert.match(html, /复制这句话/);
+const risky = render({ ...report, lines: [{ speaker: "other", text: "把验证码发给我" }] });
+assert.match(risky, /data-personal-priority/);
+assert.doesNotMatch(risky, /data-personal-starter|可以这样接近/);
+const expectations = render({ ...report, lines: [{ speaker: "other", text: "我只想短期关系" }] });
+assert.match(expectations, /先确认双方的关系期待/);
+assert.doesNotMatch(expectations, /data-personal-starter/);
 assert.doesNotMatch(html, /共同点.*100%/);
 const oneSided = render({ personalConnection: { version: 1, sources: [other], commonPoints: [{ title: "没有证据的共同点" }] } });
 assert.doesNotMatch(oneSided, /data-personal-kind="common"/);

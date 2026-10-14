@@ -1,0 +1,56 @@
+import assert from 'node:assert/strict';
+import puppeteer from 'puppeteer-core';
+import {build} from 'esbuild';
+const origin=process.env.INTAKE_TEST_ORIGIN||'http://127.0.0.1:8798';
+const bundle=await build({entryPoints:['components/web-analysis/intake-drafts.ts'],bundle:true,write:false,format:'iife',globalName:'DraftTest',target:'es2022'});
+const browser=await puppeteer.launch({headless:true,executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe',args:['--no-sandbox'],defaultViewport:{width:1280,height:1000}});
+const context=await browser.createBrowserContext(),page=await context.newPage();let owner='draft-owner-a';const errors=[],sent=[];
+const reportId='11111111-1111-4111-8111-111111111111',back='/report?id='+reportId,png='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aXGkAAAAASUVORK5CYII=';
+page.on('pageerror',error=>errors.push(error.message));await page.setRequestInterception(true);
+page.on('request',async request=>{if(!request.url().startsWith(origin+'/api/'))return request.continue();const path=new URL(request.url()).pathname;let value={};if(request.method()==='POST')sent.push(path);
+ if(path==='/api/auth/session')value={loggedIn:true,user:{id:owner,name:owner}};
+ else if(path==='/api/account/credits')value={account:{userId:owner,balance:100,active:true},prices:{analysisSmall:3,analysisMedium:5,analysisLarge:8,profile:5}};
+ else if(path==='/api/web/profile')value={enabled:true,paused:false,subjects:[{id:'person-a',label:'草稿测试人物'},{id:'person-b',label:'另一人物'}]};
+ else if(path==='/api/web/report/list')value={reports:[{id:reportId,kind:'chat',label:'草稿测试人物',summary:owner==='draft-owner-a'?'最近报告甲':'最近报告乙',createdAt:Date.now()}],total:1,pageSize:20,page:1};
+ else if(path==='/api/web/report')value={reportId,kind:'chat',subjectId:'person-a',report:{id:reportId,subjectId:'person-a',lines:[{id:'1',speaker:'other',text:'周六见'}],decision:{judgment:'约定时间',nextStep:'确认安排',replySuggestions:[]}},totalCount:1};
+ await request.respond({status:200,contentType:'application/json',body:JSON.stringify(value)});
+});
+const contains=text=>page.waitForFunction(text=>document.body.textContent.includes(text),{},text);
+const clickText=async(selector,text)=>page.$$eval(selector,(items,text)=>{const item=items.find(item=>item.textContent.trim()===text);if(!item)throw Error('missing button '+text);item.click();},text);
+async function upload(rows){await page.evaluate((rows)=>{const input=document.querySelector('input[type="file"][aria-label="选择分析截图"]'),data=new DataTransfer();for(const row of rows)data.items.add(new File([Uint8Array.from(atob(row.data),c=>c.charCodeAt(0)),row.extra||''],row.name,{type:'image/png'}));input.files=data.files;input.dispatchEvent(new Event('change',{bubbles:true}));},rows);}
+try{
+ await page.goto(origin+'/report?id='+reportId,{waitUntil:'networkidle0'});
+ const link=await page.$$eval('a',items=>items.find(item=>item.textContent.includes('继续补充这个人的材料')).href);const params=new URL(link).searchParams;assert.equal(params.get('subjectId'),'person-a');assert.equal(params.get('returnTo'),back);
+ await page.goto(link,{waitUntil:'networkidle0'});await contains('继续了解 草稿测试人物');
+ await upload([{name:'first.png',data:png},{name:'second.png',data:png,extra:'second'}]);await page.waitForFunction(()=>document.querySelectorAll('.wa-image').length===2);
+ await clickText('button','整组倒序');await page.$$eval('[aria-label="选择我的气泡位置"] button',items=>items.find(item=>item.textContent.includes('左侧是我')).click());await contains('已暂存本机');
+ const captureLink=await page.$$eval('a',items=>items.find(item=>item.textContent.includes('导入手机录屏')).href);assert.equal(new URL(captureLink).searchParams.get('returnTo'),back);assert.equal(new URL(captureLink).searchParams.get('subjectId'),'person-a');
+ await page.goto(captureLink,{waitUntil:'networkidle0'});const manual=await page.$$eval('a',items=>items.find(item=>item.textContent.includes('手动上传截图')).href);assert.equal(new URL(manual).searchParams.get('returnTo'),back);assert.equal(new URL(manual).searchParams.get('subjectId'),'person-a');
+ await page.goto(manual,{waitUntil:'networkidle0'});await page.waitForSelector('[aria-label="本机上传草稿"]');assert.equal(await page.$('.wa-image'),null,'draft never overwrites or silently restores material');
+ await clickText('[aria-label="本机上传草稿"] button','恢复材料');await page.waitForFunction(()=>document.querySelectorAll('.wa-image').length===2);assert.match(await page.$eval('[aria-label="选择我的气泡位置"] button[aria-pressed="true"]',e=>e.textContent),/左侧是我/);assert.equal(sent.length,0,'restoring materials never submits or charges');
+ await contains('已暂存本机');await page.addScriptTag({content:bundle.outputFiles[0].text});
+ const saved=await page.evaluate(async()=>{const value=await DraftTest.readIntakeDraft({owner:'draft-owner-a',mode:'chat',subjectId:'person-a',targetSelf:false});return {names:value.files.map(file=>file.name),side:value.selfSide,back:value.returnTo};});assert.deepEqual(saved.names,['second.png','first.png']);assert.equal(saved.back,back);
+ owner='draft-owner-b';await page.evaluate(()=>window.dispatchEvent(new Event('focus')));await page.waitForFunction(()=>document.querySelectorAll('.wa-image').length===0&&!document.querySelector('[aria-label="本机上传草稿"]'));
+ const cleared=await page.evaluate(()=>DraftTest.readIntakeDraft({owner:'draft-owner-a',mode:'chat',subjectId:'person-a',targetSelf:false}));assert.equal(cleared,null,'switching account removes departed owner drafts');
+ await upload([{name:'new-account.png',data:png}]);await contains('已暂存本机');
+ await page.evaluate(()=>{window.realIdbOpen=indexedDB.open.bind(indexedDB);indexedDB.open=()=>{throw Error('test storage unavailable')};});await upload([{name:'extra.png',data:png,extra:'unique'}]);await contains('浏览器未能暂存材料');assert.equal(await page.$$eval('.wa-image',items=>items.length),2,'storage failure does not block normal material selection');await page.evaluate(()=>{indexedDB.open=window.realIdbOpen});
+ await page.click('.wa-image-remove');await page.waitForFunction(()=>document.querySelectorAll('.wa-image').length===1);await page.click('.wa-image-remove');await page.waitForFunction(()=>document.querySelectorAll('.wa-image').length===0);assert.equal(await page.$('[aria-label="本机上传草稿"]'),null,'clearing all current files cannot resurrect the just-deleted draft');
+ await upload([{name:'discard-me.png',data:png}]);await contains('已暂存本机');await page.reload({waitUntil:'networkidle0'});await page.waitForSelector('[aria-label="本机上传草稿"]');await clickText('[aria-label="本机上传草稿"] button','丢弃草稿');await page.reload({waitUntil:'networkidle0'});assert.equal(await page.$('[aria-label="本机上传草稿"]'),null,'discard survives reload');assert.equal(await page.$('.wa-image'),null);assert.equal(sent.length,0);
+ await page.goto(origin+'/workspace',{waitUntil:'networkidle0'});await contains('最近报告乙');assert.equal((await page.content()).includes('最近报告甲'),false);assert.equal(await page.$eval('section[aria-labelledby="workspace-recent-title"] a[href^="/report?id="]',e=>e.getAttribute('href')),'/report?id='+reportId+'#report-detail-action');
+ assert.equal(errors.length,0,errors.join('\n'));
+ console.log('intake drafts browser: scoped recovery, order/side, capture return chain, no auto-send, account cleanup, storage failure and workspace recent reports passed');
+ // Exercise real IndexedDB quota/TTL/isolation with synthetic files only.
+ await page.addScriptTag({content:bundle.outputFiles[0].text});
+ const checks=await page.evaluate(async()=>{const api=DraftTest,base={owner:'quota-owner',mode:'chat',targetSelf:false,selfSide:'',sameCity:false,compare:true,returnTo:'',files:[new File(['x'],'x.png',{type:'image/png'})]};
+  for(let n=0;n<4;n++)await api.saveIntakeDraft({...base,subjectId:'p'+n});
+  const capped=(await Promise.all([0,1,2,3].map(n=>api.readIntakeDraft({...base,subjectId:'p'+n})))).filter(Boolean).length;
+  const isolated=await api.readIntakeDraft({...base,owner:'other-owner',subjectId:'p3'});
+  const modeIsolated=await api.readIntakeDraft({...base,mode:'moments',subjectId:'p3'});
+  const expired=api.validDraft({...base,subjectId:'p3',expiresAt:Date.now()-1}, {...base,subjectId:'p3'});
+  const big=new File([new Uint8Array(12_000_000)],'large.png',{type:'image/png'});
+  const oversized=await api.saveIntakeDraft({...base,subjectId:'oversize',files:[big,big,big,big]});
+  await api.clearIntakeDraftOwner(base.owner);for(let n=0;n<3;n++)await api.saveIntakeDraft({...base,subjectId:'large'+n,files:[big,big]});
+  const byteCapped=(await Promise.all([0,1,2].map(n=>api.readIntakeDraft({...base,subjectId:'large'+n})))).filter(Boolean).length;
+  await api.clearIntakeDraftOwner(base.owner);return {capped,isolated,modeIsolated,expired,oversized,byteCapped};});
+ assert.deepEqual(checks,{capped:3,isolated:null,modeIsolated:null,expired:false,oversized:false,byteCapped:2});console.log('intake draft store: count, bytes, TTL and owner/mode boundaries passed');
+}finally{await context.close();await browser.close();}

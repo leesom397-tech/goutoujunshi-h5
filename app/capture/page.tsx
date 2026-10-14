@@ -10,6 +10,7 @@ import { bridgeRequest, type BridgeHealth } from "@/lib/desktop-bridge-client";
 import { saveCaptureBatch, listCaptureLibraries, getCaptureLibrary, pendingCaptureRecords, linkReportSources, removeCaptureLibrary, type CaptureLibrary, type CaptureLibrarySummary } from "@/lib/desktop-capture-vault";
 import { captureLibraryId, type CaptureKind, type CaptureBatch, type StoredCaptureRecord } from "@/lib/desktop-capture";
 import { captureIntakeSubject, rememberCaptureSubject, rememberIntakePreference } from "@/components/web-analysis/intake-preferences";
+import { intakeHref, intakeReturnTo } from "@/components/web-analysis/intake-navigation";
 import { matchImportedVideoFrames } from "@/lib/video-import";
 import { CAPTURE_ANALYSIS_LIMIT, captureAnalysisInput, captureReadableText } from "@/lib/capture-analysis-input";
 import ui from "@/components/AuroraUI.module.css";
@@ -20,7 +21,7 @@ const visualSource = (row: StoredCaptureRecord) => ["screen-capture", "video-imp
 const videoTime = (seconds: number) => `${Math.floor(seconds / 60).toString().padStart(2,"0")}:${Math.floor(seconds % 60).toString().padStart(2,"0")}`;
 
 type Job = { status: string; progress?: number; message?: string; result?: CaptureBatch; error?: string | {message?:string} };
-type Receipt = { requestId: string; libraryId: string; sourceIds: string[]; subjectId: string; kind: CaptureKind };
+type Receipt = { requestId: string; libraryId: string; sourceIds: string[]; subjectId: string; kind: CaptureKind; returnTo?: string };
 const wait = (ms: number, signal: AbortSignal) => new Promise<void>((resolve, reject) => { const stop = () => { clearTimeout(timer); reject(new DOMException("Aborted", "AbortError")); }; const timer = setTimeout(() => { signal.removeEventListener("abort", stop); resolve(); }, ms); signal.addEventListener("abort", stop, { once: true }); if (signal.aborted) stop(); });
 const stored = <T,>(key: string): T | null => { try { return JSON.parse(sessionStorage.getItem(key) || "null"); } catch { return null; } };
 const remember = (key: string, value: unknown) => { if (value === null) sessionStorage.removeItem(key); else sessionStorage.setItem(key, JSON.stringify(value)); };
@@ -29,6 +30,7 @@ export default function CapturePage() {
   const account = useAccount(), owner: string = account.account?.account?.userId || "";
   const generation = useRef(0), abort = useRef<AbortController | null>(null), token = useRef(""), recordList = useRef<HTMLDivElement | null>(null), openingLibrary = useRef(0);
   const requestedSubject = useRef("");
+  const [returnTo,setReturnTo] = useState("");
   const [method, setMethod] = useState<"desktop" | "window" | "video">("desktop"), [kind, setKind] = useState<CaptureKind>("chat"), [friend, setFriend] = useState(""), [wechatAccount, setWechatAccount] = useState(""), [code, setCode] = useState(""), [limit, setLimit] = useState(40), [health, setHealth] = useState<BridgeHealth | null>(null), [connected, setConnected] = useState(false);
   const [busy, setBusy] = useState(false), [analyzing, setAnalyzing] = useState(false), [error, setError] = useState(""), [note, setNote] = useState(""), [jobId, setJobId] = useState(""), [progress, setProgress] = useState(0);
   const [library, setLibrary] = useState<CaptureLibrary | null>(null), [libraries, setLibraries] = useState<CaptureLibrarySummary[]>([]), [stats, setStats] = useState<{added:number;repeated:number;total:number}|null>(null), [query, setQuery] = useState(""), [selected, setSelected] = useState<string[]>([]), [subject, setSubject] = useState(""), [consent, setConsent] = useState(false), [receipt, setReceipt] = useState<Receipt | null>(null), [reportId, setReportId] = useState(""), [image, setImage] = useState<string | null>(null);
@@ -47,14 +49,15 @@ export default function CapturePage() {
   useEffect(() => {
     const current = ++generation.current; abort.current?.abort(); token.current = "";
     setConnected(false); setLibrary(null); setLibraries([]); setSelected([]); setStats(null); setReceipt(null); setConsent(false); setFriend(""); setWechatAccount(""); setSubject(""); setQuery(""); setRecordPage(0); setReportId(""); setImage(null); setBusy(false); setAnalyzing(false); setJobId(""); setNote(""); setError("");
-    if (!owner) return;
+    setReturnTo(""); if (!owner) return;
+    setReturnTo(intakeReturnTo(new URLSearchParams(window.location.search).get("returnTo")));
     requestedSubject.current = new URLSearchParams(window.location.search).get("subjectId") || "";
     void listCaptureLibraries(owner).then(items => { if (current === generation.current) setLibraries(items); }).catch(e => { if (current === generation.current) setError(message(e)); });
     const connection = stored<{token:string;expiresAt:number}>(`chengzi-capture:${owner}:connection`);
     if (connection && connection.expiresAt > Date.now()) { token.current = connection.token; setConnected(true); }
     const running = stored<{jobId:string}>(`chengzi-capture:${owner}:job`); if (running) setJobId(running.jobId);
     const previous = stored<Receipt>(`chengzi-capture:${owner}:analysis`);
-    if (previous) void getCaptureLibrary(owner, previous.libraryId).then(value => { if (current !== generation.current || !value) return; setLibrary(value); setSelected(previous.sourceIds); setRecordPage(Math.floor(Math.max(0, value.records.findIndex(row => previous.sourceIds.includes(row.localId))) / 50)); setReceipt(previous); setKind(previous.kind); setSubject(previous.subjectId); setFriend(value.friend); setNote("上次的分析请求已保留，可继续取回结果。"); }).catch(e => { if (current === generation.current) setError(message(e)); });
+    if (previous) void getCaptureLibrary(owner, previous.libraryId).then(value => { if (current !== generation.current || !value) return; setLibrary(value); setSelected(previous.sourceIds); setRecordPage(Math.floor(Math.max(0, value.records.findIndex(row => previous.sourceIds.includes(row.localId))) / 50)); setReceipt(previous); setReturnTo(back=>back || intakeReturnTo(previous.returnTo)); setKind(previous.kind); setSubject(previous.subjectId); setFriend(value.friend); setNote("上次的分析请求已保留，可继续取回结果。"); }).catch(e => { if (current === generation.current) setError(message(e)); });
     return () => { generation.current++; abort.current?.abort(); };
   }, [owner]);
   useEffect(() => { recordList.current?.scrollTo({ top: 0 }); }, [recordPage, query, library?.id]);
@@ -206,8 +209,8 @@ export default function CapturePage() {
         const sourceIds = frames.map(frame => rows.find(row => row.id === `video:${context.videoId}:${frame.id}`)?.localId).filter((id): id is string => !!id);
         setSelected(sourceIds);
         if (sourceIds.length) {
-          remember(`chengzi-capture:${scope}:handoff`, { libraryId: result.library.id, sourceIds, subjectId:result.subjectId });
-          window.location.assign(`/analyze?mode=${kind}&capture=1`);
+          remember(`chengzi-capture:${scope}:handoff`, { libraryId: result.library.id, sourceIds, subjectId:result.subjectId, returnTo });
+          window.location.assign(intakeHref('/analyze',{mode:kind,subjectId:result.subjectId,returnTo,capture:true}));
         } else {
           setNote("本次选中的画面都已分析过，可在下方打开已有报告；补充新内容请改选其他时间段。");
           requestAnimationFrame(() => { if (ticket === generation.current) document.getElementById("capture-preview")?.scrollIntoView({ block: "start", behavior: "smooth" }); });
@@ -219,13 +222,13 @@ export default function CapturePage() {
     if (!owner || !library || !chosen.length || locked) return;
     if (isWindow) {
       if (chosen.length > 9) { setError("每次最多分析 9 张采集画面，请减少勾选。"); return; }
-      remember(scopeKey("handoff"), { libraryId: library.id, sourceIds: chosen.map(r => r.localId), subjectId:subject });
-      window.location.assign(`/analyze?mode=${library.kind}&capture=1`); return;
+      remember(scopeKey("handoff"), { libraryId: library.id, sourceIds: chosen.map(r => r.localId), subjectId:subject, returnTo });
+      window.location.assign(intakeHref('/analyze',{mode:library.kind,subjectId:subject,returnTo,capture:true})); return;
     }
     if (!consent) { setError("请先确认所选原文与千问分析处理。"); return; }
     if (!hasPrice(account.account, costKey)) { setError("尚未读取分析价格，请刷新账户后重试。"); return; }
     const scope = owner, ticket = generation.current;
-    const current: Receipt = receipt || { requestId: crypto.randomUUID(), libraryId: library.id, sourceIds: chosen.map(r => r.localId), subjectId: subject, kind: library.kind };
+    const current: Receipt = receipt || { requestId: crypto.randomUUID(), libraryId: library.id, sourceIds: chosen.map(r => r.localId), subjectId: subject, kind: library.kind, returnTo };
     const rows = current.sourceIds.map(id => library.records.find(r => r.localId === id)).filter((r): r is StoredCaptureRecord => !!r);
     const payload = { requestId: current.requestId, confirmed: true, kind: current.kind, friend: library.friend, subjectId: current.subjectId || null, records: rows.map(r => ({ localId: r.localId, kind: r.kind, sender: r.sender, senderRole: r.senderRole, at: r.at, text: r.text, ocrTextVerified: r.ocrTextVerified === true, images: library.kind === "moments" ? r.images || [] : [] })) };
     if (!receipt) { try { captureAnalysisInput(payload); } catch(e) { setError(message(e)); return; } }
@@ -258,7 +261,7 @@ export default function CapturePage() {
   const display = visible.slice(currentPage * 50, (currentPage + 1) * 50);
   const kindPicker = <div className={styles.kinds} aria-label="采集内容">{([{key:"chat",label:"聊天记录",Icon:MessageSquare},{key:"moments",label:"朋友圈",Icon:Images}] as const).map(({key,label,Icon}) => <button disabled={locked || !!receipt} aria-pressed={kind === key} key={key} onClick={() => { if(key === kind)return; setKind(key); setLimit(key === "chat" ? 40 : 10); setLibrary(null); setSelected([]); setStats(null); setReportId(""); setConsent(false); setSubject(""); setNote(""); setError(""); }}><Icon size={18}/>{label}</button>)}</div>;
   return <div className={ui.page}><WebNav/><main className={`${ui.wrap} ${styles.page}`}>
-    <AuroraPageHero eyebrow={method === "video" ? "手机录屏 · 材料导入" : "电脑微信 · 材料采集"} title={method === "video" ? "录一段，少截很多张。" : "把聊天带进来，少截几张图。"} description={method === "video" ? "在微信里慢慢滑动并录屏，自动挑出清晰画面。先预览，再确认分析。" : "选定好友，采集聊天或朋友圈。原文先在本机预览，重复内容自动核对。"}>{method === "video" && <a className={ui.primary} href="#recording-upload"><FileVideo size={18}/>选择手机录屏</a>}<a className={ui.secondary} href="/reports"><History size={17}/>历史报告</a><a className={ui.secondary} href="/analyze"><UploadCloud size={17}/>手动上传截图</a></AuroraPageHero>
+    <AuroraPageHero eyebrow={method === "video" ? "手机录屏 · 材料导入" : "电脑微信 · 材料采集"} title={method === "video" ? "录一段，少截很多张。" : "把聊天带进来，少截几张图。"} description={method === "video" ? "在微信里慢慢滑动并录屏，自动挑出清晰画面。先预览，再确认分析。" : "选定好友，采集聊天或朋友圈。原文先在本机预览，重复内容自动核对。"}>{method === "video" && <a className={ui.primary} href="#recording-upload"><FileVideo size={18}/>选择手机录屏</a>}<a className={ui.secondary} href="/reports"><History size={17}/>历史报告</a><a className={ui.secondary} href={intakeHref('/analyze',{mode:kind,subjectId:subject || requestedSubject.current,returnTo})}><UploadCloud size={17}/>手动上传截图</a>{returnTo && <a className={ui.secondary} href={returnTo}><History size={17}/>{returnTo.startsWith('/archive')?'返回人物档案与对照':'返回原报告'}</a>}</AuroraPageHero>
     <ol className={styles.steps} aria-label="采集步骤">{(method === "video" ? ["选择录屏", "提取并核对画面", "确认后分析"] : ["连接电脑微信", "采集并核对原文", "分析选中的内容"]).map((text, i) => <li key={text} data-active={(reportId || analyzing || receipt ? 2 : library ? 1 : 0) === i}><span>{reportId || (i === 0 && (connected || library)) ? <Check size={18}/> : `0${i + 1}`}</span><strong>{text}</strong></li>)}</ol>
     <AccountNotice state={account}/>
     {receipt && <p className={styles.warning}>有一份分析尚待取回。请继续本次分析，完成后再切换材料；原请求会保留，避免重复处理。</p>}

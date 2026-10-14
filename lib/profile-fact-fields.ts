@@ -10,7 +10,9 @@ export function recoverProfileFields(data: Record<string, unknown>, facts: Fact[
     const legacy = /^([^：:]{1,10})[：:]\s*(.+)$/.exec(fact.value);
     const key = structured?.[1] || (legacy ? aliases[legacy[1]] : "");
     const value = structured ? fact.value : legacy?.[2];
-    if (key && value && Object.values(aliases).includes(key) && !result[key]) result[key] = value;
+    // Existing empty values are intentional clears. Only recover fields which
+    // were never stored; otherwise an older accepted fact revives removed data.
+    if (key && value && Object.values(aliases).includes(key) && !Object.prototype.hasOwnProperty.call(result, key)) result[key] = value;
   }
   return result;
 }

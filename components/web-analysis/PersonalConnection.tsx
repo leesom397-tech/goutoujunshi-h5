@@ -1,8 +1,10 @@
 "use client";
 
-import { useId } from "react";
-import { ArrowRight, Check, GitCompareArrows, HeartHandshake, Lightbulb, MessageCircle, Quote, UserRound, UsersRound } from "lucide-react";
+import { useId, useRef, useState } from "react";
+import { ArrowRight, Check, Copy, GitCompareArrows, HeartHandshake, Lightbulb, MessageCircle, Quote, ShieldCheck, UserRound, UsersRound } from "lucide-react";
 import { personalConnection, type PersonalEvidence, type PersonalInsight } from "@/lib/personal-context";
+import { personalConversationStarter } from "@/lib/personal-starters";
+import { riskAwarePresentation } from "@/lib/risk-aware-presentation";
 import { CaptureEvidence } from "./CaptureEvidence";
 import type { Json } from "./client";
 import styles from "./PersonalConnection.module.css";
@@ -30,9 +32,29 @@ function Sources({ rows, insightId }: { rows: PersonalEvidence[]; insightId: str
   </div>)}</div>;
 }
 
+function ConversationStarter({ text, title }: { text: string; title: string }) {
+  const id = useId(), input = useRef<HTMLTextAreaElement>(null);
+  const [draft, setDraft] = useState(text), [notice, setNotice] = useState("");
+  async function copy() {
+    try { await navigator.clipboard.writeText(draft.trim()); setNotice("已复制，可以按你的习惯调整后再发。"); }
+    catch {
+      input.current?.focus(); input.current?.select();
+      let copied = false;
+      try { copied = document.execCommand("copy"); } catch { /* Keep the text selected for manual copying. */ }
+      setNotice(copied ? "已复制，可以按你的习惯调整后再发。" : "文字已选中，请手动复制。");
+    }
+  }
+  return <div className={styles.starter} data-personal-starter>
+    <label htmlFor={id}><MessageCircle size={16}/>从这个话题接一句</label>
+    <textarea ref={input} id={id} rows={2} maxLength={500} aria-label={`${title}的开场白`} value={draft} onChange={event => { setDraft(event.target.value); setNotice(""); }}/>
+    <div><small>可以直接改字，复制后由你决定是否发送。</small><button type="button" disabled={!draft.trim()} onClick={() => void copy()}><Copy size={15}/>{notice.startsWith("已复制") ? "已复制" : "复制这句话"}</button></div>
+    {notice && <p role="status">{notice}</p>}
+  </div>;
+}
+
 /** Common-point counts require two visible sources; one-sided material stays a conversation lead. */
 export function PersonalConnection({ report, publicExample = false, compact = false }: { report: Json; publicExample?: boolean; compact?: boolean }) {
-  const id = useId(), result = personalConnection(report);
+  const id = useId(), result = personalConnection(report), risk = riskAwarePresentation(report);
   if (result.status === "self") return null;
   const evidenceFor = (item: PersonalInsight) => result.sources.filter(source => item.evidenceIds.includes(source.id) && source.quote.trim());
   const bothSides = (item: PersonalInsight) => {
@@ -46,16 +68,20 @@ export function PersonalConnection({ report, publicExample = false, compact = fa
   const hasSelf = result.sources.some(source => source.side === "self" && source.quote.trim());
   const reportId = report.reportId || report.id;
   const quickHref = "/archive?tab=self&quick=1" + (reportId ? "&returnTo=" + encodeURIComponent(`/report?id=${encodeURIComponent(reportId)}`) : "");
-  const showRows = (items: PersonalInsight[], category: "common" | "topic" | "difference") => items.map(item => <article className={styles.insight} data-personal-kind={category} key={item.id}>
+  const showRows = (items: PersonalInsight[], category: "common" | "topic" | "difference") => items.map(item => {
+    const starter = category !== "difference" && risk.mode === "normal" ? personalConversationStarter(item, result.sources) : "";
+    return <article className={styles.insight} data-personal-kind={category} key={item.id}>
     <header><h3>{category === "common" ? <Check size={18}/> : category === "difference" ? <GitCompareArrows size={18}/> : <MessageCircle size={18}/>}<span>{item.title}</span></h3><span className={styles.badge}>{category === "common" ? "双方有依据" : "相处推测"}</span></header>
     <p>{item.reading}</p>
     <Sources rows={evidenceFor(item)} insightId={item.id}/>
     {category !== "common" && item.alternative && <p className={styles.alternative}><Lightbulb size={16}/><span>也可能：{item.alternative}</span></p>}
-    {item.action && <div className={styles.action}><ArrowRight size={17}/><div><strong>{category === "difference" ? "相处时留意" : "可以这样接近"}</strong><p>{item.action}</p></div></div>}
-  </article>);
+    {item.action && !starter && (risk.mode === "normal" || risk.mode === "expectation" && category === "difference") && <div className={styles.action}><ArrowRight size={17}/><div><strong>{category === "difference" ? "相处时留意" : "可以这样接近"}</strong><p>{item.action}</p></div></div>}
+    {starter && <ConversationStarter key={`${reportId || "current"}:${item.id}:${evidenceFor(item).map(row => row.quote).join("|")}`} title={item.title} text={starter}/>}
+  </article>; });
 
   return <section className={styles.connection} data-personal-connection data-personal-status={result.status} aria-labelledby={`${id}-heading`}>
     <header className={styles.heading}><div><span className={styles.eyebrow}><HeartHandshake size={19}/>与你有关{publicExample && <small>虚构案例</small>}</span><h2 id={`${id}-heading`}>{common.length ? <>你们的共同点 <span>· {common.length}</span></> : hasSelf ? "从你们各自的表达，找到切入点" : "先从这份材料，找到可聊的话题"}</h2><p>{result.summary || (hasSelf ? "对照已有资料和当前原话，看你们哪里相近、怎样自然接话。" : "目前还没有足够的本人信息，不把对方的兴趣当成你们的共同点。")}</p></div>{!publicExample && (!hasSelf || result.status === "limited") && <a className={styles.quickLink} href={quickHref}><UserRound size={17}/>快速补充我<ArrowRight size={16}/></a>}</header>
+    {risk.mode !== "normal" && !compact && <p className={styles.priority} data-personal-priority><ShieldCheck size={18}/>{risk.mode === "safety" ? "共同点仍可核对；当前先处理上方的安全与边界提醒，再决定是否继续接近。" : "共同点可以帮助了解，但请先确认双方的关系期待是否一致。上方已准备了确认期待的回复。"}</p>}
     {common.length > 0 && <><div className={styles.chips} aria-label="有双侧依据的共同点">{common.map(item => <span key={item.id}><Check size={16}/>{item.title}</span>)}</div>{!compact && <div className={styles.grid}>{showRows(common, "common")}</div>}{compact && <p className={styles.compactNote}><UsersRound size={17}/>案例中的本人资料与对方材料都已对照；展开完整案例，可查看每条双侧来源。</p>}</>}
     {!compact && topics.length > 0 && <div className={styles.group}><h3 className={styles.groupTitle}><MessageCircle size={20}/>可以聊的话题 <small>有材料可接，不假装已经相同</small></h3><div className={styles.grid}>{showRows(topics, "topic")}</div></div>}
     {!compact && differences.length > 0 && <div className={styles.group} data-personal-differences><h3 className={styles.groupTitle}><GitCompareArrows size={20}/>相处时，留意这些不同</h3><div className={styles.grid}>{showRows(differences, "difference")}</div></div>}

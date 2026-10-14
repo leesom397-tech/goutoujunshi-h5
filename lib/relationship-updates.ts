@@ -1,3 +1,4 @@
+import { relationshipEvidenceReview, type RelationshipSourceReport, type RelationshipEvidenceReview } from "./relationship-evidence";
 /** Read-only observations from this person's existing analyses. Never records a guessed outcome. */
 type Point = {
   reportId: string; subjectId: string; signature?: string; summary?: string; nextStep?: string;
@@ -10,6 +11,7 @@ export type AutomaticRelationshipUpdate = {
   current: { reportId: string; summary: string; nextStep: string; date: string } | null;
   previous: { reportId: string; summary: string; date: string } | null;
   changes: { label: string; before: number; after: number; text: string }[];
+  evidenceReview?: RelationshipEvidenceReview;
 };
 const clean = (value: unknown, max = 400) => typeof value === "string" ? value.trim().slice(0, max) : "";
 const identifier = (value: unknown): value is string => typeof value === "string" && /^[a-f0-9]{8}-[a-f0-9-]{27}$/i.test(value);
@@ -22,8 +24,9 @@ const dateRange = (point: Point) => {
   const start = calendar(point.eventStart), end = calendar(point.eventEnd);
   return start && end && start <= end ? { start, end } : { start: "", end: "" };
 };
-export function automaticRelationshipUpdate(data: Record<string, unknown>, subjectId: string, focusReportId = ""): AutomaticRelationshipUpdate {
-  const empty: AutomaticRelationshipUpdate = { status: "empty", headline: "新聊天会接着这次分析", note: "补充同一人物的材料后，会自动整理其中的新线索。", count: 0, current: null, previous: null, changes: [] };
+export function automaticRelationshipUpdate(data: Record<string, unknown>, subjectId: string, focusReportId = "", sourceReports?: RelationshipSourceReport[]): AutomaticRelationshipUpdate {
+  const evidenceReview = sourceReports ? relationshipEvidenceReview(data, subjectId, focusReportId, sourceReports) : undefined;
+  const empty: AutomaticRelationshipUpdate = { status: "empty", headline: evidenceReview?.cards.length ? "这次多了哪些具体线索" : "新聊天会接着这次分析", note: "补充同一人物的材料后，会自动整理其中的新线索。", count: 0, current: null, previous: null, changes: [], ...(evidenceReview ? { evidenceReview } : {}) };
   const raw = Array.isArray(data.relationshipHistory) ? data.relationshipHistory : [];
   const byReport = new Map<string, Point>();
   for (const value of raw) {

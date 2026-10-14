@@ -1,4 +1,5 @@
 const api = require("../../lib/api");
+const {riskAwarePresentation}=require("../../lib/risk-aware-presentation");
 const followupContext = require("../../lib/followup-context");
 const idPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 
@@ -54,6 +55,7 @@ function interactionOverview(lines) {
 }
 
 function present(report) {
+  const risk=riskAwarePresentation(report);report=risk.viewReport;
   const notes = new Map((report.annotations || []).map(item => [item.lineId, item]));
   const lines = (report.lines || []).map((line, index) => {
     const annotation = notes.get(line.id) || {};
@@ -79,7 +81,7 @@ function present(report) {
     affectionScope: affinity?.valueScope === 'partial' ? '部分维度参考' : '本次互动信号',
     affectionBoundary: !!affinity?.boundaryApplied,
     photoClues: report.decision?.photoClues || [],
-    personalConnection: report.personalConnection || null,
+    personalConnection: report.personalConnection || null,riskReview:risk.review,
     interactionInsight: report.decision?.interactionInsight || null,
     photoClueCount: (report.decision?.photoClues || []).length,
     id: report.id, subjectId: report.subjectId || '', compatibility: Object.prototype.hasOwnProperty.call(report, 'latestCompatibility') ? report.latestCompatibility : report.compatibility || null,

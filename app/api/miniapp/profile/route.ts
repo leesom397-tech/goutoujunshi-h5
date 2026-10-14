@@ -6,7 +6,7 @@ import { getD1 } from "@/db";
 import { miniappOwner } from "@/lib/miniapp-auth";
 import { deleteCrush } from "@/lib/crush/service";
 import { cleanData, type SelfData } from "@/lib/profile";
-import { editableProfileDataSql } from "@/lib/profile-updates";
+import { cleanEditableProfilePatch, editableProfileDataSql } from "@/lib/profile-updates";
 import { cleanManualSubject } from "@/lib/manual-subject";
 import { cleanMomentsReport } from "@/lib/moments-report";
 import { cleanCommunicationReading } from "@/lib/communication-reading";
@@ -155,8 +155,8 @@ export async function POST(request: Request) {
   } else if (body.action === "self") {
     const profile = await db.prepare("SELECT consent_at,paused FROM coach_profiles WHERE owner_id=?").bind(owner).first<{ consent_at: number | null; paused: number }>();
     if (!profile?.consent_at || profile.paused) return json({ error: "请先启用并恢复档案。" }, 403);
-    let data: SelfData;
-    try { data = cleanData(body.data, "self") as SelfData; } catch (error) { return json({ error: error instanceof Error ? error.message : "我的档案格式不正确。" }, 400); }
+    let data: Record<string, unknown>;
+    try { data = cleanEditableProfilePatch(body.data, "self"); } catch (error) { return json({ error: error instanceof Error ? error.message : "我的档案格式不正确。" }, 400); }
     await db.prepare(`UPDATE coach_profiles SET data=${editableProfileDataSql("self")},updated_at=? WHERE owner_id=? AND consent_at IS NOT NULL AND paused=0`).bind(JSON.stringify(data),now,owner).run();
   } else if (body.action === "create-manual") {
     const name=label(body.label);

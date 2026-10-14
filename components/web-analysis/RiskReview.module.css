@@ -23,4 +23,7 @@
 .action>svg{color:var(--risk-accent);flex-shrink:0;margin-top:3px}
 .review .action p{margin:4px 0 0;font-size:15px;line-height:1.8;color:#514c3c;overflow-wrap:anywhere}
 .review[data-risk-state=clear],.review[data-risk-state=unassessed]{padding:19px 22px;background:#fdfbf7}
+.actionNotice{padding:18px 20px;margin:16px 0 22px;border:1px solid #e4c8ba;border-left:4px solid #aa614a;border-radius:12px;background:#fcf1e8;color:#503b2d;overflow-wrap:anywhere}.actionNotice>strong{display:flex;align-items:center;gap:8px;font-size:18px;color:#864936;line-height:1.5}.actionNotice>strong svg{flex-shrink:0}.actionNotice>p{margin:9px 0;font-size:16px;line-height:1.8}.actionNotice>small{display:block;font-size:14px;line-height:1.7;color:#7c6251}.actionNotice[data-risk-action=expectation]{border-color:#dfccaa;border-left-color:#b78b4c;background:#faf4e8}
 @media(max-width:700px){.review{padding:17px 15px;margin:20px 0}.review .heading h2{font-size:19px}.count{font-size:13px;padding:3px 7px}.grid{grid-template-columns:1fr;gap:12px;margin-top:16px}.signal{padding:16px 14px}.review .signal h3{font-size:17px}.review .summary{font-size:15px}.evidence{padding:10px 12px}.review[data-risk-state=clear],.review[data-risk-state=unassessed]{padding:17px 15px}.review .meaning p{font-size:15px}}
+
+.review .occurrences{margin:-4px 0 13px;font-size:14px;line-height:1.7;color:#826d55}.occurrences span{display:block;margin-top:3px;font-variant-numeric:tabular-nums;color:#756858}

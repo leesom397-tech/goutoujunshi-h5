@@ -33,6 +33,7 @@ Page({
   open(event) {
     const entry = event.currentTarget.dataset.entry;
     if (entry === "account") { wx.navigateTo({ url: "/pages/account/index" }); return; }
+    if (entry === "comparison") {wx.navigateTo({url:"/pages/archive/index?compare=1"});return;}
     if (!["quick", "social-profile", "archive", "self", "chat", "positioning", "voice"].includes(entry)) return;
     if (entry === "self") { wx.navigateTo({ url: "/pages/archive/index?tab=self" }); return; }
     if (entry === "quick") {

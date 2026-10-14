@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import ts from 'typescript';
+const evidenceApi={};new Function('exports',ts.transpileModule(readFileSync('lib/relationship-evidence.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(evidenceApi);
 const exports={};
-new Function('exports',ts.transpileModule(readFileSync('lib/relationship-updates.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(exports);
+new Function('exports','require',ts.transpileModule(readFileSync('lib/relationship-updates.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(exports,()=>evidenceApi);
 const {automaticRelationshipUpdate:review}=exports;
 const subject='subject-a',id=n=>`${String(n).padStart(8,'0')}-1111-4111-8111-111111111111`;
 const point=(n,overrides={})=>({reportId:id(n),subjectId:subject,signature:`material-${n}`,summary:`第${n}次可见互动`,nextStep:'核对双方约定',updatedAt:n*1000,eventStart:`2026-01-${String(n*3).padStart(2,'0')}`,eventEnd:`2026-01-${String(n*3+1).padStart(2,'0')}`,comparable:true,estimated:false,dimensions:[{label:'主动延续',value:n*20}],evidenceWindows:[`window-${n}`],...overrides});

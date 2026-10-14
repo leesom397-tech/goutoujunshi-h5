@@ -61,3 +61,5 @@
 
 /* Final shared phone contrast layer. */
 @import "../../styles/phone-contrast.wxss";
+
+.archive-shortcuts{display:flex;flex-wrap:wrap;gap:14rpx;margin:22rpx 0}.archive-shortcuts button{flex:1;min-width:170rpx;margin:0;font-size:28rpx;line-height:1.7;padding:18rpx 10rpx;border:1rpx solid #dbc4b4;border-radius:16rpx;background:#fffaf5;color:#885139}.automatic-summary{font-size:30rpx;line-height:1.7;padding:20rpx 0;color:#3c322a}.automatic-summary>text{display:block}

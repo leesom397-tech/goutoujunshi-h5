@@ -44,6 +44,7 @@
       <text class="followup-note">带着这份分析，和军师接着聊。</text>
       <text wx:if="{{followupError}}" class="error">{{followupError}}</text>
     </view>
+    <risk-review value="{{report.riskReview}}"/>
     <personal-connection value="{{report.personalConnection}}"/>
     <view id="report-replies" class="panel">
       <text class="step">02 · 回复选择</text><text class="heading">现在怎么回</text>

@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { loadVoiceMemory, validVoiceSubjectId } from "../lib/miniapp-voice-memory.mjs";
+const nativeRiskSignals={},nativeRisk={};
+new Function("exports",readFileSync("miniapp/lib/relationship-risk.js","utf8"))(nativeRiskSignals);
+new Function("exports","require",readFileSync("miniapp/lib/risk-aware-presentation.js","utf8"))(nativeRisk,()=>nativeRiskSignals);
 
 const followupModule = { exports: {} };
 new Function("module", "wx", readFileSync(resolve("miniapp/lib/followup-context.js"), "utf8"))(
@@ -94,7 +97,7 @@ const wx = {
 };
 let definition;
 new Function("require", "Page", "wx", source)(
-  id => { if (id === "../../lib/followup-context") return followup; assert.equal(id, "../../lib/api"); return api; },
+  id => { if(id==="../../lib/risk-aware-presentation")return nativeRisk; if (id === "../../lib/followup-context") return followup; assert.equal(id, "../../lib/api"); return api; },
   value => { definition = value; },
   wx
 );
@@ -194,7 +197,7 @@ const multiQuickApi = {
 };
 let multiQuickDefinition;
 new Function("require", "Page", "wx", source)(
-  id => id === "../../lib/followup-context" ? followup : multiQuickApi, value => { multiQuickDefinition = value; }, wx
+  id => id === "../../lib/risk-aware-presentation" ? nativeRisk : id === "../../lib/followup-context" ? followup : multiQuickApi, value => { multiQuickDefinition = value; }, wx
 );
 const multiQuickPage = { ...multiQuickDefinition, data: structuredClone(multiQuickDefinition.data), setData(next) { Object.assign(this.data, next); } };
 await multiQuickPage.refresh();
@@ -239,7 +242,7 @@ assert.equal(interruptedPage.data.result.lines.length, 2);
 const nativeReportSource = readFileSync(resolve("miniapp/pages/report/index.js"), "utf8");
 let nativeReportDefinition;
 new Function("require", "Page", "wx", nativeReportSource)(
-  id => { if (id === "../../lib/followup-context") return followup; assert.equal(id, "../../lib/api"); return {
+  id => { if(id==="../../lib/risk-aware-presentation")return nativeRisk; if (id === "../../lib/followup-context") return followup; assert.equal(id, "../../lib/api"); return {
     STORAGE: api.STORAGE,
     session: api.session,
     async request(path, method, body, token) {
@@ -327,7 +330,7 @@ assert.match(readFileSync(resolve("miniapp/pages/quick/index.wxml"), "utf8"), /�
 page.setData({ result: { ...page.data.result, canPersonalize: true } });
 await page.personalize({ currentTarget: { dataset: { index: 0 } } });
 assert.equal(sent.at(-1).path, "/api/miniapp/rewrite");
-assert.deepEqual(sent.at(-1).body, { reportId: validId, optionIndex: 0, styleReportIds: page.data.result.styleReportIds, confirmed: true, requestId: '22222222-2222-4222-8222-222222222222' });
+assert.deepEqual(sent.at(-1).body, { reportId: validId, optionIndex: 1, styleReportIds: page.data.result.styleReportIds, confirmed: true, requestId: '22222222-2222-4222-8222-222222222222' });
 assert.equal(page.data.result.replies[0].personalizedText, "周日下午见面行吗？");
 assert.doesNotMatch(readFileSync(resolve("miniapp/pages/quick/index.wxml"), "utf8"), /关联已有账号/);
 
@@ -393,7 +396,7 @@ const socialSource = readFileSync(resolve("miniapp/pages/social-profile/index.js
 const socialRequests = [];
 let socialDefinition;
 new Function("require", "Page", "wx", socialSource)(
-  () => ({ async session() { return { token: "test-token" }; }, async request(path, method, body) {
+  id => id === "../../lib/risk-aware-presentation" ? nativeRisk : ({ async session() { return { token: "test-token" }; }, async request(path, method, body) {
     if (path === "/api/miniapp/credits") { assert.equal(method, "GET"); return { prices: fixturePrices }; }
     socialRequests.push({ path, method, body });
     if (path.endsWith("/social-profile")) return { kind: "profile", summary: "仅有自述资料", visibleFacts: [{ title: "兴趣", evidence: "第1张图", meaning: "自述" }], positives: [], cautions: [], hypotheses: [{ title: "重视兴趣", evidence: "第1张图", possibility: "可能重视共同话题", alternative: "也可能只是随手填写", verify: "聊聊真实体验" }], unknowns: ["实际相处"], questions: [] };
@@ -437,7 +440,7 @@ assert.equal(togetherPage.data.people[togetherPage.data.personIndex].id, validId
 const selfImportRequests = [];
 let selfImportDefinition;
 new Function("require", "Page", "wx", socialSource)(
-  () => ({ async session() { return { token: "test-token", state: { subjects: [] } }; }, async request(path, method, body) {
+  id => id === "../../lib/risk-aware-presentation" ? nativeRisk : ({ async session() { return { token: "test-token", state: { subjects: [] } }; }, async request(path, method, body) {
     if (path === "/api/miniapp/credits") { assert.equal(method, "GET"); return { prices: fixturePrices }; }
     selfImportRequests.push({ path, method, body });
     if (method === "GET") return { enabled: false, paused: false, subjects: [] };
@@ -462,7 +465,7 @@ assert.match(selfImportPage.data.archiveMessage, /已建立我的档案/);
 assert.match(readFileSync(resolve("miniapp/pages/social-profile/index.wxml"), "utf8"), /基础信息和截图线索待逐条确认/);
 let multiDefinition;
 new Function("require", "Page", "wx", socialSource)(
-  () => ({ async session() { return { token: "test-token" }; }, async request(path, method, body) {
+  id => id === "../../lib/risk-aware-presentation" ? nativeRisk : ({ async session() { return { token: "test-token" }; }, async request(path, method, body) {
     if (path === "/api/miniapp/credits") { assert.equal(method, "GET"); return { prices: fixturePrices }; } socialRequests.push({ path, method, body }); return { summary: "两张资料已整理", visibleFacts: [], positives: [], cautions: [], unknowns: [], questions: [], nextMaterials: [] }; } }),
   value => { multiDefinition = value; },
   { ...wx,
@@ -488,7 +491,7 @@ await assert.rejects(multiPage.prepareImage({ tempFilePath: "/fake/too-large.png
 let oversizedPixelCompression;
 let highPixelDefinition;
 new Function("require", "Page", "wx", socialSource)(
-  () => ({ async session() { return { token: "test-token" }; } }),
+  id => id === "../../lib/risk-aware-presentation" ? nativeRisk : ({ async session() { return { token: "test-token" }; } }),
   value => { highPixelDefinition = value; },
   { ...wx,
     getImageInfo(options) { options.success(options.src.endsWith(".optimized") ? { type: "png", width: 1200, height: 2600 } : { type: "png", width: 1000, height: 18000 }); },
@@ -519,7 +522,7 @@ assert.ok(JSON.stringify(denseProfileResult).length > 12000, "dense first-batch 
 let batchChoices = 0;
 let batchDefinition;
 new Function("require", "Page", "wx", socialSource)(
-  () => ({ async session() { return { token: "test-token" }; }, async request(path, method, body) {
+  id => id === "../../lib/risk-aware-presentation" ? nativeRisk : ({ async session() { return { token: "test-token" }; }, async request(path, method, body) {
     if (path === "/api/miniapp/credits") { assert.equal(method, "GET"); return { prices: fixturePrices }; }
     batchRequests.push(body);
     return batchRequests.length === 1 ? denseProfileResult : { kind: "profile", summary: "资料待核实", visibleFacts: [], positives: [], cautions: [], unknowns: [], questions: [] };
@@ -577,7 +580,7 @@ const otherPersonId = "33333333-3333-4333-8333-333333333333";
 let externallySelectedId = validId;
 let returnedDefinition;
 new Function("require", "Page", "wx", socialSource)(
-  () => ({ async session() { return { token: "test-token", state: { subjects: [{ id: validId, label: "阿青" }, { id: otherPersonId, label: "阿月" }] } }; }, currentSubject() { return externallySelectedId; } }),
+  id => id === "../../lib/risk-aware-presentation" ? nativeRisk : ({ async session() { return { token: "test-token", state: { subjects: [{ id: validId, label: "阿青" }, { id: otherPersonId, label: "阿月" }] } }; }, currentSubject() { return externallySelectedId; } }),
   value => { returnedDefinition = value; }, wx
 );
 const returnedPage = { ...returnedDefinition, data: structuredClone(returnedDefinition.data), setData(next) { Object.assign(this.data, next); } };
@@ -598,7 +601,7 @@ const chatSource = readFileSync(resolve("miniapp/pages/chat/index.js"), "utf8");
 const chatRequests = [];
 let chatDefinition;
 new Function("require", "Page", "wx", chatSource)(
-  id => id === "../../lib/followup-context" ? followup : ({ STORAGE: api.STORAGE, async newId() { return validId; }, async session() { return { token: "test-token", state: { subjects: [{ id: validId, label: "阿青" }] } }; },
+  id => id === "../../lib/risk-aware-presentation" ? nativeRisk : id === "../../lib/followup-context" ? followup : ({ STORAGE: api.STORAGE, async newId() { return validId; }, async session() { return { token: "test-token", state: { subjects: [{ id: validId, label: "阿青" }] } }; },
     async request(path, method, body, token) {
     if (path === "/api/miniapp/credits") { assert.equal(method, "GET"); return { prices: fixturePrices }; } chatRequests.push({ path, method, body, token }); return { possibleIntent: "商量时间", evidence: "「周日有空」", nextStep: "确认周日几点", replies: [{ text: "周日几点合适？", weight: 90, reason: "承接时间", cost: "需要安排时间" }] }; } }),
   value => { chatDefinition = value; }, wx
@@ -713,7 +716,7 @@ const newPersonApi = {
 };
 let newPersonDefinition;
 new Function("require", "Page", "wx", source)(
-  id => id === "../../lib/followup-context" ? followup : newPersonApi,
+  id => id === "../../lib/risk-aware-presentation" ? nativeRisk : id === "../../lib/followup-context" ? followup : newPersonApi,
   value => { newPersonDefinition = value; },
   wx
 );
@@ -739,7 +742,7 @@ assert.match(quickMarkup, /不保存就保持默认/);
 const unlinkedApi = { ...api, async session() { throw new Error("微信身份暂时无法建立小程序账号，请稍后重试。"); } };
 let unlinkedDefinition;
 new Function("require", "Page", "wx", source)(
-  id => id === "../../lib/followup-context" ? followup : unlinkedApi,
+  id => id === "../../lib/risk-aware-presentation" ? nativeRisk : id === "../../lib/followup-context" ? followup : unlinkedApi,
   value => { unlinkedDefinition = value; },
   wx
 );
@@ -760,7 +763,7 @@ const chatApi = { STORAGE: api.STORAGE, async newId() { return validId; },
     throw Error("transcription must not auto-submit advice");
   }
 };
-new Function("require", "Page", "wx", chatSource)(id => id === "../../lib/followup-context" ? followup : chatApi, value => { chatDefinition = value; }, {
+new Function("require", "Page", "wx", chatSource)(id => id === "../../lib/risk-aware-presentation" ? nativeRisk : id === "../../lib/followup-context" ? followup : chatApi, value => { chatDefinition = value; }, {
   getRecorderManager() { return { onStop(callback) { onVoiceStop = callback; }, onError() {}, start() { recorderStarts++; }, stop() {} }; }
 });
 const chatPage = { ...chatDefinition, data: structuredClone(chatDefinition.data), setData(next) { Object.assign(this.data, next); } };

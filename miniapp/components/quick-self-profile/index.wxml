@@ -1,0 +1,8 @@
+<view class="quick-self">
+  <text class="eyebrow">快速认识我 · 免费整理</text><text class="title">选几个标签，或说说自己</text><text class="muted">不用填完整问卷。确认的资料会用来发现你们的共同点。</text>
+  <view wx:for="{{groups}}" wx:key="field" wx:for-item="group" class="group"><text class="label">{{group.title}}</text><view class="tags"><button wx:for="{{group.tags}}" wx:key="label" class="tag {{item.selected?'selected':''}}" data-field="{{group.field}}" data-label="{{item.label}}" bindtap="toggle" disabled="{{disabled||busy}}">{{item.selected?'✓ ':''}}{{item.label}}</button></view></view>
+  <textarea value="{{intro}}" maxlength="3000" bindinput="input" disabled="{{disabled||busy}}" placeholder="例如：我喜欢摄影和看展。我希望认真了解一个人，也需要独立空间。"/>
+  <text class="muted">这里只在本机整理，未确认的自述不会上传。</text><button class="primary" bindtap="prepare" disabled="{{disabled||busy}}">整理预览 · 免费</button>
+  <text wx:if="{{note}}" class="note">{{note}}</text>
+  <view wx:if="{{preview.length}}" class="preview"><view wx:for="{{preview}}" wx:key="field" class="field"><text class="label">{{item.label}}</text><textarea value="{{item.value}}" data-field="{{item.field}}" bindinput="edit" maxlength="800" auto-height disabled="{{disabled||busy}}"/></view><button class="primary" bindtap="save" disabled="{{disabled||busy}}">{{busy?'正在保存…':'确认保存到我的资料'}}</button></view>
+</view>

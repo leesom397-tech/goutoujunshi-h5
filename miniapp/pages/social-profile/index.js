@@ -1,4 +1,5 @@
 const api = require("../../lib/api");
+const {riskAwarePresentation}=require("../../lib/risk-aware-presentation");
 const { drawRadar } = require("../../lib/radar");
 const { openReportFollowup } = require("../../lib/followup-context");
 const basicLabels = { ageRange: "年龄", city: "常住地", education: "学历", occupation: "职业", relationshipStatus: "婚恋状态", childrenPlan: "婚育想法", lifestyle: "生活方式" };
@@ -33,8 +34,9 @@ function fitRadarStyle(rows) {
   return `clip-path: polygon(${points.join(",")})`;
 }
 function decorateResult(result, totalCount) {
+  const risk=riskAwarePresentation(result);result={...risk.viewReport,riskReview:risk.review};
   const opportunity = (result.commonPoints || [])[0] || (result.positives || [])[0];
-  const concern = (result.riskSignals || [])[0] || (result.cautions || [])[0];
+  const concern = risk.priority?{meaning:risk.nextStep}:((result.riskSignals || [])[0] || (result.cautions || [])[0]);
   const nextQuestion = (result.questions || [])[0];
   result = { ...result,
     hypotheses: (result.hypotheses || []).map(item => ({ ...item, expanded: false })),

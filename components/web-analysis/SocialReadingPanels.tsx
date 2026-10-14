@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ArrowRight, BookOpen, BriefcaseBusiness, Camera, ChartNoAxesCombined, Check, CircleHelp, Clock3, Coffee, Copy, Eye, FileText, HandHeart, House, Layers3, Lightbulb, MapPin, Megaphone, MessageCircle, Plane, Quote, Repeat2, ScanLine, Send, ShieldCheck, Smile, Sparkles, Trophy, UserRound, Users, type LucideIcon } from "lucide-react";
 import type { Json } from "./client";
 import { CaptureEvidence } from "./CaptureEvidence";
+import {ReplyDifference} from "./ReportReadingTools";
 import { profileLabels } from "./report-data";
 import "./social-reading-panels.css";
 
@@ -122,6 +123,6 @@ export function SocialNextAdvice({ report }: { report: Json }) {
   if (!approach && !starters.length) return null;
   return <div className="social-reading-panels">
     {approach && <section className="wa-card srp-card"><h2><HandHeart size={22}/>怎么相处，怎么聊</h2><dl className="srp-advice-grid">{fields.filter(([key]) => text(approach[key])).map(([key, label, Icon]) => <div key={key}><dt><Icon size={18}/>{label}</dt><dd>{approach[key]}</dd></div>)}</dl><SourceEvidence value={approach.evidence}/></section>}
-    {starters.length > 0 && <section className="wa-card srp-card"><h2><Send size={22}/>选一句自然地接着聊</h2><div className="srp-starters">{starters.map((item, index) => <article key={index}><header><span>{text(item.topic) || `开场句 ${index + 1}`}</span>{text(item.message) && <button type="button" onClick={() => void copyMessage(item.message, index)}>{copied === index ? <Check size={16}/> : <Copy size={16}/>}<span>{copied === index ? "已复制" : "复制这句话"}</span></button>}</header>{text(item.message) && <blockquote>{item.message}</blockquote>}{text(item.reason) && <p>{item.reason}</p>}<SourceEvidence value={item.evidence}/></article>)}</div><span className="srp-copy-status" role="status">{copyError || (copied !== null ? `已复制第 ${copied + 1} 句话` : "")}</span></section>}
+    {starters.length > 0 && <section className="wa-card srp-card"><h2><Send size={22}/>选一句自然地接着聊</h2><div className="srp-starters">{starters.map((item, index) => <article key={index}><header><span>{text(item.topic) || `开场句 ${index + 1}`}</span>{text(item.message) && <button type="button" onClick={() => void copyMessage(item.message, index)}>{copied === index ? <Check size={16}/> : <Copy size={16}/>}<span>{copied === index ? "已复制" : "复制这句话"}</span></button>}</header>{text(item.message) && <blockquote>{item.message}</blockquote>}{text(item.reason) && <p>{item.reason}</p>}<ReplyDifference options={starters} index={index}/><SourceEvidence value={item.evidence}/></article>)}</div><span className="srp-copy-status" role="status">{copyError || (copied !== null ? `已复制第 ${copied + 1} 句话` : "")}</span></section>}
   </div>;
 }

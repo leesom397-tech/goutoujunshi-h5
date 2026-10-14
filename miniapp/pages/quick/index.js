@@ -1,4 +1,5 @@
 const api = require("../../lib/api");
+const {riskAwarePresentation,riskReplyAllowed}=require("../../lib/risk-aware-presentation");
 const followupContext = require("../../lib/followup-context");
 function savedChatTask() { try { return typeof wx.getStorageSync === "function" ? wx.getStorageSync("chat-analysis-task") : null; } catch { return null; } }
 const reportIdPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
@@ -183,8 +184,10 @@ Page({
   },
   presentBatch(entries, elapsed, completion = {}) {
       this.clearPartialReports();
-      const result = entries.at(-1);
+      let result = entries.at(-1);
       const collected = entries.flatMap((entry, index) => entry.lines.map(line => ({ ...line, screenshotNumber: index + 1 })));
+      const risk=riskAwarePresentation({...result,lines:collected,riskReview:{signals:entries.flatMap(entry=>[...(entry.riskReview?.signals||[]),...(entry.decision?.riskReview?.signals||[])])}});result=risk.viewReport;
+      this._riskPresentation=risk;
       const collectedAnnotations = entries.flatMap(entry => entry.annotations || []);
       if (!result.id || !Array.isArray(result.lines)) throw new Error("报告没有完整返回，请稍后重试。");
       const tags = new Map(collectedAnnotations.map(item => [item.lineId, item]));
@@ -195,7 +198,7 @@ Page({
       });
       const lastOther = [...collected].reverse().find(item => item.speaker === "other");
       const annotation = tags.get(lastOther?.id);
-      const options = [...(result.decision?.replyOptions || [])].sort((a, b) => (b.weight ?? -1) - (a.weight ?? -1)).slice(0, 3);
+      const options = risk.replyOptions.slice(0,3);
       const replies = options.map((option, index) => ({ ...option, rankLabel: index === 0 ? "本轮首选" : `备选 ${index + 1}`, expanded: false, personalizedText: "", note: "", rewriteError: "" }));
       const latestSpeaker = [...collected].reverse().find(item => item.speaker === "self" || item.speaker === "other")?.speaker;
       const styleReportIds = entries.filter(entry => entry.lines?.some(line => line.speaker === "self")).map(entry => entry.id).filter(Boolean).slice(-9);
@@ -207,7 +210,7 @@ Page({
         id: result.id, subjectId: result.subjectId || "", compatibility: result.compatibility || null,
         avatarCandidates: entries.flatMap((entry,imageIndex)=>(entry.decision?.avatarCandidates||[]).filter(c=>this.data.side !== "ask" && c.side !== this.data.side && ["left","right"].includes(c.side)).map(c=>({...c,imageIndex}))), photoClues, photoClueCount: photoClues.length,
         interactionInsight: result.decision?.interactionInsight || null,
-        personalConnection: result.personalConnection || null,
+        personalConnection: result.personalConnection || null,riskReview:risk.review,
         possibleIntent: visiblePossibleIntent(lastOther?.text, result.decision?.possibleIntent || annotation?.intent?.[0]?.label, annotation?.evidence),
         evidence: result.decision?.evidence || (lastOther ? "对方原话：「" + lastOther.text.slice(0, 100) + (lastOther.text.length > 100 ? "…" : "") + "」" : "本轮没有已确认来自对方的可读原话。"),
         observation: result.decision?.observation || "", judgment: result.decision?.judgment || "", nextStep: result.decision?.nextStep || "",
@@ -497,15 +500,18 @@ Page({
   async personalize(event) {
     const index = Number(event.currentTarget.dataset.index);
     if (!this.data.result.canPersonalize || this.data.rewriteBusy >= 0 || !Number.isInteger(index) || index < 0 || index >= this.data.result.replies.length) return;
+    const optionIndex=this.data.result.replies[index].originalIndex;
+    if(!Number.isInteger(optionIndex))return;
     if (!this.data.pricesReady) { this.setData({ error: "请先重试读取改写价格。" }); return; }
     const reportId = this.data.result.reportId;
     this.setData({ rewriteBusy: index, copiedReplyIndex: -1, copyError: "" });
     try {
       this._rewriteIds ||= {};
-      const rewriteKey = reportId + ":" + index;
+      const rewriteKey = reportId + ":" + optionIndex;
       this._rewriteIds[rewriteKey] ||= await api.newId();
-      const rewritten = await api.request("/api/miniapp/rewrite", "POST", { reportId, optionIndex: index, styleReportIds: this.data.result.styleReportIds, confirmed: true, requestId: this._rewriteIds[rewriteKey] }, this.data.token);
+      const rewritten = await api.request("/api/miniapp/rewrite", "POST", { reportId, optionIndex, styleReportIds: this.data.result.styleReportIds, confirmed: true, requestId: this._rewriteIds[rewriteKey] }, this.data.token);
       if (!rewritten.text || !rewritten.status || !rewritten.note) throw new Error("云端改写暂未完成，原推荐仍可使用。");
+      if(this._riskPresentation&&!riskReplyAllowed(this._riskPresentation,rewritten.text))throw new Error("这条改写与当前风险提醒冲突，请使用原来的边界回复。");
       if (this.data.result.reportId !== reportId) return;
       this.setData({ result: { ...this.data.result, replies: this.data.result.replies.map((item, position) => position === index ? { ...item, personalizedText: rewritten.status === "adjusted" ? rewritten.text : "", note: rewritten.note, rewriteError: "" } : item) } });
     } catch (error) {

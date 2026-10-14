@@ -9,12 +9,15 @@ import { ChatReport, SocialReport } from "@/components/web-analysis/ReportView";
 import { mergeChatReports } from "@/components/web-analysis/report-data";
 import "@/components/web-analysis/web-analysis.css";
 import styles from "./ReportPage.module.css";
+import { intakeHref, intakeReturnTo } from "@/components/web-analysis/intake-navigation";
 export default function ReportPage() {
   const account = useAccount(), owner = account.account?.account?.userId;
   const [saved, setSaved] = useState<Json | null>(null), [reportOwner, setReportOwner] = useState<string | null>(null), [error, setError] = useState(""), [loading, setLoading] = useState(true), [deleting, setDeleting] = useState(false), generation = useRef(0);
   const current = owner && owner === reportOwner ? saved : null;
   const kind = current?.kind === "moments" ? "moments" : current?.kind === "social" ? "social" : "chat";
   const title = kind === "moments" ? "朋友圈分析报告" : kind === "social" ? "社交主页分析报告" : "聊天分析报告";
+  const returnTo = current ? intakeReturnTo('/report?id=' + (current.report.reportId || current.report.id)) : '';
+  const continueHref = intakeHref('/analyze',{mode:kind,subjectId:current?.subjectId || current?.report.subjectId || '',targetSelf:!!current?.targetSelf,returnTo});
   async function load() {
     const ticket = ++generation.current, scope = owner; if (!scope) return;
     setLoading(true); setError(""); setSaved(null);
@@ -41,7 +44,7 @@ export default function ReportPage() {
     finally { if (ticket === generation.current) setDeleting(false); }
   }
   return <div className={ui.page}><WebNav/><main className={ui.wrap}>
-    <AuroraPageHero eyebrow="已保存的分析" title={title} description="回到这次分析，接着查看原话、依据与下一步。"><a className={ui.secondary} href="/reports"><ArrowLeft size={17}/>返回历史报告</a><a className={ui.primary} href={`/analyze?mode=${kind}`}><ScanLine size={17}/>继续分析新材料</a></AuroraPageHero>
+    <AuroraPageHero eyebrow="已保存的分析" title={title} description="回到这次分析，接着查看原话、依据与下一步。"><a className={ui.secondary} href="/reports"><ArrowLeft size={17}/>返回历史报告</a>{current && <a className={ui.primary} href={continueHref}><ScanLine size={17}/>继续补充{current.subjectId || current.report.subjectId ? '这个人的' : ''}材料</a>}</AuroraPageHero>
     <AccountNotice state={account}/><ErrorNotice error={error}/>{error && <button className={ui.secondary} onClick={() => void load()}>重新读取报告</button>}{loading && owner && !error && <p role="status">正在读取报告…</p>}
     {current && <><div className={styles.saved}><BookmarkCheck size={20}/><span><strong>完整报告已保存</strong>{current.report.captureOrigin ? `本次分析包含 ${current.totalCount || 1} 条采集记录，可从判断旁回看本机原文。` : current.totalCount > 1 ? `包含 ${current.totalCount} 张截图，按上传顺序整理。` : "长期保存在当前账号，可随时从「历史」打开。"}</span></div>{kind === "chat" ? <ChatReport key={current.report.reportId} report={current.report} account={account.account} styleReportIds={current.entries?.map((entry: Json) => entry.id).filter(Boolean)}/> : <SocialReport key={current.report.reportId} report={current.report} account={account.account} subjectId={current.subjectId || current.report.subjectId || ""} targetSelf={!!current.targetSelf}/>}<div className={styles.footer}><a href="/reports"><ArrowLeft size={16}/>返回历史报告</a><button type="button" disabled={deleting} onClick={() => void remove()}><Trash2 size={16}/>{deleting ? "正在删除…" : "删除这份报告"}</button></div></>}
   </main></div>;

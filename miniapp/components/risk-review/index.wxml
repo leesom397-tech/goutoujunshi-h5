@@ -1,0 +1,3 @@
+<view wx:if="{{review}}" class="risk-review"><view class="heading"><image src="/assets/ui-shield.png"/><text>风险与关系预期</text></view><text class="summary">{{review.summary}}</text>
+  <view wx:for="{{review.signals}}" wx:key="title" class="signal {{item.kind}}"><view class="signal-heading"><text class="icon">{{item.icon}}</text><view><text class="kind">{{item.label}} · {{item.level}}</text><text class="title">{{item.title}}</text></view></view><text class="label">原话依据</text><text class="evidence" selectable>{{item.evidence}}</text><text class="reading">{{item.reading}}</text><text class="alternative">另一种可能：{{item.alternative}}</text><view class="action"><text class="label">先怎么做</text><text selectable>{{item.action}}</text></view></view>
+</view>

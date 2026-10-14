@@ -2,7 +2,7 @@ import { getChatGPTUser } from "@/app/chatgpt-auth";
 import { getD1 } from "@/db";
 import {deleteCrush} from "@/lib/crush/service";
 import { cleanData, type Fact, type ProfileState, type SelfData, type Subject, type SubjectData } from "@/lib/profile";
-import { editableProfileDataSql } from "@/lib/profile-updates";
+import { cleanEditableProfilePatch, editableProfileDataSql } from "@/lib/profile-updates";
 
 export const runtime = "edge";
 const noStore = { "Cache-Control": "no-store" };
@@ -64,7 +64,7 @@ export async function POST(request: Request) {
       await db.prepare("UPDATE coach_profiles SET paused = ?, updated_at = ? WHERE owner_id = ?").bind(body.paused ? 1 : 0, now, owner).run();
     } else if (body.action === "self") {
       if (!await hasConsent(db, owner)) return json({ error: "请先同意保存档案。" }, 403);
-      const data = cleanData(body.data, "self");
+      const data = cleanEditableProfilePatch(body.data, "self");
       await db.prepare(`UPDATE coach_profiles SET data = ${editableProfileDataSql("self")}, updated_at = ? WHERE owner_id = ?`).bind(JSON.stringify(data), now, owner).run();
     } else if (body.action === "subject-create") {
       if (!await hasConsent(db, owner)) return json({ error: "请先同意保存档案。" }, 403);
@@ -78,7 +78,7 @@ export async function POST(request: Request) {
       if (typeof body.id !== "string") return json({ error: "对象无效。" }, 400);
       const label = validLabel(body.label);
       if (!label) return json({ error: "请填写对象代号或称呼。" }, 400);
-      const data = cleanData(body.data, "subject");
+      const data = cleanEditableProfilePatch(body.data, "subject");
       const result = await db.prepare(`UPDATE coach_subjects SET label = ?, status = 'active', data = ${editableProfileDataSql("subject")}, updated_at = ? WHERE id = ? AND owner_id = ?`).bind(label, JSON.stringify(data), now, body.id, owner).run();
       if (!result.meta.changes) return json({ error: "没有找到这个对象。" }, 404);
     } else if (body.action === "subject-delete") {

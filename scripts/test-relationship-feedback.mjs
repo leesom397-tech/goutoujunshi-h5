@@ -6,8 +6,9 @@ import { voiceActionFeedback, loadVoiceMemory } from "../lib/miniapp-voice-memor
 const js = ts.transpileModule(readFileSync("lib/relationship-feedback.ts", "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const api = {};
 new Function("exports", js)(api);
+const evidenceApi={};new Function('exports',ts.transpileModule(readFileSync('lib/relationship-evidence.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(evidenceApi);
 const updates = {};
-new Function("exports", ts.transpileModule(readFileSync("lib/relationship-updates.ts", "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText)(updates);
+new Function("exports", "require", ts.transpileModule(readFileSync("lib/relationship-updates.ts", "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText)(updates,()=>evidenceApi);
 const id = "11111111-1111-4111-8111-111111111111";
 const reportId = "22222222-2222-4222-8222-222222222222";
 const nextId = "33333333-3333-4333-8333-333333333333";
@@ -67,7 +68,7 @@ const db = { prepare(sql) { return { bind(...values) { return {
   async run() { writes++; assert.match(sql, /owner_id=\?/); if (!deleting) assert.match(sql, /consent_at IS NOT NULL AND paused=0/); assert.match(sql, /AND data=\?/); if (deleting && cas) storedData = { ...storedData, actionFeedback: JSON.parse(values[0]) }; return { meta: { changes: cas ? 1 : 0 } }; }
 }; } }; } };
 const route = {};
-new Function("exports", "require", routeJs)(route, name => name.endsWith("miniapp-auth") ? { miniappOwner: async () => authenticated ? { ownerId: "owner" } : null } : name === "@/db" ? { getD1: () => db } : name.endsWith("relationship-updates") ? updates : api);
+new Function("exports", "require", routeJs)(route, name => name.endsWith("miniapp-auth") ? { miniappOwner: async () => authenticated ? { ownerId: "owner" } : null } : name === "@/db" ? { getD1: () => db } : name.endsWith("relationship-updates") ? updates : name.endsWith("relationship-evidence-server") ? {loadRelationshipEvidence:async()=>({authorized:true,validFocus:true,reports:[],data:storedData,cutoff:Date.now()})} : api);
 const request = (patch = {}) => new Request("https://example.test/api/miniapp/relationship-feedback", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...input, subjectId: "person-a", confirmed: true, ...patch }) });
 assert.equal((await route.POST(request())).status, 200);
 assert.equal(writes, 1);

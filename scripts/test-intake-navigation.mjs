@@ -1,0 +1,11 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import ts from 'typescript';
+const exports={};new Function('exports',ts.transpileModule(readFileSync('components/web-analysis/intake-navigation.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(exports);
+const {intakeReturnTo:clean,intakeHref:href}=exports,id='11111111-1111-4111-8111-111111111111';
+assert.equal(clean('/report?id='+id),'/report?id='+id);assert.equal(clean('/archive?compare=1&people=one,two'),'/archive?compare=1&people=one%2Ctwo');
+assert.equal(clean('/archive?compare=1&ids=one%2Ctwo'),'/archive?compare=1&ids=one%2Ctwo','comparison keeps the currently selected people');
+for(const value of ['https://evil.test','//evil.test','/\\evil.test','javascript:alert(1)','/report.evil?id='+id,'/report?id=not-a-report','/archive/../../evil','/archive?returnTo=https://evil.test'])assert.ok(!clean(value)||clean(value)==='/archive',value);
+const next=new URL(href('/capture',{kind:'chat',subjectId:'a &b',returnTo:'/report?id='+id}),'https://site.test');assert.equal(next.searchParams.get('subjectId'),'a &b');assert.equal(next.searchParams.get('returnTo'),'/report?id='+id);
+assert.equal(new URL(href('/analyze',{mode:'chat',returnTo:'https://evil.test'}),'https://site.test').searchParams.has('returnTo'),false);
+console.log('intake navigation: safe local return targets and encoded context passed');

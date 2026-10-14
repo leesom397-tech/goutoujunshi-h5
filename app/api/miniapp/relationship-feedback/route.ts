@@ -2,6 +2,7 @@ import { miniappOwner } from "@/lib/miniapp-auth";
 import { getD1 } from "@/db";
 import { appendActionFeedback, actionFeedbackCards, relationshipProgressEvents, FeedbackError } from "@/lib/relationship-feedback";
 import { automaticRelationshipUpdate } from "@/lib/relationship-updates";
+import { loadRelationshipEvidence } from "@/lib/relationship-evidence-server";
 
 export const runtime = "edge";
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
@@ -22,7 +23,15 @@ export async function GET(request: Request) {
     const facts = await db.prepare("SELECT id,value,evidence,event_meta,status,created_at FROM coach_facts WHERE owner_id=? AND subject_id=? AND field='recentEvent' AND status='accepted' ORDER BY created_at DESC LIMIT 200").bind(identity.ownerId,subjectId).all<{id:string;value:string;evidence:string;event_meta:string|null;status:string;created_at:number}>();
     const reportId = new URL(request.url).searchParams.get("reportId") || "";
     if (reportId && !/^[a-f0-9]{8}-[a-f0-9-]{27}$/i.test(reportId)) return json({ error: "报告标识不正确。" }, 400);
-    return json({ subjectId, cards: actionFeedbackCards(data), events: relationshipProgressEvents(data,facts.results), automatic: automaticRelationshipUpdate(data, subjectId, reportId) });
+    const snapshot = await loadRelationshipEvidence(identity.ownerId, subjectId, reportId, db);
+    if (!snapshot.authorized) return json({ error: "请先启用并恢复档案。" }, 403);
+    if (!snapshot.validFocus) return json({ error: "人物或报告已不可用，请重新打开。" }, 404);
+    const availableIds = new Set(snapshot.reports.flatMap(row => [row.id, ...(row.entries || []).map(entry => entry.id).filter(id => typeof id === "string")]));
+    const history = Array.isArray(snapshot.data.relationshipHistory) ? snapshot.data.relationshipHistory.filter((point: any) => availableIds.has(point?.reportId) && Number.isFinite(point.updatedAt) && point.updatedAt <= snapshot.cutoff) : [];
+    const effectiveData: Record<string, unknown> = { ...snapshot.data, relationshipHistory: history };
+    const scopedData = reportId ? { ...effectiveData, actionFeedback: Array.isArray(effectiveData.actionFeedback) ? effectiveData.actionFeedback.filter((item: any) => availableIds.has(item?.reportId) && Number.isFinite(item.recordedAt) && item.recordedAt <= snapshot.cutoff) : [] } : effectiveData;
+    const scopedFacts = reportId ? (facts.results || []).filter(fact => fact.created_at <= snapshot.cutoff) : facts.results;
+    return json({ subjectId, cards: actionFeedbackCards(scopedData), events: relationshipProgressEvents(scopedData,scopedFacts), automatic: automaticRelationshipUpdate(scopedData, subjectId, reportId, snapshot.reports) });
   } catch { return json({ error: "行动记录暂时无法读取。" }, 503); }
 }
 

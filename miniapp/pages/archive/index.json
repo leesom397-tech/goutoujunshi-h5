@@ -1,3 +1,4 @@
 {
-  "navigationBarTitleText": "关系档案"
+  "navigationBarTitleText": "关系档案",
+  "usingComponents":{"quick-self-profile":"/components/quick-self-profile/index"}
 }

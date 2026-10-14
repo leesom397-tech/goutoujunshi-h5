@@ -40,6 +40,12 @@ const detailExperience = (subject, chart, trend) => {
 };
 
 Page({
+  openComparisonEntry(){this.setData({archiveTab:"people",selectedId:"",comparisonOnly:true,showComparison:true});if(this._lastState)this.apply(this._lastState);wx.pageScrollTo?.({scrollTop:0,duration:200});},
+  openPeopleEntry(){this.setData({archiveTab:"people",selectedId:"",comparisonOnly:false});if(this._lastState)this.apply(this._lastState);},
+  openSelfEntry(){wx.navigateTo({url:"/pages/archive/index?tab=self&quick=1"});},
+  async saveQuickSelf(event){if(event.detail.confirmed!==true||this.data.busy||this.data.paused)return;await this.action({action:"self",data:event.detail.data});if(!this.data.error){this.selectComponent?.("#quick-self")?.reset();wx.showToast?.({title:"我的资料已更新",icon:"success"});}},
+  toggleManualFeedback(){this.setData({showManualFeedback:!this.data.showManualFeedback});},
+  openSelectedQuick(){if(!this.data.selectedId)return;api.setCurrentSubject?.(this.data.selectedId);wx.navigateTo({url:"/pages/quick/index?subjectId="+encodeURIComponent(this.data.selectedId)});},
   toggleComparison() { this.setData({ showComparison: !this.data.showComparison }); },
   toggleComparisonDetails() { this.setData({ comparisonDetailed: !this.data.comparisonDetailed }); },
   changeComparison(event) {
@@ -62,7 +68,7 @@ Page({
   onLoad(options = {}) {
     const archiveTab = options.tab === "self" ? "self" : "people";
     this._detailRoute = archiveTab === "people" && !!options.subjectId;
-    this.setData({ detailSection: "overview", archiveTab, selectedId: archiveTab === "self" ? "" : options.subjectId || "", showManagement: false, showPendingReview: false, showQuickCreate: false, readingExpanded: {}, showSelfMemory: false });
+    this.setData({ detailSection: "overview", archiveTab, comparisonOnly:options.compare==="1",showComparison:options.compare==="1", selectedId: archiveTab === "self" ? "" : options.subjectId || "", showManagement: false, showPendingReview: false, showQuickCreate: false, readingExpanded: {}, showSelfMemory: false });
     if (typeof wx.setNavigationBarTitle === "function") wx.setNavigationBarTitle({ title: archiveTab === "self" ? "我的资料" : this._detailRoute ? "人物详情" : "人物档案" });
   },
   switchDetailSection(event) { const detailSection = event.currentTarget.dataset.section; if (!["overview", "profile", "trend"].includes(detailSection)) return; this.setData({ detailSection }, () => this.renderCharts()); },
@@ -90,6 +96,7 @@ Page({
       const session = await api.session();
       if (!session.token) throw new Error("请重新进入小程序完成微信登录。");
       this._token = session.token;
+      this.setData({profileSessionKey:session.token});
       this.apply(await api.request("/api/miniapp/profile", "GET", null, session.token));
       this._loaded = true;
     } catch (error) {
@@ -99,6 +106,7 @@ Page({
   },
   apply(state) {
     this._lastState = state;
+    this.setData({selfProfile:state.self||{}});
     this.updateComparison(state);
     const showingSelf = this.data.archiveTab === "self";
     const subjects = showingSelf ? [] : (state.subjects || []);
@@ -165,12 +173,12 @@ Page({
   },
   async loadActionCards(force = false) {
     const subjectId = this.data.selectedId;
-    if (!subjectId || this.data.archiveTab === "self" || this.data.paused || !this.data.enabled) { this._feedbackLoadVersion = (this._feedbackLoadVersion || 0) + 1; this._feedbackLoadingSubject = ""; this._feedbackLoadedSubject = ""; this.setData({ actionCards: [], visibleActionCards: [], feedbackEvents: [], visibleFeedbackEvents: [], hasFeedbackEvents: false, hasMoreFeedbackEvents: false, hasActionCards: false, feedbackOpen: false, feedbackLoading: false }); return; }
+    if (!subjectId || this.data.archiveTab === "self" || this.data.paused || !this.data.enabled) { this._feedbackLoadVersion = (this._feedbackLoadVersion || 0) + 1; this._feedbackLoadingSubject = ""; this._feedbackLoadedSubject = ""; this.setData({ automaticUpdate:null,showManualFeedback:false,correctionCards:[],hasCorrectionCards:false,actionCards: [], visibleActionCards: [], feedbackEvents: [], visibleFeedbackEvents: [], hasFeedbackEvents: false, hasMoreFeedbackEvents: false, hasActionCards: false, feedbackOpen: false, feedbackLoading: false }); return; }
     if (!this._token || (!force && ((this._feedbackLoadedSubject === subjectId && this._feedbackDisplayedSubject === subjectId) || this._feedbackLoadingSubject === subjectId))) return;
     const version = this._feedbackLoadVersion = (this._feedbackLoadVersion || 0) + 1;
     this._feedbackLoadingSubject = subjectId;
     this._feedbackDisplayedSubject = subjectId;
-    this.setData({ feedbackLoading: true, feedbackError: "", ...(this._feedbackLoadedSubject !== subjectId ? { actionCards: [], visibleActionCards: [], feedbackEvents: [], visibleFeedbackEvents: [], hasFeedbackEvents: false, hasMoreFeedbackEvents: false, showAllFeedbackEvents: false, hasActionCards: false, feedbackOpen: false } : {}) });
+    this.setData({ feedbackLoading: true, feedbackError: "", ...(this._feedbackLoadedSubject !== subjectId ? { automaticUpdate:null,showManualFeedback:false,correctionCards:[],hasCorrectionCards:false,actionCards: [], visibleActionCards: [], feedbackEvents: [], visibleFeedbackEvents: [], hasFeedbackEvents: false, hasMoreFeedbackEvents: false, showAllFeedbackEvents: false, hasActionCards: false, feedbackOpen: false } : {}) });
     try {
       const state = await api.request("/api/miniapp/relationship-feedback?subjectId=" + encodeURIComponent(subjectId), "GET", null, this._token);
       if (version !== this._feedbackLoadVersion || this.data.selectedId !== subjectId) return;
@@ -178,7 +186,8 @@ Page({
       const cards = (state.cards || []).map(card => ({ ...card, dateLabel: date(card.suggestedAt), feedbackDateLabel: date(card.latest?.recordedAt), revisions: (card.revisions || []).map(item => ({ ...item, dateLabel: date(item.recordedAt) })) }));
       this._feedbackLoadedSubject = subjectId;
       const events = Array.isArray(state.events) ? state.events : [];
-      this.setData({ actionCards: cards, visibleActionCards: this.data.showAllActions ? cards : cards.slice(0, 1), hasActionCards: cards.length > 0, hasMoreActions: cards.length > 1, feedbackEvents: events, hasFeedbackEvents: events.length > 0, hasMoreFeedbackEvents: events.length > 3, visibleFeedbackEvents: this.data.showAllFeedbackEvents ? events : events.slice(0, 3) });
+      const correctionCards=cards.filter(card=>card.latest);
+      this.setData({automaticUpdate:state.automatic||null,correctionCards,hasCorrectionCards:correctionCards.length>0, actionCards: cards, visibleActionCards: this.data.showAllActions ? cards : cards.slice(0, 1), hasActionCards: cards.length > 0, hasMoreActions: cards.length > 1, feedbackEvents: events, hasFeedbackEvents: events.length > 0, hasMoreFeedbackEvents: events.length > 3, visibleFeedbackEvents: this.data.showAllFeedbackEvents ? events : events.slice(0, 3) });
     } catch (error) { if (version === this._feedbackLoadVersion && this.data.selectedId === subjectId) this.setData({ feedbackError: error.message || "行动记录暂未读取，可以重试。" }); }
     finally { if (version === this._feedbackLoadVersion) { this._feedbackLoadingSubject = ""; this.setData({ feedbackLoading: false }); } }
   },
@@ -215,7 +224,7 @@ Page({
   toggleActionSource(event) {
     const reportId = event.currentTarget.dataset.reportId;
     const cards = (this.data.actionCards || []).map(card => card.reportId === reportId ? { ...card, sourceExpanded: !card.sourceExpanded } : card);
-    this.setData({ actionCards: cards, visibleActionCards: this.data.showAllActions ? cards : cards.slice(0, 1) });
+    this.setData({ actionCards: cards, correctionCards:cards.filter(card=>card.latest), visibleActionCards: this.data.showAllActions ? cards : cards.slice(0, 1) });
   },
   toggleActions() { const showAllActions = !this.data.showAllActions; this.setData({ showAllActions, visibleActionCards: showAllActions ? this.data.actionCards : (this.data.actionCards || []).slice(0, 1) }); },
   toggleFeedbackHistory(event) { const id = event.currentTarget.dataset.reportId; this.setData({ historyReportId: this.data.historyReportId === id ? "" : id }); },
