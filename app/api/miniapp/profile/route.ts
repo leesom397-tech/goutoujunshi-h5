@@ -140,6 +140,7 @@ export async function POST(request: Request) {
   let body: Record<string, unknown>;
   try { body = await request.json(); } catch { return json({ error: "无法读取资料。" }, 400); }
   if (!body || typeof body !== "object" || Array.isArray(body) || JSON.stringify(body).length > (body.action === "import-social" ? 48000 : body.action === "self" ? 6000 : 4000)) return json({ error: "资料过长或格式不正确。" }, 413);
+  if (body.expectedOwnerId !== undefined && body.expectedOwnerId !== identity.ownerId) return json({ error: "账号已变化，请刷新后再保存。" }, 409);
   const owner = identity.ownerId, db = getD1(), now = Date.now();
   if (body.action === "consent") {
     if (body.enabled === true) {

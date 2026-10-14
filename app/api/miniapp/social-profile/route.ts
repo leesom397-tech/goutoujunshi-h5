@@ -1,4 +1,6 @@
 import {relationshipRiskReview,cleanRelationshipRiskReview,RELATIONSHIP_RISK_GUIDANCE} from "@/lib/relationship-risk";
+import {personalConnection} from "@/lib/personal-context";
+import {loadPersonalContext} from "@/lib/personal-context-server";
 import { miniappOwner } from "@/lib/miniapp-auth";
 import {AVATAR_GUIDANCE,avatarCandidates} from "@/lib/avatar-candidates";
 import { reserveBudget } from "@/lib/crush/service";
@@ -123,7 +125,7 @@ export async function POST(request: Request) {
   if (!identity) return json({ error: "登录已过期，请重新登录。" }, 401);
   if (!request.headers.get("content-type")?.includes("application/json")) return json({ error: "请上传 JPG 或 PNG 图片。" }, 415);
   if (Number(request.headers.get("content-length") || 0) > 49_000_000) return json({ error: "这组图片总量过大，请先选最多 9 张、总计 36 MB 内的截图。" }, 413);
-  let body: { image?: unknown; images?: unknown; confirmed?: unknown; previous?: unknown; previousCount?: unknown; compareWithSelf?: unknown; target?: unknown; materialType?: unknown; momentsPhase?: unknown; observations?:unknown; imageIndex?:unknown; imageCount?:unknown; knownContext?:{sameCity?:unknown} };
+  let body: { image?: unknown; images?: unknown; confirmed?: unknown; previous?: unknown; previousCount?: unknown; compareWithSelf?: unknown; subjectId?:unknown; target?: unknown; materialType?: unknown; momentsPhase?: unknown; observations?:unknown; imageIndex?:unknown; imageCount?:unknown; knownContext?:{sameCity?:unknown} };
   try {
     const raw = await request.text();
     if (raw.length > 49_000_000) return json({ error: "这组图片总量过大，请先选最多 9 张、总计 36 MB 内的截图。" }, 413);
@@ -132,6 +134,8 @@ export async function POST(request: Request) {
   if (!body || typeof body !== "object" || Array.isArray(body)) return json({ error: "图片格式不正确。" }, 400);
   if (body.confirmed !== true) return json({ error: "请先确认资料提供权及本次阿里云识图处理。" }, 403);
   const targetSelf = body.target === "self";
+  const subjectId = !targetSelf && typeof body.subjectId === "string" ? body.subjectId : null;
+  if (subjectId && !await getD1().prepare("SELECT id FROM coach_subjects WHERE id=? AND owner_id=? AND status='active'").bind(subjectId,identity.ownerId).first()) return json({error:"所选人物不存在，请重新选择。"},404);
   const isMoments = body.materialType === "moments";
   const knownContext = !targetSelf && body.knownContext?.sameCity === true ? { sameCity: true } : {};
   const phase=body.momentsPhase;
@@ -228,6 +232,8 @@ export async function POST(request: Request) {
     const photo = kind === "profile" && readable ? photoClues(parsed.photoClues) : [];
     const visible = [...items(prior?.visibleFacts, 8), ...items(parsed.visibleFacts, 8), ...photo.map(item => ({ title: `照片·${item.category}：${item.item}`, evidence: item.evidence, meaning: [item.style, item.valueHint].filter(Boolean).join("；") }))].slice(0, 12);
     const result = {
+      subjectId,
+      compareWithSelf:body.compareWithSelf===true&&!targetSelf,
       avatarCandidates: observations ? observations.avatarCandidates : avatarCandidates(parsed.avatarCandidates),
       kind,
       approach: kind === "profile" && readable && !isMoments ? cleanCommunicationReading(parsed)?.approach || null : null,
@@ -254,7 +260,11 @@ export async function POST(request: Request) {
       note: `基于本次共 ${previousCount + (stagedSummary ? Number(body.imageCount) : images.length)} 张资料截图；原图未写入长期档案。`
     };
     const riskReview=relationshipRiskReview({...result,targetSelf,riskReview:{signals:[...cleanRelationshipRiskReview(parsed.riskReview).signals,...cleanRelationshipRiskReview(prior?.riskReview).signals]}});
-    return json({...result,riskReview,moments:result.moments?{...result.moments,targetSelf,riskReview}:null});
+    // Reuse authorized materials locally. This comparison makes no model request
+    // and does not add newly aggregated private fields to the existing prompt.
+    const personalContext=body.compareWithSelf===true&&!targetSelf?await loadPersonalContext(identity.ownerId,subjectId):{evidence:[]};
+    const connection=personalConnection({...result,targetSelf},{evidence:personalContext.evidence,rebuild:true});
+    return json({...result,targetSelf,personalConnection:connection,riskReview,moments:result.moments?{...result.moments,targetSelf,riskReview}:null});
   } catch (error) {
     const status = error instanceof Error && error.name === "CrushError" ? 429 : 503;
     const errorType = error instanceof Error && ["TimeoutError", "AbortError", "TypeError", "SyntaxError"].includes(error.name) ? error.name : error instanceof Error && /^QWEN_[A-Z_]+$/.test(error.message) ? error.message : "other";

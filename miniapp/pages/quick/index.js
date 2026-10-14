@@ -207,6 +207,7 @@ Page({
         id: result.id, subjectId: result.subjectId || "", compatibility: result.compatibility || null,
         avatarCandidates: entries.flatMap((entry,imageIndex)=>(entry.decision?.avatarCandidates||[]).filter(c=>this.data.side !== "ask" && c.side !== this.data.side && ["left","right"].includes(c.side)).map(c=>({...c,imageIndex}))), photoClues, photoClueCount: photoClues.length,
         interactionInsight: result.decision?.interactionInsight || null,
+        personalConnection: result.personalConnection || null,
         possibleIntent: visiblePossibleIntent(lastOther?.text, result.decision?.possibleIntent || annotation?.intent?.[0]?.label, annotation?.evidence),
         evidence: result.decision?.evidence || (lastOther ? "对方原话：「" + lastOther.text.slice(0, 100) + (lastOther.text.length > 100 ? "…" : "") + "」" : "本轮没有已确认来自对方的可读原话。"),
         observation: result.decision?.observation || "", judgment: result.decision?.judgment || "", nextStep: result.decision?.nextStep || "",

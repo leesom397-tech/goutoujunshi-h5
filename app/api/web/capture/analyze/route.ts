@@ -6,6 +6,8 @@ import { creditResponse } from "@/lib/credit-response.mjs";
 import { analyzeLines, requireSettings, reserveBudget } from "@/lib/crush/service";
 import { readScreenshotFromQuick } from "@/lib/crush/screenshot";
 import { loadProfileContext } from "@/lib/profile-context";
+import {personalizeReport} from "@/lib/personal-context-server";
+import {personalConnection} from "@/lib/personal-context";
 import { parseQwenJson, qwenChat, qwenPublicError, type QwenContent } from "@/lib/qwen";
 import { saveAnalysisReport } from "@/lib/saved-reports.mjs";
 import { cleanMomentsReport, MOMENTS_PROMPT, MOMENTS_STATISTICS_PROMPT, MOMENTS_BEHAVIOR_PROMPT, MOMENTS_INTERACTION_PROMPT, MOMENTS_READING_GUIDANCE } from "@/lib/moments-report";
@@ -46,7 +48,8 @@ async function momentsAnalysis(owner: string, input: CaptureAnalysisInput) {
     const index = Number(post.evidence.match(/^第(\d+)条动态/)?.[1]) - 1;
     return { ...post, ...(input.records[index] ? { sourceId: input.records[index].localId } : {}) };
   });
-  return { ...result, riskReview, moments: { ...moments, posts: linkedPosts, riskReview } };
+  const final={ ...result, subjectId:input.subjectId,reportId:input.requestId,riskReview,moments:{...moments,posts:linkedPosts,riskReview} };
+  return {...final,personalConnection:await personalizeReport(owner,input.subjectId,final)};
 }
 
 export async function POST(request: Request) {
@@ -83,6 +86,7 @@ export async function POST(request: Request) {
         }
         const unreadMediaCount = input.records.filter(row => row.kind !== "text" && !captureReadableText(row)).length;
         Object.assign(report, { captureOrigin: true, captureFormat: "records", captureUnreadMediaCount: unreadMediaCount, ...(unreadMediaCount ? { captureMediaNote: `其中 ${unreadMediaCount} 条图片、表情或附件仅保留为原始记录，未解读图片内容；本次结论基于可读文字。` } : {}) });
+        report.personalConnection=personalConnection(report,{evidence:report.personalConnection?.sources||[],rebuild:true});
         await db.prepare("UPDATE coach_crush_reports SET result=? WHERE owner_id=? AND id=? AND status='done'").bind(JSON.stringify(report), identity.ownerId, report.id).run();
         result = { ...report, entries: [report], captureOrigin: true };
       } else result = await momentsAnalysis(identity.ownerId, input);

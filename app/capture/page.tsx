@@ -9,6 +9,7 @@ import { api, message, useAccount, AccountNotice, PersonSelect, hasPrice, priceL
 import { bridgeRequest, type BridgeHealth } from "@/lib/desktop-bridge-client";
 import { saveCaptureBatch, listCaptureLibraries, getCaptureLibrary, pendingCaptureRecords, linkReportSources, removeCaptureLibrary, type CaptureLibrary, type CaptureLibrarySummary } from "@/lib/desktop-capture-vault";
 import { captureLibraryId, type CaptureKind, type CaptureBatch, type StoredCaptureRecord } from "@/lib/desktop-capture";
+import { captureIntakeSubject, rememberCaptureSubject, rememberIntakePreference } from "@/components/web-analysis/intake-preferences";
 import { matchImportedVideoFrames } from "@/lib/video-import";
 import { CAPTURE_ANALYSIS_LIMIT, captureAnalysisInput, captureReadableText } from "@/lib/capture-analysis-input";
 import ui from "@/components/AuroraUI.module.css";
@@ -27,6 +28,7 @@ const remember = (key: string, value: unknown) => { if (value === null) sessionS
 export default function CapturePage() {
   const account = useAccount(), owner: string = account.account?.account?.userId || "";
   const generation = useRef(0), abort = useRef<AbortController | null>(null), token = useRef(""), recordList = useRef<HTMLDivElement | null>(null), openingLibrary = useRef(0);
+  const requestedSubject = useRef("");
   const [method, setMethod] = useState<"desktop" | "window" | "video">("desktop"), [kind, setKind] = useState<CaptureKind>("chat"), [friend, setFriend] = useState(""), [wechatAccount, setWechatAccount] = useState(""), [code, setCode] = useState(""), [limit, setLimit] = useState(40), [health, setHealth] = useState<BridgeHealth | null>(null), [connected, setConnected] = useState(false);
   const [busy, setBusy] = useState(false), [analyzing, setAnalyzing] = useState(false), [error, setError] = useState(""), [note, setNote] = useState(""), [jobId, setJobId] = useState(""), [progress, setProgress] = useState(0);
   const [library, setLibrary] = useState<CaptureLibrary | null>(null), [libraries, setLibraries] = useState<CaptureLibrarySummary[]>([]), [stats, setStats] = useState<{added:number;repeated:number;total:number}|null>(null), [query, setQuery] = useState(""), [selected, setSelected] = useState<string[]>([]), [subject, setSubject] = useState(""), [consent, setConsent] = useState(false), [receipt, setReceipt] = useState<Receipt | null>(null), [reportId, setReportId] = useState(""), [image, setImage] = useState<string | null>(null);
@@ -46,6 +48,7 @@ export default function CapturePage() {
     const current = ++generation.current; abort.current?.abort(); token.current = "";
     setConnected(false); setLibrary(null); setLibraries([]); setSelected([]); setStats(null); setReceipt(null); setConsent(false); setFriend(""); setWechatAccount(""); setSubject(""); setQuery(""); setRecordPage(0); setReportId(""); setImage(null); setBusy(false); setAnalyzing(false); setJobId(""); setNote(""); setError("");
     if (!owner) return;
+    requestedSubject.current = new URLSearchParams(window.location.search).get("subjectId") || "";
     void listCaptureLibraries(owner).then(items => { if (current === generation.current) setLibraries(items); }).catch(e => { if (current === generation.current) setError(message(e)); });
     const connection = stored<{token:string;expiresAt:number}>(`chengzi-capture:${owner}:connection`);
     if (connection && connection.expiresAt > Date.now()) { token.current = connection.token; setConnected(true); }
@@ -62,6 +65,12 @@ export default function CapturePage() {
     : selectedRows;
   const isWindow = chosen.length > 0 && chosen.every(visualSource);
   const costKey = (library?.kind || kind) === "moments" ? "profile" : "analysisSmall";
+  function choosePerson(value: string) {
+    if (locked || receipt) return;
+    setSubject(value); setConsent(false);
+    if (library) rememberCaptureSubject(owner, library.id, value);
+    rememberIntakePreference(owner, library?.kind || kind, {subjectId:value});
+  }
   async function refreshLibraries(scope = owner, ticket = generation.current) { const items = await listCaptureLibraries(scope); if (ticket === generation.current) setLibraries(items); }
   function selectionIssue(value: CaptureLibrary, rows: StoredCaptureRecord[]) {
     const windowFrames = rows.length > 0 && rows.every(visualSource), max = windowFrames ? 9 : CAPTURE_ANALYSIS_LIMIT[value.kind];
@@ -104,12 +113,16 @@ export default function CapturePage() {
   async function accept(batch: CaptureBatch, scope = owner, ticket = generation.current) {
     const result = await saveCaptureBatch(scope, batch);
     if (ticket !== generation.current) return;
-    if (library?.id !== result.library.id) setSubject("");
+    const allowed = account.people.map(person=>String(person.id));
+    const associated = library?.id === result.library.id ? subject : captureIntakeSubject(scope,result.library.id,allowed) || (allowed.includes(requestedSubject.current)?requestedSubject.current:"");
+    requestedSubject.current = "";
+    setSubject(associated);
+    if (associated) rememberCaptureSubject(scope,result.library.id,associated);
     setLibrary(result.library); setKind(batch.kind); setFriend(batch.friend); setStats(result); selectPending(result.library); setConsent(false); setReceipt(null); setReportId(""); setQuery("");
     await refreshLibraries(scope, ticket);
     if (ticket !== generation.current) return;
     setNote(result.added ? "采集完成。先核对原文与身份，再分析选中的内容。" : "没有新增材料。未完成分析的原文仍可继续处理。");
-    return result;
+    return {...result,subjectId:associated};
   }
   async function connect() {
     if (!owner) return;
@@ -160,7 +173,7 @@ export default function CapturePage() {
   }
   async function openLibrary(id: string) {
     if (locked || receipt) return; const ticket = generation.current, opening = ++openingLibrary.current;
-    try { const value = await getCaptureLibrary(owner, id); if (ticket !== generation.current || opening !== openingLibrary.current || !value) return; setLibrary(value); setKind(value.kind); setFriend(value.friend); setWechatAccount(value.account.startsWith("window:") ? value.account.slice(7) : ""); setSubject(""); selectPending(value); setReceipt(null); setConsent(false); setStats(null); setReportId(""); setQuery(""); } catch (e) { if (ticket === generation.current && opening === openingLibrary.current) setError(message(e)); }
+    try { const value = await getCaptureLibrary(owner, id); if (ticket !== generation.current || opening !== openingLibrary.current || !value) return; setLibrary(value); setKind(value.kind); setFriend(value.friend); setWechatAccount(value.account.startsWith("window:") ? value.account.slice(7) : ""); setSubject(captureIntakeSubject(owner,id,account.people.map(person=>String(person.id)))); requestedSubject.current=""; selectPending(value); setReceipt(null); setConsent(false); setStats(null); setReportId(""); setQuery(""); } catch (e) { if (ticket === generation.current && opening === openingLibrary.current) setError(message(e)); }
   }
   async function removeLibrary() {
     if (!library || locked || receipt || !confirm("删除这台浏览器保存的采集原文？已保存的分析报告仍会保留，但这里的原文回看将不可用。")) return;
@@ -193,7 +206,7 @@ export default function CapturePage() {
         const sourceIds = frames.map(frame => rows.find(row => row.id === `video:${context.videoId}:${frame.id}`)?.localId).filter((id): id is string => !!id);
         setSelected(sourceIds);
         if (sourceIds.length) {
-          remember(`chengzi-capture:${scope}:handoff`, { libraryId: result.library.id, sourceIds });
+          remember(`chengzi-capture:${scope}:handoff`, { libraryId: result.library.id, sourceIds, subjectId:result.subjectId });
           window.location.assign(`/analyze?mode=${kind}&capture=1`);
         } else {
           setNote("本次选中的画面都已分析过，可在下方打开已有报告；补充新内容请改选其他时间段。");
@@ -206,7 +219,7 @@ export default function CapturePage() {
     if (!owner || !library || !chosen.length || locked) return;
     if (isWindow) {
       if (chosen.length > 9) { setError("每次最多分析 9 张采集画面，请减少勾选。"); return; }
-      remember(scopeKey("handoff"), { libraryId: library.id, sourceIds: chosen.map(r => r.localId) });
+      remember(scopeKey("handoff"), { libraryId: library.id, sourceIds: chosen.map(r => r.localId), subjectId:subject });
       window.location.assign(`/analyze?mode=${library.kind}&capture=1`); return;
     }
     if (!consent) { setError("请先确认所选原文与千问分析处理。"); return; }
@@ -217,6 +230,8 @@ export default function CapturePage() {
     const payload = { requestId: current.requestId, confirmed: true, kind: current.kind, friend: library.friend, subjectId: current.subjectId || null, records: rows.map(r => ({ localId: r.localId, kind: r.kind, sender: r.sender, senderRole: r.senderRole, at: r.at, text: r.text, ocrTextVerified: r.ocrTextVerified === true, images: library.kind === "moments" ? r.images || [] : [] })) };
     if (!receipt) { try { captureAnalysisInput(payload); } catch(e) { setError(message(e)); return; } }
     remember(scopeKey("analysis"), current); setReceipt(current); setAnalyzing(true); setError(""); setNote("正在分析选中的新增材料。原文已保留，离开后可继续取回报告。");
+    rememberCaptureSubject(scope, library.id, current.subjectId);
+    rememberIntakePreference(scope, library.kind, {subjectId:current.subjectId});
     try {
       const currentAccount = await api("/api/account/credits");
       if (currentAccount.account?.userId !== scope || ticket !== generation.current) throw Error("账户已变化，请返回原账号继续。");
@@ -268,7 +283,7 @@ export default function CapturePage() {
           <div className={styles.previewTools}><label><Search size={18}/><input placeholder="搜索原文、时间或说话人" value={query} onChange={e => { setQuery(e.target.value); setRecordPage(0); }}/></label><button disabled={locked || !!receipt} onClick={() => selectPending(library)}>选择待分析</button></div>
           <div ref={recordList} className={styles.records} aria-label="采集原文列表">{display.map(record => { const done = !pending.some(r => r.localId === record.localId), notice = mediaNotice(record); return <article key={record.localId} data-selected={selected.includes(record.localId)}><label className={styles.recordCheck}><input type="checkbox" checked={selected.includes(record.localId)} disabled={locked || done || !!receipt} onChange={e => toggleRecord(record,e.target.checked)}/><span><strong>{visualSource(record) ? `第 ${library.records.indexOf(record) + 1} 张采集画面` : library.kind === "chat" ? record.senderRole === "self" ? "我" : record.senderRole === "other" ? library.friend : record.sender || "身份待核对" : `第 ${library.records.indexOf(record) + 1} 条动态`}</strong><small>{record.source.method === "video-import" ? `录屏位置 ${videoTime(Number(record.source.videoTime) || 0)}` : record.at || "原文未显示时间"}{done ? " · 已分析" : ""}</small></span></label>{record.text && <p>{record.text}</p>}{record.images?.length ? <div className={styles.recordImages}>{record.images.map((img,n) => <button key={n} onClick={() => setImage(`data:${img.mime};base64,${img.data}`)} aria-label={`查看${record.source.label}的图片${n+1}`}><img src={`data:${img.mime};base64,${img.data}`} alt={img.name}/></button>)}</div> : null}{notice && <p className={styles.mediaNotice}><Images size={16}/>{notice}</p>}<small className={styles.source}>{record.source.label}{record.kind === "sticker" ? " · 表情包" : ""}</small></article>; })}{!display.length && <p className={styles.muted}>没有找到匹配的原文，请换个关键词。</p>}</div>
           <nav className={styles.pagination} aria-label="原文分页"><p className={styles.pageSummary}>{visible.length ? `${currentPage * 50 + 1}–${Math.min((currentPage + 1) * 50, visible.length)}` : "0"} / {visible.length} 条 · 已选 {selected.length} 条</p><div><button className={ui.secondary} disabled={currentPage === 0} onClick={() => setRecordPage(currentPage - 1)}>上一页</button><span>{currentPage + 1} / {pageCount}</span><button className={ui.secondary} disabled={currentPage >= pageCount - 1} onClick={() => setRecordPage(currentPage + 1)}>下一页</button></div></nav>
-          <div className={styles.analysis}><div><h3><FileText size={21}/>分析选中的 {chosen.length} 条</h3><p>只处理你勾选的材料。{isWindow ? "下一步核对截图顺序和左右身份。" : `每批最多 ${CAPTURE_ANALYSIS_LIMIT[library.kind]} 条，较长内容可分批处理。`}</p></div>{!isWindow && <><PersonSelect people={account.people} value={subject} onChange={setSubject} disabled={locked || !!receipt}/><label className={styles.consent}><input type="checkbox" checked={consent} disabled={locked} onChange={e => setConsent(e.target.checked)}/><span>我已核对身份与材料，有权提供所选内容，并同意发送给阿里云百炼千问分析。</span></label></>}
+          <div className={styles.analysis}><div><h3><FileText size={21}/>分析选中的 {chosen.length} 条</h3><p>只处理你勾选的材料。{isWindow ? "下一步核对截图顺序和左右身份。" : `每批最多 ${CAPTURE_ANALYSIS_LIMIT[library.kind]} 条，较长内容可分批处理。`}</p></div><PersonSelect people={account.people} value={subject} onChange={choosePerson} disabled={locked || !!receipt}/>{subject&&<p className={styles.muted}>已记住这份原文关联的人物，下次继续补充时会沿用。选错可直接更换。</p>}{!isWindow && <label className={styles.consent}><input type="checkbox" checked={consent} disabled={locked} onChange={e => setConsent(e.target.checked)}/><span>我已核对身份与材料，有权提供所选内容，并同意发送给阿里云百炼千问分析。</span></label>}
           {reportId && <a className={styles.reportLink} href={`/report?id=${reportId}`}><CheckCheck size={20}/><span>完整报告已保存<strong>打开报告，回看原文依据</strong></span><ArrowRight size={20}/></a>}
           <button className={`${ui.primary} ${styles.full}`} disabled={locked || !chosen.length || (!isWindow && (!consent || !hasPrice(account.account,costKey)))} onClick={() => void analyze()}>{analyzing ? <><LoaderCircle size={18} className={styles.spin}/>正在分析，请稍候…</> : isWindow ? <>进入截图分析<ArrowRight size={18}/></> : <>{receipt ? "继续本次分析" : "分析选中材料"}<span> · {priceLabel(account.account,costKey)}</span><ArrowRight size={18}/></>}</button>
           {library.reportLinks.length > 0 && <div className={styles.reportHistory}><History size={16}/>这份原文的报告{library.reportLinks.slice(-4).reverse().map((link,i) => <a key={link.reportId} href={`/report?id=${link.reportId}`}>{i === 0 ? "最近一次" : `此前报告 ${i}`}<ArrowRight size={13}/></a>)}</div>}</div>

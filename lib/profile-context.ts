@@ -107,7 +107,7 @@ export async function loadProfileContext(ownerId: string, subjectId?: string | n
   const facts = await db.prepare("SELECT subject_id,field,value,status,evidence,created_at FROM coach_facts WHERE owner_id=? AND status='accepted' AND (subject_id IS NULL OR subject_id=?) ORDER BY created_at DESC LIMIT 200").bind(ownerId, subjectId || null).all<{ subject_id: string | null; field: string; value: string; status: string; evidence: string; created_at: number }>();
   const self = recoverProfileFields(parse<SelfData>(profile.data) || {}, facts.results, null);
   const sections: ContextSection[] = [];
-  if (self && Object.keys(self).length) sections.push({ priority: 5, weight: 1, cap: 870, build: budget => budget < 30 ? "" : "用户本人：" + publicFields(self as Record<string, unknown>, [...new Set(["goals", "boundaries", "preferredRelationship", "values", ...selfFields])], budget - 6) });
+  if (self && Object.keys(self).length) sections.push({ priority: 5, weight: 1, cap: 870, build: budget => budget < 30 ? "" : "用户本人：" + publicFields(self as Record<string, unknown>, [...new Set(["goals", "boundaries", "preferredRelationship", "values", ...selfFields.filter(field => !["interests", "communicationStyle"].includes(field))])], budget - 6) });
   const selfClues = await db.prepare("SELECT value,evidence FROM coach_facts WHERE owner_id=? AND subject_id IS NULL AND field='selfProfileClue' AND status='accepted' ORDER BY created_at DESC LIMIT 6").bind(ownerId).all<{value:string;evidence:string}>();
   if (selfClues.results.length) sections.push({ priority: 6, weight: .5, cap: 600, build: budget => evidenceBlock("用户本人确认保存的资料原话（历史自述，不保证现在仍适用）：", selfClues.results, query, budget) });
   if (subjectId) {

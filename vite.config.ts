@@ -55,7 +55,7 @@ export default defineConfig(async () => {
       ...(managedLinux ? { host: "0.0.0.0", allowedHosts: ["terminal.local"] } : {}),
       watch: {
         // Native packaging locks its EXE on Windows; it is not web HMR input.
-        ignored: ["**/desktop/**/build/**", "**/desktop/**/dist/**", "**/desktop/**/.venv/**"],
+        ignored: ["**/desktop/**/build/**", "**/desktop/**/dist/**", "**/desktop/**/.venv/**", "**/.tmp/**", "**/outputs/**"],
         ...(isCodexSeatbeltSandbox ? { useFsEvents: false, usePolling: true } : {}),
       },
     },

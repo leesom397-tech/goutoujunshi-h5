@@ -1,0 +1,22 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import path from 'node:path';
+import ts from 'typescript';
+const cache=new Map();
+function load(file){const name=path.resolve(file);if(cache.has(name))return cache.get(name);const exports={};cache.set(name,exports);const code=ts.transpileModule(readFileSync(name,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;new Function('exports','require',code)(exports,dep=>load(path.resolve(path.dirname(name),dep+'.ts')));return exports}
+const {mergeQuickSelfProfile,toggleSelfTag}=load('lib/quick-self-profile.ts');
+const {extractQuickSelfProfile}=load('lib/personal-context.ts');
+const original={ageRange:'29岁',city:'杭州',education:'本科',occupation:'工程师',interests:'阅读',values:'真诚',subjectiveScore:71,weights:{values:4},goals:'保持自己的节奏'};
+assert.deepEqual(mergeQuickSelfProfile(original,{interests:'阅读；摄影'}),{...original,interests:'阅读；摄影'});
+assert.equal(mergeQuickSelfProfile(original,{interests:''}).interests,'');
+assert.equal(toggleSelfTag('阅读；摄影','摄影'),'阅读');
+assert.equal(toggleSelfTag('阅读','摄影'),'阅读；摄影');
+const extracted=extractQuickSelfProfile('我喜欢摄影和看展。我重视独立空间。我希望认真恋爱。我聊天比较直接。');
+assert.ok(extracted.draft.interests);assert.ok(extracted.draft.values);assert.ok(extracted.draft.preferredRelationship);
+assert.equal(extractQuickSelfProfile('她喜欢摄影，她说她想结婚。').evidence.length,0);
+assert.equal(extractQuickSelfProfile('我住在上海。').draft.city,'上海');
+assert.equal(extractQuickSelfProfile('我目前住在杭州。').draft.city,'杭州');
+assert.equal(extractQuickSelfProfile('我在杭州工作。').draft.city,'杭州');
+assert.equal(extractQuickSelfProfile('我在考虑摄影。').draft.city,undefined);
+assert.equal(extractQuickSelfProfile('我希望认真了解一个人。').draft.preferredRelationship,'我希望认真了解一个人');
+console.log('PASS quick self draft: existing strings, subjective score and weights retained; intentional empty edit supported; tag toggles; first-person-only free extraction.');

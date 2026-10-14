@@ -5,7 +5,8 @@ import { ArrowRight, ArrowUpRight, BriefcaseBusiness, CalendarCheck, ChartNoAxes
 import publicChatCase from "@/data/public-chat-case.json";
 import { publicMomentsCase, publicSocialCase } from "@/data/public-social-cases";
 import { ChatReport, SocialReport } from "./ReportView";
-import { visibleSignalProfile } from "./report-data";
+import { publicPersonalConnection, visibleSignalProfile } from "./report-data";
+import { PersonalConnection } from "./PersonalConnection";
 import type { Json } from "./client";
 import styles from "./AnalysisExample.module.css";
 
@@ -24,9 +25,9 @@ const signalIcons: LucideIcon[] = [ArrowUpRight, MessagesSquare, HeartHandshake,
 // upload, production report identifier, or historical profile enters a demo.
 const anonymous = { id: "", subjectId: "", owner: "", ownerId: "", userId: "", kind: "demo" };
 const reports: Record<ExampleMode, Json> = {
-  chat: { ...publicChatCase, ...anonymous },
-  moments: { ...publicMomentsCase, ...anonymous },
-  social: { ...publicSocialCase, ...anonymous },
+  chat: { ...publicChatCase, ...anonymous, personalConnection: publicPersonalConnection("chat", publicChatCase) },
+  moments: { ...publicMomentsCase, ...anonymous, personalConnection: publicPersonalConnection("moments", publicMomentsCase) },
+  social: { ...publicSocialCase, ...anonymous, personalConnection: publicPersonalConnection("social", publicSocialCase) },
 };
 
 function previewData(mode: ExampleMode) {
@@ -127,7 +128,7 @@ function ExampleContent({ mode, onUpload }: ExampleProps) {
       <div className={styles.benefits} aria-label="分析内容">{description.benefits.map(item => <span key={item}><Check size={15}/>{item}</span>)}</div>
     </header>
 
-    <div className={styles.caseLabel}><span><FileText size={16}/>虚构演示案例</span><p>用于展示功能，不是真实客户记录。</p></div>
+    <div className={styles.caseLabel}><span><FileText size={16}/>虚构演示案例</span><p>人物、本人资料与对话均为虚构，展示完整分析能得到什么。</p></div>
 
     <div className={styles.preview}>
       <article className={styles.summaryCard}>
@@ -139,7 +140,7 @@ function ExampleContent({ mode, onUpload }: ExampleProps) {
           <div className={styles.nextStep}><span><ArrowRight size={18}/>{mode === "chat" ? "建议下一步" : "可以这样开场"}</span><p>{data.nextStep}</p></div>
         </div>
         <p className={styles.boundary}><HelpCircle size={15}/>{data.boundary}</p>
-        <details className={styles.explanation}><summary>查看判断说明<ChevronDown size={16}/></summary><p>{data.summary}</p></details>
+        <div className={styles.explanation}><strong>这次判断的范围</strong><p>{data.summary}</p></div>
       </article>
       <article className={styles.chartCard}>
         <div className={styles.chartTop}><h3><ChartNoAxesCombined size={21}/>{data.chartTitle}</h3><div className={styles.metric}><b>{data.chartMetric}</b><span>{data.chartMetricUnit}</span></div></div>
@@ -153,7 +154,8 @@ function ExampleContent({ mode, onUpload }: ExampleProps) {
       </article>
     </div>
 
-    <button className={styles.detailsToggle} type="button" aria-expanded={expanded} aria-controls={regionId} onClick={() => setExpanded(value => !value)}><FileText size={19}/>{expanded ? "收起完整案例分析" : `查看完整${description.label}案例分析`}<Chevron size={19}/></button>
+    <PersonalConnection report={reports[mode]} publicExample compact/>
+    <button className={styles.detailsToggle} type="button" aria-expanded={expanded} aria-controls={regionId} onClick={() => setExpanded(value => !value)}><FileText size={19}/>{expanded ? "收起完整案例分析" : `查看完整${description.label}案例分析与双侧依据`}<Chevron size={19}/></button>
 
     {expanded && <div className={styles.expanded} id={regionId} role="region" aria-label={`${description.label}虚构案例完整报告`}>
       <div className={styles.expandedHeading}><span><FileText size={16}/>完整案例 · 虚构材料</span><button className={styles.close} type="button" onClick={() => setExpanded(false)}>收起<ChevronUp size={16}/></button></div>

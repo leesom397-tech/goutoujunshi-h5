@@ -77,6 +77,8 @@ const route = load('app/api/web/capture/analyze/route.ts', {
   '@/db': { getD1: () => db },
   '@/lib/miniapp-auth': { miniappOwner: async () => authenticated ? { ownerId: currentOwner } : null },
   '@/lib/capture-analysis-input': { captureAnalysisInput, captureReadableText },
+  '@/lib/personal-context-server': { personalizeReport: async (_owner,_subject,report) => load('lib/personal-context.ts').personalConnection(report) },
+  '@/lib/personal-context': load('lib/personal-context.ts'),
   '@/lib/account-credits.mjs': credits,
   '@/lib/credit-response.mjs': { creditResponse },
   '@/lib/saved-reports.mjs': savedReports,

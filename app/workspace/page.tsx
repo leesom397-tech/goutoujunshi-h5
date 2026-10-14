@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { ArrowUpRight, UserRound } from "lucide-react";
+import { ArrowUpRight, ArrowRight, GitCompareArrows, UserRound } from "lucide-react";
 import { ProductHome } from "@/components/ProductHome";
 import { WebNav } from "@/components/WebNav";
 
@@ -52,6 +52,7 @@ export default function Workspace() {
   }, []);
   return <main className={styles.shell}><WebNav/><div className={styles.wrap}>
     <div className="workspace-welcome"><span><i/> 陪你理清关系</span><a href="/account" aria-busy={loading}><UserRound size={14}/><span className={styles.accountLabel}>{identity ? identity.name : "我的账户"}</span><ArrowUpRight size={14}/></a></div>
+    {identity && <section className={styles.compareEntry} aria-labelledby="workspace-compare-title" data-workspace-compare><span className={styles.compareIcon} aria-hidden="true"><GitCompareArrows size={28} strokeWidth={1.6}/></span><div className={styles.compareCopy}><h2 id="workspace-compare-title">人物对照</h2><p>选 2–3 位人物，对照与你的共同点、相处差异和下一步。</p><span>已有资料一起看，缺什么也会告诉你</span></div><a className={styles.compareAction} href="/archive?compare=1">开始对照<ArrowRight size={19}/></a></section>}
     {pendingTask && <a className="workspace-resume" href={`/analyze?mode=${pendingTask.mode}`}><span><b>接着上次</b><small>{pendingTask.mode === "chat" ? "聊天截图" : pendingTask.mode === "moments" ? "朋友圈" : "社交资料"} · {pendingTask.count} 张图片的任务已保留</small></span><span>继续查看 <ArrowUpRight size={16}/></span></a>}
     <ProductHome loading={loading} error={error} onRetry={()=>window.dispatchEvent(new Event("focus"))} signedIn={!!identity} onStart={href => { if (href.startsWith("/analyze?")) { window.location.assign(href); return; } if (loading || error) return; if (identity) window.location.assign(href); else beginOwn(href); }}/>
   </div><AnalysisAuthGate open={showAuth} onClose={() => setShowAuth(false)} returnTo={destination.current} contextLabel={destination.current.startsWith("/voice") ? "语音交流" : destination.current.startsWith("/archive") ? "人物与资料" : destination.current.startsWith("/reports") ? "历史报告" : destination.current.startsWith("/import") ? "导入聊天" : "文字军师"}/><footer className="web-footer"><span>成子 · 陪你看懂关系</span><div><a href="/privacy">数据与隐私</a><a href="/account#contact">联系客服</a><a href="/sales">服务介绍</a></div></footer></main>;

@@ -6,6 +6,7 @@ import { getD1 } from "@/db";
 import { readAnalysisReport, deleteAnalysisReport } from "@/lib/saved-reports.mjs";
 import { readableReport } from "@/lib/crush/evidence";
 import type { CrushResult } from "@/lib/crush/types";
+import {personalizeReport} from "@/lib/personal-context-server";
 
 export const runtime = "edge";
 const json = (data: unknown, status = 200) => Response.json(data, { status, headers: { "Cache-Control": "no-store" } });
@@ -23,12 +24,19 @@ export async function GET(request: Request) {
         saved.entries=saved.entries?.map((entry:CrushResult)=>readableReport(entry));
         saved.report=readableReport(saved.report as CrushResult);
       }
+      // This owner-scoped read projection reflects newly confirmed self material
+      // without mutating historical model conclusions or charging for analysis.
+      const connection=await personalizeReport(identity.ownerId,saved.subjectId,{...saved.report,subjectId:saved.subjectId,targetSelf:saved.targetSelf,...(saved.entries?{entries:saved.entries}:{})});
+      const personalConnectionContext={basis:'current-confirmed-material',computedAt:Date.now()};
+      saved.report={...saved.report,personalConnection:connection,personalConnectionContext};
+      if(saved.entries)saved.entries=saved.entries.map((entry:CrushResult)=>({...entry,personalConnection:connection}));
       return json(saved);
     }
     const report = await ownedReport(identity.ownerId, id);
     const latestCompatibility = await loadRelationshipFit(identity.ownerId, report.subjectId);
+    const connection=await personalizeReport(identity.ownerId,report.subjectId,report);
     // Do not overwrite a stored historical assessment with a live projection.
-    return json({kind:'chat',reportId:id,subjectId:report.subjectId,retention:'until-deleted',report: { ...report, reportId:id,retention:'until-deleted',latestCompatibility, compatibilityContext: {
+    return json({kind:'chat',reportId:id,subjectId:report.subjectId,retention:'until-deleted',report: { ...report, reportId:id,retention:'until-deleted',personalConnection:connection,personalConnectionContext:{basis:'current-confirmed-material',computedAt:Date.now()},latestCompatibility, compatibilityContext: {
       basis: 'current-confirmed-profile', computedAt: Date.now(), methodVersion: latestCompatibility?.methodVersion || null
     } } });
   } catch (error) {

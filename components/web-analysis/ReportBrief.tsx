@@ -1,9 +1,22 @@
 "use client";
 
-import { ArrowRight, ChartNoAxesCombined, CircleHelp, Compass, Heart, Lightbulb, MessageCircle, Quote, ScanEye, Sparkles } from "lucide-react";
+import { useState } from "react";
+import { ArrowRight, ChartNoAxesCombined, Check, CircleHelp, Compass, Copy, Heart, Lightbulb, MessageCircle, Quote, ScanEye, Sparkles } from "lucide-react";
 import type { Json } from "./client";
 import { validScore, visibleSignalProfile } from "./report-data";
 import styles from "./ReportCard.module.css";
+import readerStyles from "./ReportReader.module.css";
+
+/** A usable reply in the first reading surface, without another navigation step. */
+export function ReportReplyPreview({ text, reason, label = "现在可以这样回" }: { text?: string; reason?: string; label?: string }) {
+  const [copied, setCopied] = useState(false), [error, setError] = useState("");
+  if (!text?.trim()) return null;
+  async function copy() {
+    try { await navigator.clipboard.writeText(text!); setCopied(true); setError(""); }
+    catch { setError("复制没有完成，可以选中这段文字复制。"); }
+  }
+  return <section className={readerStyles.quickReply} data-report-quick-reply aria-label={label}><header><h3><MessageCircle size={20}/>{label}</h3><button type="button" onClick={() => void copy()}>{copied ? <Check size={17}/> : <Copy size={17}/>} {copied ? "已复制" : "复制"}</button></header><blockquote>{text}</blockquote>{reason && <p>{reason}</p>}{error && <p role="alert">{error}</p>}</section>;
+}
 
 const firstSentence = (value: unknown) => {
   const text = typeof value === "string" ? value.trim() : "";

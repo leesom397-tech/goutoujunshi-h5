@@ -11,6 +11,8 @@
 .badge { display:inline-flex; align-items:center; gap:6px; width:fit-content; padding:5px 10px; border:1px solid #e4d7c7; border-radius:8px; color:#77563b; background:#fcf6ec; font-size:15px; white-space:normal; line-height:1.6; }
 .number { font-size:18px; color:#aa614a; font-variant-numeric:tabular-nums; font-weight:650; }
 .summary { background:linear-gradient(125deg,#fdf3eb,#fffdfa 72%); border-top:3px solid #aa614a; }
+.summarySteps{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:25px;padding-top:23px;border-top:1px solid #ead8c7}.summarySteps article{min-width:0}.summarySteps article+article{border-left:1px solid #ead8c7;padding-left:24px}.summarySteps h3{display:flex;align-items:center;gap:8px;font-size:16px;color:#8a6147}.summarySteps p{font-size:16px;margin:10px 0 0}
+@media(max-width:760px){.summarySteps{grid-template-columns:minmax(0,1fr);gap:18px}.summarySteps article+article{border-left:0;border-top:1px solid #ead8c7;padding-left:0;padding-top:18px}}
 .eyebrow { display:flex; align-items:center; gap:8px; font-size:16px; color:#956449; margin-bottom:22px; }
 .summary h2 { font-size:18px; margin-bottom:13px; }
 .panel .verdict { color:#302821; font-size:clamp(21px,2.1vw,29px); font-weight:650; line-height:1.65; margin:0; }

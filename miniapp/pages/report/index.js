@@ -79,6 +79,7 @@ function present(report) {
     affectionScope: affinity?.valueScope === 'partial' ? '部分维度参考' : '本次互动信号',
     affectionBoundary: !!affinity?.boundaryApplied,
     photoClues: report.decision?.photoClues || [],
+    personalConnection: report.personalConnection || null,
     interactionInsight: report.decision?.interactionInsight || null,
     photoClueCount: (report.decision?.photoClues || []).length,
     id: report.id, subjectId: report.subjectId || '', compatibility: Object.prototype.hasOwnProperty.call(report, 'latestCompatibility') ? report.latestCompatibility : report.compatibility || null,

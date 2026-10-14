@@ -1,6 +1,62 @@
 import {relationshipRiskReview} from "@/lib/relationship-risk";
 type Row = Record<string, any>;
 
+/** Authored demo only. Never call with a private report or use these sources for a real account. */
+export function publicPersonalConnection(mode: "chat" | "moments" | "social", report: Row) {
+  type Evidence = { id: string; side: "self" | "other"; source: "self-profile" | "chat" | "moments" | "social-profile"; label: string; quote: string; lineId?: string };
+  type Insight = { id: string; title: string; reading: string; kind: "supported" | "inference"; evidenceIds: string[]; alternative?: string; action: string };
+  const sources: Evidence[] = [], commonPoints: Insight[] = [], differences: Insight[] = [], entryPoints: Insight[] = [];
+  const add = (side: Evidence["side"], source: Evidence["source"], label: string, quote: string, lineId?: string) => {
+    const id = `demo-personal-${sources.length + 1}`;
+    sources.push({ id, side, source, label, quote, ...(lineId ? { lineId } : {}) });
+    return id;
+  };
+  const common = (title: string, reading: string, evidenceIds: string[], action: string) => commonPoints.push({ id: `demo-common-${commonPoints.length + 1}`, title, reading, kind: "supported", evidenceIds, action });
+  if (mode === "chat") {
+    const line = (index: number) => {
+      const value = report.lines?.[index];
+      return add(value?.speaker === "self" ? "self" : "other", "chat", `虚构聊天 · 第 ${index + 1} 句`, value?.text || "", value?.id);
+    };
+    const meExperience = line(5), otherExperience = line(6), mePace = line(3), otherPace = line(4);
+    common("都有愉快的看展体验", "你说昨天看展很开心，对方回应“我也是”，还延续了画作话题。共同经历已经可以自然接下去。", [meExperience, otherExperience], "接着聊那幅画哪里吸引你，再回应对方的下一次邀约。");
+    common("都表达了休息的需要", "你想早点回家，对方也说最近有点累，并答应看完就送你去地铁。这轮互动里，彼此的节奏得到了回应。", [mePace, otherPace], "这次也可以约一个有明确结束时间的短见面，不必为了显得热情勉强延长。");
+    entryPoints.push({ id: "demo-topic-chat", title: "用具体感受延续共同经历", reading: "比起另起一个话题，回应对方记住的那幅画，更可能让交流自然延续。", kind: "inference", evidenceIds: [meExperience, otherExperience], alternative: "对方发图也可能只是兑现帮拍的约定，还需看后续是否继续主动交流。", action: "“那幅画我回来还在想，谢谢你记得。周日两点可以呀。”" });
+    differences.push({ id: "demo-difference-chat", title: "表达方式不同，但这轮能够接住", reading: "你更多通过邀约、转票钱和请咖啡表达投入；对方同时用了直接的好感表达和安排。这是本轮表达方式的区别，尚不能当成固定性格。", kind: "inference", evidenceIds: [meExperience, otherPace, otherExperience], alternative: "当下的话题分工也会造成这种差别，换个场景可能不同。", action: "不必模仿对方的热烈程度。用你自然的说法确认时间、表达期待就够了。" });
+  } else {
+    const self = add("self", "self-profile", "虚构本人资料 · 兴趣与相处偏好", "我喜欢看展、摄影、周末散步；需要独处，也希望提前约好时间。");
+    if (mode === "moments") {
+      const posts: Row[] = report.moments?.posts || [];
+      const post = (pattern: RegExp) => {
+        const row = posts.find(item => pattern.test(item.content || ""));
+        return add("other", "moments", row?.evidence || `虚构动态 · ${row?.date || "本批材料"}`, row?.content || "");
+      };
+      const exhibition = post(/这场展/), walk = post(/河边/), time = post(/约好的时间/);
+      common("都喜欢看展", "你的资料写了看展，对方也分享了慢慢看展的体验。可以聊具体作品，不用凭空找话题。", [self, exhibition], "“我也很喜欢慢慢看展。你说的那束光，是现场最打动你的地方吗？”");
+      common("都有散步的兴趣", "你喜欢周末散步，对方记录了去河边走走。短路线是有实际材料支持的共同活动入口。", [self, walk], "可以聊走路时喜欢听歌还是安静；邀约前先问具体路线是否有兴趣。");
+      common("都需要独处和安静", "你的资料明确需要独处，对方也写了“留点安静给自己”。这点相近，仍要看各自需要多少空间。", [self, walk], "约活动时留一点弹性，避免把对方想安静直接理解为冷淡。");
+      common("都重视约好的时间", "你希望提前约好，对方明确说认真对待约好的时间。给出具体时间和活动内容，比含糊试探更容易沟通。", [self, time], "“周六下午要不要看这场展？一个多小时，你方便的话我们提前定下来。”");
+      const work = post(/布光改了三版/);
+      entryPoints.push({ id: "demo-topic-moments", title: "创作过程，比设备型号更有话聊", reading: "对方公开写了布光调整，可以聊她为什么修改、最后满意哪里。照片本身不足以确认相机型号或专业程度。", kind: "inference", evidenceIds: [work], alternative: "这可能是一次工作任务，不一定代表长期兴趣。", action: "“这次布光改了三版，最后是哪一点让你觉得终于对了？”" });
+      differences.push({ id: "demo-difference-moments", title: "计划感相近，临时变化的接受度还要磨合", reading: "你偏好提前安排，对方同时提到喜欢计划外的小惊喜。这可能只是她对周末体验的表达，并不等于习惯临时变动。", kind: "inference", evidenceIds: [self, time], alternative: "“惊喜”可能发生在约定的时间内，与你的计划习惯完全兼容。", action: "先确定时间与大致内容，小安排可以留白；有变动时及时沟通。" });
+    } else {
+      const basics: Row[] = [...report.profileBasics || [], ...report.profileContext || []];
+      const field = (name: string) => {
+        const row = basics.find(item => item.field === name);
+        return add("other", "social-profile", row?.evidence || "虚构主页资料", row?.value || "");
+      };
+      const lifestyle = field("lifestyle"), boundaries = field("boundaries");
+      common("都喜欢看展", "双方都明确写了看展。可以从各自最近看过的一场展聊起，再看是否愿意一起体验。", [self, lifestyle], "“你最近看过最喜欢的是哪一场？我也想找一场慢慢看。”");
+      common("都有摄影兴趣", "双方资料都有摄影，支持从取景和喜欢的画面切入；不代表器材、水平或风格一定相同。", [self, lifestyle], "“你更喜欢记录人，还是光和空间？你这张展厅照片让我挺好奇的。”");
+      common("都喜欢户外散步", "你写了周末散步，对方写了户外散步。初次见面可以先提轻量活动，让双方都方便调整。", [self, lifestyle], "“周末要不要找条舒服的步道走走？一小时左右，之后各自安排。”");
+      common("都重视独处空间", "你明确需要独处，对方强调尊重彼此独处。相近的是重视空间，不是默认联系频率也相同。", [self, boundaries], "自然聊聊休息日怎么充电，比直接追问每天该联系几次更轻松。");
+      const ownWork = add("self", "self-profile", "虚构本人资料 · 职业", "内容策划"), work = field("occupation");
+      entryPoints.push({ id: "demo-topic-social", title: "创作工作可以聊，但别急着替她下定义", reading: "内容策划与广告制片有可能找到项目协作、创作体验的交集；职业名称不能证明性格、收入或事业心。", kind: "inference", evidenceIds: [ownWork, work], alternative: "即使行业相近，实际工作和私下兴趣也可能很不一样。", action: "“做完一个项目，最让你有成就感的是哪一刻？”先聊体验，不急着交换资源。" });
+      differences.push({ id: "demo-difference-social", title: "表达了共同偏好，还要对齐实际节奏", reading: "你偏好提前约时间，对方反感临时爽约。方向一致，但提前多久、多久见一次，目前还没有共同约定。", kind: "inference", evidenceIds: [self, boundaries], alternative: "这些细节也可能在一次正常邀约里自然对齐，不代表存在冲突。", action: "给一个可调整的具体时间，让对方也能提出自己的安排。" });
+    }
+  }
+  return { version: 1 as const, status: "ready" as const, summary: "已对照虚构本人资料与本次材料。先抓住具体交集，再看双方实际相处是否舒服。", commonPoints, differences, entryPoints, missing: [], sources };
+}
+
 export const profileLabels: Record<string, string> = { ageRange: "年龄", city: "常住地", education: "学历", occupation: "职业", relationshipStatus: "婚恋状态", childrenPlan: "婚育想法", lifestyle: "生活方式", stage: "关系阶段", howMet: "认识方式", values: "价值观", boundaries: "边界" };
 export const validScore = (value: unknown): value is number => typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100;
 

@@ -17,7 +17,7 @@ export type Person = {
 };
 export type ArchiveFact = { id: string; subjectId: string | null; kind: string; value: string; source: string; evidence: string; status: "pending" | "accepted"; eventTitle?: string; eventDate?: string };
 export type ArchiveState = { enabled: boolean; paused: boolean; self: SelfData & { avatar?: string; momentsReport?: MomentsReport | null }; subjects: Person[]; facts: ArchiveFact[]; signals: TimelineRecord[]; trends: { subjectId: string; points: ReturnType<typeof relationshipTrendPoints> }[] };
-export type FeedbackState = { subjectId: string; cards: ReturnType<typeof actionFeedbackCards>; events: ReturnType<typeof relationshipProgressEvents> };
+export type FeedbackState = { subjectId: string; cards: ReturnType<typeof actionFeedbackCards>; events: ReturnType<typeof relationshipProgressEvents>; automatic?: import("@/lib/relationship-updates").AutomaticRelationshipUpdate };
 export const basicFields = [
   ["ageRange", "年龄或年龄段"], ["city", "常住地"], ["education", "学历"], ["occupation", "职业或学习状态"], ["relationshipStatus", "婚恋状态"], ["childrenPlan", "婚育想法"], ["lifestyle", "生活方式"],
 ] as const;

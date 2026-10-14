@@ -18,7 +18,8 @@ const conversationPresets = [
   { id: "boundaries", title: "把边界说清楚", hint: "既不委屈自己，也不伤害对方", mode: "conversation", draft: "让我不舒服的具体情况是：\n我能接受和不能接受的是：\n请帮我把感受和边界表达清楚。", icon: ShieldCheck },
   { id: "needs", title: "理清我的期待", hint: "看见自己真正需要的相处方式", mode: "positioning", draft: "这段关系里，我最在意的是：\n我希望得到的相处方式：\n现在让我犹豫的地方：", icon: Compass },
   { id: "practice", title: "练习一次沟通", hint: "带着真实场景，先把话练一遍", mode: "conversation", draft: "我想练习一次真实的沟通。\n对象和场景：\n我原本打算这样说：\n请先指出容易被误解的地方，给一版自然表达，再模拟对方的一种可能回应，让我继续练习。", icon: MessageCircle },
-  { id: "followup", title: "聊聊后来的进展", hint: "带着真实回应，调整下一步", mode: "conversation", draft: "上次之后，我实际做了什么：\n对方的真实回应或具体行为：\n我自己的感受：\n现在最想弄清楚的问题：\n请结合这些新进展，区分事实和推测，帮我看看下一步是否需要调整。", icon: CalendarDays },
+  { id: "followup", title: "聊聊后来的进展", hint: "带着真实回应，调整下一步", mode: "conversation", draft: "这是最近的新回应或刚发生的事：\n\n请结合已有材料，告诉我判断有没有变化，以及现在最合适的一步。", icon: CalendarDays },
+  { id: "meeting", title: "见面前准备", hint: "结合共同话题，轻松聊起来", mode: "conversation", draft: "结合已有报告，帮我准备这次见面：3 个能自然聊起来的话题、1 句轻松的开场，以及需要留意的相处边界。引用已有依据，不补写未提供的个人经历。", icon: CalendarDays },
 ] as const;
 export default function ChatPage() {
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -66,7 +67,7 @@ export default function ChatPage() {
     const freshHandoff = report && report.expiresAt > Date.now() && (!previous || previous.owner !== owner || previous.contextKey !== handoff || previous.subject !== (report.subjectId || ""));
     const focusedQuestion = freshHandoff && typeof report?.question === "string" ? report.question.trim().slice(0, 1500) : "";
     if (report && report.expiresAt <= Date.now()) setError(restored.requestBody ? "报告摘要已过期；上次请求已保留，可直接重试取回回答。" : "报告摘要已过期，请回到报告重新打开，或开始新对话。");
-    const preset = !report ? conversationPresets.find(item => item.id === search.get("preset")) : undefined;
+    const preset = (!report || freshHandoff) && !restored.requestBody ? conversationPresets.find(item => item.id === search.get("preset")) : undefined;
     setMessages(preset ? [] : restored.messages); setDraft(preset?.draft || focusedQuestion || restored.draft); setOther(preset ? "" : restored.other); setSubject(restored.subject); setMode(preset?.mode || restored.mode); setContextKey(report ? handoff : ""); setSaveHistory(!!stored); requestId.current = preset ? null : restored.requestId; pendingBody.current = preset ? null : restored.requestBody; setReady(true);
     if (preset) { const cleanUrl = new URL(window.location.href); cleanUrl.searchParams.delete("preset"); window.history.replaceState(null, "", cleanUrl.pathname + cleanUrl.search); }
   }, [owner]);

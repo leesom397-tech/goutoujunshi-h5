@@ -1,0 +1,18 @@
+<template name="personal-insight">
+  <view class="personal-item {{kind}}">
+    <view class="item-heading"><text class="item-title">{{item.title}}</text><text class="badge">{{kind === 'common' ? '双方有依据' : '相处推测'}}</text></view>
+    <text class="reading">{{item.reading}}</text>
+    <view class="sources"><view wx:for="{{item.evidence}}" wx:for-item="source" wx:key="id" class="source {{source.side}}"><text class="who">{{source.who}}<text class="source-label"> · {{source.label}}</text></text><text class="quote" selectable>{{source.quote}}</text></view></view>
+    <text wx:if="{{kind !== 'common' && item.alternative}}" class="alternative">也可能：{{item.alternative}}</text>
+    <view wx:if="{{item.action}}" class="action"><text class="action-label">{{kind === 'difference' ? '相处时留意' : '可以这样接近'}}</text><text selectable>{{item.action}}</text></view>
+  </view>
+</template>
+<view wx:if="{{connection}}" class="connection">
+  <view class="eyebrow"><image src="/assets/ui-users.png" mode="aspectFit"/><text>与你有关</text></view>
+  <text class="title">{{connection.title}}</text><text class="summary">{{connection.summary}}</text>
+  <view wx:if="{{connection.count}}" class="chips"><text wx:for="{{connection.common}}" wx:key="id">{{item.title}}</text></view>
+  <template wx:for="{{connection.common}}" wx:key="id" is="personal-insight" data="{{item,kind:'common'}}"/>
+  <view wx:if="{{connection.topics.length}}" class="group"><text class="group-title">可以聊的话题</text><text class="group-note">有材料可接，不假装已经相同</text><template wx:for="{{connection.topics}}" wx:key="id" is="personal-insight" data="{{item,kind:'topic'}}"/></view>
+  <view wx:if="{{connection.differences.length}}" class="group"><text class="group-title">相处时，留意这些不同</text><template wx:for="{{connection.differences}}" wx:key="id" is="personal-insight" data="{{item,kind:'difference'}}"/></view>
+  <text wx:if="{{!connection.hasItems}}" class="summary empty">现有资料还没有明确交集，不等于不合适。先按报告建议回应，后续明确表达会继续补充对照。</text>
+</view>

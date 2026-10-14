@@ -1,0 +1,43 @@
+import assert from 'node:assert/strict';
+import puppeteer from 'puppeteer-core';
+const origin=process.env.INTAKE_TEST_ORIGIN||'http://127.0.0.1:8798';
+const reportId='22222222-1111-4111-8111-111111111111',previousId='11111111-1111-4111-8111-111111111111',subjectId='followup-person-a';
+let owner='followup-owner-a';const requests=[],errors=[];
+const report={id:reportId,subjectId,selfSide:'right',summary:'双方约好周六看展',lines:[{id:'line-1',speaker:'other',text:'周六下午一起看展吗？'}],decision:{judgment:'双方开始商量具体安排',nextStep:'确认时间后再订票',replySuggestions:[{text:'周六两点可以，展馆门口见。',reason:'确认具体时间'}]},personalConnection:{commonPoints:[{title:'共同看展兴趣',reading:'双方提过喜欢看展'}]}};
+const automatic={status:'compared',headline:'这次材料里有这些变化',note:'变化来自两组已分析材料，反映可见互动，不代表对方内心或建议已经执行。',count:2,current:{reportId,summary:'这次开始约定具体时间',nextStep:'确认时间',date:'2026-01-06 至 2026-01-07'},previous:{reportId:previousId,summary:'之前只谈过看展兴趣',date:'2026-01-04'},changes:[{label:'主动延续',before:20,after:40,text:'主动延续：20 → 40'}]};
+const browser=await puppeteer.launch({headless:true,executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe',args:['--no-sandbox'],defaultViewport:{width:1280,height:1000}});
+const context=await browser.createBrowserContext(),page=await context.newPage();
+page.on('pageerror',e=>errors.push(e.message));await page.setRequestInterception(true);
+page.on('request',async request=>{
+ if(!request.url().startsWith(origin+'/api/'))return request.continue();
+ const url=new URL(request.url());requests.push({path:url.pathname,search:url.search,method:request.method()});let value={};
+ if(url.pathname==='/api/account/credits')value={account:{userId:owner,balance:100,active:true,features:['chat']},prices:{text:3}};
+ else if(url.pathname==='/api/web/profile')value={enabled:true,paused:false,subjects:[{id:subjectId,label:'虚构测试人物'}]};
+ else if(url.pathname==='/api/web/report')value={reportId,kind:'chat',subjectId,report,totalCount:1};
+ else if(url.pathname==='/api/web/relationship-feedback')value={subjectId,automatic};
+ else if(url.pathname==='/api/web/report/list')value={reports:[]};
+ await request.respond({status:200,contentType:'application/json',body:JSON.stringify(value)});
+});
+const contains=text=>page.waitForFunction(text=>document.body.textContent.includes(text),{},text);
+try{
+ await page.goto(origin+'/report?id='+reportId,{waitUntil:'networkidle0'});
+ await page.waitForSelector('[role="tab"]');
+ await page.$$eval('[role="tab"]',buttons=>buttons.find(b=>/怎么回|下一步/.test(b.textContent))?.click());
+ await contains('这次材料里有这些变化');
+ assert.match(await page.$eval('#followup',e=>e.textContent),/这次开始约定具体时间/);
+ assert.match(await page.$eval('#followup',e=>e.textContent),/之前只谈过看展兴趣/);
+ assert.equal(await page.$$eval('#followup .rf-changes > div',e=>e.length),1);
+ const href=await page.$eval('#followup .rf-primary',e=>e.getAttribute('href'));
+ assert.equal(new URL(href,origin).searchParams.get('subjectId'),subjectId);
+ assert.equal(new URL(href,origin).searchParams.get('returnTo'),'/report?id='+reportId);
+ const feedback=requests.find(r=>r.path==='/api/web/relationship-feedback');assert.equal(new URLSearchParams(feedback.search).get('reportId'),reportId);
+ await Promise.all([page.waitForNavigation({waitUntil:'networkidle0'}),page.$$eval('#followup button',buttons=>buttons.find(b=>b.textContent.includes('见面前准备')).click())]);
+ await contains('接着聊：见面前准备');
+ const snapshot=await page.evaluate(()=>({context:JSON.parse(sessionStorage.getItem('web-followup:'+new URLSearchParams(location.search).get('context'))),draft:document.querySelector('.wa-field textarea')?.value,body:document.body.textContent}));
+ assert.equal(snapshot.context.accountId,owner);assert.equal(snapshot.context.subjectId,subjectId);assert.equal(snapshot.context.reportId,reportId);assert.match(snapshot.context.summary,/双方开始商量具体安排/);assert.match(snapshot.context.summary,/共同看展兴趣/);assert.match(snapshot.draft,/3 个能自然聊起来的话题/);
+ assert.equal(requests.filter(r=>r.path==='/api/web/text').length,0,'meeting preparation never auto-sends or charges');
+ owner='followup-owner-b';await page.evaluate(()=>window.dispatchEvent(new Event('focus')));await contains('报告追问上下文已过期');
+ assert.equal(await page.$('.chat-report-context'),null,'account switch cannot carry a prior owner report into chat');
+ assert.equal(errors.length,0,errors.join('\n'));
+ console.log('report follow-up browser: automatic summary, scoped return link, meeting handoff, no auto-send, and account isolation passed');
+}finally{await context.close();await browser.close();}

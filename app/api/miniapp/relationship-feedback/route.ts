@@ -1,6 +1,7 @@
 import { miniappOwner } from "@/lib/miniapp-auth";
 import { getD1 } from "@/db";
 import { appendActionFeedback, actionFeedbackCards, relationshipProgressEvents, FeedbackError } from "@/lib/relationship-feedback";
+import { automaticRelationshipUpdate } from "@/lib/relationship-updates";
 
 export const runtime = "edge";
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
@@ -19,7 +20,9 @@ export async function GET(request: Request) {
     const data = JSON.parse(subject.data);
     if (!data || typeof data !== "object" || Array.isArray(data)) return json({ error: "档案数据暂不可用。" }, 409);
     const facts = await db.prepare("SELECT id,value,evidence,event_meta,status,created_at FROM coach_facts WHERE owner_id=? AND subject_id=? AND field='recentEvent' AND status='accepted' ORDER BY created_at DESC LIMIT 200").bind(identity.ownerId,subjectId).all<{id:string;value:string;evidence:string;event_meta:string|null;status:string;created_at:number}>();
-    return json({ subjectId, cards: actionFeedbackCards(data), events: relationshipProgressEvents(data,facts.results) });
+    const reportId = new URL(request.url).searchParams.get("reportId") || "";
+    if (reportId && !/^[a-f0-9]{8}-[a-f0-9-]{27}$/i.test(reportId)) return json({ error: "报告标识不正确。" }, 400);
+    return json({ subjectId, cards: actionFeedbackCards(data), events: relationshipProgressEvents(data,facts.results), automatic: automaticRelationshipUpdate(data, subjectId, reportId) });
   } catch { return json({ error: "行动记录暂时无法读取。" }, 503); }
 }
 

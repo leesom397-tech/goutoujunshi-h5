@@ -132,6 +132,7 @@
         <text wx:if="{{followupError}}" class="error">{{followupError}}</text>
         <text wx:if="{{result.durationSeconds}}" class="elapsed">本次用时约 {{result.durationSeconds}} 秒（含上传）</text>
       </view>
+      <personal-connection value="{{result.personalConnection}}"/>
       <view id="report-replies" class="panel">
         <view class="step">02 · 回复选择</view><text class="panel-title">现在怎么回</text>
         <block wx:if="{{result.hasReplies}}">

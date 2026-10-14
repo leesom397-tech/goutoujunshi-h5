@@ -1,4 +1,5 @@
 import {relationshipRiskReview} from "../relationship-risk";
+import {personalizeReport} from "../personal-context-server";
 import { getD1 } from "@/db";
 import { clearSavedReports, PERMANENT_REPORT_EXPIRES_AT } from "@/lib/saved-reports.mjs";
 import { recordRelationshipHistory } from "@/lib/relationship-history";
@@ -121,6 +122,7 @@ export async function analyzeLines(owner:string,text:string,options:{sourceKey:s
     if(!await db.prepare("SELECT id FROM coach_crush_threads WHERE id = ? AND owner_id = ? AND revision = ?").bind(thread.id,owner,revision).first()) throw new CrushError("会话已清空或更新，请重新分析。",409);
     const result:CrushResult={id,threadId:thread.id,subjectId:thread.subject_id,revision,provider,model,lines:merged.added,annotations,affinity,affinityStatus,affinityError,evidenceVersion:EVIDENCE_VERSION,decision:options.decision,readableLineCount:supported.length,unreadMediaCount:merged.added.length-supported.length,coverage:options.coverage,createdAt:now,expiresAt:PERMANENT_REPORT_EXPIRES_AT,latencyMs:Date.now()-now,duplicateCount:merged.duplicateCount};
     result.riskReview=relationshipRiskReview(result);
+    result.personalConnection=await personalizeReport(owner,thread.subject_id,result);
     if(options.decision&&options.skipAffinity&&settings.jev_consent_at&&settings.affinity_consent_at)result.decision={...options.decision,affinityDeferred:true};
     const results=await db.batch([
       db.prepare("UPDATE coach_crush_reports SET result = ?, status = 'done', updated_at = ?, expires_at = ? WHERE id = ? AND owner_id = ? AND status = 'running'").bind(JSON.stringify(result),Date.now(),PERMANENT_REPORT_EXPIRES_AT,id,owner),

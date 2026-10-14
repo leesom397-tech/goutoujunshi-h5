@@ -16,6 +16,8 @@ export type SelfData = {
   relationshipStatus?: string;
   childrenPlan?: string;
   lifestyle?: string;
+  interests?: string;
+  communicationStyle?: string;
   preferredAgeRange?: string;
   distancePreference?: string;
   mbti?: string;
@@ -47,7 +49,7 @@ export type Fact = {
 };
 export type ProfileState = { enabled: boolean; paused: boolean; self: SelfData; subjects: Subject[]; facts: Fact[] };
 
-export const selfFields = ["ageRange", "city", "education", "occupation", "relationshipStatus", "childrenPlan", "lifestyle", "preferredAgeRange", "distancePreference", "mbti", "subjectiveScore", "strengths", "growthAreas", "goals", "values", "boundaries", "preferredRelationship"] as const;
+export const selfFields = ["ageRange", "city", "education", "occupation", "relationshipStatus", "childrenPlan", "lifestyle", "interests", "communicationStyle", "preferredAgeRange", "distancePreference", "mbti", "subjectiveScore", "strengths", "growthAreas", "goals", "values", "boundaries", "preferredRelationship"] as const;
 export const subjectFields = ["mbti", "subjectiveScore", "stage", "howMet", "strengths", "concerns", "values", "boundaries", "notes"] as const;
 export const suggestedFields = ["mbti", "stage", "howMet", "strengths", "concerns", "values", "boundaries", "notes", "recentEvent"] as const;
 
