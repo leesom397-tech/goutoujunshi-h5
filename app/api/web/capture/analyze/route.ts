@@ -82,6 +82,22 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
   }
   const modelComplete = semanticHistory.status === "complete" && semanticHistory.coverage.analyzedText === history.readable.length;
   const relationshipDiagnosis = buildRelationshipDiagnosis(chatActivity, input.question, []);
+  if (input.photoPreviews.length) {
+    try {
+      const content: QwenContent = [{ type: "text", text: "这些是已导入聊天里的照片。只描述画面里看得见的场景、物件或图上的字。不要判断收入、性格、婚恋目标，不要把表情包当成生活事实。只返回 JSON {photos:[{sourceId,observation}]}。" }];
+      for (const row of input.photoPreviews.slice(0, 4)) {
+        const image = row.images[0];
+        content.push({ type: "text", text: `sourceId=${row.localId} 发送侧=${row.senderRole}` });
+        content.push({ type: "image_url", image_url: { url: `data:${image.mime};base64,${image.data}`, detail: "low" } });
+      }
+      const raw = await qwenChat([{ role: "user", content }], { vision: true, fast: true, json: true, maxTokens: 700, timeoutMs: 40_000 });
+      const parsed = parseQwenJson<{ photos?: Array<{ sourceId?: string; observation?: string }> }>(raw);
+      const allowed = new Set(input.photoPreviews.map(row => row.localId));
+      relationshipDiagnosis.personalConnection = relationshipDiagnosis.personalConnection || { commonPoints: [], fit: "", friction: [] };
+      const notes = (Array.isArray(parsed.photos) ? parsed.photos : []).filter(item => item && allowed.has(String(item.sourceId)) && typeof item.observation === "string" && item.observation.trim()).slice(0, 4).map(item => ({ sourceId: String(item.sourceId), observation: item.observation!.trim().slice(0, 80) }));
+      if (notes.length) Object.assign(relationshipDiagnosis, { photoNotes: notes });
+    } catch { /* Photos are extra. A vision miss must not discard the text report. */ }
+  }
   Object.assign(relationshipDiagnosis, { semanticHistory });
   if (semanticHistory.summary && semanticHistory.summaryEvidenceIds.length) {
     relationshipDiagnosis.relationship.currentState = semanticHistory.summary;

@@ -1,6 +1,6 @@
 export type CaptureAnalysisRow = { localId: string; kind: string; sender: string; senderRole: "self" | "other" | "unknown"; at: string; text: string; ocrTextVerified?: boolean; images: Array<{ mime: string; data: string; name: string }> };
 export type CaptureMemoryRow = { localId: string; kind: "text"; senderRole: "self" | "other"; at: string; text: string };
-export type CaptureAnalysisInput = { kind: "chat" | "moments"; friend: string; subjectId: string | null; requestId: string; question?: "panorama" | "attitude" | "trend" | "worth" | "next"; analysisScope: "selected" | "fullHistory"; libraryId: string | null; expectedTotal: number | null; expectedEpoch: number | null; records: CaptureAnalysisRow[]; historyRecords: CaptureMemoryRow[]; activityRecords: ChatActivityRecord[] };
+export type CaptureAnalysisInput = { kind: "chat" | "moments"; friend: string; subjectId: string | null; requestId: string; question?: "panorama" | "attitude" | "trend" | "worth" | "next"; analysisScope: "selected" | "fullHistory"; libraryId: string | null; expectedTotal: number | null; expectedEpoch: number | null; records: CaptureAnalysisRow[]; photoPreviews: CaptureAnalysisRow[]; historyRecords: CaptureMemoryRow[]; activityRecords: ChatActivityRecord[] };
 export const CAPTURE_ANALYSIS_LIMIT = { chat: 40, moments: 12 };
 export const CAPTURE_MEMORY_LIMIT = { records: 1000, characters: 60000 };
 const uuid = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
@@ -74,6 +74,19 @@ export function captureAnalysisInput(value: unknown): CaptureAnalysisInput {
   if (v.activityRecords !== undefined && v.kind !== "chat") throw Error("聊天统计仅用于聊天材料。");
   const activityRecords = v.activityRecords === undefined ? [] : parseChatActivityRecords(v.activityRecords);
   const question = ["panorama", "attitude", "trend", "worth", "next"].includes(String(v.question)) ? v.question as CaptureAnalysisInput["question"] : undefined;
-  return { kind: v.kind, requestId: v.requestId, friend, subjectId, question, analysisScope: fullHistory ? "fullHistory" : "selected", libraryId, expectedTotal: fullHistory ? Number(expectedTotal) : null, expectedEpoch: fullHistory ? Number(expectedEpoch) : null, records, historyRecords, activityRecords };
+  const photoPreviews = fullHistory && Array.isArray(v.photoPreviews) ? v.photoPreviews.slice(0, 4).map((raw): CaptureAnalysisRow => {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw Error("聊天照片格式不正确。");
+    const r = raw as Record<string, unknown>;
+    const localId = str(r.localId, 200);
+    const images = (Array.isArray(r.images) ? r.images : []).slice(0, 1).map((image): { mime: string; data: string; name: string } => {
+      if (!image || typeof image !== "object") throw Error("聊天照片格式不正确。");
+      const mime = str((image as { mime?: unknown }).mime, 20), data = str((image as { data?: unknown }).data, 300_000);
+      if (!["image/jpeg", "image/png", "image/webp"].includes(mime) || !data) throw Error("聊天照片格式不支持。");
+      return { mime, data, name: str((image as { name?: unknown }).name, 120) };
+    });
+    if (!localId || !images.length) throw Error("聊天照片缺少来源。");
+    return { localId, kind: "image", sender: "", senderRole: r.senderRole === "self" ? "self" : "other", at: str(r.at, 120), text: "[图片]", images };
+  }) : [];
+  return { kind: v.kind, requestId: v.requestId, friend, subjectId, question, analysisScope: fullHistory ? "fullHistory" : "selected", libraryId, expectedTotal: fullHistory ? Number(expectedTotal) : null, expectedEpoch: fullHistory ? Number(expectedEpoch) : null, records, photoPreviews, historyRecords, activityRecords };
 }
 import { parseChatActivityRecords, type ChatActivityRecord } from "./chat-activity";

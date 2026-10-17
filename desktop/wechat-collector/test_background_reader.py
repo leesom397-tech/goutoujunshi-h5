@@ -6,7 +6,8 @@ import unittest
 from unittest.mock import patch, Mock
 
 from background_reader import (BackgroundCaptureError, capture_from_source,
-                               capture_background, probe_background, _voice_duration, _validate_request)
+                               capture_background, probe_background, _voice_duration, _validate_request,
+                               local_chat_image)
 
 
 class Source:
@@ -266,6 +267,22 @@ class BackgroundReaderTests(unittest.TestCase):
         self.assertEqual(error.exception.code, "CANCELLED")
         self.assertEqual(partials[-1]["records"][0]["text"], "第一条已完成")
         self.assertTrue(source.closed)
+
+
+class LocalImageTests(unittest.TestCase):
+    def test_named_jpeg_is_attached_and_missing_file_is_skipped(self):
+        import tempfile
+        from pathlib import Path
+        md5 = "a" * 32
+        xml = f'<msg><img md5="{md5}" /></msg>'
+        with tempfile.TemporaryDirectory() as directory:
+            folder = Path(directory) / "FileStorage" / "Image"
+            folder.mkdir(parents=True)
+            (folder / f"{md5}.jpg").write_bytes(b"\xff\xd8\xff" + b"synthetic-photo" + b"\x00" * 40)
+            found = local_chat_image(directory, xml)
+            self.assertEqual(found["mime"], "image/jpeg")
+            self.assertTrue(found["data"])
+            self.assertIsNone(local_chat_image(directory, "<msg><img md5=\"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\" /></msg>"))
 
     def test_voice_duration_rejects_entities_and_out_of_bounds(self):
         self.assertIsNone(_voice_duration('<!DOCTYPE a><voicemsg voicelength="6000"/>'))

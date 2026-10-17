@@ -315,7 +315,7 @@ def _moments(friend, limit, progress, modules):
             break
     if not rows:
         raise CaptureError("NO_VISIBLE_MOMENTS", "没有读到可见朋友圈。可能被限制可见、暂无内容或界面不可读；不会绕过可见范围。")
-    warnings.append("只采集当前账号可见的朋友圈；配图为详情区域预览，可能只显示部分缩略图，未下载完整照片或视频。")
+    warnings.append("只采集当前账号可见的朋友圈，有多少读多少，直到没有新的可见动态或达到本次条数。分组不可见的不会出现。配图为详情区域预览，可能只显示部分缩略图。")
     warnings.append("朋友圈时间保留原界面标签，未出现完整日期的内容不会推测年份。")
     return rows, warnings
 

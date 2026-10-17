@@ -14,6 +14,7 @@ import importlib.util
 import json
 import re
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Protocol
 from xml.etree import ElementTree
 
@@ -302,6 +303,55 @@ def _resolve_contact(source, friend, contact_id=None, account_key=None):
     return username
 
 
+def _plain_image(data: bytes):
+    if len(data) < 32 or len(data) > 180_000:
+        return None
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg", data
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png", data
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp", data
+    key = data[0] ^ 0xFF
+    if key and (data[1] ^ key) == 0xD8 and (data[2] ^ key) == 0xFF:
+        decoded = bytes(byte ^ key for byte in data)
+        if decoded[:3] == b"\xff\xd8\xff":
+            return "image/jpeg", decoded
+    return None
+
+
+def local_chat_image(account_dir, content: str):
+    """Attach one already-readable photo for this message. Skip if it is not on disk."""
+    md5 = ""
+    try:
+        root = ElementTree.fromstring(content)
+        node = root if root.tag == "img" else root.find(".//img")
+        if node is not None:
+            md5 = str(node.attrib.get("md5") or "").lower()
+    except ElementTree.ParseError:
+        return None
+    if not re.fullmatch(r"[0-9a-f]{32}", md5):
+        return None
+    root_dir = Path(account_dir)
+    checked = 0
+    for relative in ("msg/attach", "FileStorage/Image", "FileStorage/Cache"):
+        base = root_dir / relative
+        if not base.is_dir():
+            continue
+        for path in base.rglob("*"):
+            checked += 1
+            if checked > 400:
+                return None
+            if not path.is_file() or md5 not in path.name.lower() or path.stat().st_size > 180_000:
+                continue
+            found = _plain_image(path.read_bytes())
+            if not found:
+                continue
+            mime, data = found
+            return {"mime": mime, "name": "chat-photo.jpg", "data": base64.b64encode(data).decode("ascii")}
+    return None
+
+
 def _decode_text(value):
     if value is None:
         return ""
@@ -507,6 +557,7 @@ def _build_batch(source, friend, session, rows, audio):
     self_username = _short_id(source.self_username, "本人")
     records = []
     warnings = []
+    photos = 0
     for index, row in enumerate(rows):
         try:
             at = datetime.fromtimestamp(int(row["timestamp"]), timezone.utc).isoformat()
@@ -545,8 +596,17 @@ def _build_batch(source, friend, session, rows, audio):
                 metadata["durationSeconds"] = duration
         elif media_type in (3, 43, 47, 11000):
             metadata["mediaAvailability"] = "not-collected"
-        records.append({"id": rid, "kind": kind, "sender": "我" if role == "self" else friend if role == "other" else "未知发言人",
-                        "senderRole": role, "at": at, "text": text, "source": metadata})
+        image = None
+        if media_type == 3 and photos < 8 and getattr(source, "account_dir", None):
+            image = local_chat_image(source.account_dir, row["content"])
+            if image:
+                metadata["mediaAvailability"] = "preview"
+                photos += 1
+        record = {"id": rid, "kind": kind, "sender": "我" if role == "self" else friend if role == "other" else "未知发言人",
+                        "senderRole": role, "at": at, "text": text, "source": metadata}
+        if image:
+            record["images"] = [image]
+        records.append(record)
     if len({r["id"] for r in records}) != len(records):
         raise BackgroundCaptureError("MESSAGE_IDENTITY_AMBIGUOUS", "本地消息标识重复，未导入。")
     return {"version": 1, "kind": "chat", "friend": friend, "account": account,

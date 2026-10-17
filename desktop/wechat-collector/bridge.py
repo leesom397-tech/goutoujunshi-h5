@@ -104,6 +104,7 @@ class CollectorState:
         result = {"version": VERSION, "protocol": 1, **health, "capabilities": capabilities}
         result["backgroundMaxRows"] = BACKGROUND_MAX_ROWS if capabilities.get("backgroundChat") else 0
         result["backgroundPageSize"] = MAX_PAGE_SIZE if capabilities["backgroundHistory"] else 0
+        result["momentsMaxRows"] = 2000
         if background:
             result["backgroundModelReady"] = bool(background.get("modelReady"))
             result["backgroundStatus"] = str(background.get("status") or "unavailable")[:80]
@@ -233,9 +234,9 @@ class CollectorState:
             raise BridgeError(400, "INVALID_REQUEST", "语音补全选项必须明确为是或否。")
         if kind not in ("chat", "moments") or not isinstance(friend, str) or not friend.strip() or len(friend) > 100 or re.search(r"[\x00-\x1f]", friend):
             raise BridgeError(400, "INVALID_REQUEST", "请填写完整的好友备注。")
-        maximum = BACKGROUND_MAX_ROWS if mode == "background" else (500 if kind == "chat" else 50)
+        maximum = BACKGROUND_MAX_ROWS if mode == "background" else (500 if kind == "chat" else 2000)
         if type(limit) is not int or not 1 <= limit <= maximum:
-            raise BridgeError(400, "INVALID_LIMIT", "后台聊天每次最多1000条，界面聊天最多500条，朋友圈最多50条。")
+            raise BridgeError(400, "INVALID_LIMIT", "后台聊天每次最多1000条，界面聊天最多500条，朋友圈单次最多2000条可见动态。")
         if paged or selected:
             try:
                 _validate_request(request)

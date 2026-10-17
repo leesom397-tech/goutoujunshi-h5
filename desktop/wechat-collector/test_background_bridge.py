@@ -105,7 +105,7 @@ class BackgroundBridgeTest(unittest.TestCase):
         state = self.state()
         for extra in ({"mode": "background", "limit": 1001},
                       {"mode": "ui", "limit": 501},
-                      {"kind": "moments", "mode": "ui", "limit": 51}):
+                      {"kind": "moments", "mode": "ui", "limit": 2001}):
             with self.assertRaises(BridgeError) as error:
                 state.start({"kind": "chat", "friend": "合成联系人", **extra})
             self.assertEqual(error.exception.code, "INVALID_LIMIT")
