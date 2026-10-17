@@ -30,6 +30,7 @@ export type RelationshipDiagnosis = {
   claimActions: RelationshipClaimAction[];
   unknowns: string[];
   relationship: { currentState: string; trend: "升温" | "降温" | "相对稳定" | "待了解"; reciprocity: string; risks: string[] };
+  periods: Array<{ label: string; range: string; sample: number; self: number; other: number }>;
   decision: { recommendation: string; options: Array<{ label: string; action: string; observeWindow: string; stopCondition: string }>; observeWindow: string; stopCondition: string };
   personalConnection: { commonPoints: Array<string | Record<string, unknown>>; fit: string; friction: Array<string | Record<string, unknown>> };
 };
@@ -49,7 +50,30 @@ function question(value: unknown): RelationshipQuestion {
 function percent(value: number | null) { return value === null ? "待了解" : `${value}%`; }
 
 type DiagnosisLine = { speaker?: string; text?: string; id?: string; sourceId?: string };
-function shortQuote(value: string) { return value.replace(/[\\r\\n]+/g, " ").trim().slice(0, 110); }
+function conversationFacts(lines: readonly DiagnosisLine[]): RelationshipEvidence[] {
+  const readable = lines.filter(line => (line.speaker === "self" || line.speaker === "other") && String(line.text || "").trim().length >= 2);
+  if (readable.length < 8) return [];
+  const asks = (speaker: string) => readable.filter(line => line.speaker === speaker && /[?？]|吗[。？?]?$|呢[。？?]?$/u.test(String(line.text).trim())).length;
+  const life = /今天|昨天|明天|周末|上班|下班|加班|吃饭|外卖|家里|爸妈|孩子|生病|睡觉|出行|出差/;
+  const lifeCount = readable.filter(line => life.test(String(line.text))).length;
+  return [
+    { id: "conversation:questions", claim: `可读文字里，你提出问句 ${asks("self")} 次，TA 提出问句 ${asks("other")} 次。问句只按标点和语气词计数，不是态度评分。`, value: `你 ${asks("self")} · TA ${asks("other")}`, metric: `样本 ${readable.length} 条可读文字`, source: "conversation" },
+    { id: "conversation:life", claim: lifeCount ? `${lifeCount} 条可读文字提到了具体生活安排或近况。这只说明话题出现过，不代表情绪浓度或关系深度。` : "可读文字里很少出现可核对的生活安排或近况。", value: `${lifeCount} 条`, metric: `样本 ${readable.length} 条可读文字`, source: "conversation" },
+  ];
+}
+function activityPeriods(summary: ChatActivitySummary) {
+  if (summary.days.length < 4 || !summary.startDate || !summary.endDate) return [];
+  const split = Math.max(1, Math.floor(summary.days.length / 2));
+  const pack = (days: ChatActivitySummary["days"], label: string) => ({
+    label,
+    range: `${days[0]?.date || ""} 至 ${days.at(-1)?.date || ""}`,
+    sample: days.reduce((total, day) => total + day.total, 0),
+    self: days.reduce((total, day) => total + day.self, 0),
+    other: days.reduce((total, day) => total + day.other, 0),
+  });
+  return [pack(summary.days.slice(0, split), "前半段"), pack(summary.days.slice(-split), "后半段")];
+}
+function shortQuote(value: string) { return value.replace(/[\r\n]+/g, " ").trim().slice(0, 110); }
 function lineLabel(line: DiagnosisLine, index: number) {
   const source = typeof line.sourceId === "string" && line.sourceId.trim() ? ` · ${line.sourceId}` : "";
   return `第 ${index + 1} 句${source}：“${shortQuote(String(line.text || ""))}”`;
@@ -90,9 +114,11 @@ export function buildRelationshipDiagnosis(summary: ChatActivitySummary, request
   const selected = question(requestedQuestion);
   const facts: RelationshipEvidence[] = [
     { id: "activity:coverage", claim: `本次纳入 ${summary.messages} 条可统计消息，覆盖 ${summary.activeDays || 0} 个有记录的日期。`, value: `${summary.messages} 条`, metric: summary.startDate && summary.endDate ? `${summary.startDate} 至 ${summary.endDate}` : undefined, source: "activity" },
-    { id: "activity:starts", claim: summary.starts.comparable ? `可比较的 ${summary.starts.comparable} 轮中，你先重新开启 ${summary.starts.self} 次，TA 先重新开启 ${summary.starts.other} 次。` : "目前没有足够的完整时间信息判断谁更常重新开启聊天。", value: summary.starts.comparable ? `你 ${percent(summary.starts.selfPercent)} · TA ${percent(summary.starts.otherPercent)}` : "待了解", source: "activity" },
-    { id: "activity:responses", claim: summary.responses.comparableTurns ? `可比较的回应中，TA 接住你的消息 ${summary.responses.selfToOther} 次，你接住 TA 的消息 ${summary.responses.otherToSelf} 次。` : "这份材料还不能稳定计算双方的回应覆盖。", value: summary.responses.comparableTurns ? `TA 接住你 ${percent(summary.responses.otherCoverage)} · 你接住 TA ${percent(summary.responses.selfCoverage)}` : "待了解", source: "activity" },
-    { id: "activity:voices", claim: summary.voices ? `共识别到 ${summary.voices} 条语音，其中 ${Math.max(0, summary.voices - summary.unreadVoices)} 条已有文字可用于后续解读。` : "本次没有识别到语音消息。", value: summary.voices ? `${summary.voices} 条` : "0 条", source: "activity" },
+    { id: "activity:starts", claim: summary.starts.comparable ? `可比较的 ${summary.starts.comparable} 轮中，你先重新开启 ${summary.starts.self} 次，TA 先重新开启 ${summary.starts.other} 次。` : "目前没有足够的完整时间信息判断谁更常重新开启聊天。", value: summary.starts.comparable ? `你 ${percent(summary.starts.selfPercent)} · TA ${percent(summary.starts.otherPercent)}` : "待了解", metric: summary.starts.comparable ? `样本 ${summary.starts.comparable} 轮` : undefined, source: "activity" },
+    { id: "activity:responses", claim: summary.responses.comparableTurns ? `可比较的回应中，TA 接住你的消息 ${summary.responses.selfToOther} 次，你接住 TA 的消息 ${summary.responses.otherToSelf} 次。` : "这份材料还不能稳定计算双方的回应覆盖。", value: summary.responses.comparableTurns ? `TA 接住你 ${percent(summary.responses.otherCoverage)} · 你接住 TA ${percent(summary.responses.selfCoverage)}` : "待了解", metric: summary.responses.comparableTurns ? `样本 ${summary.responses.comparableTurns} 轮` : undefined, source: "activity" },
+    { id: "activity:reply-gap", claim: summary.responses.averageOtherReplyMinutes !== null || summary.responses.averageSelfReplyMinutes !== null ? `有时间的回应里，TA 平均 ${summary.responses.averageOtherReplyMinutes ?? "未知"} 分钟后回复，你平均 ${summary.responses.averageSelfReplyMinutes ?? "未知"} 分钟后回复。` : "现有时间精度不够，不能计算回复间隔。", value: summary.responses.comparableTurns ? `样本 ${summary.responses.comparableTurns} 轮` : "待了解", metric: summary.startDate && summary.endDate ? `${summary.startDate} 至 ${summary.endDate}` : undefined, source: "activity" },
+    { id: "activity:voices", claim: summary.voices ? `共识别到 ${summary.voices} 条语音，其中 ${Math.max(0, summary.voices - summary.unreadVoices)} 条已有文字可用于后续解读。` : "本次没有识别到语音消息。", value: summary.voices ? `${summary.voices} 条` : "0 条", metric: `文字 ${summary.text} · 图片 ${summary.images} · 表情 ${summary.stickers}`, source: "activity" },
+    ...conversationFacts(lines),
   ];
   const selfLeads = summary.starts.self > summary.starts.other, otherLeads = summary.starts.other > summary.starts.self;
   const responseBalanced = summary.responses.comparableTurns > 2 && Math.abs(summary.responses.selfToOther - summary.responses.otherToSelf) <= Math.max(1, Math.round(summary.responses.comparableTurns * .25));
@@ -129,6 +155,7 @@ export function buildRelationshipDiagnosis(summary: ChatActivitySummary, request
     facts, hypotheses, claimActions: buildClaimActions(lines),
     unknowns: [summary.undatedMessages ? "部分消息没有可靠日期，无法判断完整时间线。" : "", summary.unreadVoices ? "部分语音没有文字，无法纳入语义判断。" : "", "聊天记录无法替代线下见面、通话和真实兑现情况；补充后会更新判断。"].filter(Boolean),
     relationship: { currentState, trend, reciprocity, risks },
+    periods: activityPeriods(summary),
     decision: { recommendation, options, observeWindow: primary.observeWindow, stopCondition: primary.stopCondition },
     personalConnection: { commonPoints: [], fit: "共同点需要结合你的个人资料与对方的聊天、朋友圈内容后生成。", friction: [] },
   };
@@ -154,7 +181,7 @@ export function relationshipReportDocument(diagnosis: RelationshipDiagnosis, sem
     })),
     hypotheses: diagnosis.hypotheses,
     unknowns: diagnosis.unknowns,
-    timeline: [{ trend: diagnosis.relationship.trend, note: diagnosis.relationship.currentState }],
+    timeline: diagnosis.periods.length ? diagnosis.periods.map(period => ({ trend: diagnosis.relationship.trend, note: `${period.label} ${period.range}：共 ${period.sample} 条，你 ${period.self}，TA ${period.other}` })) : [{ trend: diagnosis.relationship.trend, note: diagnosis.relationship.currentState }],
     decision: {
       action: diagnosis.decision.recommendation,
       observeFor: diagnosis.decision.observeWindow,

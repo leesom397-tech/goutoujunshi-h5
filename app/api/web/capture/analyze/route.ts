@@ -81,7 +81,7 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
     semanticHistory = unavailableCaptureSemanticHistory(history.readable, history.records.length, 0);
   }
   const modelComplete = semanticHistory.status === "complete" && semanticHistory.coverage.analyzedText === history.readable.length;
-  const relationshipDiagnosis = buildRelationshipDiagnosis(chatActivity, input.question, []);
+  const relationshipDiagnosis = buildRelationshipDiagnosis(chatActivity, input.question, history.readable.map(row => ({ speaker: row.senderRole, text: row.text, sourceId: row.localId })));
   if (input.photoPreviews.length) {
     try {
       const content: QwenContent = [{ type: "text", text: "这些是已导入聊天里的照片。只描述画面里看得见的场景、物件或图上的字。不要判断收入、性格、婚恋目标，不要把表情包当成生活事实。只返回 JSON {photos:[{sourceId,observation}]}。" }];
