@@ -72,6 +72,8 @@ export function qwenPublicError(error: unknown, fallback: string) {
   if (code === "QWEN_AUTH_FAILED") return "当前千问模型访问被拒绝，请稍后重试或联系站点管理员。";
   if (code === "QWEN_BALANCE_EMPTY") return "百炼账户余额不足，请联系站点管理员。";
   if (code === "QWEN_BUSY") return "千问当前繁忙，请稍后再试。";
+  if (code === "QWEN_UPSTREAM_ERROR" || code === "QWEN_EMPTY_RESPONSE") return "千问这一轮没有返回完整结果。原文仍在本机，可以直接再试一次。";
+  if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) return "这一轮分析超时了。原文仍在本机，可以直接再试一次。";
   return fallback;
 }
 

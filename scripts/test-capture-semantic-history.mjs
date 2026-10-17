@@ -62,7 +62,10 @@ assert.deepEqual(invalidSynthesis.summaryEvidenceIds, ["history:1:1"]);
 assert.equal(invalidSynthesis.trend, "待了解");
 assert.equal(invalidSynthesis.action, "");
 
-await assert.rejects(analyzeCaptureSemanticHistory({ historyRecords: [row(1)], totalImported: 2, selectedLineCount: 1 }, async () => { throw Error("model failed"); }), /model failed/);
+const failed = await analyzeCaptureSemanticHistory({ historyRecords: [row(1)], totalImported: 2, selectedLineCount: 1 }, async () => { throw Error("model failed"); });
+assert.equal(failed.status, "unavailable");
+assert.equal(failed.coverage.analyzedText, 0);
+assert.match(failed.coverage.limitation, /0 \/ 1/);
 const empty = await analyzeCaptureSemanticHistory({ historyRecords: [], totalImported: 675, selectedLineCount: 40 }, async () => { throw Error("unexpected call"); });
 assert.equal(empty.status, "no_text");
 assert.equal(empty.coverage.analyzedText, 0);

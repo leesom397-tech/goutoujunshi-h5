@@ -65,19 +65,22 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
   const history = await readFullCaptureHistory(db, owner, input);
   if (!history.readable.length) throw new CaptureFullHistoryError("已读取全部聊天，但没有可用的文字或语音转写；请先补齐文字再生成完整报告。", 422);
   const chatActivity = computeChatActivity(history.records);
-  // Unlike a selected-line report, every readable row in this verified cloud
-  // snapshot is chunked for the model. A failed semantic pass is an error with
-  // credit release, never a paid report quietly based on a recent 40-row slice.
-  const semanticHistory = await analyzeCaptureSemanticHistory({
-    historyRecords: history.readable,
-    totalImported: history.records.length,
-    selectedLineCount: 0,
-    question: input.question,
-    activity: chatActivity,
-    fullHistory: true,
-  }, qwenChat);
-  if (semanticHistory.status !== "complete" || semanticHistory.coverage.analyzedText !== history.readable.length)
-    throw new CaptureFullHistoryError("完整历史分析尚未完成，本次不会保存部分报告。请稍后沿原任务重试。", 503);
+  // A model segment can fail without discarding the statistics already computed
+  // from every imported message. The report says which text was actually read.
+  let semanticHistory;
+  try {
+    semanticHistory = await analyzeCaptureSemanticHistory({
+      historyRecords: history.readable,
+      totalImported: history.records.length,
+      selectedLineCount: 0,
+      question: input.question,
+      activity: chatActivity,
+      fullHistory: true,
+    }, qwenChat);
+  } catch {
+    semanticHistory = unavailableCaptureSemanticHistory(history.readable, history.records.length, 0);
+  }
+  const modelComplete = semanticHistory.status === "complete" && semanticHistory.coverage.analyzedText === history.readable.length;
   const relationshipDiagnosis = buildRelationshipDiagnosis(chatActivity, input.question, []);
   Object.assign(relationshipDiagnosis, { semanticHistory });
   if (semanticHistory.summary && semanticHistory.summaryEvidenceIds.length) {
@@ -89,9 +92,9 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
     relationshipDiagnosis.decision.recommendation = semanticHistory.action;
   const anchorIds = new Set([...semanticHistory.summaryEvidenceIds, ...semanticHistory.actionEvidenceIds]);
   const anchor = semanticHistory.findings.filter(item => anchorIds.has(item.id)).flatMap(item => item.evidence)[0];
-  const judgment = semanticHistory.summary && anchor
+  const judgment = semanticHistory.summary && semanticHistory.summaryEvidenceIds.length
     ? semanticHistory.summary
-    : `已统计全部 ${history.records.length} 条聊天，并检查 ${history.readable.length} 条可读文字；目前缺少足够的原话证据概括对方的关系意向。`;
+    : relationshipDiagnosis.relationship.currentState || `已统计全部 ${history.records.length} 条聊天，并检查 ${history.readable.length} 条可读文字。`;
   const sourceIds = [...new Set([...semanticHistory.findings.filter(item => anchorIds.has(item.id)).flatMap(item => item.evidence.map(e => e.sourceId)),
     ...semanticHistory.findings.flatMap(item => item.evidence.map(e => e.sourceId)), history.readable[0].localId])].slice(0, 128);
   const report: Record<string, any> = {
@@ -102,9 +105,9 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
       judgment, evidence: anchor?.quote || "", nextStep: semanticHistory.action || relationshipDiagnosis.decision.recommendation,
       replyOptions: [],
     },
-    captureMediaNote: chatActivity.unreadVoices
+    captureMediaNote: [chatActivity.unreadVoices
       ? `${chatActivity.unreadVoices} 条语音没有可读转写，其内容未纳入语义判断；完整统计仍包含这些消息。`
-      : undefined,
+      : "", !modelComplete ? semanticHistory.coverage.limitation : ""].filter(Boolean).join(" ") || undefined,
   };
   report.personalConnection = await personalizeReport(owner, input.subjectId, report);
   relationshipDiagnosis.personalConnection = {
