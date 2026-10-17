@@ -23,7 +23,10 @@ export function publicPersonalConnection(mode: "chat" | "moments" | "social", re
     entryPoints.push({ id: "demo-topic-chat", title: "用具体感受延续共同经历", reading: "比起另起一个话题，回应对方记住的那幅画，更可能让交流自然延续。", kind: "inference", evidenceIds: [meExperience, otherExperience], alternative: "对方发图也可能只是兑现帮拍的约定，还需看后续是否继续主动交流。", action: "“那幅画我回来还在想，谢谢你记得。周日两点可以呀。”" });
     differences.push({ id: "demo-difference-chat", title: "表达方式不同，但这轮能够接住", reading: "你更多通过邀约、转票钱和请咖啡表达投入；对方同时用了直接的好感表达和安排。这是本轮表达方式的区别，尚不能当成固定性格。", kind: "inference", evidenceIds: [meExperience, otherPace, otherExperience], alternative: "当下的话题分工也会造成这种差别，换个场景可能不同。", action: "不必模仿对方的热烈程度。用你自然的说法确认时间、表达期待就够了。" });
   } else {
-    const self = add("self", "self-profile", "虚构本人资料 · 兴趣与相处偏好", "我喜欢看展、摄影、周末散步；需要独处，也希望提前约好时间。");
+    const selfQuote = mode === "social"
+      ? "我周末会去看展和摄影，也喜欢一个人散步；需要独处，约时间希望提前说好。"
+      : "我喜欢看展、摄影、周末散步；需要独处，也希望提前约好时间。";
+    const self = add("self", "self-profile", "虚构本人资料 · 兴趣与相处偏好", selfQuote);
     if (mode === "moments") {
       const posts: Row[] = report.moments?.posts || [];
       const post = (pattern: RegExp) => {

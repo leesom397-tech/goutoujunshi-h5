@@ -76,7 +76,19 @@ async function executeRequest(body: Record<string, unknown>, ownerId: string, at
     ], { ...(images.length ? { vision: true } : {}), fast: true, json: true, maxTokens: detailedArchive ? 1800 : 1200, timeoutMs: images.length || detailedArchive ? 30000 : 18000 });
     parsed = parseQwenJson<Record<string, unknown>>(output);
   } catch (error) { return json({ error: qwenPublicError(error, "这次解读暂未完成，请稍后重试。") }, 503); }
-  const possibleIntent = detailedArchive ? cleanParagraphs(parsed?.possibleIntent, 950) : clean(parsed?.possibleIntent, mode === "conversation" ? 600 : 300), nextStep = clean(parsed?.nextStep, detailedArchive ? 260 : 160);
+  let possibleIntent = detailedArchive ? cleanParagraphs(parsed?.possibleIntent, 950) : clean(parsed?.possibleIntent, mode === "conversation" ? 600 : 300), nextStep = clean(parsed?.nextStep, detailedArchive ? 260 : 160);
+  if (!possibleIntent || !nextStep) {
+    try {
+      const repair = await qwenChat([
+        { role: "system", content: "只返回 JSON {possibleIntent,nextStep}。possibleIntent 用一两句话回答当前问题；nextStep 给一条可执行的下一步。两项都不要空字符串。" },
+        { role: "user", content: JSON.stringify({ question: self || other, draft: { possibleIntent: parsed?.possibleIntent || "", evidence: parsed?.evidence || "", nextStep: parsed?.nextStep || "" } }).slice(0, 2000) },
+      ], { fast: true, json: true, maxTokens: 2000, timeoutMs: 20000 });
+      const repaired = parseQwenJson<Record<string, unknown>>(repair);
+      if (!possibleIntent) possibleIntent = detailedArchive ? cleanParagraphs(repaired?.possibleIntent, 950) : clean(repaired?.possibleIntent, mode === "conversation" ? 600 : 300);
+      if (!nextStep) nextStep = clean(repaired?.nextStep, detailedArchive ? 260 : 160);
+    } catch { /* first parse stands; still incomplete answers are refunded below */ }
+  }
+  if (possibleIntent && !nextStep) nextStep = "先观察对方下一次是否给出具体时间或替代安排，再决定要不要继续投入。";
   // A visual short answer cites the current image, never the user's question
   // disguised as its evidence. It remains an interpretation of visible text.
   const evidence = images.length ? clean(parsed?.evidence, 220) || "本次截图未提供足够清晰的原话，请补充相关上下文。" : quickQuestionTextEvidence(parsed?.evidence, mode, self, other, history, archiveExcerpts);

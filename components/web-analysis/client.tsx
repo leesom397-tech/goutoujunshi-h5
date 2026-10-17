@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import ui from "@/components/AuroraUI.module.css";
 import {PersonAvatarChoice} from "@/components/PersonAvatarChoice";
 import { fetchWebJson } from '@/lib/web-api-request.mjs';
+import { CREDIT_PRICES } from '@/lib/account-credits.mjs';
 export type Json = Record<string, any>;
 export class WebError extends Error { constructor(message: string, public status = 0, public details: Json = {}) { super(message); } }
 export async function api(path: string, body?: Json, signal?: AbortSignal): Promise<Json> {
@@ -22,6 +23,10 @@ export function useAccount() {
     const active = () => mounted.current && current === generation.current;
     setLoading(true);
     try {
+      const session = await api("/api/auth/session"); if (!active()) return;
+      if (!session.loggedIn) {
+        setAccount({ prices: CREDIT_PRICES, account: null }); setUnauthorized(true); setPeople([]); setError(""); owner.current = null; return;
+      }
       const value = await api("/api/account/credits"); if (!active()) return;
       if (owner.current !== value.account?.userId) { setPeople([]); owner.current = value.account?.userId || null; }
       setAccount(value); setUnauthorized(false); setError("");
@@ -42,7 +47,10 @@ export function PersonSelect({ people, value, onChange, disabled = false, empty 
   return <label className="wa-field">关联人物<select value={value} onChange={event => onChange(event.target.value)} disabled={disabled}><option value="">{empty}</option>{people.map(person => <option key={person.id} value={person.id}>{person.label}</option>)}</select></label>;
 }
 export function hasPrice(account: Json | null, key: string) { const price = account?.prices?.[key]; return typeof price === "number" && Number.isFinite(price) && price >= 0; }
-export function priceLabel(account: Json | null, key: string, suffix = "积分") { return hasPrice(account, key) ? `${account!.prices[key]} ${suffix}` : "价格暂未取回"; }
+export function priceLabel(account: Json | null, key: string, suffix = "积分") {
+  const price = hasPrice(account, key) ? account!.prices[key] : (CREDIT_PRICES as Record<string, number>)[key];
+  return typeof price === "number" ? `${price} ${suffix}` : "登录后查看";
+}
 export function saveLocal(key: string, value: unknown) { try { localStorage.setItem(key, JSON.stringify(value)); return true; } catch { return false; } }
 export function readLocal<T>(key: string): T | null { try { return JSON.parse(localStorage.getItem(key) || "null"); } catch { return null; } }
 export function followup(report: Json, accountId: string, source = "聊天分析", focus?: { title: string; summary: string; question: string }) {

@@ -38,7 +38,9 @@
 .contact p { max-width: 660px; }
 .contact b { color: #4c3c31; font-weight: 600; }
 .contact button { margin-top: 7px; }
-.contact img { display: block; width: 100%; height: auto; border: 7px solid #fff; border-radius: 14px; box-shadow: 0 10px 26px #7a55321c; }
+.contact > a, .guestContact > a { display: block; width: 165px; min-height: 132px; background: #fff; }
+.contact img, .guestContact img { display: block; width: 100%; height: auto; min-height: 120px; object-fit: contain; background: #fff; opacity: 1; border: 7px solid #fff; border-radius: 14px; box-shadow: 0 10px 26px #7a55321c; }
+.guestContact { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 18px; }
 .error, .notice { margin: 0; padding: 15px 18px; border: 1px solid #e8c7b7; border-radius: 12px; background: #fff2e9; }
 .content .error { color: #a64b37; }
 .content .notice { color: #826348; }

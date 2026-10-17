@@ -349,7 +349,7 @@ export default function AnalyzePage() {
       <AuroraPageHero eyebrow="从材料到判断" title={mode === "chat" ? "聊天分析" : mode === "moments" ? "朋友圈分析" : "社交主页分析"} description={selectedMode.description}/>
       {returnTo && <a className={intake.returnLink} href={returnTo}><History size={16}/>{returnTo.startsWith('/archive') ? '返回人物档案与对照' : '返回刚才的报告'}</a>}
       {restoringReport && <p className={styles.resumeBar} role="status"><LoaderCircle size={19} className="ax-spin"/>正在取回已保存的完整报告…</p>}
-      {owner && !visibleResult && lastReport && !restoringReport && <a className={styles.resumeBar} href={`/report?id=${lastReport.id}#report-detail-action`}><History size={21}/><span><strong>继续看上次的报告</strong><small>之前的分析都在历史报告中</small></span><ArrowRight size={19}/></a>}
+      {owner && !visibleResult && lastReport && !restoringReport && <a className={styles.resumeBar} href={`/report?id=${lastReport.id}#report-detail-action`}><History size={21}/><span><strong>继续看上次的报告</strong><small>之前的分析都在分析记录中</small></span><ArrowRight size={19}/></a>}
       {owner && !visibleResult && error && new URLSearchParams(typeof window==='undefined'?'':window.location.search).has('reportId') && <ErrorNotice error={error}/>}
       {account.error && <AccountNotice state={account}/>}
       {pendingAuth && <p role="status" className="wa-muted">正在确认账户，请稍等…</p>}
@@ -413,10 +413,11 @@ export default function AnalyzePage() {
                 onDrop={event => { event.preventDefault(); dragDepth.current = 0; setDragging(false); if (!disabled) void selectFiles(event.dataTransfer.files); }}>
                 <div className="ax-upload-illustration" aria-hidden="true"><CloudUpload/></div>
                 <strong>{dragging ? "松开鼠标，添加截图" : preparing ? "正在整理图片…" : files.length ? "继续添加截图" : "点击选择来源，或拖到这里"}</strong>
-                <span className="ax-upload-action">{preparing ? <LoaderCircle size={18} className="ax-spin"/> : <ImagePlus size={18}/>}<span>{!owner ? "登录后上传" : "选择材料来源"}</span><ArrowRight size={16}/></span>
+                <span className="ax-upload-action">{preparing ? <LoaderCircle size={18} className="ax-spin"/> : <ImagePlus size={18}/>}<span>{!owner ? "登录后上传自己的材料" : "选择材料来源"}</span><ArrowRight size={16}/></span>
                 <small className="ax-paste-hint"><Clipboard size={14}/>电脑上可直接粘贴截图 · Ctrl / ⌘ + V</small>
               </button>
               <input ref={fileInputRef} className="ax-file-input" aria-label="选择分析截图" type="file" accept="image/jpeg,image/png" multiple tabIndex={-1} disabled={disabled || !owner} onChange={event => { void selectFiles(event.target.files); event.target.value = ""; }}/>
+              {!owner && <p className="wa-muted">免费案例不用登录。分析自己的截图需要账号，并按页面上的积分计费。</p>}
               <p className="ax-upload-limits" id="analysis-upload-limits">JPG / PNG · 每组最多 9 张 · {mode === "chat" ? "每张不超过 5 MB" : "原图每张不超过 12 MB，大图在本机自动优化"}</p>
               {preparing && <p className="ax-preparing" role="status"><LoaderCircle size={17} className="ax-spin"/>正在本机整理图片，请稍等…</p>}
               {materialNote && <p className={intake.notice} role="status"><CheckCheck size={17}/>{materialNote}</p>}
@@ -481,12 +482,12 @@ export default function AnalyzePage() {
                 <div><span>{previousCount > 0 ? "本次补图费用" : "本次费用"}</span><strong>{files.length && !effectiveFiles.length ? "0 积分 · 可回看已有报告" : priceLabel(account.account, costKey)}</strong></div>
               </div>
               <label className="wa-check ax-consent"><input type="checkbox" checked={consent} disabled={disabled} onChange={e => { setConsent(e.target.checked); if (error === "请确认材料提供权与本次处理范围。") setError(""); }}/><span>我有权提供这些材料，同意将本次图片发送至阿里云百炼进行分析。上传中的图片会临时保存在当前浏览器以便断线续传，任务完成或取消后删除本机临时图片。</span></label>
-              {mode === "chat" && <p className="wa-muted ax-retention"><ShieldCheck size={15}/>报告和识别出的文字长期保存到历史报告，由你决定何时删除。原截图不归档。</p>}
+              {mode === "chat" && <p className="wa-muted ax-retention"><ShieldCheck size={15}/>报告和识别出的文字长期保存到分析记录，由你决定何时删除。原截图不归档。</p>}
               <ErrorNotice error={error}/>
 
 
               <div className="wa-actions ax-submit-row">
-                <button className="wa-primary ax-submit" disabled={busy || preparing || !owner || (!task && (!effectiveFiles.length || !priceReady || history.checking || !history.ready))} onClick={() => void submit()}>
+                <button className="wa-primary ax-submit" disabled={busy || preparing || !owner || !consent || (mode === "chat" && side !== "left" && side !== "right") || (!task && (!effectiveFiles.length || !priceReady || history.checking || !history.ready))} onClick={() => void submit()}>
                   {busy ? <LoaderCircle size={18} className="ax-spin"/> : <ScanLine size={18}/>}
                   {busy ? "正在处理…" : task ? "继续查看上次任务" : !effectiveFiles.length && files.length ? "截图均已分析，可回看报告" : "开始分析 · " + priceLabel(account.account, costKey)}
                   {!busy && <ArrowRight size={17}/>}
@@ -529,7 +530,7 @@ export default function AnalyzePage() {
             <div><span className="ax-section-number">{visibleResult.incomplete ? "已生成部分结果" : "本次分析已完成"}</span><h2>{visibleResult.incomplete ? "先查看已完成的内容" : "线索已理清，看看下一步。"}</h2><p>{resultCount ? resultCount + " 张材料 · " : ""}{selectedMode.label}{resultSubject ? " · 已关联人物" : " · 结合实际情况选择行动"}</p></div>
             <button disabled={disabled} onClick={()=>newAnalysis(!!subject)}><Plus size={17}/>{subject?'补充新材料':'开始新分析'}</button>
           </section>
-          <div className={styles.savedReportBar}><BookmarkCheck size={21}/><div><strong>{visibleResult.incomplete ? '已完成的内容可在历史报告回看' : visibleResult.reportId || reports[0]?.id ? '完整报告已保存' : '本次分析结果'}</strong><p>{reports.length>1 ? `已将 ${reports.length} 张截图整理为一份报告。` : visibleResult.reportId || reports[0]?.id ? '离开或刷新后，可以从历史报告继续查看。' : '这是更新前的临时结果，可下载摘要留存。'}</p></div><a href="/reports"><History size={17}/>历史报告<ArrowRight size={15}/></a>{(visibleResult.reportId || reports[0]?.id) && <a href={`/report?id=${visibleResult.reportId || reports[0]?.id}#report-detail-action`}>打开已保存报告<ArrowRight size={15}/></a>}</div>
+          <div className={styles.savedReportBar}><BookmarkCheck size={21}/><div><strong>{visibleResult.incomplete ? '已完成的内容可在分析记录回看' : visibleResult.reportId || reports[0]?.id ? '完整报告已保存' : '本次分析结果'}</strong><p>{reports.length>1 ? `已将 ${reports.length} 张截图整理为一份报告。` : visibleResult.reportId || reports[0]?.id ? '离开或刷新后，可以从分析记录继续查看。' : '这是更新前的临时结果，可下载摘要留存。'}</p></div><a href="/reports"><History size={17}/>分析记录<ArrowRight size={15}/></a>{(visibleResult.reportId || reports[0]?.id) && <a href={`/report?id=${visibleResult.reportId || reports[0]?.id}#report-detail-action`}>打开已保存报告<ArrowRight size={15}/></a>}</div>
           <ErrorNotice error={error}/>
           {(resultSubject || visibleResult.targetSelf) && <section className={styles.resultPerson}><div><UserRound size={21}/><span><strong>{visibleResult.targetSelf ? '我的档案' : account.people.find(person=>person.id===resultSubject)?.label || '已关联人物'}</strong><small>这份分析已关联此人物</small></span></div><div><button type="button" onClick={()=>avatarDialog.current?.showModal()}><ImagePlus size={17}/>设置人物头像</button><a href={visibleResult.targetSelf ? '/archive?tab=self' : '/archive?subjectId='+resultSubject}>查看人物档案<ArrowRight size={15}/></a></div></section>}
           <dialog ref={avatarDialog} className={styles.avatarDialog}><header><div><h2>设置人物头像</h2><p>头像用于区分人物，不影响分析结果。</p></div><button type="button" aria-label="关闭头像设置" onClick={()=>avatarDialog.current?.close()}><X size={20}/></button></header><ArchiveAvatar expanded key={visibleResult.targetSelf ? 'self' : resultSubject} name={visibleResult.targetSelf ? '我的档案' : account.people.find(person=>person.id===resultSubject)?.label || '所选人物'} subjectId={visibleResult.targetSelf ? undefined : resultSubject} disabled={busy} onSaved={async()=>{await account.refresh();avatarDialog.current?.close();}} sources={resultSources} candidates={combined ? reports.flatMap((entry,imageIndex)=>(entry.decision?.avatarCandidates||[]).filter((candidate:Json)=>candidate.side!==side && ['left','right'].includes(candidate.side)).map((candidate:Json)=>({...candidate,imageIndex}))) : visibleResult.avatarCandidates||[]}/></dialog>

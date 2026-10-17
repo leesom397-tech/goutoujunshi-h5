@@ -23,10 +23,10 @@ export function ProductHome({ onStart, signedIn = false, loading = false, error 
         <h1>看懂关系。<br/><span>也照顾你的感受。</span></h1>
         <p className={styles.heroDescription}>从一句聊天，到一段关系。<br className={styles.desktopBreak}/>那些没说清的在意，我们一起慢慢理清。</p>
         <div className={styles.actions} data-feature-grid>
-          <button data-feature-entry onClick={() => onStart("/analyze?mode=chat")}><MessageCircle size={19}/><span>从聊天开始</span><ArrowUpRight size={17}/></button>
+          <button data-feature-entry onClick={() => onStart(signedIn ? "/analyze?mode=chat" : "/examples")}><MessageCircle size={19}/><span>{signedIn ? "从聊天开始" : "先看免费案例"}</span><ArrowUpRight size={17}/></button>
         </div>
         <p className={styles.privacy}>三步就够：带上聊天，核对哪边是你，然后拿走一句判断、三条原话、一个下一步。电脑导入全部记录是可选项。</p>
-        <div className={styles.nearbyLinks}><a href="/chat"><MessageCircle size={16}/>只问一个问题</a><a href="/reports"><History size={16}/>历史报告</a><a href="/archive?compare=1"><GitCompareArrows size={17}/>人物对照</a>{!signedIn && <a href="/examples">先看案例<ArrowUpRight size={15}/></a>}</div>
+        <div className={styles.nearbyLinks}><a href="/chat"><MessageCircle size={16}/>只问一个问题</a><a href="/reports"><History size={16}/>分析记录</a><a href="/archive?compare=1"><GitCompareArrows size={17}/>人物对照</a>{!signedIn && <a href="/examples">案例不用登录<ArrowUpRight size={15}/></a>}</div>
         <ul className={styles.heroBenefits} aria-label="成子的核心能力"><li><FileText size={17}/>从原话看依据</li><li><ChartNoAxesCombined size={17}/>看清关系变化</li><li><Route size={17}/>找到下一步</li></ul>
       </div>
       <div className={styles.art}><GlassStudy/></div>

@@ -55,7 +55,7 @@ export default function ImportPage() {
     if(savedId && /^[a-f0-9-]{36}$/.test(savedId)) void fetch("/api/web/report?id="+savedId,{cache:"no-store"}).then(async response=>{
       if(!response.ok)throw new Error("report unavailable");const data=await response.json() as {report?:{importAnalysis?:{batches:Analysis[];result:Analysis;me:string;other:string}}};const saved=data.report?.importAnalysis;
       if(saved){setResults(saved.batches||[]);setFinalResult({...saved.result,reportId:savedId});setAnalyzedAs({me:saved.me,other:saved.other});setStatus("已恢复保存的分析报告。添加新材料可开始新的分析。");}
-    }).catch(()=>setError("报告暂未读取，可在历史报告中重新打开。"));
+    }).catch(()=>setError("报告暂未读取，可在分析记录中重新打开。"));
     void fetch("/api/profile", { cache: "no-store" }).then(async (response) => {
       if (response.ok) {
         const next = await response.json() as ProfileState;
@@ -189,7 +189,7 @@ export default function ImportPage() {
         if (!response.ok) { if((result as Analysis & {creditTaskStatus?:string}).creditTaskStatus==="released")currentPlan.ids[total]=crypto.randomUUID(); throw new Error(result.error || "综合分析失败。"); }
         setFinalResult(result);
       } else setFinalResult(collected[0] || empty);
-      setStatus("分析完成，报告已永久保存，可在「历史报告」随时继续查看。原始文件不保存。");
+      setStatus("分析完成，报告已永久保存，可在「分析记录」随时继续查看。原始文件不保存。");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "分析中断。"); setStatus("已完成 " + collected.length + "/" + total + " 批；已完成报告已保存。再次点击将继续未完成批次，不重复扣费。"); }
     finally { setBusy(false); }
   }
