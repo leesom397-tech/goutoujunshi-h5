@@ -689,8 +689,7 @@ export default function CapturePage() {
   const readableRecordCount = library?.records.filter(row => row.kind === "text" && row.senderRole !== "unknown" && row.text.trim()).length || 0;
   const historyInProgress = !!library && historyState?.friend === library.friend && !historyState.complete;
   const fullReportPath = library?.kind === "chat" && !isWindow;
-  const importRunning = historyRunning || jobPhase === "running";
-  const reportReady = !!fullReportPath && readableRecordCount > 0 && !importRunning;
+  const reportReady = !!fullReportPath && readableRecordCount > 0;
   const compactImport = method === "desktop" && !!library && library.kind === "chat" && !historyInProgress && !jobId && !showImportControls;
   const desktopStep = !connected && !library ? 0 : !selectedContact && !library ? 1 : !library || historyInProgress || !!jobId ? 2 : 3;
   const showJobStatus = !!jobId || jobPhase === "failed" || jobPhase === "missing";
@@ -741,10 +740,10 @@ export default function CapturePage() {
           <div className={styles.stats}><div><strong>{stats?.added ?? pending.length}</strong><span>{stats ? "本次新增" : "尚未分析"}</span></div><div><strong>{stats ? Math.max(0, stats.repeated - stats.updatedVoice) : library.records.length - pending.length}</strong><span>{stats ? "重复跳过" : "已分析"}</span></div><div><strong>{library.records.length}</strong><span>这份材料共保存</span></div></div>
           <div className={styles.nextAction} data-tour="capture-analysis">
             <div className={styles.nextHeading}><h3>{isWindow ? "先核对画面，再开始分析" : library.kind === "chat" ? "聊天已导入，先生成完整关系报告" : "材料已就位，接下来想看什么？"}</h3><span>{isWindow ? `本次选中 ${chosen.length} 张 · 已保存 ${library.records.length} 张` : library.kind === "chat" ? `完整 ${library.records.length} 条 · 可读文字 ${readableRecordCount} 条` : `本次分析 ${chosen.length} 条 · 已保存 ${library.records.length} 条`}</span></div>
-            <p className={styles.selectionNote}>{isWindow ? "已保留采集画面的顺序，下一步核对截图身份。" : library.kind === "chat" ? `完整报告会读取已导入的全部 ${library.records.length} 条聊天，梳理互动频率、谁更主动、关系变化、共同点、风险和下一步。${reportReady ? "已保存的聊天可以直接生成报告，不用等导入进度显示完成。" : importRunning ? "导入还在进行，这一轮结束后即可生成报告。" : "先生成报告，逐句原文留在下方按需查看。"}` : `每批最多分析 ${CAPTURE_ANALYSIS_LIMIT.moments} 条动态。其余已保存的原文可在下方查看、分批选择。`}</p>
+            <p className={styles.selectionNote}>{isWindow ? "已保留采集画面的顺序，下一步核对截图身份。" : library.kind === "chat" ? `完整报告会读取已导入的全部 ${library.records.length} 条聊天，梳理互动频率、谁更主动、关系变化、共同点、风险和下一步。${readableRecordCount ? "已保存的聊天可以直接生成报告，不用等导入进度显示完成。" : "还没有可读文字，导入完成后再生成报告。"}` : `每批最多分析 ${CAPTURE_ANALYSIS_LIMIT.moments} 条动态。其余已保存的原文可在下方查看、分批选择。`}</p>
             {library.kind === "chat" && !isWindow && <div className={styles.fullReportCard}>
               <div><strong>一份完整的关系全景报告</strong><p>从全部聊天计算谁先发起、回复与投入，再按时间核对升温或降温、说法与行动、风险和下一步；结论旁可回看原话依据。</p></div>
-              <button className={ui.primary} disabled={account.loading || locked || (!!receipt ? false : !reportReady)} onClick={() => { setShowAnalysis(true); requestAnimationFrame(() => document.getElementById("capture-confirm")?.scrollIntoView({ block: "center", behavior: "smooth" })); }}><FileText size={20}/><span><strong>{receipt ? "继续生成完整报告" : "生成完整关系报告"}</strong><small>{reportReady || receipt ? `读取全部 ${library.records.length} 条 · ${priceLabel(account.account, costKey)}` : "请先完成全部聊天导入"}</small></span><ArrowRight size={18}/></button>
+              <button className={ui.primary} disabled={account.loading || locked || (!!receipt ? false : !reportReady)} onClick={() => { setShowAnalysis(true); requestAnimationFrame(() => document.getElementById("capture-confirm")?.scrollIntoView({ block: "center", behavior: "smooth" })); }}><FileText size={20}/><span><strong>{receipt ? "继续生成完整报告" : "生成完整关系报告"}</strong><small>{reportReady || receipt ? `读取全部 ${library.records.length} 条 · ${priceLabel(account.account, costKey)}` : "还没有可读的聊天文字"}</small></span><ArrowRight size={18}/></button>
             </div>}
             {library.kind === "chat" && <div className={styles.previewActivity}><ChatActivity records={library.records} account={library.account} friend={library.friend} compact/></div>}
             <div className={styles.personSummary}><span>关联人物：<strong>{account.people.find(person=>person.id===subject)?.label || "暂未关联人物"}</strong></span><button disabled={locked || !!receipt} onClick={()=>setAdjustPerson(!adjustPerson)}>{adjustPerson ? "收起" : "调整"}</button></div>
