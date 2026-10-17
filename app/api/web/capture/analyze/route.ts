@@ -19,6 +19,7 @@ import { conversationMemoryLines } from "@/lib/conversation-profile-memory";
 import { conversationMemoryScope, emptyConversationMemory, saveConversationProfileMemory } from "@/lib/conversation-profile-memory-server";
 import { computeChatActivity } from "@/lib/chat-activity";
 import { buildRelationshipDiagnosis, relationshipReportDocument } from "@/lib/relationship-diagnosis";
+import { classify } from "@/lib/crush/provider";
 import { analyzeCaptureSemanticHistory, unavailableCaptureSemanticHistory } from "@/lib/capture-semantic-history";
 import { CaptureFullHistoryError, checkFullCaptureHistory, readFullCaptureHistory } from "@/lib/capture-full-history-server";
 import { riskAwarePresentation } from "@/lib/risk-aware-presentation";
@@ -108,6 +109,15 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
     relationshipDiagnosis.decision.recommendation = semanticHistory.action;
   const anchorIds = new Set([...semanticHistory.summaryEvidenceIds, ...semanticHistory.actionEvidenceIds]);
   const anchor = semanticHistory.findings.filter(item => anchorIds.has(item.id)).flatMap(item => item.evidence)[0];
+  const sentenceSample = history.readable.filter(row => row.senderRole === "self" || row.senderRole === "other").slice(-12);
+  const sentenceLines = sentenceSample.map(row => ({ id: row.localId, speaker: row.senderRole, text: row.text.slice(0, 500), timestampRaw: row.at }));
+  let sentenceAnnotations: unknown[] = [];
+  if (sentenceLines.length) {
+    try {
+      const classified = await classify(sentenceLines, sentenceLines, "qwen");
+      sentenceAnnotations = classified.annotations;
+    } catch { /* The relationship report still stands if one sentence pass fails. */ }
+  }
   const judgment = semanticHistory.summary && semanticHistory.summaryEvidenceIds.length
     ? semanticHistory.summary
     : relationshipDiagnosis.relationship.currentState || `已统计全部 ${history.records.length} 条聊天，并检查 ${history.readable.length} 条可读文字。`;
@@ -116,12 +126,12 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
   const report: Record<string, any> = {
     id: input.requestId, reportId: input.requestId, kind: "chat", subjectId: input.subjectId,
     captureOrigin: true, captureFormat: "full-history", analysisScope: "fullHistory",
-    summary: judgment, lines: [], annotations: [], chatActivity, relationshipDiagnosis, semanticHistory,
+    summary: judgment, lines: sentenceLines, annotations: sentenceAnnotations, chatActivity, relationshipDiagnosis, semanticHistory,
     decision: {
       judgment, evidence: anchor?.quote || "", nextStep: semanticHistory.action || relationshipDiagnosis.decision.recommendation,
       replyOptions: [],
     },
-    captureMediaNote: [chatActivity.unreadVoices
+    captureMediaNote: [sentenceLines.length ? `逐句意图看的是最近 ${sentenceLines.length} 句，不是全部 ${history.records.length} 条都逐句打分。横条是解释权重，不是喜欢你的概率。` : "", chatActivity.unreadVoices
       ? `${chatActivity.unreadVoices} 条语音没有可读转写，其内容未纳入语义判断；完整统计仍包含这些消息。`
       : "", !modelComplete ? semanticHistory.coverage.limitation : ""].filter(Boolean).join(" ") || undefined,
   };
