@@ -42,7 +42,7 @@ function stepsFor(page:Page,method:string):Step[]{
   {id:"window",selector:'[aria-label="微信窗口自动截图"] button',title:"选择微信窗口，再开始截取",text:"共享后框选聊天或动态区域，慢慢滚动。暂停后先核对画面，再确认分析。"}
  ];
  return[
-  {id:"connect",selector:'[data-tour="capture-connect"]',title:"不用装软件",text:"截图、当前窗口或手机录屏就能分析。页面不再提供安装包，避免 Windows 弹出“已保护你的电脑”。"},
+  {id:"connect",selector:'[data-tour="capture-connect"]',title:"下载网页上的助手",text:"点「下载 Windows 助手」，安装后回到这一页选择好友。截图和手机录屏也可以，不必先装助手。"},
   {id:"friend",selector:'[data-tour="capture-friend"]',title:"填好好友，再导入",text:"填写好友的完整备注，点击下方导入按钮。聊天和语音会陆续保存，核对并确认后才分析。"}
  ];
 }
