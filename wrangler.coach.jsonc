@@ -1,6 +1,9 @@
 {
   "name": "goutoujunshi-coach",
   "main": "worker-entry.mjs",
+  "build": {
+    "command": "npm run build"
+  },
   "compatibility_date": "2026-05-15",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": false,

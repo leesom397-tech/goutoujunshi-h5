@@ -1,0 +1,42 @@
+{
+  "name": "goutoujunshi-coach",
+  "main": "worker-entry.mjs",
+  "build": {
+    "command": "npm run build"
+  },
+  "compatibility_date": "2026-05-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "vars": {
+    "DASHSCOPE_WORKSPACE_ID": "ws-xcs6hcosfhe13it8",
+    "QWEN_REALTIME_VOICE": "qwen-omni-vc-chengzi-voice-20261009150711302-b0ee",
+    "QWEN_REALTIME_STYLE": "保持复刻音色自然的声线与节奏，用日常聊天的语气表达。句子简短，停顿自然，避免播音腔、口号式开场和连续反问。",
+    "COACH_WEB_PRIMARY_ADMIN_OWNER_ID": "lovetalk:chengyi01"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "goutoujunshi-coach",
+      "database_id": "4cb7899c-b11c-4c43-8a1d-93c6821aa304",
+      "migrations_dir": "drizzle"
+    }
+  ],
+  "assets": {
+    "directory": "dist/client"
+  },
+  "queues": {
+    "producers": [
+      { "binding": "WECHAT_QUEUE", "queue": "goutoujunshi-wechat" },
+      { "binding": "WECHAT_PULL_QUEUE", "queue": "goutoujunshi-wechat-pull" }
+    ],
+    "consumers": [
+      { "queue": "goutoujunshi-wechat", "max_batch_size": 1, "max_batch_timeout": 0, "max_retries": 6, "retry_delay": 5 },
+      { "queue": "goutoujunshi-wechat-pull", "max_batch_size": 1, "max_batch_timeout": 0, "max_retries": 6, "retry_delay": 5 }
+    ]
+  },
+  "browser": { "binding": "BROWSER" },
+  "durable_objects": { "bindings": [{ "name": "WECHAT_COORDINATOR", "class_name": "WechatCoordinator" }, { "name": "SOCIAL_PROFILE_JOBS", "class_name": "SocialProfileJobs" }] },
+  "migrations": [{ "tag": "coach-wechat-v1", "new_sqlite_classes": ["WechatCoordinator"] }, { "tag": "social-profile-jobs-v1", "new_sqlite_classes": ["SocialProfileJobs"] }],
+  "triggers": { "crons": ["* * * * *"] },
+  "observability": { "enabled": true }
+}
