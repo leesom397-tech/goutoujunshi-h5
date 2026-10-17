@@ -1,7 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
 import { ArrowLeft, Check, Pause, Play, Plus, Trash2, X } from "lucide-react";
-import Link from "next/link";
 import { dimensions, suitability, type Dimension, type Fact, type ProfileState, type SelfData, type Subject, type SubjectData } from "@/lib/profile";
 
 const empty: ProfileState = { enabled: false, paused: false, self: {}, subjects: [], facts: [] };
@@ -74,8 +73,8 @@ export default function ProfilePage() {
 
   return <main className="profile-page">
     <div className="profile-wrap">
-      <header className="profile-top"><Link href="/" className="back-link"><ArrowLeft size={18} /> 返回工作台</Link><span>成子 · 关系档案</span></header>
-      <section className="profile-intro"><p className="eyebrow">越了解，越不靠猜</p><h1>把重要的人和事，放在一起看。</h1><p>截图原图不会存入档案；你在微信回复「是」后，本次已识别聊天文字才会作为该对象的长期记忆保存，可在这里查看和删除。其他新线索仍须你确认。还没想清楚要找什么样的人？<Link href="/positioning">先做择偶定位</Link>。<Link href="/miniapp/manage">管理小程序关联</Link>。</p></section>
+      <header className="profile-top"><a href="/" className="back-link"><ArrowLeft size={18} /> 返回工作台</a><span>成子 · 关系档案</span></header>
+      <section className="profile-intro"><p className="eyebrow">越了解，越不靠猜</p><h1>把重要的人和事，放在一起看。</h1><p>截图原图不会存入档案；你在微信回复「是」后，本次已识别聊天文字才会作为该对象的长期记忆保存，可在这里查看和删除。其他新线索仍须你确认。还没想清楚要找什么样的人？<a href="/positioning">先做择偶定位</a>。<a href="/miniapp/manage">管理小程序关联</a>。</p></section>
       {loading ? <section className="profile-card profile-loading" aria-busy="true" role="status"><div className="profile-skeleton wide" /><div className="profile-skeleton" /><span>正在读取你的关系档案…</span></section> :
       loadFailed ? <section className="profile-card consent-card"><h2>档案暂时打不开</h2><p>你的资料没有被改动。检查网络后再试一次。</p><button type="button" className="primary-action" onClick={() => window.location.reload()}>重新加载</button></section> :
       signedOut ? <section className="profile-card"><h2>先登录再建档</h2><p>关系资料只对登录的本人开放。</p><a className="primary-action" href="/login?return_to=%2Fprofile" target="_top">登录并继续</a></section> :

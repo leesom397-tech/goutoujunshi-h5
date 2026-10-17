@@ -12,6 +12,7 @@ import { cleanMomentsReport } from "@/lib/moments-report";
 import { cleanCommunicationReading } from "@/lib/communication-reading";
 import { interactionScore } from "@/lib/crush/interaction-score";
 import { conversationEventMetadata, correctConversationEventDate, FeedbackError } from "@/lib/relationship-feedback";
+import { projectPersonSavedAnalysis } from "@/lib/person-saved-insights";
 
 export const runtime = "edge";
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
@@ -21,8 +22,9 @@ const note = (value: unknown) => typeof value === "string" && value.trim().lengt
 const optionalNote = (value: unknown) => value == null ? "" : note(value);
 const selfBasicLabels = { ageRange: "年龄", city: "常住地", education: "学历", occupation: "职业", relationshipStatus: "婚恋状态", childrenPlan: "婚育想法", lifestyle: "生活方式" } as const;
 const selfBasicKeys = Object.keys(selfBasicLabels) as (keyof typeof selfBasicLabels)[];
-const selfBasicKey = (field: string) => selfBasicKeys.find(key => field === `selfBasic:${key}`);
-const subjectBasicKey = (field: string) => [...selfBasicKeys, "stage", "howMet", "values", "boundaries"].find(key => field === "subjectBasic:" + key);
+const memoryProfileKeys = [...selfBasicKeys, "interests", "communicationStyle", "goals", "values", "boundaries", "preferredRelationship", "strengths"] as const;
+const selfBasicKey = (field: string) => memoryProfileKeys.find(key => field === `selfBasic:${key}`);
+const subjectBasicKey = (field: string) => [...memoryProfileKeys, "stage", "howMet"].find(key => field === "subjectBasic:" + key);
 const safeProfileJson = "CASE WHEN json_valid(data) THEN CASE WHEN json_type(data)='object' THEN data ELSE '{}' END ELSE '{}' END";
 const clamp = (value: number) => Math.max(0, Math.min(100, Math.round(value)));
 const fallbackDimensions = (report: Record<string, unknown>, base = 50) => {
@@ -54,10 +56,11 @@ const fallbackDimensions = (report: Record<string, unknown>, base = 50) => {
 
 async function state(owner: string) {
   const db = getD1();
-  const [profile, subjects, facts] = await Promise.all([
+  const [profile, subjects, facts, savedReports] = await Promise.all([
     db.prepare("SELECT consent_at,paused,data FROM coach_profiles WHERE owner_id=?").bind(owner).first<{ consent_at: number | null; paused: number; data: string }>(),
     db.prepare("SELECT id,label,data,updated_at FROM coach_subjects WHERE owner_id=? AND status='active' ORDER BY updated_at DESC LIMIT 40").bind(owner).all<{ id: string; label: string; data: string; updated_at: number }>(),
     db.prepare("SELECT id,subject_id,field,value,source,evidence,status,event_meta FROM coach_facts WHERE owner_id=? AND (field IN ('recentEvent','profileClue','selfProfileClue') OR field LIKE 'selfBasic:%' OR field LIKE 'subjectBasic:%') AND status IN ('pending','accepted') ORDER BY created_at DESC LIMIT 200").bind(owner).all<{ id: string; subject_id: string | null; field: string; value: string; source: string; evidence: string; status: string; event_meta:string|null }>(),
+    db.prepare("SELECT id,owner_id,subject_id,kind,status,result,summary,created_at FROM (SELECT id,owner_id,subject_id,kind,status,result,summary,created_at,ROW_NUMBER() OVER (PARTITION BY subject_id,kind ORDER BY created_at DESC,id DESC) AS rn FROM coach_saved_reports WHERE owner_id=? AND status='done' AND kind IN ('chat','moments','social') AND subject_id IS NOT NULL) WHERE rn<=2").bind(owner).all<{ id: string; owner_id: string; subject_id: string | null; kind: string; status: string; result: string | null; summary: string | null; created_at: number }>(),
   ]);
   const signalRows = profile?.consent_at && !profile.paused ? await db.prepare(`
     SELECT subject_id, report_id, affinity, result, updated_at FROM (
@@ -114,7 +117,7 @@ async function state(owner: string) {
       const field = (key: string) => typeof data[key] === "string" ? data[key] as string : "";
       const own = (() => { try { return recoverProfileFields(JSON.parse(profile?.data || "{}"), facts.results, null); } catch { return {}; } })();
       const compatibility = relationshipFit(own, Object.fromEntries(selfBasicKeys.map(key => [key, field(key) || field("subjectBasic:" + key)])));
-      return { avatar: field("avatar"), communicationReading: profile?.consent_at && !profile.paused ? cleanCommunicationReading(data.communicationReading) : null, momentsReport: profile?.consent_at && !profile.paused ? cleanMomentsReport(data.momentsReport) : null, compatibility, id: item.id, label: item.label, notes: field("notes"), stage: field("stage"), howMet: field("howMet"), values: field("values"), boundaries: field("boundaries"), ageRange: (field("ageRange") || field("subjectBasic:ageRange")), city: (field("city") || field("subjectBasic:city")), education: (field("education") || field("subjectBasic:education")), occupation: (field("occupation") || field("subjectBasic:occupation")), relationshipStatus: (field("relationshipStatus") || field("subjectBasic:relationshipStatus")), childrenPlan: (field("childrenPlan") || field("subjectBasic:childrenPlan")), lifestyle: (field("lifestyle") || field("subjectBasic:lifestyle")), updatedAt: item.updated_at };
+      return { avatar: field("avatar"), communicationReading: profile?.consent_at && !profile.paused ? cleanCommunicationReading(data.communicationReading) : null, momentsReport: profile?.consent_at && !profile.paused ? cleanMomentsReport(data.momentsReport) : null, savedAnalysis: profile?.consent_at && !profile.paused ? projectPersonSavedAnalysis(savedReports.results || [], item.id) : null, savedChatAnalysis: profile?.consent_at && !profile.paused ? projectPersonSavedAnalysis(savedReports.results || [], item.id, ["chat"]) : null, compatibility, id: item.id, label: item.label, notes: field("notes"), stage: field("stage"), howMet: field("howMet"), values: field("values"), boundaries: field("boundaries"), ageRange: (field("ageRange") || field("subjectBasic:ageRange")), city: (field("city") || field("subjectBasic:city")), education: (field("education") || field("subjectBasic:education")), occupation: (field("occupation") || field("subjectBasic:occupation")), relationshipStatus: (field("relationshipStatus") || field("subjectBasic:relationshipStatus")), childrenPlan: (field("childrenPlan") || field("subjectBasic:childrenPlan")), lifestyle: (field("lifestyle") || field("subjectBasic:lifestyle")), interests: field("interests"), strengths: field("strengths"), communicationStyle: field("communicationStyle"), goals: field("goals"), preferredRelationship: field("preferredRelationship"), updatedAt: item.updated_at };
     }),
     facts: facts.results.map(item => { const event=item.field==="recentEvent" ? conversationEventMetadata(item.event_meta) : null; return { id: item.id, subjectId: item.subject_id, kind: item.field, value: item.value, source: item.source, evidence: item.evidence, status: item.status === "accepted" ? "accepted" : "pending", eventTitle:event?.title||"", eventDate:event?.spokenDate||"" }; }),
     signals,
@@ -140,8 +143,11 @@ export async function POST(request: Request) {
   let body: Record<string, unknown>;
   try { body = await request.json(); } catch { return json({ error: "无法读取资料。" }, 400); }
   if (!body || typeof body !== "object" || Array.isArray(body) || JSON.stringify(body).length > (body.action === "import-social" ? 48000 : body.action === "self" ? 6000 : 4000)) return json({ error: "资料过长或格式不正确。" }, 413);
-  if (body.expectedOwnerId !== undefined && body.expectedOwnerId !== identity.ownerId) return json({ error: "账号已变化，请刷新后再保存。" }, 409);
   const owner = identity.ownerId, db = getD1(), now = Date.now();
+  if (body.expectedOwnerId !== undefined && body.expectedOwnerId !== owner) {
+    const account = typeof body.expectedOwnerId === "string" ? await db.prepare("SELECT public_id FROM coach_credit_accounts WHERE owner_id=?").bind(owner).first<{ public_id: string }>() : null;
+    if (!account || body.expectedOwnerId !== account.public_id) return json({ error: "账号已变化，请刷新后再保存。" }, 409);
+  }
   if (body.action === "consent") {
     if (body.enabled === true) {
       await db.prepare("INSERT INTO coach_profiles (owner_id,consent_at,paused,data,updated_at) VALUES (?,?,0,'{}',?) ON CONFLICT(owner_id) DO UPDATE SET consent_at=excluded.consent_at,paused=0,updated_at=excluded.updated_at").bind(owner,now,now).run();
@@ -224,9 +230,9 @@ export async function POST(request: Request) {
     const pending = await db.prepare(`SELECT id,subject_id,field,value FROM coach_facts WHERE owner_id=? AND status='pending' AND id IN (${placeholders}) AND (field IN ('recentEvent','profileClue','selfProfileClue') OR field LIKE 'selfBasic:%' OR field LIKE 'subjectBasic:%')`).bind(owner, ...ids).all<{ id: string; subject_id: string | null; field: string; value: string }>();
     const statements = pending.results.map(fact => {
       const basicKey = fact.subject_id === null ? selfBasicKey(fact.field) : subjectBasicKey(fact.field);
-      const list = [db.prepare("UPDATE coach_facts SET status='accepted' WHERE id=? AND owner_id=? AND status='pending'").bind(fact.id, owner)];
-      if (basicKey && fact.subject_id === null) list.push(db.prepare(`UPDATE coach_profiles SET data=json_set(${safeProfileJson}, '$.${basicKey}', ?),updated_at=? WHERE owner_id=? AND consent_at IS NOT NULL AND paused=0 AND (json_extract(${safeProfileJson}, '$.${basicKey}') IS NULL OR trim(json_extract(${safeProfileJson}, '$.${basicKey}'))='')`).bind(fact.value, now, owner));
-      if (basicKey && fact.subject_id !== null) list.push(db.prepare(`UPDATE coach_subjects SET data=json_set(CASE WHEN json_valid(data) AND json_type(data)='object' THEN data ELSE '{}' END, '$.${basicKey}', ?),updated_at=? WHERE id=? AND owner_id=? AND status='active' AND (json_extract(CASE WHEN json_valid(data) AND json_type(data)='object' THEN data ELSE '{}' END, '$.${basicKey}') IS NULL OR trim(json_extract(CASE WHEN json_valid(data) AND json_type(data)='object' THEN data ELSE '{}' END, '$.${basicKey}'))='')`).bind(fact.value, now, fact.subject_id, owner));
+      const list = [db.prepare("UPDATE coach_facts SET status='accepted' WHERE id=? AND owner_id=? AND status='pending' AND EXISTS (SELECT 1 FROM coach_profiles p WHERE p.owner_id=coach_facts.owner_id AND p.consent_at IS NOT NULL AND p.paused=0) AND (subject_id IS NULL OR EXISTS (SELECT 1 FROM coach_subjects s WHERE s.id=coach_facts.subject_id AND s.owner_id=coach_facts.owner_id AND s.status='active'))").bind(fact.id, owner)];
+      if (basicKey && fact.subject_id === null) list.push(db.prepare(`UPDATE coach_profiles SET data=json_set(${safeProfileJson}, '$.${basicKey}', ?),updated_at=? WHERE owner_id=? AND consent_at IS NOT NULL AND paused=0 AND json_type(${safeProfileJson}, '$.${basicKey}') IS NULL AND EXISTS (SELECT 1 FROM coach_facts f WHERE f.id=? AND f.owner_id=? AND f.status='accepted')`).bind(fact.value, now, owner, fact.id, owner));
+      if (basicKey && fact.subject_id !== null) list.push(db.prepare(`UPDATE coach_subjects SET data=json_set(CASE WHEN json_valid(data) AND json_type(data)='object' THEN data ELSE '{}' END, '$.${basicKey}', ?),updated_at=? WHERE id=? AND owner_id=? AND status='active' AND json_type(CASE WHEN json_valid(data) AND json_type(data)='object' THEN data ELSE '{}' END, '$.${basicKey}') IS NULL AND EXISTS (SELECT 1 FROM coach_profiles p WHERE p.owner_id=? AND p.consent_at IS NOT NULL AND p.paused=0) AND EXISTS (SELECT 1 FROM coach_facts f WHERE f.id=? AND f.owner_id=? AND f.status='accepted')`).bind(fact.value, now, fact.subject_id, owner, owner, fact.id, owner));
       return list;
     }).flat();
     if (statements.length) await db.batch(statements);
@@ -240,9 +246,9 @@ export async function POST(request: Request) {
     const basicKey = fact.subject_id === null ? selfBasicKey(fact.field) : subjectBasicKey(fact.field);
     const result = body.decision === "accept"
       ? (await db.batch([
-        db.prepare("UPDATE coach_facts SET status='accepted' WHERE id=? AND owner_id=? AND status='pending'").bind(fact.id,owner),
-        ...(basicKey && fact.subject_id === null ? [db.prepare(`UPDATE coach_profiles SET data=json_set(${safeProfileJson}, '$.${basicKey}', ?),updated_at=? WHERE owner_id=? AND consent_at IS NOT NULL AND paused=0 AND (json_extract(${safeProfileJson}, '$.${basicKey}') IS NULL OR trim(json_extract(${safeProfileJson}, '$.${basicKey}'))='')`).bind(fact.value,now,owner)] : []),
-        ...(basicKey && fact.subject_id !== null ? [db.prepare(`UPDATE coach_subjects SET data=json_set(CASE WHEN json_valid(data) AND json_type(data)='object' THEN data ELSE '{}' END, '$.${basicKey}', ?),updated_at=? WHERE id=? AND owner_id=? AND status='active' AND (json_extract(CASE WHEN json_valid(data) AND json_type(data)='object' THEN data ELSE '{}' END, '$.${basicKey}') IS NULL OR trim(json_extract(CASE WHEN json_valid(data) AND json_type(data)='object' THEN data ELSE '{}' END, '$.${basicKey}'))='')`).bind(fact.value,now,fact.subject_id,owner)] : []),
+        db.prepare("UPDATE coach_facts SET status='accepted' WHERE id=? AND owner_id=? AND status='pending' AND EXISTS (SELECT 1 FROM coach_profiles p WHERE p.owner_id=coach_facts.owner_id AND p.consent_at IS NOT NULL AND p.paused=0) AND (subject_id IS NULL OR EXISTS (SELECT 1 FROM coach_subjects s WHERE s.id=coach_facts.subject_id AND s.owner_id=coach_facts.owner_id AND s.status='active'))").bind(fact.id,owner),
+        ...(basicKey && fact.subject_id === null ? [db.prepare(`UPDATE coach_profiles SET data=json_set(${safeProfileJson}, '$.${basicKey}', ?),updated_at=? WHERE owner_id=? AND consent_at IS NOT NULL AND paused=0 AND json_type(${safeProfileJson}, '$.${basicKey}') IS NULL AND EXISTS (SELECT 1 FROM coach_facts f WHERE f.id=? AND f.owner_id=? AND f.status='accepted')`).bind(fact.value,now,owner,fact.id,owner)] : []),
+        ...(basicKey && fact.subject_id !== null ? [db.prepare(`UPDATE coach_subjects SET data=json_set(CASE WHEN json_valid(data) AND json_type(data)='object' THEN data ELSE '{}' END, '$.${basicKey}', ?),updated_at=? WHERE id=? AND owner_id=? AND status='active' AND json_type(CASE WHEN json_valid(data) AND json_type(data)='object' THEN data ELSE '{}' END, '$.${basicKey}') IS NULL AND EXISTS (SELECT 1 FROM coach_profiles p WHERE p.owner_id=? AND p.consent_at IS NOT NULL AND p.paused=0) AND EXISTS (SELECT 1 FROM coach_facts f WHERE f.id=? AND f.owner_id=? AND f.status='accepted')`).bind(fact.value,now,fact.subject_id,owner,owner,fact.id,owner)] : []),
       ]))[0]
       : await db.prepare("DELETE FROM coach_facts WHERE id=? AND owner_id=? AND status='pending'").bind(fact.id,owner).run();
     if (!result.meta.changes) return json({ error: "这条线索已处理或不存在。" }, 404);

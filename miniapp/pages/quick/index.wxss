@@ -1,5 +1,6 @@
 @import "../../components/analysis-status.wxss";
 @import "../../components/disclosure.wxss";
+.cloud-library-entry{display:flex;align-items:center;gap:20rpx;margin:24rpx 0 0;padding:24rpx;background:#fff8f0;border:1rpx solid #e9d5c7;border-radius:20rpx;text-align:left;color:#704f3d;line-height:1.6}.cloud-library-entry image{width:38rpx;height:38rpx;flex:none}.cloud-library-entry view{flex:1;min-width:0}.cloud-library-entry view text{display:block;font-size:28rpx;font-weight:600}.cloud-library-entry view text+text{font-size:23rpx;font-weight:400;color:#7d6e63;margin-top:6rpx}
 
 .screen { min-height: 100vh; box-sizing: border-box; padding: 32rpx 32rpx 88rpx; background: #f0f8fc; color: #203249; font-family: "PingFang SC", "Microsoft YaHei", sans-serif; overflow-wrap: break-word; }
 .hero { position: relative; padding: 24rpx 66rpx 36rpx 0; border-bottom: 1rpx solid #cddfea; }
@@ -184,3 +185,5 @@ button:active { opacity: .78; }
 
 /* Final shared phone contrast layer. */
 @import "../../styles/phone-contrast.wxss";
+.experience-evidence{margin-top:20rpx;padding:22rpx;border-left:4rpx solid #b96d52;background:#fff5ec;border-radius:12rpx;color:#604b3d;font-size:27rpx;line-height:1.75}.experience-evidence text{display:block}
+.side-options{display:flex;gap:18rpx;margin-top:12rpx}.side-options .side-option{flex:1;min-width:0;min-height:160rpx;padding:22rpx 16rpx;display:flex;flex-direction:column;align-items:center;gap:12rpx;border:2rpx solid #e5d1c1;border-radius:20rpx;background:#fffdf9;color:#6d4d3c;font-size:29rpx;line-height:1.5;transition:background .18s,border-color .18s,transform .18s}.side-options .side-option:after{border:0}.side-options .side-option.selected{background:#f7e7da;border-color:#ad6c50;color:#75482f;box-shadow:0 0 0 2rpx #ad6c501a}.side-option:active{transform:scale(.98)}.side-check{font-size:23rpx;color:#896d5b}.side-bubble{width:68rpx;height:35rpx;border:2rpx solid #d0b7a5;border-radius:6rpx 12rpx 12rpx 12rpx;background:#fffaf4;align-self:flex-start;margin-left:12rpx}.right-bubble{align-self:flex-end;margin:0 12rpx 0 0;background:#b9d99a;border-color:#93b674;border-radius:12rpx 6rpx 12rpx 12rpx}

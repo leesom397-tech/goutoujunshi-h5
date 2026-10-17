@@ -61,5 +61,6 @@
 
 /* Final shared phone contrast layer. */
 @import "../../styles/phone-contrast.wxss";
+.evidence-review-card{padding:28rpx 0;border-top:1rpx solid #ecd8c9}.evidence-review-card>text{display:block;margin:12rpx 0}.evidence-kind{color:#a66149;font-size:24rpx;font-weight:600}.evidence-reading{font-size:30rpx;line-height:1.7;font-weight:600;color:#49392f}.evidence-source{margin:16rpx 0;padding:18rpx 22rpx;border-left:4rpx solid #c39674;background:#fff7ed;font-size:27rpx;line-height:1.75}.evidence-source text{display:block}.evidence-step{padding:18rpx;margin:12rpx 0;background:#f4f1e9;border-radius:14rpx;font-size:27rpx}.evidence-step text{display:block}.evidence-step.observed{border-left:4rpx solid #6b8f7a}.evidence-step.reappeared{border-left:4rpx solid #c18350}.evidence-observe{padding:16rpx;background:#faf0e6;font-size:27rpx;line-height:1.7}
 
 .archive-shortcuts{display:flex;flex-wrap:wrap;gap:14rpx;margin:22rpx 0}.archive-shortcuts button{flex:1;min-width:170rpx;margin:0;font-size:28rpx;line-height:1.7;padding:18rpx 10rpx;border:1rpx solid #dbc4b4;border-radius:16rpx;background:#fffaf5;color:#885139}.automatic-summary{font-size:30rpx;line-height:1.7;padding:20rpx 0;color:#3c322a}.automatic-summary>text{display:block}

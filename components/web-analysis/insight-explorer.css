@@ -12,3 +12,8 @@
 .insight-explorer .ix-node-caption,.insight-explorer .ix-hub-foot,.insight-explorer .ix-evidence-badge,.insight-explorer .ix-ring>div>span,.insight-explorer .ix-counts>div>span,.insight-explorer .ix-counts b>small,.insight-explorer .ix-sequence small{font-size:12px}.ix-tone-other{--ix-tone:#55967f}.ix-tone-unknown{--ix-tone:#a58646}.ix-sequence li>span{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 
 }
+
+/* Keep evidence composition visible beside long reasoning on wide reports. */
+@media(min-width:1101px){
+  .ix-materials{position:sticky;top:108px;max-height:calc(100dvh - 128px);overflow:auto;overscroll-behavior:contain;scrollbar-width:thin}
+}

@@ -1,0 +1,34 @@
+import assert from 'node:assert/strict';
+import {readFileSync} from 'node:fs';
+import {DatabaseSync} from 'node:sqlite';
+import ts from 'typescript';
+import {beginSavedReport,saveAnalysisReport,listAnalysisReports} from '../lib/saved-reports.mjs';
+const sql=new DatabaseSync(':memory:');
+for(const file of ['0000_lying_leech.sql','0003_wealthy_stephen_strange.sql','0018_saved_analysis_reports.sql'])sql.exec(readFileSync(new URL('../drizzle/'+file,import.meta.url),'utf8'));
+const db={prepare(query){let values=[];return {bind(...v){values=v;return this;},async first(){return sql.prepare(query).get(...values)||null;},async all(){return {results:sql.prepare(query).all(...values)};},async run(){return {meta:sql.prepare(query).run(...values)};}};},async batch(rows){return Promise.all(rows.map(row=>row.run()));}};
+const id=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
+for(let n=1;n<=14;n++){const opts={ownerId:'owner-a',id:id(n),kind:n===1?'moments':'chat',imageCount:1};await beginSavedReport(db,opts);await saveAnalysisReport(db,{...opts,result:{summary:'测试朋友圈',decision:{judgment:'测试聊天 '+n},...(n===2?{riskAnalysis:{summary:'关系提醒'}}:{}),...(n===3?{importAnalysis:{result:{summary:'导入聊天'}}}:{})}});}
+const foreign={ownerId:'owner-b',id:id(100),kind:'chat',imageCount:1};await beginSavedReport(db,foreign);await saveAnalysisReport(db,{...foreign,result:{decision:{judgment:'另一账号私密材料'}}});
+const route={exports:{}};
+new Function('require','module','exports',ts.transpileModule(readFileSync('app/api/miniapp/report/list/route.ts','utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText)(name=>name==='cloudflare:workers'?{env:{DB:db}}:name.endsWith('/miniapp-auth')?{miniappOwner:async request=>{const owner={'Bearer native-a':'owner-a','Bearer native-b':'owner-b'}[request.headers.get('authorization')];return owner?{ownerId:owner}:null;}}:name.endsWith('/capture-cloud-server')?{captureCloudPublicOwner:async owner=>'public-'+owner}: {listAnalysisReports},route,route.exports);
+const get=async(token,query='')=>{const response=await route.exports.GET(new Request('https://example.com/api/miniapp/report/list'+query,{headers:{...(token?{authorization:'Bearer '+token}:{}),cookie:'web-session=not-native'}}));return{status:response.status,...await response.json()};};
+assert.equal((await get(null)).status,401,'cookies do not authenticate native list');
+let result=await get('native-a','?ownerId=owner-b&page=1');assert.equal(result.total,14);assert.equal(result.reports.length,12);assert.equal(result.ownerId,'public-owner-a');assert.ok(result.reports.every(row=>!row.summary.includes('私密')));
+assert.equal((await get('native-a','?page=2')).reports.length,2);
+result=await get('native-b');assert.equal(result.total,1);assert.equal(result.reports[0].id,id(100));
+result=await get('native-a','?q='+encodeURIComponent('测试朋友圈'));assert.equal(result.total,1);assert.equal(result.reports[0].kind,'moments');
+
+const storage={token:'native-a',expiresAt:Date.now()+60000};let page,foreignReply=false;const nav=[];
+const api={STORAGE:'session',session:async()=>({token:storage.token}),request:async path=>({...await get(storage.token,path.slice(path.indexOf('?'))),...(foreignReply?{ownerId:'public-owner-b'}:{})})};
+const wx={getStorageSync:()=>storage,navigateTo:option=>nav.push(option.url),stopPullDownRefresh(){}};
+new Function('require','Page','wx',readFileSync('miniapp/pages/reports/index.js','utf8'))(()=>api,definition=>page={...definition,data:structuredClone(definition.data),setData(change){Object.assign(this.data,change);}},wx);
+page.onLoad();await page.onShow();assert.equal(page.data.reports.length,12);assert.equal(page.data.total,14);assert.equal(page.data.pages,2);
+await page.load(1,'测试聊天 2');assert.equal(page.data.reports[0].kindLabel,'关系提醒');await page.load(1,'测试聊天 3');assert.equal(page.data.reports[0].kindLabel,'导入聊天');await page.load();
+page.openReport({currentTarget:{dataset:{id:page.data.reports[0].id}}});assert.match(nav[0],/^\/pages\/report\/index\?id=/);
+page.openReport({currentTarget:{dataset:{id:id(100)}}});assert.equal(nav.length,1,'unlisted report cannot be navigated through injected dataset');
+await page.next();assert.equal(page.data.page,2);assert.equal(page.data.reports.length,2);
+page.editQuery({detail:{value:'测试朋友圈'}});await page.search();assert.equal(page.data.total,1);assert.equal(page.data.page,1);assert.equal(page.data.reports[0].kindLabel,'朋友圈');
+foreignReply=true;await page.retry();assert.match(page.data.error,/账号已变化/);assert.equal(page.data.reports.length,0);foreignReply=false;
+storage.token='native-b';await page.onShow();assert.equal(page.data.reports.length,1);assert.equal(page.data.query,'');assert.equal(page.data.ownerId,'public-owner-b');
+storage.token='expired';page.openReport({currentTarget:{dataset:{id:id(100)}}});assert.equal(nav.length,1);assert.equal(page.data.reports.length,0);
+page.onUnload();sql.close();console.log('native report list: owner isolation, cookie rejection, search, pagination, navigation and account changes passed');

@@ -1,0 +1,35 @@
+<view class="library-screen">
+  <view class="heading"><text class="eyebrow">你的材料 · 多端接着用</text><text class="title">{{library ? library.label : '已导入的聊天'}}</text><text class="subtitle">{{library ? library.kindLabel + ' · ' + library.total + ' 条 · ' + library.range : '电脑导入一次，手机回看原话、选段分析。'}}</text></view>
+  <view wx:if="{{loading}}" class="panel"><busy-indicator label="正在读取你的资料"/></view>
+  <view wx:if="{{error}}" class="error" role="alert"><text>{{error}}</text><button wx:if="{{!busy}}" bindtap="{{library ? 'retryPage' : 'load'}}">重新读取</button></view>
+  <block wx:if="{{!loading}}">
+    <block wx:if="{{!library}}">
+      <view wx:if="{{!webLinked}}" class="panel link-panel"><text class="section-title">接上电脑里的同一份资料</text><text>关联你在电脑使用的成子账号后，才能读取那个账号的聊天库。不会自动合并其他账号。</text><button class="primary" loading="{{linking}}" disabled="{{linking}}" bindtap="linkAccount">关联网页账号</button></view>
+      <view wx:if="{{!libraries.length && webLinked}}" class="panel"><text class="section-title">还没有同步过来的聊天</text><text>在电脑网页导入后，点击“同步到账号”。这里就能看到原话和已转写语音。</text><button class="secondary" bindtap="copyComputerUrl">复制电脑导入网址</button></view>
+      <button wx:for="{{libraries}}" wx:key="id" class="library-card" data-id="{{item.id}}" bindtap="openLibrary"><view><text class="library-name">{{item.label}}</text><text class="library-kind">{{item.kindLabel}} · {{item.total}} 条</text><text class="small">{{item.range}}</text></view><text class="open-arrow">→</text></button>
+      <button wx:if="{{listCursor}}" class="secondary" bindtap="loadMoreLibraries" loading="{{loadingPage}}">查看更多资料</button>
+    </block>
+    <block wx:else>
+      <view class="library-toolbar"><button class="text-button" disabled="{{busy}}" bindtap="backToList">← 全部资料</button><button class="text-button" disabled="{{busy || loadingPage}}" bindtap="retryPage">刷新</button></view>
+      <view class="media-note">保留已同步的原话、语音文字和图片。语音原音频未上传，不支持播放。</view>
+      <view wx:if="{{library.reportLinks.length}}" class="report-links"><text>已有报告</text><button wx:for="{{library.reportLinks}}" wx:key="reportId" data-id="{{item.reportId}}" bindtap="openReport">第 {{index + 1}} 份 →</button></view>
+      <view class="selection-tools"><button class="secondary" disabled="{{busy || loadingPage}}" bindtap="selectRecent">选择本页可分析内容</button><button class="text-button" disabled="{{busy || !selectedCount}}" bindtap="clearSelection">清空选择</button></view>
+      <text class="small page-note">{{pageNumber === 1 ? '当前为最新一页' : '更早记录 · 第 ' + pageNumber + ' 页'}} · 点选原话，已选内容跨页保留</text>
+      <view wx:if="{{loadingPage}}" class="panel"><busy-indicator label="正在读取原话"/></view>
+      <view wx:else class="messages">
+        <view wx:for="{{records}}" wx:key="localId" class="message {{item.senderRole === 'self' ? 'from-self' : ''}} {{item.selected ? 'selected' : ''}}">
+          <view class="message-top"><text>{{item.who}}</text><text>{{item.timeLabel}}</text></view>
+          <button class="message-body" data-id="{{item.localId}}" bindtap="toggleRecord" disabled="{{busy || !item.selectable}}" aria-pressed="{{item.selected}}"><text wx:if="{{item.selectable}}" class="check-mark">{{item.selected ? '✓' : '＋'}}</text><text wx:if="{{item.voice}}" class="type-label">{{item.voiceLabel}}</text><text wx:elif="{{item.typeLabel}}" class="type-label">{{item.typeLabel}}</text><text class="original-text">{{item.text || '图片内容'}}</text></button>
+          <button wx:if="{{item.readyImages}}" class="image-button" data-id="{{item.localId}}" bindtap="previewImages" loading="{{mediaBusy === item.localId}}" disabled="{{!!mediaBusy}}"><image src="/assets/ui-scan.png"/>查看 {{item.readyImages}} 张已同步图片</button>
+          <text wx:if="{{item.imageCount > item.readyImages}}" class="small">还有 {{item.imageCount - item.readyImages}} 张图片尚未同步，请回电脑继续同步。</text>
+          <text wx:if="{{item.selectionNote}}" class="small">{{item.selectionNote}}</text>
+        </view>
+        <view wx:if="{{!records.length}}" class="panel">这份资料暂无可读记录。</view>
+      </view>
+      <view class="pagination"><button class="secondary" bindtap="previousPage" disabled="{{!hasPrevious || loadingPage || busy}}">较新记录</button><text>{{pageNumber}}</text><button class="secondary" bindtap="nextPage" disabled="{{!nextCursor || loadingPage || busy}}">更早记录</button></view>
+      <view wx:if="{{notice}}" class="notice"><text>{{notice}}</text><button wx:if="{{latestReportId}}" class="secondary" bindtap="openReport">打开刚才的报告 →</button></view>
+    </block>
+    <view class="guide"><button class="guide-toggle" bindtap="toggleGuide"><view><text>手机里的旧聊天还没过来？</text><text>先“导出到电脑”，再在电脑网页导入同步</text></view><text>{{showGuide ? '−' : '＋'}}</text></button><view wx:if="{{showGuide}}" class="guide-steps"><text>1. 手机与电脑登录同一个微信，连接同一网络。</text><text>2. 手机微信：我 → 设置 → 聊天记录管理 → 导入与导出 → 导出到电脑。不同版本入口可能略有不同。</text><text>3. 只选择需要分析的联系人，等电脑微信接收完成。</text><text>4. 打开电脑成子网页，导入该联系人的聊天，再同步到账号。</text><text class="guide-key">请选择“导出到电脑”。“备份到电脑”生成的恢复包不能直接被当前采集功能读取。</text><text>小程序不会直接扫描手机微信全部记录；电脑只能导入它实际已有的内容。</text><button class="secondary" bindtap="copyComputerUrl">复制电脑导入网址</button></view></view>
+  </block>
+  <view wx:if="{{library}}" class="analysis-dock"><view><text>已选 {{selectedCount}} 条</text><text>{{price === null ? '正在读取费用' : price + ' 积分 / 次'}} · {{library.kind === 'chat' ? '最多 40 条' : '最多 12 条'}}</text></view><button class="primary" bindtap="analyze" loading="{{busy}}" disabled="{{busy || !selectedCount || price === null}}">{{busy ? '分析中' : '分析所选'}}</button></view>
+</view>

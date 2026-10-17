@@ -12,6 +12,7 @@
     "test:miniapp": "node scripts/test-miniapp.mjs",
     "check:miniapp-release": "node scripts/check-miniapp-release.mjs",
     "prebuild": "node scripts/build-knowledge.mjs",
+    "postbuild": "node scripts/verify-client-assets.mjs",
     "install:ci": "node scripts/install-ci.mjs",
     "dev": "node scripts/run-framework.mjs dev",
     "build": "node scripts/run-framework.mjs build",

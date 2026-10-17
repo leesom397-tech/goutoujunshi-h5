@@ -38,8 +38,14 @@ def compatibility_probe():
         finally:
             pythoncom.CoUninitialize()
         available = any(name == "mmui::MainWindow" for name in classes)
+        if available:
+            message = "已检测到微信主窗口；未读取任何消息。"
+        elif any(name == "mmui::LoginWindow" for name in classes):
+            message = "请在微信登录窗口完成登录。"
+        else:
+            message = "微信已打开，但当前账号的界面文字暂不可读取。请保持微信窗口可见，或改用网页的窗口采集/录屏导入。"
         return {**result, "ready": available, "capabilities": {"chat": available, "moments": available},
-                "message": "已检测到微信主窗口；未读取任何消息。" if available else "尚未检测到可访问的微信主窗口。"}
+                "message": message}
     except Exception:
         return {**result, "message": "兼容性未确认，请将微信与助手以相同权限运行。"}
 

@@ -1,7 +1,8 @@
+import { relationshipPatternCards } from "./relationship-patterns";
 /** A read-only comparison of saved material. Never sends it to a model or records a guessed outcome. */
 export type RelationshipSourceReport = { id: string; kind?: string; createdAt: number; report: Record<string, any>; entries?: Record<string, any>[] };
 export type RelationshipQuote = { reportId: string; lineId?: string; date: string; label: string; text: string; kind: "recognized-text" | "extracted-content" | "profile-field" | "quoted-post" | "user-feedback" };
-export type RelationshipEvidenceCard = { kind: "change" | "consistency" | "action" | "feedback"; title: string; reading: string; explanation: string; question: string; observe: string; sources: RelationshipQuote[] };
+export type RelationshipEvidenceCard = { kind: "change" | "consistency" | "action" | "feedback" | "pattern" | "repair"; title: string; reading: string; explanation: string; question: string; observe: string; sources: RelationshipQuote[]; steps?: { label: string; status: "observed" | "unknown" | "reappeared"; detail: string }[] };
 export type RelationshipEvidenceReview = { cards: RelationshipEvidenceCard[]; note: string };
 const text = (value: unknown, max = 400) => typeof value === "string" ? value.trim().slice(0, max) : "";
 const calendar = (value: unknown) => typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value + "T00:00:00Z")) && new Date(value + "T00:00:00Z").toISOString().slice(0, 10) === value ? value : "";
@@ -66,7 +67,7 @@ function extract(report: RelationshipSourceReport): Evidence[] {
     if (!entry || entry.targetSelf === true || entry.target === "self") continue;
     let date = "";
     for (const [position,line] of array(entry.lines).entries()) {
-      const raw = text(line?.timestampRaw), explicit = dateIn(raw); if (explicit) date = explicit; else if (raw && !/^\s*(?:上午|下午|晚上|凌晨|早上)?\s*\d{1,2}[:：]\d{2}\s*$/.test(raw)) date = "";
+      const raw = text(line?.sourceAt || line?.timestampRaw), explicit = dateIn(raw); if (explicit) date = explicit; else if (raw && !/^\s*(?:上午|下午|晚上|凌晨|早上)?\s*\d{1,2}[:：]\d{2}\s*$/.test(raw)) date = "";
       const quote = text(line?.text, 800); if (!["self","other"].includes(line?.speaker) || !quote || media(quote)) continue;
       rows.push({reportId:report.id,segment:report.id+":"+entryIndex,position,lineId:text(line.id,80),date,label:line.speaker==="other"?"对方聊天识别原文":"我方聊天识别原文",text:quote,kind:"recognized-text",speaker:line.speaker,savedAt:report.createdAt,claims:line.speaker==="other"?claims(quote):[]});
     }
@@ -141,5 +142,8 @@ export function relationshipEvidenceReview(data: Record<string, unknown>, subjec
   const feedback=array(data.actionFeedback).filter(row=>row&&typeof row.reportId==='string'&&available.some(report=>report.id===row.reportId||array(report.entries).some(entry=>entry?.id===row.reportId))&&Number.isFinite(row.recordedAt)&&(!focusId||row.recordedAt<=focus.createdAt)).sort((a,b)=>a.recordedAt-b.recordedAt);
   const latest=feedback.at(-1);
   if(latest&&text(latest.note)&&['positive','alternative','declined','uncomfortable','waiting','not_done'].includes(latest.outcome))cards.push({kind:'feedback',title:latest.outcome==='not_done'?'还没有执行，不把它解释为建议失效':'你补充了新经过，可据此调整下一步',reading:latest.outcome==='not_done'?'目前没有执行后的结果可判断。':'这是你主动记录的实际反馈，不是系统猜测的结果。',explanation:'新经过可以修正对现状的理解，但不能证明变化是某条建议造成的，也不证明对方的真实动机。',question:'',observe:latest.outcome==='uncomfortable'?'先照顾自己的不适和边界，再决定是否继续。':'结合这次发生的事与新的聊天继续判断，无需每次另填反馈表。',sources:[{reportId:latest.reportId,date:calendar(latest.eventDate),label:'你确认的经历',text:text(latest.note,500),kind:'user-feedback'}]});
-  return {...empty,cards:cards.slice(0,5)};
+  const patterns=relationshipPatternCards(available,focus.id);
+  // Explicit boundaries stay first. Repeated evidence and repair progress are
+  // useful even when this material has no numeric history point.
+  return {...empty,cards:[...cards.filter(card=>card.kind==='change'),...patterns,...cards.filter(card=>card.kind!=='change')].slice(0,6)};
 }

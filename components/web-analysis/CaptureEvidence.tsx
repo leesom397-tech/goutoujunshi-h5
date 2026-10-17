@@ -2,7 +2,8 @@
 
 import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { ArrowUpRight, Clock3, FileSearch, MessageCircle, Search, UserRound, X } from "lucide-react";
-import { readReportSources, type StoredCaptureRecord } from "@/lib/desktop-capture-vault";
+import { type StoredCaptureRecord } from "@/lib/desktop-capture-vault";
+import { readSyncedReportSources as readReportSources } from "@/lib/capture-cloud-client";
 import styles from "./CaptureEvidence.module.css";
 
 type SourceLink = NonNullable<Awaited<ReturnType<typeof readReportSources>>>;
@@ -18,13 +19,14 @@ function quotedParts(value: string) {
 }
 
 function matchingRecords(link: SourceLink, selection: Selection) {
+  const allRecords = [...link.records, ...(link.memoryRecords || [])];
   if (selection.sourceIds?.length) {
     const ids = new Set(selection.sourceIds);
-    return link.records.filter(record => ids.has(record.localId));
+    return allRecords.filter(record => ids.has(record.localId));
   }
   if (!selection.quote) return [];
   const parts = quotedParts(selection.quote);
-  const matched = link.records.filter(record => {
+  const matched = allRecords.filter(record => {
     const value = normalized(plain(record.text));
     return value && parts.some(part => part === value || part.length >= 4 && value.includes(part) || value.length >= 4 && part.includes(value));
   });
@@ -40,7 +42,7 @@ function imageSource(image: { mime?: string; data?: string }) {
   return "";
 }
 
-/** A report stores only source IDs; raw capture records stay in this owner's browser vault. */
+/** Resolve original sources locally, or from this authenticated owner's synced library. */
 export function CaptureEvidenceProvider(props: ProviderProps) {
   const parent = useContext(Context);
   if (parent && parent.ownerId === props.ownerId && parent.reportId === props.reportId) return <>{props.children}</>;
@@ -69,7 +71,7 @@ function CaptureEvidenceScope({ ownerId, reportId, captureOrigin = false, childr
     setLoaded(null); setSelection(null); dialog.current?.close(); restorePosition();
     if (ownerId && reportId) void readReportSources(ownerId, reportId).then(value => {
       if (active) setLoaded({ owner: ownerId, report: reportId, link: value, error: "" });
-    }).catch(() => { if (active) setLoaded({ owner: ownerId, report: reportId, link: null, error: "浏览器暂时无法读取本地来源。请允许本站使用本地存储后重试。" }); });
+    }).catch(() => { if (active) setLoaded({ owner: ownerId, report: reportId, link: null, error: "原文暂时无法读取，请检查网络后重试。已同步材料需登录同一账号查看。" }); });
     return () => { active = false; };
   }, [ownerId, reportId]);
   useEffect(() => () => { if (restore.current) document.documentElement.style.overflow = restore.current.overflow; }, []);
@@ -93,7 +95,7 @@ function CaptureEvidenceScope({ ownerId, reportId, captureOrigin = false, childr
     {children}
     <dialog ref={dialog} className={styles.drawer} aria-labelledby={headingId} data-capture-evidence-dialog onClose={() => { restorePosition(); setSelection(null); }} onClick={event => { if (event.target === event.currentTarget) { const rect = event.currentTarget.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right) close(); } }}>
       <header className={styles.header}><div><span>回看分析依据</span><h2 id={headingId}>{isMoments ? "原始朋友圈动态" : "原始聊天记录"}</h2></div><button type="button" aria-label="关闭原始记录" onClick={close}><X size={22}/></button></header>
-      {!current ? <p className={styles.empty}>正在读取这台设备保存的来源…</p> : !link || !link.records.length ? <div className={styles.empty}><FileSearch size={30}/><h3>这台设备未保存本报告的原始来源</h3><p>{current.error || "原记录只保存在采集时使用的浏览器中。请回到当时的设备和浏览器查看；清除本地数据后无法从报告还原原文。"}</p><button type="button" onClick={close}>返回报告</button></div> : <>
+      {!current ? <p className={styles.empty}>正在读取原始记录…</p> : !link || !link.records.length ? <div className={styles.empty}><FileSearch size={30}/><h3>这份报告的原始来源尚未同步</h3><p>{current.error || "请在采集电脑打开「已导入聊天」，对这份材料启用跨端同步。已删除且未同步的原文无法从报告还原。"}</p><button type="button" onClick={close}>返回报告</button></div> : <>
         <div className={styles.context}><strong>{selection?.label || "这条判断引用的材料"}</strong>{selection?.quote && <blockquote>{selection.quote}</blockquote>}<p>{matches.length ? `找到 ${matches.length} 条对应原记录${matches.length > 1 ? "，请结合时间与说话人核对" : ""}。` : selection?.quote || selection?.sourceIds?.length ? "未能精确定位这段引用，以下为本次分析关联的原记录。" : `共 ${link.records.length} 条，按本次分析的材料顺序呈现。`}</p></div>
         <label className={styles.search}><Search size={18}/><input aria-label="在本次原记录中查找" placeholder="查找文字、说话人或时间" value={search} onChange={event => { setSearch(event.target.value); setLimit(24); }}/></label>
         {link.records.length < link.sourceIds.length && <p className={styles.localNote}>这台设备缺少部分关联原文，以下仅显示仍保存的 {link.records.length} 条。</p>}
@@ -112,10 +114,11 @@ function CaptureRecord({ record, ordinal, isMoments }: { record: StoredCaptureRe
   const videoSeconds = Number(record.source.videoTime) || 0;
   const time = `${Math.floor(videoSeconds / 60).toString().padStart(2,"0")}:${Math.floor(videoSeconds % 60).toString().padStart(2,"0")}`;
   return <article className={styles.record} data-capture-record={record.localId}>
-    <header><strong>{frame ? `第 ${ordinal} 张采集画面` : isMoments ? `第 ${ordinal} 条动态` : `第 ${ordinal} 条消息`}</strong>{!frame && <span><UserRound size={15}/>{record.sender || (isMoments ? "作者未识别" : "说话人未识别")}</span>}</header>
+    <header><strong>{ordinal === 0 ? "已导入历史 · 资料依据" : frame ? `第 ${ordinal} 张采集画面` : isMoments ? `第 ${ordinal} 条动态` : `第 ${ordinal} 条消息`}</strong>{!frame && <span><UserRound size={15}/>{record.senderRole === "self" ? "我" : record.sender || (isMoments ? "作者未识别" : "说话人未识别")}</span>}</header>
     {record.source.method === "video-import" ? <p className={styles.time}><Clock3 size={15}/>录屏位置 {time} · 消息时间以画面原文为准</p> : !frame && <p className={styles.time}><Clock3 size={15}/>{record.at || "未识别时间"}</p>}
     {(record.text || !frame) && <p className={styles.original}>{record.text || "这条记录没有识别出的文字。"}</p>}
     {images.length > 0 && <div className={styles.images}>{images.map((src, index) => <img key={index} src={src} alt={`第 ${ordinal} 条记录的第 ${index + 1} 张附图`} loading="lazy"/>)}</div>}
+    {record.source.cloudMediaUnavailable===true&&<p className={styles.localNote}>这条记录的图片尚未同步完整，请在采集电脑继续同步。</p>}
     {record.source?.label && <p className={styles.sourceLabel}>{record.source.label}</p>}
   </article>;
 }

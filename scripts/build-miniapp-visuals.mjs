@@ -6,10 +6,11 @@ import { House, ScanLine, Users, CircleUserRound, MessageCircle, AudioLines, Orb
 import sharp from "sharp";
 const icons = { home: House, scan: ScanLine, users: Users, user: CircleUserRound, chat: MessageCircle, audio: AudioLines, orbit: Orbit, heart: Heart, sparkles: Sparkles, book: BookOpen, shield: ShieldCheck, arrow: ArrowUpRight, pause: Pause, play: Play, wallet: Wallet, fingerprint: Fingerprint, history: History, headphones: Headphones, layers: Layers3, social: ScanFace };
 for (const [name, icon] of Object.entries(icons)) {
-  const svg = renderToStaticMarkup(createElement(icon, { size: 72, strokeWidth: 1.6, color: "#2983A4" }));
+  const svg = renderToStaticMarkup(createElement(icon, { size: 72, strokeWidth: 1.6, color: "#A7664D" }));
   await sharp(Buffer.from(svg)).png().toFile(`miniapp/assets/ui-${name}.png`);
 }
-await sharp(await readFile("public/favicon.svg")).resize(144, 144).png().toFile("miniapp/assets/chengzi-orbit.png");
+await sharp(await readFile("public/brand-mark.svg")).resize(144, 144).png().toFile("miniapp/assets/chengzi-orbit.png");
+await sharp('public/images/aurora-fluted-light-v5.webp').resize({ width: 1200, withoutEnlargement: true }).jpeg({ quality: 85, progressive: false }).toFile('miniapp/assets/aurora-fluted-light.jpg');
 // Keep the legacy report icon artwork while using portable raster files in WXML.
 for (const name of ["chat", "people", "self"]) {
   await sharp(`miniapp/assets/icon-${name}.svg`).resize(96, 96).png()
@@ -22,4 +23,4 @@ for (const name of ["relationship-daylight", "conversation-daylight"]) {
     .jpeg({ quality: 88, progressive: false })
     .toFile(`miniapp/assets/${name}.jpg`);
 }
-console.log("Synced approved daylight artwork, Orbit logo and 20 line icons to the miniapp.");
+console.log("Synced the approved Aurora glass artwork, web brand mark and warm line icons to the miniapp.");

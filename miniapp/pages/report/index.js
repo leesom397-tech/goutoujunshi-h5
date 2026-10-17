@@ -1,6 +1,7 @@
 const api = require("../../lib/api");
-const {riskAwarePresentation}=require("../../lib/risk-aware-presentation");
+const {riskAwarePresentation,riskReplyAllowed}=require("../../lib/risk-aware-presentation");
 const followupContext = require("../../lib/followup-context");
+const { importedReport } = require("../../lib/imported-report");
 const idPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
 
 function followupSummary(report) {
@@ -55,18 +56,23 @@ function interactionOverview(lines) {
 }
 
 function present(report) {
+  report = importedReport(report);
+  const rankedOriginal = [...(report.decision?.replyOptions || [])].map((item, originalIndex) => ({...item,originalIndex})).sort((a,b)=>(b.weight??-1)-(a.weight??-1)).slice(0,3);
+  const samples = [...new Set((report.lines || []).filter(line=>line.speaker==='self' && !/^\s*[\[【](?:表情|贴纸|图片|视频|文件|语音|voice|sticker|image)/i.test(line.text || '')).map(line=>String(line.text || '').trim().replace(/\s+/g,' ').slice(0,120)).filter(Boolean))].slice(-8);
+  const canPersonalize = !report.isImported && samples.length>=3 && samples.join('').replace(/[^A-Za-z0-9\u3400-\u9FFF]/g,'').length>=30;
   const risk=riskAwarePresentation(report);report=risk.viewReport;
   const notes = new Map((report.annotations || []).map(item => [item.lineId, item]));
   const lines = (report.lines || []).map((line, index) => {
     const annotation = notes.get(line.id) || {};
     const tags = values => (values || []).slice(0, 3).map(item => item.label + (typeof item.probability === "number" ? " " + Math.round(item.probability * 100) + "%" : "")).join(" · ");
     return {
-      id: line.id || String(index), lineNumber: index + 1, who: line.speaker === "self" ? "我" : line.speaker === "other" ? "对方" : "待确认",
+      id: line.id || String(index), lineNumber: index + 1, who: report.isImported ? line.speaker === 'self' ? '我' : line.sourceSpeaker : line.speaker === "self" ? "我" : line.speaker === "other" ? "对方" : "待确认",
       text: line.text, emotion: tags(annotation.emotion), intent: tags(annotation.intent), emotionTags:annotation.emotion||[],intentTags:annotation.intent||[],note: annotation.note || "",
+      alternative: annotation.alternative || '', certainty: annotation.certainty || '',
       evidence: annotation.evidence === "insufficient" ? "依据不足" : annotation.evidence === "limited" ? "线索有限" : ""
     };
   });
-  const replies = [...(report.decision?.replyOptions || [])].sort((a, b) => (b.weight ?? -1) - (a.weight ?? -1)).slice(0, 3).map((item, index) => ({ ...item, rankLabel: index === 0 ? "本轮首选" : `备选 ${index + 1}`, expanded: false }));
+  const replies = risk.replyOptions.slice(0,3).map((item,index)=>({...item,rewriteIndex:report.isImported?-1:rankedOriginal.findIndex(option=>option.originalIndex===item.originalIndex),rankLabel:report.isImported?`回复方向 ${index+1}`:index===0?'本轮首选':`备选 ${index+1}`,expanded:false,personalizedText:'',note:'',rewriteError:'',experienceEvidence:[]}));
   const affinity = report.affinity || report.decision?.affinityPreview;
   const score = typeof affinity?.value === "number" && Number.isFinite(affinity.value) && affinity.value >= 0 && affinity.value <= 100 ? Math.round(affinity.value) : null;
   const scope = affinity?.valueScope === "partial" ? "已知维度参考指数" : "六维互动参考指数";
@@ -74,24 +80,37 @@ function present(report) {
     const value = typeof item.value === "number" && Number.isFinite(item.value) && item.value >= 0 && item.value <= 100 ? Math.round(item.value) : null;
     return { key: item.key, label: item.label, value, displayValue: value === null ? "待验证" : String(value), width: value === null ? 0 : value };
   });
+  const diagnosis = report.relationshipDiagnosis && typeof report.relationshipDiagnosis === 'object' ? report.relationshipDiagnosis : null;
+  const relationshipDiagnosis = diagnosis ? {
+    questionLabel: diagnosis.questionLabel || '先看完整关系全景',
+    currentState: diagnosis.relationship?.currentState || '待了解',
+    trend: diagnosis.relationship?.trend || '待了解',
+    reciprocity: diagnosis.relationship?.reciprocity || '材料不足，暂不判断。',
+    recommendation: diagnosis.decision?.recommendation || '先核对材料，再决定下一步。',
+    observeWindow: diagnosis.decision?.observeWindow || '',
+    risks: Array.isArray(diagnosis.relationship?.risks) ? diagnosis.relationship.risks.slice(0, 3) : [],
+    claimActions: Array.isArray(diagnosis.claimActions) ? diagnosis.claimActions.slice(0, 3) : [],
+    unknowns: Array.isArray(diagnosis.unknowns) ? diagnosis.unknowns.slice(0, 3) : [],
+  } : null;
   return {
+    isImported: !!report.isImported, isRiskAnalysis: !!report.isRiskAnalysis, riskAlerts: report.riskAlerts || [], riskQuestions: report.riskQuestions || [], hasRiskAlerts: !!report.riskAlerts?.length, hasRiskQuestions: !!report.riskQuestions?.length, importObservations: report.importObservations || [], importBatches: report.importBatches || [],
     trend: '待对照历史', trendLoading: false,
     trendNote: report.subjectId ? '正在准备对照已归档的独立互动。' : '本次未关联人物，暂不对照历史。',
     affectionScore: score, hasAffectionScore: score !== null, interactionOverview: interactionOverview(report.lines),
     affectionScope: affinity?.valueScope === 'partial' ? '部分维度参考' : '本次互动信号',
     affectionBoundary: !!affinity?.boundaryApplied,
     photoClues: report.decision?.photoClues || [],
-    personalConnection: report.personalConnection || null,riskReview:risk.review,
+    personalConnection: report.personalConnection || null,relationshipDiagnosis,riskReview:risk.review,
     interactionInsight: report.decision?.interactionInsight || null,
     photoClueCount: (report.decision?.photoClues || []).length,
     id: report.id, subjectId: report.subjectId || '', compatibility: Object.prototype.hasOwnProperty.call(report, 'latestCompatibility') ? report.latestCompatibility : report.compatibility || null,
     hasCommonPoints: !!((Object.prototype.hasOwnProperty.call(report, 'latestCompatibility') ? report.latestCompatibility : report.compatibility)?.commonPoints?.length),
     compatibilityTitle: Object.prototype.hasOwnProperty.call(report, 'latestCompatibility') ? '最新资料适配 · 与你合适吗？' : '与你合适吗？',
     compatibilityNote: Object.prototype.hasOwnProperty.call(report, 'latestCompatibility') ? '按当前已确认档案判断，不改变上方原报告。' : '',
-    possibleIntent: report.decision?.possibleIntent || "这轮原话还不足以判断对方的具体想法。",
+    possibleIntent: report.isImported || report.isRiskAnalysis ? '' : report.decision?.possibleIntent || "这轮原话还不足以判断对方的具体想法。",
     evidence: report.decision?.evidence || "请结合下方原话核对。", nextStep: report.decision?.nextStep || "先核对上下文，再决定是否回复。",
     observation: report.decision?.observation || "", judgment: report.decision?.judgment || "", review: report.decision?.replyReview || "",
-    replies, hasReplies: replies.length > 0, lines, linesLabel: `逐句解读 · ${lines.length} 句`, coverage: report.coverage || null,
+    replies, canPersonalize, hasReplies: replies.length > 0, lines, linesLabel: `${report.isImported ? '最近一批关键原话' : '逐句解读'} · ${lines.length} 句`, coverage: report.coverage || null,
     affinity: affinity ? {
       value: score, scoreLabel: score === null ? "总分待验证" : `${scope} ${score}/100`,
       scope,
@@ -103,7 +122,7 @@ function present(report) {
 }
 
 Page({
-  data: { phase: "loading", error: "", report: null, showEvidence: false, showFitDetails: false, showLines: true, copiedReplyIndex: -1, copyError: "", followupBusy: false, followupError: "" },
+  data: { phase: "loading", error: "", report: null, rewriteBusy: -1, showEvidence: false, showFitDetails: false, showLines: true, copiedReplyIndex: -1, copyError: "", followupBusy: false, followupError: "" },
   async openFollowup() {
     const report = this.data.report;
     if (this.data.followupBusy || !report || !idPattern.test(report.id)) return;
@@ -140,18 +159,38 @@ Page({
     const index = Number(event.currentTarget.dataset.index), report = this.data.report;
     if (!report || !Array.isArray(report.replies) || !Number.isInteger(index) || index < 0 || index >= report.replies.length) return;
     const item = report.replies[index];
-    if (!item || !item.text) return;
+    const text = item && (item.personalizedText || item.text);
+    if (!text) return;
     const copyRequest = this._copyRequest = (this._copyRequest || 0) + 1;
     const current = () => {
       const active = this.data.report;
-      return !this._unloaded && this._copyRequest === copyRequest && active && active.id === report.id && active.replies[index] && active.replies[index].text === item.text;
+      return !this._unloaded && this._copyRequest === copyRequest && active && active.id === report.id && active.replies[index] && (active.replies[index].personalizedText || active.replies[index].text) === text;
     };
     this.setData({ copiedReplyIndex: -1, copyError: "" });
     wx.setClipboardData({
-      data: item.text,
+      data: text,
       success: () => { if (current()) this.setData({ copiedReplyIndex: index, copyError: "" }); },
       fail: () => { if (current()) this.setData({ copyError: "复制未完成，可以长按回复文字复制。" }); }
     });
+  },
+  async personalize(event) {
+    const index=Number(event.currentTarget.dataset.index), report=this.data.report, token=this._token, read=this._read;
+    if(!report?.canPersonalize || this.data.rewriteBusy>=0 || !Number.isInteger(index) || !report.replies[index] || report.replies[index].rewriteIndex<0) return;
+    const current=()=>{let session;try{session=wx.getStorageSync(api.STORAGE);}catch{return false;}return !this._unloaded && this._read===read && this._token===token && session?.token===token && session.expiresAt>Date.now() && this.data.report?.id===report.id;};
+    if(!current())return;
+    this.setData({rewriteBusy:index,copiedReplyIndex:-1,copyError:''});
+    try {
+      this._rewriteIds ||= {};
+      const key=report.id+':'+report.replies[index].rewriteIndex;
+      this._rewriteIds[key] ||= await api.newId();
+      if(!current())return;
+      const response=await api.request('/api/miniapp/rewrite','POST',{reportId:report.id,optionIndex:report.replies[index].rewriteIndex,confirmed:true,requestId:this._rewriteIds[key]},token);
+      if(!current())return;
+      if(!response.text || !response.status || !response.note)throw new Error('改写暂未完成，原推荐仍可使用。');
+      if(this._riskPresentation && !riskReplyAllowed(this._riskPresentation,response.text))throw new Error('这条改写与当前风险提醒冲突，请保留原回复。');
+      this.setData({report:{...this.data.report,replies:this.data.report.replies.map((item,i)=>i===index?{...item,personalizedText:response.status==='adjusted'?response.text:'',note:response.note,rewriteError:'',experienceEvidence:Array.isArray(response.experienceEvidence)?response.experienceEvidence:[]}:item)}});
+    }catch(error){if(current())this.setData({report:{...this.data.report,replies:this.data.report.replies.map((item,i)=>i===index?{...item,rewriteError:error.message || '改写暂未完成。'}:item)}});}
+    finally{if(!this._unloaded && this._read===read)this.setData({rewriteBusy:-1});}
   },
   onLoad(options) {
     this._unloaded = false;
@@ -174,7 +213,7 @@ Page({
       if (!token) return true;
       try { const saved=wx.getStorageSync(api.STORAGE); return saved?.token===token && saved.expiresAt>Date.now(); } catch { return false; }
     };
-    this.setData({ phase: "loading", error: "", report: null, showEvidence: false, showFitDetails: false, showLines: true, copiedReplyIndex: -1, copyError: "", followupError: "" });
+    this.setData({ phase: "loading", error: "", report: null, rewriteBusy: -1, showEvidence: false, showFitDetails: false, showLines: true, copiedReplyIndex: -1, copyError: "", followupError: "" });
     try {
       const session = await api.session();
       if (!current()) return;
@@ -184,8 +223,10 @@ Page({
       if (!current()) return;
       const response = await api.request("/api/miniapp/report?id=" + id, "GET", null, token);
       if (!current()) return;
-      if (!response.report || response.report.id !== this._id) throw new Error("报告没有完整返回，请稍后重试。");
-      const formatted = present(response.report);
+      if (!response.report || (response.report.id !== this._id && response.reportId !== this._id)) throw new Error("报告没有完整返回，请稍后重试。");
+      const source = { ...response.report, id };
+      const formatted = present(source);
+      this._riskPresentation = riskAwarePresentation(importedReport(source));
       this.setData({ phase: "ready", report: formatted }, () => {
         if (!current()) return;
         if (formatted.affinity && formatted.affinity.radarReady && typeof wx.createCanvasContext === "function") this.drawRadar(formatted.affinity.dimensions);

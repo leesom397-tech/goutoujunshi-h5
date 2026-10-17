@@ -2,25 +2,33 @@
 
 ## 使用
 
-1. 下载 `chengzi-wechat-collector-windows.zip`，完整解压，双击 `启动成子助手.cmd`。第一次会从成子网站下载并逐块校验免 Python 的助手；之后直接启动。
-2. 打开并登录 Windows 微信，保持桌面未锁定。
-3. 在成子网页输入助手窗口的 8 位连接码，选择“聊天”或“朋友圈”，填写好友的完整、唯一备注，选择数量后开始。
-4. 采集会打开指定界面并滚动，聊天可能被标为已读。采集期间暂时不要操作微信。可在网页或本机窗口随时停止。
-5. 在网页预览采集结果。**只有用户确认后，网页才导入所选材料或调用既有千问分析。助手自身没有云端上传接口。**
+1. 在成子网页下载 `ChengziWeChatCollector-Setup-1.2.4.exe` 并双击打开。首次启动会在图形窗口中显示下载和安装进度；安装到当前 Windows 用户目录后自动打开助手，后续双击同一个 EXE 即可启动。无需解压 ZIP、运行脚本或安装 Python。
+2. 打开并登录 Windows 微信。
+3. 助手启动后自动打开成子导入页并连接。没有自动连接时，可在助手窗口点击“打开网页并连接”，或在网页使用助手显示的 8 位备用连接码。
+4. 在网页选择“聊天”或“朋友圈”，填写好友的完整、唯一备注，再点击导入。后台聊天可连续分页读取电脑上已有的完整历史；中途停止后可继续，之后也可导入新增记录。手机上尚未同步到电脑的记录需先通过微信导出到电脑。
+5. 后台聊天导入和语音补全不操作微信窗口，可以继续使用电脑。朋友圈仍通过界面采集，期间保持桌面未锁定、暂时不要操作微信。可在网页或本机窗口随时停止。
+6. 结果保存到当前浏览器的本地原文库，可随时查看。**只有用户确认后，网页才提交所选材料给既有千问分析。助手自身没有云端上传接口。**
+
+### 首次打开的 Windows 安全提示
+
+当前发布包尚未使用公共代码签名证书，Windows 10/11 首次运行可能显示“Windows 已保护你的电脑”，并把应用标为无法识别。这是 SmartScreen 对新下载文件的声誉提示，不代表助手已被检测为恶意软件。请先确认文件是从成子官网本页面下载的，再点“更多信息”→“仍要运行”；来源不确定时点“不运行”。企业电脑的安全策略可能不允许绕过此提示。
 
 关闭助手即断开连接。换码会撤销原网页令牌并清空暂存结果。任务结果仅在本机内存保留最多 15 分钟，不写聊天日志或自动创建内容文件。
 
+自动连接在助手启动后由本机打开浏览器发起，也可在本机点击按钮重试。链接中的一次性凭证两分钟有效，只能由成子正式网站兑换一次；网页取出后立即清除链接片段。八小时会话令牌保存在内存中，不放入链接或写入文件。连接本身不会读取聊天；导入中不能通过一键连接替换当前会话。
+
 ## 实际能力与限制
 
-- Windows 10/11 x64，已登录的微信 4.1.6+，实际兼容性仍受微信 UI 更新、缩放和账号 UI 可见性影响。Mac 不运行此助手。
+- Windows 10/11 x64，已登录的微信 4.x；1.1.0 后台链路已在微信 4.1.15.13 验证，其他版本仍需在任务开始时核验。界面采集的兼容性受微信 UI 更新、缩放和账号 UI 可见性影响。Mac 不运行此助手。
 - **1.0.1** 已在微信 **4.1.15.13** 完成用户明确授权的指定联系人实测：两次各 20 条聊天，发送人与原文顺序核对通过；第二次网页本地导入新增 0 条。另验证 3 条当前可见朋友圈；测试材料仅保留本机，不包含在安装包中。
-- 通过 UI 自动化读取用户点选的一位好友，不遍历全部联系人，不读取/解密微信数据库，不发送消息、点赞、评论或下载聊天文件。
-- 会从本人资料弹窗的**可见微信号**确认账号；采集结束再核对，发生切号即丢弃结果。未读取到账号标识则报错，不使用固定“local”账号合并。
+- **1.0.3** 增加有界的微信原生语音转文字尝试、语音状态校验及本机 OCR 组件。自动转文字要求微信暴露可定位的语音和菜单控件；未取得正文会保留占位并说明原因。微信只暴露 Qt 窗口外壳时，当前版本尚不能完成全自动采集/转写，也不会因包含 OCR 组件就把它报告为成功。
+- 后台聊天在本机只读解析当前账号必要的聊天与语音数据库，仅查询指定联系人的正文和语音；密钥只在任务内存中使用，不保存、不上传，不生成解密数据库文件。不发送消息、点赞、评论或遍历其他联系人的聊天正文。
+- 后台任务根据当前登录状态确认账号，每批结果交付前再次核验；账号变化立即停止。界面模式从本人资料弹窗的**可见微信号**确认账号；采集结束再核对。未读取到账号标识则报错，不使用固定“local”账号合并。
 - 目前限一对一聊天；群聊明确拒绝。发送人无法确认时保留 `unknown`，不把未知默认当对方。
-- 聊天最多 500 条；朋友圈最多 50 条。聊天从新到旧遍历、结果按旧到新排列；朋友圈保持新到旧。`source.uiIndex`保留原界面次序。保留重复短句和原时间标签，不将“昨天”伪造为精确时间。
-- 图片/表情和朋友圈配图保存的是**可见消息/详情区域截图**，可能仅含缩略图。不是原始媒体下载。语音、视频未转写。不绕过朋友圈可见范围。
-- 微信不给 UI 消息稳定 ID；`id` 为空，`source.contentFingerprint` 仅供诊断，不能拿它代替消息 ID 去重。网页依靠顺序重叠做增量去重。
-- 多账号同时登录、重名好友、不可访问的 UI、锁屏或其他弹窗会导致失败；不会用整屏无差别截图替代指定好友采集。
+- 1.2.0 后台历史导入每页最多 500 条，网页可连续取下一页，因此完整历史不受旧版单次 1000 条上限限制。停止时保留已导入页面，可继续读取；完成后使用快照识别新增记录。旧单次后台请求仍最多 1000 条，界面聊天最多 500 条，朋友圈最多 50 条。聊天结果按旧到新排列；朋友圈保持新到旧。界面模式的 `source.uiIndex` 保留原界面次序。保留重复短句和原时间标签，不将“昨天”伪造为精确时间。
+- 后台聊天当前读取文字及可用语音，图片、表情、视频保留类型占位。界面模式的图片/表情和朋友圈配图保存为**可见消息/详情区域截图**，可能仅含缩略图。不是原始媒体下载。后台语音使用本机转写；界面模式读取已显示的转文字。两者均保留语音来源与状态，未取得正文的语音不参与文字分析，时长与转换失败提示不会当作正文。视频未转写。不绕过朋友圈可见范围。
+- 后台消息使用账号、联系人、分片及消息 ID 核验去重。界面模式没有稳定消息 ID，网页依靠顺序重叠做增量去重；`source.contentFingerprint` 仅供诊断。两种来源不能只凭相似文字强行合并。
+- 多账号同时登录或重名好友会导致任务停止；不可访问的 UI、锁屏或其他弹窗还会影响界面采集。不会用整屏无差别截图替代指定好友采集。
 - 搜索仅接受一个精确匹配的本地联系人；出现多个同名项会停止，不默认选第一人，也不触发网络手机/账号查找。首次采集仍请核对账号、发送人和内容后再确认导入。
 
 ## 固定上游与许可
@@ -31,6 +39,7 @@
 - 核查：`src/pyweixin/WeChatAuto.py` 的 `Messages.dump_chat_history`、`Moments.dump_friend_posts`；`WeChatTools.py` 的 `Navigator.open_chat_history`、`Navigator.open_friend_moments`、`Tools.select_chatHistoryList`。
 - 原生 `save_detail` 会使用剪贴板并可保存视频，本助手没有调用它。使用固定版本导航方法和有界列表读取，截图只在内存中生成。
 - 源仓库 `LICENSE` 是 LGPL 2.1 文本，包 metadata 的 classifier 标为 LGPLv3，存在不一致。这里保留原许可 `LICENSE-pywechat.txt`，并提供固定上游源代码、助手源代码和重建方法；未修改上游库。此说明不替代上游许可。
+- 后台读取的固定原语来源与 Apache-2.0 许可见 `vendor/NOTICE.md`、`vendor/LICENSE.wechatauto-replica.txt`；本机语音依赖和模型许可见 `LICENSE-voice-dependencies.txt`。包内 `source/third-party-licenses` 保留已安装依赖的许可文件。
 
 ## 开发与打包
 
@@ -42,29 +51,81 @@ py -3.12 -m venv .venv
 .venv/Scripts/python.exe main.py
 ```
 
-`--probe` 只读取进程、安装版本、顶层窗口类，绝不读聊天正文。`main.py` 启动后仅监听并显示窗口，不自动采集。
+`--probe` 只读取进程、安装版本、顶层窗口类，绝不读聊天正文。成品为无控制台程序，可显式使用 `--probe --probe-output C:\指定目录\health.json` 保存这些元数据；该路径只能由本机命令行提供，普通启动不会写文件。`main.py` 启动后仅监听并显示窗口，不自动采集。
+
+### Windows SmartScreen 与发布签名
+
+Windows Defender SmartScreen 的“Windows 已保护你的电脑 / 无法识别的应用”提示，原因是安装程序或助手没有使用受 Windows 信任的 Authenticode 证书签名，或者证书还没有形成发布者信誉。文件哈希校验只能证明下载未被篡改，不能代替发布者签名；加入版本信息、图标或修改文件名也不能安全地关闭 SmartScreen。
+
+本仓库不生成自签名证书，也不修改 Defender 设置。拿到受信任的代码签名证书（或 Microsoft Artifact Signing）后，在发布机执行 `sign_release.ps1`，再按脚本提示重新生成 manifest、分片和外层启动程序。签名完成后可在文件属性「数字签名」中核对发布者；没有证书时，用户只能通过 Windows 的「更多信息 → 仍要运行」确认自己信任的下载来源，不能在程序内绕过系统拦截。
 
 ```powershell
-.venv/Scripts/python.exe -m PyInstaller --noconfirm --onedir --windowed --name ChengziWeChatCollector --collect-all pyweixin --copy-metadata pywechat127 --hidden-import pythoncom --hidden-import pywintypes --collect-submodules comtypes --exclude-module matplotlib --exclude-module pandas main.py
-.venv/Scripts/python.exe package_release.py
+# 证书已安装在当前用户“个人”证书库
+.\sign_release.ps1 -ReleaseDir .\dist\1.2.4\release -Thumbprint <40位指纹>
 ```
 
-`dist/release/` 下的 bootstrap zip、manifest 与所有 part 文件应一起发布到同一网站的 `/downloads/`。每个 part 不超过 12 MiB，适合静态资源大小限制。禁止只发布 zip 而漏掉 parts。`dist/ChengziWeChatCollector/` 也可完整复制到没有 Python 的 Windows 电脑运行。
+```powershell
+.venv/Scripts/python.exe -m PyInstaller --noconfirm --distpath dist/1.2.0 --workpath build/1.2.0 ChengziWeChatCollector.spec
+.venv/Scripts/python.exe package_release.py --app dist/1.2.0/ChengziWeChatCollector
+```
+
+上述独立构建的输出在 `dist/1.2.0/release/`，不会覆盖旧版本目录。bootstrap zip、manifest 与所有 part 文件应一起发布到同一网站的 `/downloads/`。每个 part 不超过 12 MiB，适合静态资源大小限制。禁止只发布 zip 而漏掉 parts。`dist/1.2.0/ChengziWeChatCollector/` 也可完整复制到没有 Python 的 Windows 电脑运行。可将 `--distpath`、`--workpath` 和 `--app` 指向另一磁盘上的独立版本目录。`package_release.py` 不传参数时仍默认使用 `dist/ChengziWeChatCollector/` 并输出到 `dist/release/`；打包脚本自身不上传文件。发布前检查 OCR、语音、数据库原生组件，并运行 `--voice-self-test` 与 `--database-self-test`；两种自检都使用合成数据，不读取真实微信。
+
+## 速度与语音
+
+### 1.2.0：一键连接与完整历史
+
+新增本机按钮发起的一次性网页连接、会话有效性校验，以及指定联系人的分页、续读和增量快照。分页请求始终核验账号、联系人和消息分片，只读取用户指定的聊天；游标不包含数据库密钥、聊天正文或可执行查询。每页结果交付前仍检查来源是否变化。
+
+本版本使用合成多页聊天、并发连接和过期凭证验证程序行为；冻结程序还需通过合成语音、加密数据库及只读保护自检。此处不声称已完成真实账号完整历史的端到端验证。下列 1.1.0 真机记录仅说明当时验证过的有限范围。
+
+### 1.1.0 验证记录：手机同步与后台语音
+
+本分支已接入同步指引、后台任务、稳定消息去重和本机语音转写。**2026-10-15，在用户明确授权的 Windows 微信 4.1.15.13 与实际网页中，指定联系人最近 500 条聊天约 9.47 秒完成导入，该范围内的 68 条语音全部转写，补全任务约 25.27 秒。** 随后将单次范围设为 1000 条，本机实际返回 620 条聊天、99 条语音，99 条全部完成转写，本地缺失与识别失败均为 0。后一次任务约 18.81 秒，其中前 68 条语音复用了缓存，不能作为 99 条语音全部首次转写的速度基准。
+
+以上测试使用已准备好的本机模型；不代表其他设备、首次模型下载或未同步到电脑的更长历史。旧界面原文库使用不同来源标识，保留原有记录与报告，不能仅凭后台语音总数就认定旧库每条占位均已对应补全。此处记录验证结果，不代表安装包已发布。
+
+健康检查只报告组件是否齐备，返回 `backgroundStatus:components-ready`，不扫描账号密钥或私有数据库。实际任务仍会核对当前账号、数据库完整性和指定联系人；不兼容时明确失败，不能把组件就绪当作成功读取。共享库密钥仅保留在本机任务内存，不保存、不上传，正文查询仍限定为网页指定的联系人。
+
+若电脑缺少手机上的记录，可在手机微信选择「我 → 设置 → 聊天记录管理 → 导入与导出 → 导出到电脑」，只选择需要导入的联系人，并按微信提示在电脑确认。不同微信版本的入口可能位于「通用 → 聊天记录迁移与备份」。两端需登录同一账号并按微信提示连接网络。**“备份到电脑”是用于恢复的备份包，不等于电脑微信中可读取的聊天。** 导出完成后仍需检查语音音频是否实际存在；不能仅凭同步完成就报告语音全部可用。
+
+后台任务分两次主动操作：
+
+1. 快速导入聊天，检查语音总数、已转写数及本地缺失数。此步骤不下载语音模型、不读取音频内容、不主动操作微信窗口。
+2. 用户点击补全语音后，才读取选定聊天中已存在的音频，在本机转写并逐条更新网页。缺失音频保留占位；不会把缺失或识别失败的语音当作已读取正文。
+
+本地转写依赖 SenseVoice int8 模型。首次需要下载约 163 MB，此后复用。下载仅来自固定官方模型地址（固定提交备用地址），通过 SHA256 校验后安装，支持断点续传。音频与解码 PCM 不写入文件、不上传；转写文本缓存在当前 Windows 用户的 `%LOCALAPPDATA%/ChengziWeChatCollector/voice/transcripts`，按账号、联系人、消息及音频摘要隔离。开发测试可用本机环境变量 `CHENGZI_VOICE_DATA_DIR` 指定单独目录；网页请求不能指定路径或模型地址。
+
+自动转写可能出现同音字等错误，应标为“自动转写，可核对”。公开的 5.592 秒中文测试音频在本机模型加载后约 0.156 秒完成识别，此结果仅用于验证本机链路，不能作为所有设备、音频及首次下载的速度承诺。
+
+后台读取成功后，停止或失败仍保留已经完成的聊天与转写。重复导入按账号、联系人、消息分片和消息 ID 核对，不把旧版界面采集使用的账号别名强行合并到数据库账号。朋友圈目前继续使用界面采集。
+
+### 已发布 1.0.3 的界面采集
+
+默认只快速读取聊天、语音位置和界面中已有的转写文字，完成后释放微信。不会自动启动耗时的语音转写。
+
+需要补全语音时，在原文库单独点击“补全语音 · 需微信前台”。原生转写必须保持微信在前台；切换窗口或点击停止会中止操作。第一遍已核验的聊天会先显示并保存在浏览器，停止或出错不会丢弃这部分材料。尚未转好的语音明确标为未读，不作为文字参与分析。
+
+Qt-only 界面的视觉补全仍处于验证阶段，未作为兼容性通过的通用后台功能发布。
 
 ## HTTP 协议
 
 只绑定 `127.0.0.1:17863`，不监听局域网。
 
-允许的 Origin 精确为：`https://coach.lovetalk.love`，以及 localhost/127.0.0.1 的 3000、5173、4173 端口；不接受其他域名、端口、空 Origin 或 `null`。所有接口检查 Host。除 health/pair/OPTIONS 外要求 `Authorization: Bearer <token>`，令牌绑定配对来源，8 小时失效。
+允许的 Origin 精确为：`https://coach.lovetalk.love`，以及 localhost/127.0.0.1 的 3000、5173、4173 端口；不接受其他域名、端口、空 Origin 或 `null`。一次性网页连接只允许正式网站兑换。所有接口检查 Host。除 health/pair/pair/handoff/OPTIONS 外要求 `Authorization: Bearer <token>`，令牌绑定配对来源，8 小时失效。
 
 | 接口 | 输入/返回 |
 |---|---|
-| `GET /health` | `{version,protocol,ready,message,capabilities:{chat,moments},wechatVersion?}` |
+| `GET /health` | `{version,protocol,ready,message,capabilities:{chat,moments,deferredVoice,backgroundChat?,backgroundVoice?,backgroundHistory?},backgroundModelReady?,backgroundStatus?,backgroundMessage?,backgroundMaxRows?,backgroundPageSize?,wechatVersion?}`；`ready` 表示界面可用性，后台字段表示组件是否齐备；`backgroundMaxRows` 表示旧单次上限，`backgroundPageSize` 表示历史页大小上限；账号与材料兼容性在任务中核验 |
 | `POST /pair` | `{code}` → `{token,expiresIn:28800,version}`；码10分钟有效，5次失败后每分钟限流，成功即换码 |
-| `POST /capture` | `{kind:'chat'|'moments',friend:string,limit:number}` → HTTP202 `{jobId}` |
-| `GET /jobs/{jobId}` | `{jobId,status:'running'|'completed'|'failed'|'cancelled',progress,message,result?,error?:{code,message}}` |
-| `POST /jobs/{jobId}/cancel` | `{}` → `{jobId,status}`；终止子进程并丢弃结果 |
+| `POST /pair/handoff` | `{handoff}` → `{token,expiresIn:28800,version}`；本机按钮生成的凭证120秒有效、只能兑换一次，与连接码共用失败限流；没有通过HTTP生成凭证的入口 |
+| `GET /session` | 已认证 → `{connected:true,expiresIn:number,version}`；令牌无效或已过期返回401，网页回到连接步骤 |
+| `POST /capture` | `{kind:'chat'|'moments',friend:string,limit?:number,includeVoice?:boolean,mode?:'ui'|'background',pageSize?:number,direction?:'forward'|'backward',cursor?:string,since?:string}` → HTTP202 `{jobId}`；分页字段仅用于后台聊天，`cursor` 与 `since` 不能同时传入；旧请求仍需要 `limit` |
+| `GET /jobs/{jobId}` | `{jobId,status:'running'|'completed'|'failed'|'cancelled',progress,message,partial?,partialRevision?,result?,error?:{code,message}}` |
+| `POST /jobs/{jobId}/cancel` | `{}` → `{jobId,status}`；终止子进程，保留已核验的 partial；不会自动开始分析 |
 
 `result` 为 `{version:1,kind,friend,account,capturedAt,records,warnings}`；record 为 `{id:'',kind,sender,senderRole,at,text,source,images?}`。`images` 为 `{mime:'image/jpeg',name,data:<base64>}`，不接收本地路径。完整原文保留在 `text`，source 包含界面位置标签、原时间标签、顺序、采集方法及上游版本，不重复存放长段正文。
 
-错误不含聊天正文、路径或上游异常堆栈。请求体最多4 KiB，同一时刻最多一个采集，3分钟强制超时，HTTP并发最多12个连接。无任意文件读取、命令执行或代理接口。
+历史页的 `result` 另含 `history:{version:1,direction,count,hasMore,nextCursor,snapshot,complete}`。后续页传回 `nextCursor`；历史读完后可用 `snapshot` 作为 `since` 请求新增记录。网页每页完成即保存已导入的材料和续读位置。
+
+错误不含聊天正文、路径或上游异常堆栈。请求体最多64 KiB，游标字符串最多24,000字符，同一时刻最多一个采集；界面任务3分钟、后台任务20分钟强制超时（包含首次模型下载），HTTP并发最多12个连接。无任意文件读取、命令执行或代理接口。

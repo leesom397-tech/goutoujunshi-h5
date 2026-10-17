@@ -2,7 +2,6 @@
 import { BrandMark } from "@/components/BrandMark";
 
 import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Check, ChevronRight, ImagePlus, RotateCcw, ShieldCheck, Sparkles } from "lucide-react";
@@ -161,7 +160,7 @@ export default function QuickPage() {
   const requiresImageConsent = !status?.imageEnabled || status.imageSelfSide !== selfSide;
 
   return <main className="quick-page">
-    <header className="quick-head"><Link href="/" aria-label="成子 首页"><BrandMark/> 成子</Link><Link href="/analyze?mode=chat">完整分析 <ChevronRight size={15}/></Link></header>
+    <header className="quick-head"><a href="/" aria-label="成子 首页"><BrandMark/> 成子</a><a href="/analyze?mode=chat">完整分析 <ChevronRight size={15}/></a></header>
     <section className="quick-hero">
       <span className="quick-kicker">聊天截图 · 逐句解读</span>
       <h1>发张图，<br/><em>看清下一步。</em></h1>
@@ -169,7 +168,7 @@ export default function QuickPage() {
       <div className="quick-trust"><span><Check size={15}/> 逐句而非只挑三句</span><span><Check size={15}/> 同账号接续档案</span></div>
     </section>
 
-    {auth === "out" ? <section className="quick-card quick-login"><div className="quick-number">01</div><h2>用已有 成子 账号继续</h2><p>登录后，微信小程序和网页看到的是同一份关系资料。</p><Link className="quick-primary" href="/login?return_to=%2Fquick">登录后发图 <ArrowRight size={18}/></Link></section> :
+    {auth === "out" ? <section className="quick-card quick-login"><div className="quick-number">01</div><h2>用已有 成子 账号继续</h2><p>登录后，微信小程序和网页看到的是同一份关系资料。</p><a className="quick-primary" href="/login?return_to=%2Fquick">登录后发图 <ArrowRight size={18}/></a></section> :
     <section className="quick-card">
       <div className="quick-title"><span className="quick-number">01</span><div><h2>选择聊天截图</h2><p>只选本人参与的双人单聊；语音请先转成文字再截图。</p></div></div>
       <input ref={fileInput} type="file" accept="image/png,image/jpeg" hidden onChange={event => choose(event.target.files?.[0])}/>
@@ -181,7 +180,7 @@ export default function QuickPage() {
         <label>这是谁的聊天？<select disabled={busy || auth !== "in"} value={subjectId} onChange={event => { setSubjectId(event.target.value); setResult(null); sessionId.current = null; requestId.current = null; }}><option value="">这次先不归档</option>{people.map(person => <option key={person.id} value={person.id}>{person.label}</option>)}</select></label>
         <label>我在截图哪侧？<select disabled={busy || auth !== "in"} value={selfSide} onChange={event => { setSelfSide(event.target.value as "right" | "left" | ""); setImageConsent(false); setResult(null); requestId.current = null; sessionId.current = null; }}><option value="">请选择哪侧是我</option><option value="right">右侧绿色气泡</option><option value="left">左侧气泡</option></select></label>
       </div>
-      <p className="quick-person-note">{subjectId ? "本次分析会接入选中对象的近期聊天；长期事实仍由你确认后保存。" : "先作为临时聊天处理，不会自动归入某个人的长期档案。"} <Link href="/profile">管理对象</Link></p>
+      <p className="quick-person-note">{subjectId ? "本次分析会接入选中对象的近期聊天；长期事实仍由你确认后保存。" : "先作为临时聊天处理，不会自动归入某个人的长期档案。"} <a href="/profile">管理对象</a></p>
       <div className="quick-consents">
         <label><input type="checkbox" checked={rights} disabled={busy || auth !== "in"} onChange={event => setRights(event.target.checked)}/> 我确认有权提供这张本人双人单聊截图</label>
         {requiresChatConsent && <label><input type="checkbox" checked={chatConsent} disabled={busy || auth !== "in"} onChange={event => setChatConsent(event.target.checked)}/> 同意聊天文字交由阿里云千问分析，并在本站保留文字与报告 7 天</label>}
@@ -201,7 +200,7 @@ export default function QuickPage() {
           const annotation = result.annotations.find(item => item.lineId === line.id);
           return <article className={"quick-line " + (line.speaker === "self" ? "mine" : "theirs")} key={line.id || index}><div className="quick-line-top"><span>{line.speaker === "self" ? "我" : line.speaker === "other" ? "对方" : "说话人待确认"}</span><small>#{index + 1}</small></div><p className="quick-quote">{line.text}</p>{annotation && <><div className="quick-tags">{annotation.emotion.slice(0, 3).map(tag => <span className="emotion" key={tag.key}>{tag.label} {probabilityText(tag.probability)}</span>)}{annotation.intent.slice(0, 3).map(tag => <span className="intent" key={tag.key}>{tag.label} {probabilityText(tag.probability)}</span>)}</div>{annotation.note && <p className="quick-note">{annotation.note}</p>}</>}</article>;
         })}</div>
-        <div className="quick-actions"><Link className="quick-primary" href={"/crush?id=" + encodeURIComponent(result.id)}>看完整报告与六维互动图 <ArrowRight size={17}/></Link><button onClick={() => { setResult(null); setFile(null); setPreview(""); setSelfSide(""); setImageConsent(false); requestId.current = null; sessionId.current = null; }}><RotateCcw size={16}/> 看另一张图</button></div>
+        <div className="quick-actions"><a className="quick-primary" href={"/crush?id=" + encodeURIComponent(result.id)}>看完整报告与六维互动图 <ArrowRight size={17}/></a><button onClick={() => { setResult(null); setFile(null); setPreview(""); setSelfSide(""); setImageConsent(false); requestId.current = null; sessionId.current = null; }}><RotateCcw size={16}/> 看另一张图</button></div>
       </> : <div className="quick-example"><div><span>对方</span><p>周六要加班，周日倒是有空。</p><small>平静 · 给出替代安排</small></div><div><span>我</span><p>那周日下午？</p><small>直接推进 · 时间确认</small></div><div className="quick-example-foot">判断：对方没有只拒绝周六，而是提供了周日这个可行时间。<br/>下一步：确认周日具体时段，不必再试探好感。</div><small>演示案例，不是你的分析结果</small></div>}
     </section>
   </main>;

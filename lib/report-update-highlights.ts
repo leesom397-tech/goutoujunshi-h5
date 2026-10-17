@@ -9,7 +9,7 @@ export function reportUpdateHighlights(update:AutomaticRelationshipUpdate|null|u
   const sources=card.sources.filter(source=>source.text?.trim()&&source.reportId),fresh=sources.filter(source=>ids.has(source.reportId)),past=sources.filter(source=>!ids.has(source.reportId));
   if(!fresh.length)continue;
   if(["action","consistency"].includes(card.kind)&&!past.length)continue;
-  if(past.length&&!fresh.some(source=>!past.some(old=>normalize(old.text)===normalize(source.text))))continue;
+  if(past.length&&card.kind!=="pattern"&&!fresh.some(source=>!past.some(old=>normalize(old.text)===normalize(source.text))))continue;
   const key=card.kind+sources.map(source=>normalize(source.text)).sort().join("|");
   if(cards.some(old=>old.kind+old.sources.map(source=>normalize(source.text)).sort().join("|")===key))continue;
   cards.push({...card,sources});

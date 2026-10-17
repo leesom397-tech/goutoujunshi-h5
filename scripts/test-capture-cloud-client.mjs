@@ -1,0 +1,169 @@
+import assert from 'node:assert/strict';
+import {build} from 'esbuild';
+import {createServer} from 'node:http';
+import {mkdir,readFile,writeFile} from 'node:fs/promises';
+import path from 'node:path';
+import puppeteer from 'puppeteer-core';
+
+// Runs real client + IndexedDB code in an isolated headless browser. All fetches
+// are synthetic; no real login, materials, server mutation, or model request.
+const output=path.resolve('.tmp/qa-capture-cloud-client');await mkdir(output,{recursive:true});
+await build({stdin:{contents:`import * as client from './lib/capture-cloud-client';import * as vault from './lib/desktop-capture-vault';import * as capture from './lib/desktop-capture';import * as contract from './lib/capture-cloud';Object.assign(window,{client,vault,capture,contract});`,resolveDir:process.cwd(),loader:'ts'},bundle:true,platform:'browser',format:'iife',outfile:path.join(output,'fixture.js'),logLevel:'silent'});
+const server=createServer(async(req,res)=>{res.setHeader('content-type',req.url==='/fixture.js'?'application/javascript':'text/html');res.end(req.url==='/fixture.js'?await readFile(path.join(output,'fixture.js')):'<!doctype html><meta charset="utf-8"><title>Synthetic cloud client QA</title><script src="/fixture.js"></script>')});await new Promise(resolve=>server.listen(0,'127.0.0.1',resolve));
+const browser=await puppeteer.launch({headless:true,executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe',args:['--no-sandbox']}),page=await browser.newPage(),errors=[],results=[];
+page.on('pageerror',e=>errors.push(e.message));
+await page.goto(`http://127.0.0.1:${server.address().port}`,{waitUntil:'networkidle0'});
+await page.evaluate(()=>{
+ window.owner='synthetic-owner-a';window.at='2026-10-16T01:00:00.000Z';window.cloudId='cl_'+'a'.repeat(64);
+ window.record=(id,text='原文 '+id,extra={})=>({localId:id,id:'message-'+id,namespace:capture.captureNamespaceKey({ownerId:owner,account:'synthetic-wechat',friend:'合成联系人',kind:'chat'}),kind:'text',sender:'我',senderRole:'self',at:'2026-10-15T12:00:00.000Z',text,source:{label:'合成原文',method:'wechat-local-db',messageId:'message-'+id,mediaKind:'text'},firstCapturedAt:at,lastCapturedAt:at,...extra});
+ window.info=(records,epoch=1,links=[])=>({id:cloudId,account:'synthetic-wechat',friend:'合成联系人',kind:'chat',createdAt:at,updatedAt:at,total:records.length,epoch,subjectId:null,warnings:[],reportLinks:links,mediaIncluded:true});
+ window.seed=async(records,epoch=1,links=[])=>vault.cacheCloudCaptureLibrary(owner,{...info(records,epoch,links),records,reportLinks:links,cloud:{id:cloudId,epoch,enabled:true,total:records.length,syncedAt:at,digests:{},mediaDigests:{}}});
+ window.reset=async()=>{await new Promise((resolve,reject)=>{const request=indexedDB.deleteDatabase('chengzi-desktop-capture-v1');request.onsuccess=resolve;request.onerror=reject;request.onblocked=()=>reject(Error('synthetic IDB deletion blocked'));});window.calls=[];window.responseOwner=owner;window.remoteRecords=[];window.remoteInfo=info([]);window.remoteMedia=null;window.syncHook=null;window.fetch=window.mockFetch;};
+ window.fetch=async(url,options={})=>{
+   const query=new URL(String(url),location.origin).searchParams,body=options.body?JSON.parse(options.body):null;calls.push({url:String(url),method:options.method||'GET',body});
+   let result={ownerId:responseOwner};
+   if(body?.action==='sync'){for(const row of body.records){const index=remoteRecords.findIndex(old=>old.localId===row.localId);if(index<0)remoteRecords.push(row);else remoteRecords[index]=row;}remoteInfo={...remoteInfo,total:remoteRecords.length};result={...result,library:remoteInfo,conflicts:[]};}
+   else if(body?.action==='sync-media')result={...result,ready:true};
+   else if(body?.action==='link-report')result={...result,linked:true,library:remoteInfo};
+   else if(query.has('mediaId'))result={...result,media:remoteMedia,data:remoteMedia.data,chunkIndex:Number(query.get('chunk'))};
+   else if(query.has('id'))result={...result,library:remoteInfo,records:remoteRecords,nextCursor:null};
+   else result={...result,libraries:remoteRecords.length?[remoteInfo]:[],nextCursor:null};
+   if(body?.action==='sync'&&window.syncHook){const hook=window.syncHook;window.syncHook=null;await hook(body);}
+   return new Response(JSON.stringify(result),{status:200,headers:{'content-type':'application/json'}});
+ };
+ window.mockFetch=window.fetch;
+ window.imageSet=async(count=7)=>{
+   const data='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aY1cAAAAASUVORK5CYII=',bytes=Uint8Array.from(atob(data),ch=>ch.charCodeAt(0));
+   const sha=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),byte=>byte.toString(16).padStart(2,'0')).join('');
+   const rows=Array.from({length:count},(_,index)=>record('image-'+index,'',{kind:'image',images:[{mime:'image/png',name:'image-'+index+'.png',data}]}));
+   const media=rows.map((row,index)=>({id:'cm_'+String(index+1).padStart(64,'0'),index:0,mime:'image/png',name:row.images[0].name,bytes:bytes.length,chunks:1,sha256:sha,status:'ready',data}));
+   return{rows,media,sha,cloudRows:rows.map((row,index)=>({...contract.sanitizeCloudCaptureRecord(row),media:[media[index]]}))};
+ };
+ window.trackMedia=(media,{failAt=0,report=null}={})=>{
+   const stats={active:0,max:0,started:0,settled:0,gets:0,uploads:0,reportWhileActive:0,events:[]};
+   window.fetch=async(url,options={})=>{
+     const query=new URL(String(url),location.origin).searchParams,body=options.body?JSON.parse(options.body):null;
+     if(body?.action==='link-report'&&stats.active)stats.reportWhileActive++;
+     if(query.has('reportId')&&report)return new Response(JSON.stringify({ownerId:owner,...report}),{status:200});
+     const download=query.has('mediaId'),upload=body?.action==='sync-media';
+     if(!download&&!upload)return mockFetch(url,options);
+     const ordinal=++stats.started;stats.active++;stats.max=Math.max(stats.max,stats.active);if(download)stats.gets++;else stats.uploads++;
+     stats.events.push(['start',ordinal]);
+     try{
+       // A fast failure while the other two workers are still running; successful
+       // responses intentionally finish out of order to exercise ACK persistence.
+       await new Promise(resolve=>setTimeout(resolve,ordinal===failAt?5:[65,35,50][(ordinal-1)%3]));
+       if(ordinal===failAt)return new Response(JSON.stringify({error:'synthetic media failure'}),{status:503});
+       if(upload)return mockFetch(url,options);
+       const ref=media.find(item=>item.id===query.get('mediaId'));if(!ref)throw Error('unknown synthetic media');
+       return new Response(JSON.stringify({ownerId:owner,media:ref,data:ref.data,chunkIndex:Number(query.get('chunk'))}),{status:200});
+     }finally{stats.active--;stats.settled++;stats.events.push(['finish',ordinal]);}
+   };
+   return stats;
+ };
+});
+const check=async(name,fn)=>{try{await page.evaluate(()=>reset());await fn();results.push({name,status:'pass'});console.log('PASS '+name)}catch(error){results.push({name,status:'fail',message:error.message});console.error('FAIL '+name+': '+error.message)}};
+try{
+ await check('owner mismatch never writes or uploads another account material',async()=>{
+   const result=await page.evaluate(async()=>{const lib=await seed([record('1')]);let rejected=false;try{await client.syncCaptureLibrary('synthetic-owner-b',lib)}catch{rejected=true}const callsBefore=calls.length;responseOwner='synthetic-owner-b';remoteRecords=[contract.sanitizeCloudCaptureRecord(record('2'))];remoteInfo=info(remoteRecords);try{await client.downloadCloudCaptureLibrary(owner,cloudId)}catch{}return{rejected,callsBefore,otherCount:(await vault.listCaptureLibraries('synthetic-owner-b')).length,original:(await vault.getCaptureLibrary(owner,lib.id)).records.map(r=>r.localId)};});
+   assert.equal(result.rejected,true);assert.equal(result.callsBefore,0);assert.equal(result.otherCount,0);assert.deepEqual(result.original,['1']);
+ });
+ await check('cloud refresh preserves a conflicting newer local transcript',async()=>{
+   const result=await page.evaluate(async()=>{const source={label:'合成语音',method:'wechat-local-db',mediaKind:'voice',transcriptionStatus:'visible-text'};const local=record('voice','本机新转写',{source,lastCapturedAt:'2026-10-16T02:00:00.000Z'});const lib=await seed([local]);remoteRecords=[contract.sanitizeCloudCaptureRecord(record('voice','旧云端转写',{source}))];remoteInfo=info(remoteRecords);let rejected=false;try{await client.downloadCloudCaptureLibrary(owner,cloudId)}catch{rejected=true}const kept=await vault.getCaptureLibrary(owner,lib.id);return{rejected,text:kept.records[0].text,conflict:kept.records[0].source.cloudConflict};});
+   assert.equal(result.text,'本机新转写','opening cloud may not erase the locally retained conflicting version');assert.ok(result.rejected||result.conflict,'difference is explicit rather than silently counted as synced');
+ });
+ await check('a voice upgrade cannot silently change the original speaker',async()=>{
+   const result=await page.evaluate(async()=>{const local=record('voice','语音5秒',{kind:'other',source:{label:'语音',mediaKind:'voice',transcriptionStatus:'pending'}});const lib=await seed([local]);remoteRecords=[contract.sanitizeCloudCaptureRecord(record('voice','云端语音文字',{sender:'对方',senderRole:'other',source:{label:'语音',mediaKind:'voice',transcriptionStatus:'visible-text'}}))];remoteInfo=info(remoteRecords);try{await client.downloadCloudCaptureLibrary(owner,cloudId)}catch{}return(await vault.getCaptureLibrary(owner,lib.id)).records[0];});
+   assert.equal(result.senderRole,'self');assert.equal(result.text,'语音5秒');
+ });
+ await check('restored cloud epoch cannot revive deleted old records',async()=>{
+   const result=await page.evaluate(async()=>{const old=await seed([record('old-deleted')],1);remoteRecords=[contract.sanitizeCloudCaptureRecord(record('new-restored'))];remoteInfo=info(remoteRecords,2);const next=await client.downloadCloudCaptureLibrary(owner,cloudId);const all=await vault.listCaptureLibraries(owner);const retired=all.find(item=>item.cloud?.retired);let retiredRejected=false;if(retired){const saved=await vault.getCaptureLibrary(owner,retired.id);try{await client.syncCaptureLibrary(owner,saved)}catch{retiredRejected=true}}return{newIds:next.records.map(row=>row.localId),epoch:next.cloud.epoch,retired:!!retired,retiredRejected,retiredIds:retired?(await vault.getCaptureLibrary(owner,retired.id)).records.map(row=>row.localId):[]};});
+   assert.equal(result.epoch,2);assert.deepEqual(result.newIds,['new-restored']);assert.equal(result.retired,true,'previous offline material remains separate');assert.deepEqual(result.retiredIds,['old-deleted']);assert.equal(result.retiredRejected,true,'retired library cannot silently re-enable upload');
+ });
+ await check('new local report memory evidence survives a stale cloud link',async()=>{
+   const result=await page.evaluate(async()=>{const rows=[record('analyzed'),record('local-memory'),record('cloud-memory')],reportId='11111111-1111-4111-8111-111111111111';const localLink={reportId,sourceIds:['analyzed'],memorySourceIds:['local-memory'],createdAt:at};const lib=await seed(rows,1,[localLink]);remoteRecords=rows.map(row=>contract.sanitizeCloudCaptureRecord(row));remoteInfo=info(rows,1,[{...localLink,memorySourceIds:['cloud-memory']}]);const next=await client.downloadCloudCaptureLibrary(owner,cloudId),evidence=await vault.readReportSources(owner,reportId);return{memory:next.reportLinks[0].memorySourceIds,records:evidence.memoryRecords.map(row=>row.localId)};});
+   assert.deepEqual(new Set(result.memory),new Set(['local-memory','cloud-memory']));assert.deepEqual(new Set(result.records),new Set(['local-memory','cloud-memory']));
+ });
+ await check('incompatible report source attribution is not overwritten by cloud cache',async()=>{
+   const result=await page.evaluate(async()=>{const rows=[record('local-source'),record('cloud-source')],reportId='11111111-1111-4111-8111-111111111111';const link={reportId,sourceIds:['local-source'],memorySourceIds:[],createdAt:at};const lib=await seed(rows,1,[link]);remoteRecords=rows.map(row=>contract.sanitizeCloudCaptureRecord(row));remoteInfo=info(rows,1,[{...link,sourceIds:['cloud-source']}]);try{await client.downloadCloudCaptureLibrary(owner,cloudId)}catch{}return(await vault.readReportSources(owner,reportId)).sourceIds;});
+   assert.deepEqual(result,['local-source']);
+ });
+ await check('downloaded cloud images are not uploaded again by automatic sync',async()=>{
+   const result=await page.evaluate(async()=>{const png='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aY1cAAAAASUVORK5CYII=',bytes=Uint8Array.from(atob(png),ch=>ch.charCodeAt(0));const sha=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),byte=>byte.toString(16).padStart(2,'0')).join('');remoteMedia={id:'cm_'+'b'.repeat(64),index:0,mime:'image/png',name:'synthetic.png',bytes:bytes.length,chunks:1,sha256:sha,status:'ready',data:png};remoteRecords=[{...contract.sanitizeCloudCaptureRecord(record('photo','',{kind:'image',images:[{mime:'image/png',name:'synthetic.png',data:png}]})),media:[remoteMedia]}];remoteInfo=info(remoteRecords);const lib=await client.downloadCloudCaptureLibrary(owner,cloudId);calls=[];await client.syncCaptureLibrary(owner,lib);return{images:lib.records[0].images.length,uploads:calls.filter(call=>call.body?.action==='sync-media').length};});
+   assert.equal(result.images,1);assert.equal(result.uploads,0,'cloud download establishes media hashes, avoiding a full upload immediately after download');
+ });
+ await check('a partially available image set never shifts its original image index',async()=>{
+   const result=await page.evaluate(async()=>{const png='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aY1cAAAAASUVORK5CYII=',bytes=Uint8Array.from(atob(png),ch=>ch.charCodeAt(0));const sha=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),byte=>byte.toString(16).padStart(2,'0')).join('');remoteMedia={id:'cm_'+'c'.repeat(64),index:1,mime:'image/png',name:'second.png',bytes:bytes.length,chunks:1,sha256:sha,status:'ready',data:png};remoteRecords=[{...contract.sanitizeCloudCaptureRecord(record('partial-photo','',{kind:'image'})),imageCount:2,media:[remoteMedia]}];remoteInfo={...info(remoteRecords),mediaIncluded:false};const lib=await client.downloadCloudCaptureLibrary(owner,cloudId);calls=[];try{await client.syncCaptureLibrary(owner,lib)}catch{}return{uploadedIndices:calls.filter(call=>call.body?.action==='sync-media').map(call=>call.body.index),counts:calls.filter(call=>call.body?.action==='sync').flatMap(call=>call.body.records.map(row=>row.imageCount)),declared:lib.records[0].source.imageCount};});
+   assert.equal(result.declared,2);assert.ok(!result.uploadedIndices.includes(0),'the original second image cannot be uploaded as the first image');assert.ok(result.counts.every(count=>count===2),'a partial download does not shrink the declared source image count');
+ });
+ await check('network outage opens an explicitly marked local copy; identity changes do not',async()=>{
+   const result=await page.evaluate(async()=>{const lib=await seed([record('local')]);const item=(await vault.listCaptureLibraries(owner))[0];window.fetch=async()=>{throw new TypeError('synthetic offline')};const opened=await client.openSyncedCaptureLibrary(owner,item);window.fetch=mockFetch;responseOwner='synthetic-owner-b';let mismatchRejected=false;try{await client.openSyncedCaptureLibrary(owner,item)}catch{mismatchRejected=true}return{ids:opened.records.map(row=>row.localId),offline:opened.cloud.offline,mismatchRejected};});
+   assert.deepEqual(result.ids,['local']);assert.equal(result.offline,true);assert.equal(result.mismatchRejected,true);
+ });
+ await check('records added by another tab during upload are drained before success',async()=>{
+   const result=await page.evaluate(async()=>{const lib=await seed([record('first')]);remoteInfo=info([]);syncHook=async()=>{const current=await vault.getCaptureLibrary(owner,lib.id);await vault.cacheCloudCaptureLibrary(owner,{...current,records:[...current.records,record('added-during-sync')],updatedAt:'2026-10-16T02:00:00.000Z'});};const synced=await client.syncCaptureLibrary(owner,lib);return{remoteIds:remoteRecords.map(row=>row.localId),localIds:synced.records.map(row=>row.localId)};});
+   assert.deepEqual(new Set(result.remoteIds),new Set(result.localIds));assert.ok(result.remoteIds.includes('added-during-sync'));
+ });
+ await check('unchanged full library sync sends no duplicate record bodies',async()=>{
+   const result=await page.evaluate(async()=>{let lib=await seed(Array.from({length:205},(_,i)=>record('message-'+i)));remoteInfo=info([]);lib=await client.syncCaptureLibrary(owner,lib);const batches=calls.filter(call=>call.body?.action==='sync').map(call=>call.body.records.length);calls=[];await client.syncCaptureLibrary(owner,lib);return{batches,second:calls.filter(call=>call.body?.action==='sync').reduce((sum,call)=>sum+call.body.records.length,0),remoteCount:remoteRecords.length};});
+   assert.deepEqual(result.batches,[100,100,5]);assert.equal(result.second,0);assert.equal(result.remoteCount,205);
+ });
+ await check('image upload is concurrent but bounded to 3 and retains every out-of-order ACK',async()=>{
+   const result=await page.evaluate(async()=>{const set=await imageSet(),reportId='11111111-1111-4111-8111-111111111111';const link={reportId,sourceIds:[set.rows[0].localId],memorySourceIds:[],createdAt:at};const lib=await seed(set.rows,1,[link]),stats=trackMedia(set.media),progress=[];remoteInfo=info([]);const synced=await client.syncCaptureLibrary(owner,lib,{onProgress:(done,total,phase)=>progress.push({done,total,phase})});const persisted=await vault.getCaptureLibrary(owner,lib.id);return{stats,ackKeys:Object.keys(persisted.cloud.mediaDigests),acksMatch:set.rows.every(row=>persisted.cloud.mediaDigests[JSON.stringify([row.localId,0])]===set.sha),resultAcks:Object.keys(synced.cloud.mediaDigests).length,progress,links:calls.filter(call=>call.body?.action==='link-report').length};});
+   assert.ok(result.stats.max>1&&result.stats.max<=3);assert.equal(result.stats.active,0);assert.equal(result.stats.uploads,7);assert.equal(result.ackKeys.length,7);assert.equal(result.resultAcks,7);assert.equal(result.acksMatch,true);assert.equal(result.stats.reportWhileActive,0);assert.equal(result.links,1);
+   assert.deepEqual(result.progress.filter(item=>item.phase==='images').map(item=>item.done),[0,1,2,3,4,5,6,7]);assert.ok(result.progress.filter(item=>item.phase==='images').every(item=>item.total===7));
+ });
+ await check('image failure waits for started workers and preserves successful ACKs before rejecting',async()=>{
+   const result=await page.evaluate(async()=>{const set=await imageSet(),lib=await seed(set.rows),stats=trackMedia(set.media,{failAt:1});remoteInfo=info([]);let rejected=false;try{await client.syncCaptureLibrary(owner,lib)}catch{rejected=true}const snapshot={...stats,events:[...stats.events]},persisted=await vault.getCaptureLibrary(owner,lib.id);await new Promise(resolve=>setTimeout(resolve,90));const later={...stats,events:[...stats.events]};return{rejected,snapshot,later,acks:Object.keys(persisted.cloud.mediaDigests).length};});
+   assert.equal(result.rejected,true);assert.equal(result.snapshot.max,3);assert.equal(result.snapshot.started,3,'no new work starts after the first failure');assert.equal(result.snapshot.active,0,'rejection waits for all already-started workers');assert.equal(result.snapshot.settled,3);assert.equal(result.acks,2,'the two successful parallel uploads remain acknowledged');assert.deepEqual(result.later,result.snapshot,'no worker or ACK mutation remains after rejection');
+ });
+ await check('download is bounded concurrent; same-epoch reopen uses verified images; new epoch redownloads',async()=>{
+   const result=await page.evaluate(async()=>{const set=await imageSet();remoteRecords=set.cloudRows;remoteInfo=info(remoteRecords);let stats=trackMedia(set.media);const progress=[];const first=await client.downloadCloudCaptureLibrary(owner,cloudId,(done,total,phase)=>progress.push({done,total,phase}));const firstStats={...stats};stats=trackMedia(set.media);const second=await client.downloadCloudCaptureLibrary(owner,cloudId);const secondStats={...stats};remoteInfo={...remoteInfo,epoch:2};stats=trackMedia(set.media);const third=await client.downloadCloudCaptureLibrary(owner,cloudId);return{firstStats,secondStats,thirdStats:{...stats},count:first.records.length,secondCount:second.records.length,thirdEpoch:third.cloud.epoch,ordered:first.records.every((row,index)=>row.images[0].name==='image-'+index+'.png'),progress};});
+   assert.ok(result.firstStats.max>1&&result.firstStats.max<=3);assert.equal(result.firstStats.gets,7);assert.equal(result.firstStats.active,0);assert.equal(result.secondStats.gets,0,'second open must issue no image GET');assert.equal(result.secondCount,7);assert.equal(result.thirdStats.gets,7,'even identical hashes must be fetched again after an epoch change');assert.ok(result.thirdStats.max<=3);assert.equal(result.thirdEpoch,2);assert.equal(result.ordered,true);assert.deepEqual(result.progress.filter(item=>item.phase==='images').map(item=>item.done),[0,1,2,3,4,5,6,7]);
+ });
+ await check('progressive opening shows and persists full text before media, never exposes incomplete images',async()=>{
+   const result=await page.evaluate(async()=>{const set=await imageSet(3);remoteRecords=[contract.sanitizeCloudCaptureRecord(record('voice','合成语音文字',{source:{label:'合成语音',mediaKind:'voice',transcriptionStatus:'visible-text'}})),...set.cloudRows];remoteInfo=info(remoteRecords);const stats=trackMedia(set.media),snapshots=[];let first;
+     const final=await client.downloadCloudCaptureLibrary(owner,cloudId,undefined,lib=>{if(!first)first={count:lib.records.length,mediaStarted:stats.started,pending:lib.records.filter(row=>row.source.cloudMediaPending===true).length};snapshots.push(lib);});
+     const initial=snapshots[0],persisted=await vault.getCaptureLibrary(owner,final.id);return{first,initialUnmutated:initial.records.every(row=>!row.images?.length),voice:initial.records[0].text,finalPending:final.records.filter(row=>row.source.cloudMediaPending===true).length,ready:final.records.filter(row=>row.images?.length).length,persisted: persisted.records.length,allComplete:snapshots.every(lib=>lib.records.every(row=>!row.images?.length||row.images.length===Number(row.source.imageCount)&&row.images.every(Boolean))),max:stats.max};});
+   assert.deepEqual(result.first,{count:4,mediaStarted:0,pending:3});assert.equal(result.voice,'合成语音文字');assert.equal(result.initialUnmutated,true);assert.equal(result.finalPending,0);assert.equal(result.ready,3);assert.equal(result.persisted,4);assert.equal(result.allComplete,true);assert.ok(result.max<=3);
+ });
+ await check('interrupted progressive media retains readable text and refuses auto sync until reopened',async()=>{
+   const result=await page.evaluate(async()=>{const set=await imageSet(3);remoteRecords=set.cloudRows;remoteInfo=info(remoteRecords);const priorFetch=mockFetch;let first;fetch=async(url,options)=>{if(new URL(String(url),location.origin).searchParams.has('mediaId'))throw new TypeError('synthetic offline');return priorFetch(url,options);};let rejected=false;try{await client.downloadCloudCaptureLibrary(owner,cloudId,undefined,lib=>{first ||= lib;});}catch{rejected=true}const partial=await vault.getCaptureLibrary(owner,first.id);let syncRejected=false;const before=calls.length;try{await client.syncCaptureLibrary(owner,partial)}catch{syncRejected=true}const writes=calls.slice(before).filter(row=>row.method==='POST').length;trackMedia(set.media);const resumed=await client.downloadCloudCaptureLibrary(owner,cloudId);return{rejected,syncRejected,writes,count:partial.records.length,pending:partial.records.filter(row=>row.source.cloudMediaPending===true).length,resumedPending:resumed.records.filter(row=>row.source.cloudMediaPending===true).length,resumedImages:resumed.records.filter(row=>row.images?.length).length};});
+   assert.deepEqual(result,{rejected:true,syncRejected:true,writes:0,count:3,pending:3,resumedPending:0,resumedImages:3});
+ });
+ await check('report sources finish pending cloud pictures instead of returning the text-only cache',async()=>{
+   const result=await page.evaluate(async()=>{const set=await imageSet(2),reportId='11111111-1111-4111-8111-111111111111',link={reportId,sourceIds:[set.rows[0].localId],memorySourceIds:[set.rows[1].localId],createdAt:at};remoteRecords=set.cloudRows;remoteInfo=info(remoteRecords,1,[link]);fetch=async(url,options)=>{if(new URL(String(url),location.origin).searchParams.has('mediaId'))throw new TypeError('offline');return mockFetch(url,options);};try{await client.downloadCloudCaptureLibrary(owner,cloudId,undefined,()=>{});}catch{}const stats=trackMedia(set.media,{report:{library:remoteInfo,sourceIds:link.sourceIds,memorySourceIds:link.memorySourceIds,records:[set.cloudRows[0]],memoryRecords:[set.cloudRows[1]]}});const sources=await client.readSyncedReportSources(owner,reportId);return{gets:stats.gets,selected:sources.records.map(row=>row.images?.length),history:sources.memoryRecords.map(row=>row.images?.length)};});
+   assert.deepEqual(result,{gets:2,selected:[1],history:[1]});
+ });
+ await check('report image reads use at most 3 workers and preserve analyzed/history source order',async()=>{
+   const result=await page.evaluate(async()=>{const set=await imageSet(8),reportId='11111111-1111-4111-8111-111111111111';const records=set.cloudRows.slice(0,4),memoryRecords=set.cloudRows.slice(4).reverse(),report={library:info(set.cloudRows),sourceIds:records.map(row=>row.localId),memorySourceIds:memoryRecords.map(row=>row.localId),records,memoryRecords};const stats=trackMedia(set.media,{report});const read=await client.readSyncedReportSources(owner,reportId);return{stats,sourceIds:read.records.map(row=>row.localId),memoryIds:read.memoryRecords.map(row=>row.localId),names:[...read.records,...read.memoryRecords].map(row=>row.images[0].name)};});
+   assert.ok(result.stats.max>1&&result.stats.max<=3);assert.equal(result.stats.active,0);assert.equal(result.stats.gets,8);assert.deepEqual(result.sourceIds,['image-0','image-1','image-2','image-3']);assert.deepEqual(result.memoryIds,['image-7','image-6','image-5','image-4']);assert.deepEqual(result.names,['image-0.png','image-1.png','image-2.png','image-3.png','image-7.png','image-6.png','image-5.png','image-4.png']);
+ });
+ await check('temporary concurrent image 401s recover only after one shared same-account verification',async()=>{
+   const result=await page.evaluate(async()=>{const set=await imageSet(3);remoteRecords=set.cloudRows;remoteInfo=info(remoteRecords);const attempts={},identityMethods=[];let identityCalls=0;
+     fetch=async(url,options={})=>{const parsed=new URL(String(url),location.origin);if(parsed.pathname==='/api/account/credits'){identityCalls++;identityMethods.push(options.method||'GET');await new Promise(resolve=>setTimeout(resolve,35));return new Response(JSON.stringify({account:{userId:owner}}),{status:200});}if(parsed.searchParams.has('mediaId')){const id=parsed.searchParams.get('mediaId');attempts[id]=(attempts[id]||0)+1;if(attempts[id]===1)return new Response(JSON.stringify({error:'synthetic transient identity lookup'}),{status:401});const media=set.media.find(item=>item.id===id);return new Response(JSON.stringify({ownerId:owner,media,data:media.data,chunkIndex:0}),{status:200});}return mockFetch(url,options);};
+     const downloaded=await client.downloadCloudCaptureLibrary(owner,cloudId);return{identityCalls,identityMethods,attempts,images:downloaded.records.map(row=>row.images.length),saved:(await vault.listCaptureLibraries(owner)).length};});
+   assert.equal(result.identityCalls,1,'parallel requests for one owner share the in-flight account check');assert.deepEqual(result.identityMethods,['GET']);assert.deepEqual(Object.values(result.attempts),[2,2,2]);assert.deepEqual(result.images,[1,1,1]);assert.equal(result.saved,1);
+ });
+ await check('changed account or unauthorized account verification stops material retry and IndexedDB writes',async()=>{
+   const cases=await page.evaluate(async()=>{const results=[];for(const accountResponse of [{status:200,user:'synthetic-owner-b'},{status:401,user:owner}]){await reset();let materialCalls=0,identityCalls=0;fetch=async(url)=>{if(new URL(String(url),location.origin).pathname==='/api/account/credits'){identityCalls++;return new Response(JSON.stringify({account:{userId:accountResponse.user}}),{status:accountResponse.status});}materialCalls++;return new Response(JSON.stringify({error:'synthetic unauthorized'}),{status:401});};let rejected=false;try{await client.downloadCloudCaptureLibrary(owner,cloudId)}catch{rejected=true}results.push({rejected,materialCalls,identityCalls,local:(await vault.listCaptureLibraries(owner)).length,other:(await vault.listCaptureLibraries('synthetic-owner-b')).length});}return results;});
+   for(const result of cases){assert.equal(result.rejected,true);assert.equal(result.materialCalls,1);assert.equal(result.identityCalls,1);assert.equal(result.local,0);assert.equal(result.other,0);}
+ });
+ await check('temporary account verification failure stays503 and never becomes logout',async()=>{
+  const result=await page.evaluate(async()=>{fetch=async(url)=>new Response(JSON.stringify(new URL(String(url),location.origin).pathname==='/api/account/credits'?{error:'synthetic identity offline'}:{error:'synthetic material retry'}),{status:503});try{await client.downloadCloudCaptureLibrary(owner,cloudId);return{status:200};}catch(error){return{status:error.status,message:error.message};}});assert.equal(result.status,503);assert.ok(!result.message.includes('登录状态已变化'));
+ });
+ await check('failed progressive download checkpoints completed pictures for reopen',async()=>{
+   const result=await page.evaluate(async()=>{const set=await imageSet(5);remoteRecords=set.cloudRows;remoteInfo=info(remoteRecords);const original=mockFetch;let complete=0;fetch=async(url,options)=>{const query=new URL(String(url),location.origin).searchParams;if(query.has('mediaId')){const ref=set.media.find(item=>item.id===query.get('mediaId'));if(ref.id===set.media[0].id)throw new TypeError('synthetic offline');complete++;return new Response(JSON.stringify({ownerId:owner,media:ref,data:ref.data,chunkIndex:0}),{status:200});}return original(url,options);};let first;try{await client.downloadCloudCaptureLibrary(owner,cloudId,undefined,lib=>{first ||= lib;});}catch{}const saved=await vault.getCaptureLibrary(owner,first.id),stats=trackMedia(set.media);const resumed=await client.downloadCloudCaptureLibrary(owner,cloudId);return{complete,persisted:saved.records.filter(row=>row.images?.length).length,resumedGets:stats.gets,total:resumed.records.filter(row=>row.images?.length).length};});assert.ok(result.complete>0);assert.equal(result.persisted,result.complete);assert.equal(result.resumedGets,5-result.complete);assert.equal(result.total,5);
+ });
+ await check('continuous read failure retries once only for each recoverable status',async()=>{
+   const cases=await page.evaluate(async()=>{const results=[];for(const status of [401,502,503,504]){await reset();let materialCalls=0,identityCalls=0;fetch=async(url)=>{if(new URL(String(url),location.origin).pathname==='/api/account/credits'){identityCalls++;return new Response(JSON.stringify({account:{userId:owner}}),{status:200});}materialCalls++;return new Response(JSON.stringify({error:'synthetic repeated failure'}),{status});};let rejected=false;try{await client.downloadCloudCaptureLibrary(owner,cloudId)}catch{rejected=true}results.push({status,rejected,materialCalls,identityCalls,local:(await vault.listCaptureLibraries(owner)).length});}return results;});
+   for(const result of cases){assert.equal(result.rejected,true,String(result.status));assert.equal(result.materialCalls,2,String(result.status));assert.equal(result.identityCalls,1,String(result.status));assert.equal(result.local,0);}
+ });
+ await check('POST 401 is never retried or followed by an account verification',async()=>{
+   const result=await page.evaluate(async()=>{const lib=await seed([record('not-replayed')]);const requests=[];fetch=async(url,options={})=>{requests.push({url:String(url),method:options.method||'GET'});return new Response(JSON.stringify({error:'synthetic write unauthorized'}),{status:401});};let rejected=false;try{await client.syncCaptureLibrary(owner,lib)}catch{rejected=true}const after=await vault.getCaptureLibrary(owner,lib.id);return{rejected,requests,records:after.records.map(row=>row.localId),digests:Object.keys(after.cloud.digests)};});
+   assert.equal(result.rejected,true);assert.deepEqual(result.requests,[{url:'/api/web/capture/library',method:'POST'}]);assert.deepEqual(result.records,['not-replayed']);assert.deepEqual(result.digests,[]);
+ });
+ assert.deepEqual(errors,[]);await writeFile(path.join(output,'result.json'),JSON.stringify(results,null,2));
+ if(results.some(item=>item.status==='fail'))process.exitCode=1;
+ console.log(`${results.filter(item=>item.status==='pass').length}/${results.length} cloud client integration checks passed; synthetic browser + IndexedDB only.`);
+}finally{await browser.close();await new Promise(resolve=>server.close(resolve));}

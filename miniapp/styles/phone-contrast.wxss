@@ -1,156 +1,156 @@
-/* Daylight glass phone contrast layer. Reading remains 94% white; decorative surfaces catch cool light. */
-page,.screen,.chat-screen,.account-screen{background:#f5f9fb;color:#365667}
-.title,.hero .title,.screen .hero .title,.heading,.screen .heading,.screen .relationship-brief .heading,.headline,.brand-name,.section-title,.panel-title,.group-title,.overview-title,.person-title,.profile-title,.entry-title,.relationship-title,.knowledge-heading,.composer-heading,.mode-title,.summary,.brief-judgment,.feedback-action,.feedback-event-action{color:#203b49}
-.sub,.hero .sub,.screen .hero .sub,.hero-sub,.account-intro,.section-caption,.entry-description,.relationship-description,.self-entry>view>text+text,.privacy-note,.bottom-note,.helper,.hint,.muted,.screen .muted,.caption,.coverage,.disclaimer,.privacy-summary,.privacy-details,.followup-caption,.followup-note,.rank-note,.reply-note,.reply-original,.rank-explain,.rank-meta,.fact-evidence,.screen .fact-evidence,.screen .fact-person,.profile-label,.profile-memory-line,.profile-empty,.profile-fact .muted,.hold-explain,.balance-aside,.knowledge-caption,.knowledge-detail,.resume-state,.radar-note,.foot,.cost-note,.billing-note,.consent,.screen .first-consent{color:#526c7a}
-.eyebrow,.step,.hero-brand,.section-kicker,.person-kicker,.overview-kicker,.subject-kicker,.comparison-kicker,.headline text+text,.title-accent,.entry-action,.knowledge-toggle,.resume-action,.text-button,.reset,.new-person-link,.person-back,.comparison-report,.comparison-person{color:#176c88}
+/* Aurora phone theme: shared warm ivory surfaces, coral actions and readable report hierarchy. */
+page,.screen,.chat-screen,.account-screen{background:#fffaf4;color:#5f4c40}
+.title,.hero .title,.screen .hero .title,.heading,.screen .heading,.screen .relationship-brief .heading,.headline,.brand-name,.section-title,.panel-title,.group-title,.overview-title,.person-title,.profile-title,.entry-title,.relationship-title,.knowledge-heading,.composer-heading,.mode-title,.summary,.brief-judgment,.feedback-action,.feedback-event-action{color:#382d26}
+.sub,.hero .sub,.screen .hero .sub,.hero-sub,.account-intro,.section-caption,.entry-description,.relationship-description,.self-entry>view>text+text,.privacy-note,.bottom-note,.helper,.hint,.muted,.screen .muted,.caption,.coverage,.disclaimer,.privacy-summary,.privacy-details,.followup-caption,.followup-note,.rank-note,.reply-note,.reply-original,.rank-explain,.rank-meta,.fact-evidence,.screen .fact-evidence,.screen .fact-person,.profile-label,.profile-memory-line,.profile-empty,.profile-fact .muted,.hold-explain,.balance-aside,.knowledge-caption,.knowledge-detail,.resume-state,.radar-note,.foot,.cost-note,.billing-note,.consent,.screen .first-consent{color:#806c5d}
+.eyebrow,.step,.hero-brand,.section-kicker,.person-kicker,.overview-kicker,.subject-kicker,.comparison-kicker,.headline text+text,.title-accent,.entry-action,.knowledge-toggle,.resume-action,.text-button,.reset,.new-person-link,.person-back,.comparison-report,.comparison-person{color:#a95e45}
 
-/* Reading surfaces keep a readable fill and visible cool edge. */
+/* Reading surfaces keep a readable fill and visible warm edge. */
 .panel,.screen .panel,.composer,.followup-context,.mode-card,.status-card,.transcript,.welcome,.bubble,.entry-card,.relationship-card,.knowledge-card,.resume-panel,.details,.price-panel,.admin-panel,.contact-panel,.account-screen .profile-entry,.rank-row,.screen .relationship-brief,.person-header,.avatar-panel,.comparison-panel{
- background:#ffffff;border:2rpx solid #bfd9e6;box-shadow:0 10rpx 24rpx rgba(53,100,126,.055);backdrop-filter:none
+ background:#ffffff;border:2rpx solid #e8d2c1;box-shadow:0 10rpx 24rpx rgba(135,88,54,.055);backdrop-filter:none
 }
-.hero,.screen .hero,.new-person-hero{border-color:#bfd9e6;background:#f5f9fb}
+.hero,.screen .hero,.new-person-hero{border-color:#e8d2c1;background:#fffaf4}
 .hero-art,.archive-scene,.new-person-scene{filter:none}
-.brand,.hero,.capability-strip,.screen .archive-overview,.section-head,.heading,.screen .heading,.entry,.price-row,.first-consent,.self-section,.profile-memory-line,.profile-memory-block,.signal-chart,.mini-chart,.fit-row,.fit-dimension,.feedback-card,.feedback-history,.trend-caption{border-color:#bfd9e6}
-.hero-scene{background:#f8fafb}.hero-scene:before{background:linear-gradient(#f5f9fb,transparent)}.hero-scene:after{background:linear-gradient(transparent,#f5f9fb)}
-.glass-label{background:#fffffff2;border-color:#bfd9e6;color:#365667}
-.eyebrow{border-color:#c8dfea;background-color:#e7f4fa}
-.capability-strip>view,.brand-aside{color:#526c7a}
-.brand-account{background:#f3f7f9;border:2rpx solid #bfd9e6;color:#203b49}
+.brand,.hero,.capability-strip,.screen .archive-overview,.section-head,.heading,.screen .heading,.entry,.price-row,.first-consent,.self-section,.profile-memory-line,.profile-memory-block,.signal-chart,.mini-chart,.fit-row,.fit-dimension,.feedback-card,.feedback-history,.trend-caption{border-color:#e8d2c1}
+.hero-scene{background:#fffaf4}.hero-scene:before{background:linear-gradient(#fffaf4,transparent)}.hero-scene:after{background:linear-gradient(transparent,#fffaf4)}
+.glass-label{background:#fffffff2;border-color:#e8d2c1;color:#5f4c40}
+.eyebrow{border-color:#ead6c8;background-color:#faeadc}
+.capability-strip>view,.brand-aside{color:#806c5d}
+.brand-account{background:#fbf4ed;border:2rpx solid #e8d2c1;color:#382d26}
 
 /* Inset information is deliberately darker than the parent card. */
 .new-person,.help-details,.privacy-details,.privacy-summary-box,.cost-note,.billing-note,.notice,.pending-strip,.profile-item,.subject-overview .profile-item,.profile-fact,.accepted-fact,.screen .accepted-fact,.profile-visual-strip,.profile-empty,.chart-empty,.radar-wrap,.affection-overview>view,.metric-grid>view,.reply-details,.details,.review,.partial-report,.partial-inference,.comparison-preferences,.comparison-empty,.feedback-editor,.feedback-source,.feedback-review,.moments-section,.moments-insight,.moments-starter,.analysis-status,.conversation-reply{
- background:#f3f7f9;border:2rpx solid #bfd9e6;color:#365667;box-shadow:none;backdrop-filter:none
+ background:#fbf4ed;border:2rpx solid #e8d2c1;color:#5f4c40;box-shadow:none;backdrop-filter:none
 }
 .details{background:#ffffff}
-.photo-clues,.moments-approach,.moments-support,.profile-memory-block,.trend-caption{background:#f3f7f9;border-color:#bfd9e6;color:#365667}
-.privacy-details,.help-details,.cost-note,.billing-note,.notice{color:#526c7a}
+.photo-clues,.moments-approach,.moments-support,.profile-memory-block,.trend-caption{background:#fbf4ed;border-color:#e8d2c1;color:#5f4c40}
+.privacy-details,.help-details,.cost-note,.billing-note,.notice{color:#806c5d}
 .profile-item,.profile-fact{border-radius:14rpx}
-.profile-label,.moments-caption,.moments-evidence,.moments-button-caption,.analysis-status-note,.analysis-status-kicker,.time,.detail,.weight-label,.note{color:#526c7a}
-.photo-clue,.moments-theme,.moments-strategy-row,.moments-post,.line,.feedback-event-body,.comparison-row,.comparison-cell{border-color:#bfd9e6}
+.profile-label,.moments-caption,.moments-evidence,.moments-button-caption,.analysis-status-note,.analysis-status-kicker,.time,.detail,.weight-label,.note{color:#806c5d}
+.photo-clue,.moments-theme,.moments-strategy-row,.moments-post,.line,.feedback-event-body,.comparison-row,.comparison-cell{border-color:#e8d2c1}
 
 /* Inputs sit inside the card as distinct warm linen fields. */
 input,textarea,.screen input,.screen textarea,.composer textarea,.admin-panel input,.new-person input,.base-field input,.first-name,.select,.archive-select,.select-row,.conversation-person,.memory-select,.date-picker,.feedback-date-row picker{
- background:#f3f7f9;border:2rpx solid #a8c7d8;color:#203b49;box-shadow:none;backdrop-filter:none
+ background:#fbf4ed;border:2rpx solid #d9bfa9;color:#382d26;box-shadow:none;backdrop-filter:none
 }
-.input-placeholder,.textarea-placeholder{color:#526c7a}
-.field-label,.screen .field-label,.label,.person-caption,.value,.conversation-person text:last-child{color:#365667}
-.picker{background:#edf6fb;border:2rpx dashed #8bb9ce;color:#203b49;box-shadow:none}
-.picker-copy,.picker view{color:#203b49}.picker .hint{color:#526c7a}
-.ordered-image,.selected-image{background:#f3f7f9;border:2rpx solid #bfd9e6}
-.ordered-image text,.selected-image text{color:#365667}
+.input-placeholder,.textarea-placeholder{color:#806c5d}
+.field-label,.screen .field-label,.label,.person-caption,.value,.conversation-person text:last-child{color:#5f4c40}
+.picker{background:#fcf0e5;border:2rpx dashed #cea78b;color:#382d26;box-shadow:none}
+.picker-copy,.picker view{color:#382d26}.picker .hint{color:#806c5d}
+.ordered-image,.selected-image{background:#fbf4ed;border:2rpx solid #e8d2c1}
+.ordered-image text,.selected-image text{color:#5f4c40}
 
 /* Main actions are solid. Secondary actions have their own surface and edge. */
 .primary,.screen .primary,.hero-primary,.followup-button,.reply-copy,.retry,.start,.screen .person-chat,.screen .confirm-all,.screen .create button,.screen .relationship-brief .primary,.screen .subject-actions button:first-child,.screen .fact-actions button:first-child,.feedback-controls button,.feedback-options button.selected,.moments-followup-button,.analysis-status button{
- background:#176c88;border:2rpx solid #195f79;color:#fff;box-shadow:inset 0 2rpx rgba(255,255,255,.18),0 7rpx 16rpx rgba(43,113,143,.15)
+ background:#a95e45;border:2rpx solid #95503b;color:#fff;box-shadow:inset 0 2rpx rgba(255,255,255,.18),0 7rpx 16rpx rgba(155,94,56,.15)
 }
 .secondary,.outline,.screen .light,.reply-more,.back-top,.fallback,.voice-hold,.copy-conversation-reply,.clear-city,.self-entry,.self-entry-button,.subject-edit-toggle,.screen .subject-actions button+button,.screen .relationship-brief .light,.screen .fact-actions button:last-child,.feedback-controls .feedback-subtle,.feedback-options button,.feedback-date-row button,.comparison-toggle,.comparison-detail-toggle,.rank-detail,.analysis-status .analysis-cancel{
- background:#edf6fb;border:2rpx solid #b8d2e0;color:#203b49;box-shadow:none
+ background:#fcf0e5;border:2rpx solid #e0c9b8;color:#382d26;box-shadow:none
 }
-.screen button.disclosure-button,.screen button.reply-more,.screen button.hypothesis-evidence-toggle,.screen button.feedback-source-toggle,.disclosure-button,.moments-details-button,.moments-source-button{background:#edf6fb;border:2rpx solid #b8d2e0;color:#203b49;box-shadow:none}
-.disclosure-chevron,.moments-chevron{border-color:#176c88}
-.screen button[disabled],.account-screen button[disabled],.chat-screen button[disabled],.avatar-panel button[disabled],.moments-followup-button[disabled],.comparison-choice[disabled]{opacity:1;background:#e7eff4;border:2rpx solid #bfd1dc;color:#526c7a;box-shadow:none;transform:none}
+.screen button.disclosure-button,.screen button.reply-more,.screen button.hypothesis-evidence-toggle,.screen button.feedback-source-toggle,.disclosure-button,.moments-details-button,.moments-source-button{background:#fcf0e5;border:2rpx solid #e0c9b8;color:#382d26;box-shadow:none}
+.disclosure-chevron,.moments-chevron{border-color:#a95e45}
+.screen button[disabled],.account-screen button[disabled],.chat-screen button[disabled],.avatar-panel button[disabled],.moments-followup-button[disabled],.comparison-choice[disabled]{opacity:1;background:#f4ece7;border:2rpx solid #dccbbf;color:#806c5d;box-shadow:none;transform:none}
 .screen .danger,.error,.reply-error,.analysis-status-error,.avatar-panel .error{background:#f2e3dc;border-color:#c49b88;color:#843e2a}
 .end{background:#984b39;border:2rpx solid #7e3c2d;color:#fff}
-.success,.positive,.feedback-status.positive,.feedback-status.alternative{color:#2b6657}
+.success,.positive,.feedback-status.positive,.feedback-status.alternative{color:#66442b}
 
 /* Navigation and selection: inactive, active and disabled remain different. */
-.main-navigation{background:#edf6fb;border-top:2rpx solid #c2dbe7;box-shadow:0 -8rpx 22rpx rgba(53,100,126,.08);backdrop-filter:none}
-.nav-item{color:#526c7a;border:2rpx solid transparent;background:transparent}
-.nav-item.active{background:#e0f1f8;border-color:#98bed0;color:#195f79}
-.nav-item.active::before{background:#176c88;box-shadow:none}.nav-item image{opacity:1}
-.target-switch,.screen .archive-tabs,.detail-navigation{background:#e6f1f7;border:2rpx solid #bfd9e6;backdrop-filter:none}
-.target-switch button,.target-choice button,.screen .archive-tabs button,.screen .detail-navigation button,.mode-option,.comparison-choice{background:#f3f7f9;border:2rpx solid #bfd9e6;color:#365667;box-shadow:none}
-.target-switch button.active,.target-choice button.active,.screen .archive-tabs button.active,.screen .detail-navigation button.active,.mode-option.selected,.comparison-choice.is-selected{background:#e0f1f8;border:2rpx solid #94bdcf;color:#195f79;box-shadow:inset 0 -4rpx #64a6bf}
+.main-navigation{background:#fcf0e5;border-top:2rpx solid #e7d1c2;box-shadow:0 -8rpx 22rpx rgba(135,88,54,.08);backdrop-filter:none}
+.nav-item{color:#806c5d;border:2rpx solid transparent;background:transparent}
+.nav-item.active{background:#f5dfce;border-color:#d0af98;color:#95503b}
+.nav-item.active::before{background:#a95e45;box-shadow:none}.nav-item image{opacity:1}
+.target-switch,.screen .archive-tabs,.detail-navigation{background:#f7ede6;border:2rpx solid #e8d2c1;backdrop-filter:none}
+.target-switch button,.target-choice button,.screen .archive-tabs button,.screen .detail-navigation button,.mode-option,.comparison-choice{background:#fbf4ed;border:2rpx solid #e8d2c1;color:#5f4c40;box-shadow:none}
+.target-switch button.active,.target-choice button.active,.screen .archive-tabs button.active,.screen .detail-navigation button.active,.mode-option.selected,.comparison-choice.is-selected{background:#f5dfce;border:2rpx solid #cfad94;color:#95503b;box-shadow:inset 0 -4rpx #bf8a64}
 .target-choice{background:transparent;border:0}
-.report-shortcuts,.report-nav{background:#f5f9fb;border-color:#bfd9e6;backdrop-filter:none}
-.report-shortcuts button,.report-nav button{background:#f3f7f9;border:2rpx solid #b4d1df;color:#203b49;box-shadow:none}
-.mode-option text,.live-caption,.draft-note,.privacy,.person-caption{color:#526c7a}
-.live-entry{background:#e9f5fa;border:2rpx solid #a5c9da;color:#203b49;box-shadow:none}
+.report-shortcuts,.report-nav{background:#fffaf4;border-color:#e8d2c1;backdrop-filter:none}
+.report-shortcuts button,.report-nav button{background:#fbf4ed;border:2rpx solid #dfc6b4;color:#382d26;box-shadow:none}
+.mode-option text,.live-caption,.draft-note,.privacy,.person-caption{color:#806c5d}
+.live-entry{background:#f9f0ea;border:2rpx solid #dabba5;color:#382d26;box-shadow:none}
 
 /* Key readings get a warmer panel; interaction signals keep a lightly tinted one. */
-#report-judgment,.screen .relationship-brief,.profile-verdict,.moments-verdict{background:#f4e8d7;border:2rpx solid #c5a780;box-shadow:none;color:#203b49}
-.verdict-block,.verdict-evidence,.verdict-action{background:#fffaef;border-color:#d1b999;color:#365667}
-.verdict .intent-highlight,.intent-highlight,.moments-depth,.group.hypotheses.featured,.hypotheses.featured{background:#eaf5fa;border:2rpx solid #c5a780;color:#203b49}
-.featured .hypothesis-card,.moments-depth .moments-insight{background:#fffaef;border:2rpx solid #d0b89a;color:#365667}
+#report-judgment,.screen .relationship-brief,.profile-verdict,.moments-verdict{background:#fcf0e4;border:2rpx solid #d9bfa5;box-shadow:none;color:#382d26}
+.verdict-block,.verdict-evidence,.verdict-action{background:#fffaef;border-color:#d1b999;color:#5f4c40}
+.verdict .intent-highlight,.intent-highlight,.moments-depth,.group.hypotheses.featured,.hypotheses.featured{background:#faf1ea;border:2rpx solid #d9bfa5;color:#382d26}
+.featured .hypothesis-card,.moments-depth .moments-insight{background:#fffaef;border:2rpx solid #d0b89a;color:#5f4c40}
 .verdict-label,.brief-label,.moments-kicker,.hypothesis-detail .detail-label{color:#765929}
-.verdict-intent .judgment,.verdict-intent .lead,.intent-highlight .judgment,.intent-highlight .lead,.summary,.moments-summary,.hypothesis-title,.hypothesis-reading,.brief-judgment{color:#203b49}
-.verdict-action .advice,.verdict-action .lead,.brief-action,.brief-change{color:#365667}
+.verdict-intent .judgment,.verdict-intent .lead,.intent-highlight .judgment,.intent-highlight .lead,.summary,.moments-summary,.hypothesis-title,.hypothesis-reading,.brief-judgment{color:#382d26}
+.verdict-action .advice,.verdict-action .lead,.brief-action,.brief-change{color:#5f4c40}
 .hypothesis-tag,.brief-stage{background:#e2d0aa;border:1rpx solid #ba9960;color:#694b20}
-.affection-highlight,.affection-card,.balance-panel,.fit-overview,.screen .fit-overview{background:#f2e5d6;border:2rpx solid #c3a88e;color:#203b49;box-shadow:none}
-.affection-highlight-score,.affection-score,.score,.fit-score,.balance,.overview-number,.target-balance{color:#176c88}
-.affection-highlight-title,.affection-highlight-trend,.affection-trend{color:#203b49}
-.affection-highlight-scope,.affection-highlight-unit,.affection-highlight-note,.affection-highlight-basis,.affection-note,.affection-scope,.affection-card .muted,.balance-panel .caption{color:#526c7a}
-.affection-highlight-link{background:#fff7ec;border:2rpx solid #c4ab96;color:#195f79;box-shadow:none}
-.supplemental,.fit,.group.fit,.common-points,.positives,.screen .self-profile-card{background:#eee5d4;border-color:#c5a780}
-.risk,.cautions,.materials,.boundary-note,.affection-boundary,.affection-highlight-boundary{background:#f1e5d2;border-color:#c5a780;color:#765929}
+.affection-highlight,.affection-card,.balance-panel,.fit-overview,.screen .fit-overview{background:#f2e5d6;border:2rpx solid #c3a88e;color:#382d26;box-shadow:none}
+.affection-highlight-score,.affection-score,.score,.fit-score,.balance,.overview-number,.target-balance{color:#a95e45}
+.affection-highlight-title,.affection-highlight-trend,.affection-trend{color:#382d26}
+.affection-highlight-scope,.affection-highlight-unit,.affection-highlight-note,.affection-highlight-basis,.affection-note,.affection-scope,.affection-card .muted,.balance-panel .caption{color:#806c5d}
+.affection-highlight-link{background:#fff7ec;border:2rpx solid #c4ab96;color:#95503b;box-shadow:none}
+.supplemental,.fit,.group.fit,.common-points,.positives,.screen .self-profile-card{background:#eee5d4;border-color:#d9bfa5}
+.risk,.cautions,.materials,.boundary-note,.affection-boundary,.affection-highlight-boundary{background:#f1e5d2;border-color:#d9bfa5;color:#765929}
 .risk-level,.moments-alternative,.moments-date,.photo-clue-inference{color:#765929}
-.reply{background:#ffffff;border:2rpx solid #bfd9e6;box-shadow:none}.reply-first{background:#f3e6d6;border:2rpx solid #c3a88e}
-.reply-text,.quote,.bubble-text,.line,.conversation-reply,.photo-clue-observation,.profile-value,.screen .fact-value,.comparison-value,.comparison-preference>text:last-child{color:#203b49}
-.reply-reason,.reply-details,.reply-original,.reply-note,.line>.who,.line>.label,.photo-clue-location,.photo-clue-alternative,.photo-clue-verify,.comparison-note,.comparison-source,.comparison-preference>text:first-child{color:#526c7a}
-.line-self>.quote,.bubble-user{background:#ead8c5;border:2rpx solid #a5c9da;color:#203b49}
-.line-other>.quote,.bubble-assistant{background:#ffffff;border:2rpx solid #bfd9e6;color:#203b49}
+.reply{background:#ffffff;border:2rpx solid #e8d2c1;box-shadow:none}.reply-first{background:#f3e6d6;border:2rpx solid #c3a88e}
+.reply-text,.quote,.bubble-text,.line,.conversation-reply,.photo-clue-observation,.profile-value,.screen .fact-value,.comparison-value,.comparison-preference>text:last-child{color:#382d26}
+.reply-reason,.reply-details,.reply-original,.reply-note,.line>.who,.line>.label,.photo-clue-location,.photo-clue-alternative,.photo-clue-verify,.comparison-note,.comparison-source,.comparison-preference>text:first-child{color:#806c5d}
+.line-self>.quote,.bubble-user{background:#ead8c5;border:2rpx solid #dabba5;color:#382d26}
+.line-other>.quote,.bubble-assistant{background:#ffffff;border:2rpx solid #e8d2c1;color:#382d26}
 .line-unknown>.quote{background:#eee2cb;border:2rpx dashed #bc9d67;color:#765929}
-.status-card{background:#f3e9dd;border-color:#c0a991}.status,.speaker,.speaker-label,.reply-direction{color:#203b49}
+.status-card{background:#f3e9dd;border-color:#c0a991}.status,.speaker,.speaker-label,.reply-direction{color:#382d26}
 
 /* Profile and comparison structure remains visible on a bright phone screen. */
 .screen .archive-overview{background:transparent}
 .overview-stats>view,.overview-stats>view+view{background:#f2e5d6;border:2rpx solid #c2aa95}
-.overview-stats>view:nth-child(2){background:#dde9e3;border-color:#9ab7a9}
-.overview-stats>view:nth-child(3){background:#f0e4cd;border-color:#c5a780}
-.overview-caption,.overview-stats>view:nth-child(3) .overview-caption{color:#526c7a}
+.overview-stats>view:nth-child(2){background:#e9e2dd;border-color:#b7a69a}
+.overview-stats>view:nth-child(3){background:#f0e4cd;border-color:#d9bfa5}
+.overview-caption,.overview-stats>view:nth-child(3) .overview-caption{color:#806c5d}
 .screen .rank-panel{background:transparent;border:0;box-shadow:none}
-.rank-tag,.rank-detail{background:#f0e2d3;border:2rpx solid #bfd9e6;color:#195f79}
-.rank-name,.rank-score{color:#203b49}.rank-score.scored{color:#176c88}
-.screen .fact-card{background:#edf6fb;border:2rpx solid #bdd7e4;border-left:6rpx solid #76acc4}
-.screen .subject-overview,.screen .action-feedback-panel{background:#ffffff;border:2rpx solid #bfd9e6}
-.person-avatar,.avatar-initial{background:#dfeef6;border-color:#aecfdf;color:#203b49}
+.rank-tag,.rank-detail{background:#f0e2d3;border:2rpx solid #e8d2c1;color:#95503b}
+.rank-name,.rank-score{color:#382d26}.rank-score.scored{color:#a95e45}
+.screen .fact-card{background:#fcf0e5;border:2rpx solid #e4cdbd;border-left:6rpx solid #c49676}
+.screen .subject-overview,.screen .action-feedback-panel{background:#ffffff;border:2rpx solid #e8d2c1}
+.person-avatar,.avatar-initial{background:#f6e9df;border-color:#dfc2ae;color:#382d26}
 .rank-row:nth-child(2n) .person-avatar{background:#e9d8b8;border-color:#c4a872;color:#765929}
-.profile-visual-strip,.pending-strip{background:#e6f2f8;border-color:#bad6e5;color:#203b49}
-.profile-status,.subject-signal,.subject-signal text:last-child{color:#365667}
-.signal-track,.trend-track,.rank-track,.score-track,.track,.moments-track{background:#d5e6ef}
-.signal-fill,.trend-fill.current,.rank-fill,.score-fill,.fill,.moments-fill{background:#477a78}
-.trend-fill{background:#a9b9ac}.profile-memory-block,.profile-subtitle{border-color:#bfd9e6}
-.feedback-status{background:#e5f2f8;border:1rpx solid #bfd9e6;color:#365667}
-.feedback-status.positive,.feedback-status.alternative{background:#d9e9df;border-color:#91b5a0;color:#2b6657}
+.profile-visual-strip,.pending-strip{background:#f8eee6;border-color:#e5ccba;color:#382d26}
+.profile-status,.subject-signal,.subject-signal text:last-child{color:#5f4c40}
+.signal-track,.trend-track,.rank-track,.score-track,.track,.moments-track{background:#efe0d5}
+.signal-fill,.trend-fill.current,.rank-fill,.score-fill,.fill,.moments-fill{background:#7a5c47}
+.trend-fill{background:#b9b0a9}.profile-memory-block,.profile-subtitle{border-color:#e8d2c1}
+.feedback-status{background:#f8ede5;border:1rpx solid #e8d2c1;color:#5f4c40}
+.feedback-status.positive,.feedback-status.alternative{background:#e9e0d9;border-color:#b5a091;color:#66442b}
 .feedback-status.declined,.feedback-status.uncomfortable{background:#eedbd3;border-color:#c89f8d;color:#843e2a}
-.comparison-scroll{background:#ffffff;border:2rpx solid #c2dbe7}
-.comparison-row{background:#ffffff;border-color:#bfd9e6}.comparison-row:nth-child(2n){background:#f3f7f9}
-.comparison-key{position:-webkit-sticky;position:sticky;left:0;z-index:2;background:#e6f1f7;border-right:2rpx solid #a8c7d8;color:#203b49;box-shadow:6rpx 0 10rpx rgba(53,100,126,.08)}
-.comparison-cell{border-color:#bfd9e6}.comparison-table-head .comparison-cell,.comparison-table-head .comparison-key{background:#dceef7;color:#203b49}
+.comparison-scroll{background:#ffffff;border:2rpx solid #e7d1c2}
+.comparison-row{background:#ffffff;border-color:#e8d2c1}.comparison-row:nth-child(2n){background:#fbf4ed}
+.comparison-key{position:-webkit-sticky;position:sticky;left:0;z-index:2;background:#f7ede6;border-right:2rpx solid #d9bfa9;color:#382d26;box-shadow:6rpx 0 10rpx rgba(135,88,54,.08)}
+.comparison-cell{border-color:#e8d2c1}.comparison-table-head .comparison-cell,.comparison-table-head .comparison-key{background:#f6e7dd;color:#382d26}
 .comparison-table-head .comparison-key{z-index:3}.comparison-caution{background:#f0e4ce}.comparison-caution .comparison-key{background:#e4d3b2}.comparison-caution .comparison-value{color:#765929}
 
 /* Shared components are isolated in WeChat, so this layer is imported there too. */
-.avatar-panel .hint,.avatar-panel .comparison text,.waiting .detail,.waiting .time,.signals .note{color:#526c7a}
-.candidate{background:#f3f7f9;border:2rpx solid #bfd9e6;color:#365667}.candidate.selected{background:#ddf0f8;border:3rpx solid #71abc4}
-.signal{background:#eee2cb;border-color:#c5a780;color:#765929}.signal.positive{background:#e4eae2;color:#195f79}.signal.caution{background:#eedbd3;color:#843e2a}
-.signals .details{background:#edf6fb;border:2rpx solid #b8d2e0;color:#203b49}
-.analysis-status{background:#e7f4fa;border:2rpx solid #b8d3e2;border-top:5rpx solid #6eacc5}
-.analysis-status-title{color:#203b49}.analysis-stages{border-color:#bfd9e6}.analysis-stages>view{color:#526c7a}.analysis-stages .current,.analysis-stages .done{color:#195f79}
-.moments-report{color:#365667}.moments-section{background:#f3f7f9;border-color:#bfd9e6}.moments-section.moments-depth{background:#eaf5fa;border-color:#c5a780}
-.moments-title,.moments-heading,.moments-chat-message{color:#203b49}.moments-approach{background:#edf6fb}.moments-strategy-row>text:first-child,.moments-support,.moments-chip{color:#195f79}
-.moments-section-divider,.moments-avoid>text:first-child{color:#765929;border-color:#c5a780}
+.avatar-panel .hint,.avatar-panel .comparison text,.waiting .detail,.waiting .time,.signals .note{color:#806c5d}
+.candidate{background:#fbf4ed;border:2rpx solid #e8d2c1;color:#5f4c40}.candidate.selected{background:#f6e9df;border:3rpx solid #c49471}
+.signal{background:#eee2cb;border-color:#d9bfa5;color:#765929}.signal.positive{background:#e4eae2;color:#95503b}.signal.caution{background:#eedbd3;color:#843e2a}
+.signals .details{background:#fcf0e5;border:2rpx solid #e0c9b8;color:#382d26}
+.analysis-status{background:#faeadc;border:2rpx solid #e2cab8;border-top:5rpx solid #c5926e}
+.analysis-status-title{color:#382d26}.analysis-stages{border-color:#e8d2c1}.analysis-stages>view{color:#806c5d}.analysis-stages .current,.analysis-stages .done{color:#95503b}
+.moments-report{color:#5f4c40}.moments-section{background:#fbf4ed;border-color:#e8d2c1}.moments-section.moments-depth{background:#faf1ea;border-color:#d9bfa5}
+.moments-title,.moments-heading,.moments-chat-message{color:#382d26}.moments-approach{background:#fcf0e5}.moments-strategy-row>text:first-child,.moments-support,.moments-chip{color:#95503b}
+.moments-section-divider,.moments-avoid>text:first-child{color:#765929;border-color:#d9bfa5}
 
 /* Warm daylight: keep the soft abstract artwork and the existing light motion.
    The text sits on solid ivory; green remains a small icon / chart accent. */
 .hero-art,.archive-scene,.new-person-scene{filter:none}
-.entry-art{background:radial-gradient(ellipse,#dceffa,transparent 72%)}
+.entry-art{background:radial-gradient(ellipse,#f7e9df,transparent 72%)}
 .entry-warm .entry-art{background:radial-gradient(ellipse,#f4e4d2,transparent 72%)}
-.entry-ring{border-color:#c7ad927d}.glass-label>view{background:#477a78}.glass-label-two>view{background:#c6a36f}
-.brand-account,.motion-toggle{background:#ffffffeb;border-color:#bfd9e6}
-.knowledge-amount,.resume-title,.billing-title{color:#176c88}
-.spinner{border-color:#d2e6f0;border-top-color:#176c88}
-.pulse{border-color:#ffffff;background:linear-gradient(140deg,#ffffff,#dceff8);box-shadow:inset 0 2rpx 5rpx #ffffff,0 12rpx 25rpx rgba(57,120,151,.12),0 0 0 16rpx rgba(198,232,248,.35)}
+.entry-ring{border-color:#c7ad927d}.glass-label>view{background:#7a5c47}.glass-label-two>view{background:#c6a36f}
+.brand-account,.motion-toggle{background:#ffffffeb;border-color:#e8d2c1}
+.knowledge-amount,.resume-title,.billing-title{color:#a95e45}
+.spinner{border-color:#f0ded2;border-top-color:#a95e45}
+.pulse{border-color:#ffffff;background:linear-gradient(140deg,#ffffff,#f6e8de);box-shadow:inset 0 2rpx 5rpx #ffffff,0 12rpx 25rpx rgba(57,120,151,.12),0 0 0 16rpx rgba(198,232,248,.35)}
 @keyframes voice-breathe{0%,100%{transform:scale(1);box-shadow:inset 0 2rpx 5rpx #ffffff,0 12rpx 25rpx rgba(57,120,151,.12),0 0 0 16rpx rgba(198,232,248,.35)}50%{transform:scale(1.04);box-shadow:inset 0 2rpx 5rpx #ffffff,0 16rpx 30rpx rgba(57,120,151,.15),0 0 0 24rpx rgba(198,232,248,.2)}}
 
 /* Optical surface finish. No 3D transforms; text contrast never relies on blur. */
-page,.screen,.chat-screen,.account-screen{background:linear-gradient(145deg,#f8fbfd,#f0f7fb 55%,#f8fafb);color:#203b49}
-.panel,.screen .panel,.composer,.followup-context,.transcript,.bubble,.details,.screen .subject-overview,.screen .action-feedback-panel{background:rgba(255,255,255,.94);border-color:#bfd9e6;box-shadow:inset 0 2rpx #fff,0 10rpx 24rpx rgba(53,100,126,.05)}
-.entry-card,.relationship-card,.knowledge-card,.resume-panel,.welcome,.status-card,.mode-card,.account-screen .profile-entry,.person-header,.avatar-panel{background:linear-gradient(135deg,rgba(255,255,255,.78),rgba(233,246,252,.7));border-color:#c1ddea;box-shadow:inset 0 2rpx #fff,0 12rpx 28rpx rgba(67,114,142,.07)}
-.hero,.screen .hero,.new-person-hero{background:transparent;border-color:#cce1eb}.hero-scene{background:#f5f9fb}.hero-scene:before{background:linear-gradient(#f5f9fb,transparent)}.hero-scene:after{background:linear-gradient(transparent,#f5f9fb)}
-.primary,.screen .primary,.hero-primary,.start{background:linear-gradient(135deg,#237b96,#176781);border-color:#2c7e97;color:#fff;box-shadow:inset 0 2rpx rgba(255,255,255,.23),0 10rpx 25rpx rgba(43,113,143,.14)}
-.main-navigation{background:rgba(249,253,255,.95);border-top:2rpx solid #fff;box-shadow:0 -2rpx 0 rgba(178,210,227,.5),0 -8rpx 24rpx rgba(53,100,126,.07)}.nav-item.active{background:#e0f1f8;border-color:#b3d6e5;color:#176c88}.nav-item.active::before{background:#6eb2cc}
-.glass-label,.brand-account,.motion-toggle{background:rgba(255,255,255,.87);border-color:#c2dce8;color:#365667;box-shadow:inset 0 2rpx #fff}.glass-label>view{background:#76afc4}
+page,.screen,.chat-screen,.account-screen{background:linear-gradient(145deg,#fdfaf8,#fbf5f0 55%,#fffaf4);color:#382d26}
+.panel,.screen .panel,.composer,.followup-context,.transcript,.bubble,.details,.screen .subject-overview,.screen .action-feedback-panel{background:rgba(255,255,255,.94);border-color:#e8d2c1;box-shadow:inset 0 2rpx #fff,0 10rpx 24rpx rgba(135,88,54,.05)}
+.entry-card,.relationship-card,.knowledge-card,.resume-panel,.welcome,.status-card,.mode-card,.account-screen .profile-entry,.person-header,.avatar-panel{background:linear-gradient(135deg,rgba(255,255,255,.78),rgba(255,242,231,.7));border-color:#ead2c1;box-shadow:inset 0 2rpx #fff,0 12rpx 28rpx rgba(147,94,61,.07)}
+.hero,.screen .hero,.new-person-hero{background:transparent;border-color:#ebd9cc}.hero-scene{background:#fffaf4}.hero-scene:before{background:linear-gradient(#fffaf4,transparent)}.hero-scene:after{background:linear-gradient(transparent,#fffaf4)}
+.primary,.screen .primary,.hero-primary,.start{background:linear-gradient(135deg,#925427,#784520);border-color:#97592c;color:#fff;box-shadow:inset 0 2rpx rgba(255,255,255,.23),0 10rpx 25rpx rgba(155,94,56,.14)}
+.main-navigation{background:rgba(255,251,246,.95);border-top:2rpx solid #fff;box-shadow:0 -2rpx 0 rgba(226,199,177,.5),0 -8rpx 24rpx rgba(135,88,54,.07)}.nav-item.active{background:#f5dfce;border-color:#e5c8b3;color:#a95e45}.nav-item.active::before{background:#cc956e}
+.glass-label,.brand-account,.motion-toggle{background:rgba(255,255,255,.87);border-color:#e8d2c2;color:#5f4c40;box-shadow:inset 0 2rpx #fff}.glass-label>view{background:#c49676}
 
 /* Visible task boundaries on phones. */
-.panel,.screen .panel,.entry-card,.relationship-card,.knowledge-card,.resume-panel,.welcome,.status-card,.mode-card,.account-screen .profile-entry,.person-header,.avatar-panel,.account-card{border-color:#a7c3d3;box-shadow:inset 0 2rpx #fff,0 12rpx 26rpx rgba(44,90,116,.09)}
-.section-head{border-top:2rpx solid #b4cbd8;padding-top:32rpx;margin-top:34rpx}.section-kicker,.brand-aside{letter-spacing:1rpx}.capability-strip{border-color:#b4cbd8;background:rgba(228,242,250,.6)}.main-navigation{border-top-color:#9dbdce}.nav-item.active{background:#cee6f2;border-color:#98bfd4;color:#165c7b}
+.panel,.screen .panel,.entry-card,.relationship-card,.knowledge-card,.resume-panel,.welcome,.status-card,.mode-card,.account-screen .profile-entry,.person-header,.avatar-panel,.account-card{border-color:#e5ceba;box-shadow:inset 0 2rpx #fff,0 12rpx 26rpx rgba(133,83,50,.09)}
+.section-head{border-top:2rpx solid #e3cdbb;padding-top:32rpx;margin-top:34rpx}.section-kicker,.brand-aside{letter-spacing:1rpx}.capability-strip{border-color:#e3cdbb;background:rgba(249,235,222,.6)}.main-navigation{border-top-color:#ceb19d}.nav-item.active{background:#f4ddca;border-color:#d4b198;color:#73411e}

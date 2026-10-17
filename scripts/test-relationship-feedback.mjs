@@ -6,7 +6,8 @@ import { voiceActionFeedback, loadVoiceMemory } from "../lib/miniapp-voice-memor
 const js = ts.transpileModule(readFileSync("lib/relationship-feedback.ts", "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const api = {};
 new Function("exports", js)(api);
-const evidenceApi={};new Function('exports',ts.transpileModule(readFileSync('lib/relationship-evidence.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(evidenceApi);
+const patternApi={};new Function('exports',ts.transpileModule(readFileSync('lib/relationship-patterns.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(patternApi);
+const evidenceApi={};new Function('exports','require',ts.transpileModule(readFileSync('lib/relationship-evidence.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(evidenceApi,()=>patternApi);
 const updates = {};
 new Function("exports", "require", ts.transpileModule(readFileSync("lib/relationship-updates.ts", "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText)(updates,()=>evidenceApi);
 const id = "11111111-1111-4111-8111-111111111111";

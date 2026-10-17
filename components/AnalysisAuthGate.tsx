@@ -35,7 +35,6 @@ function AuthDialog({ onClose, returnTo, contextLabel = "当前分析", onSucces
   const [mode, setMode] = useState<"login" | "register">("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [existing, setExisting] = useState(false);
   const [busy, setBusy] = useState(false);
   const [registerBusy, setRegisterBusy] = useState(false);
   const [error, setError] = useState("");
@@ -90,7 +89,7 @@ function AuthDialog({ onClose, returnTo, contextLabel = "当前分析", onSucces
       const response = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password, ...(existing ? { accountType: "existing" } : {}) }),
+        body: JSON.stringify({ username, password }),
       });
       const data = await response.json() as { error?: string };
       if (!response.ok) throw Error(data.error || "登录失败，请检查账号密码。");
@@ -132,7 +131,7 @@ function AuthDialog({ onClose, returnTo, contextLabel = "当前分析", onSucces
         <form className={styles.loginForm} onSubmit={submit}>
           <label>用户名<input name="username" value={username} onChange={event => setUsername(event.target.value)} autoComplete="username" autoCapitalize="none" spellCheck={false} required maxLength={100} disabled={busy} /></label>
           <label>密码<input name="password" value={password} onChange={event => setPassword(event.target.value)} type="password" autoComplete="current-password" required maxLength={256} disabled={busy} /></label>
-          <label className={styles.check}><input type="checkbox" checked={existing} onChange={event => setExisting(event.target.checked)} disabled={busy} /><span>原有账号登录（成子新注册账户无需勾选）</span></label>
+          
           <button className={styles.submit} disabled={busy} type="submit">{busy ? "正在登录…" : "登录并继续"}<ArrowRight size={17} /></button>
         </form>
         <p className={styles.help}>还没有账户？<button type="button" onClick={() => switchMode("register")} disabled={busy}>在这里注册</button></p>

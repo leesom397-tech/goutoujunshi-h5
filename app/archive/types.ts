@@ -4,6 +4,7 @@ import type { cleanCommunicationReading } from "@/lib/communication-reading";
 import type { cleanMomentsReport } from "@/lib/moments-report";
 import type { TimelineRecord, relationshipTrendPoints } from "@/lib/relationship-timeline";
 import type { actionFeedbackCards, relationshipProgressEvents } from "@/lib/relationship-feedback";
+import type { PersonSavedAnalysis } from "@/lib/person-saved-insights";
 
 export type MomentsReport = NonNullable<ReturnType<typeof cleanMomentsReport>>;
 export type Reading = NonNullable<ReturnType<typeof cleanCommunicationReading>>;
@@ -14,6 +15,8 @@ export type Person = {
   relationshipStatus?: string; childrenPlan?: string; lifestyle?: string;
   compatibility?: ReturnType<typeof relationshipFit>;
   communicationReading?: Reading | null; momentsReport?: MomentsReport | null;
+  savedAnalysis?: PersonSavedAnalysis | null;
+  savedChatAnalysis?: PersonSavedAnalysis | null;
 };
 export type ArchiveFact = { id: string; subjectId: string | null; kind: string; value: string; source: string; evidence: string; status: "pending" | "accepted"; eventTitle?: string; eventDate?: string };
 export type ArchiveState = { enabled: boolean; paused: boolean; self: SelfData & { avatar?: string; momentsReport?: MomentsReport | null }; subjects: Person[]; facts: ArchiveFact[]; signals: TimelineRecord[]; trends: { subjectId: string; points: ReturnType<typeof relationshipTrendPoints> }[] };

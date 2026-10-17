@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>成子电脑微信采集助手 · 使用说明</title>
+  <style>
+    :root{color-scheme:light}*{box-sizing:border-box}body{margin:0;background:#fff8f1;color:#332a25;font-family:"Microsoft YaHei UI","Microsoft YaHei",sans-serif;line-height:1.75}.wrap{width:min(760px,calc(100% - 36px));margin:36px auto 60px}.brand{color:#a45d45;font-size:14px;font-weight:700;letter-spacing:.08em}.card{margin-top:14px;padding:30px 32px;background:#fffdf9;border:1px solid #ead7c8;border-radius:18px;box-shadow:0 8px 28px #8d604514}h1{margin:8px 0 10px;font-size:30px;line-height:1.35}h2{margin:28px 0 8px;font-size:19px}p{margin:8px 0;color:#64554b}.steps{margin:18px 0 0;padding:0;list-style:none;counter-reset:step}.steps li{display:flex;gap:12px;margin:13px 0;align-items:flex-start}.steps li:before{counter-increment:step;content:counter(step);display:grid;place-items:center;flex:none;width:27px;height:27px;border-radius:50%;background:#edaa92;color:#503226;font-weight:700;line-height:1}.tip{margin-top:22px;padding:15px 17px;border-radius:12px;background:#fff1e7;border:1px solid #f0c8b4}.version{margin-top:26px;color:#94786a;font-size:12px}@media(max-width:560px){.wrap{width:min(100% - 24px,760px);margin:18px auto 35px}.card{padding:22px 19px}h1{font-size:25px}}
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <div class="brand">成子 · 关系决策智能体</div>
+    <section class="card">
+      <h1>电脑微信采集助手怎么用</h1>
+      <p>按下面 5 步就可以把已同步到电脑的聊天和朋友圈材料带进网页版。</p>
+      <ol class="steps">
+        <li>先打开 Windows 微信并登录。</li>
+        <li>打开下载的 ZIP，<b>双击</b>「01-双击启动成子助手.cmd」。第一次启动会下载并校验助手。</li>
+        <li>在出现的助手窗口中点击「打开网页并连接」。</li>
+        <li>网页里选择「聊天」或「朋友圈」，选择联系人，再点击「导入」。</li>
+        <li>等待导入完成。分析前网页会让你确认材料和积分费用。</li>
+      </ol>
+      <div class="tip"><b>打不开启动文件？</b><br>右键下载的 ZIP，选择「全部解压」，再双击解压文件夹中的「01-双击启动成子助手.cmd」。首次打开时，Windows 可能显示「Windows 已保护你的电脑」；当前发布包尚未使用公共代码签名证书，这是 SmartScreen 对新下载文件的声誉提示。请确认文件来自成子官网后点「更多信息」→「仍要运行」，来源不确定请点「不运行」。企业电脑策略可能禁止继续。单击文件只会选中它。</div>
+      <h2>语音会不会漏掉？</h2>
+      <p>电脑里已有的语音会先被识别，再在本机转成文字。首次使用语音可能需要准备模型，耗时会比纯文字更长。没有取得正文的语音会标记为待补全，不会被当成普通文字。</p>
+      <h2>手机上的记录还没到电脑怎么办？</h2>
+      <p>先用微信的聊天记录迁移或备份功能，把需要的聊天同步到电脑。电脑助手只能读取已经出现在这台电脑上的内容。</p>
+      <h2>连接不上怎么办？</h2>
+      <p>回到助手窗口，复制 8 位备用连接码，在网页的「手动输入连接码」里连接。朋友圈导入时保持微信在前台；后台聊天和语音导入时可以继续使用电脑。</p>
+      <p class="version">版本：{{VERSION}} · 助手只读取你在网页选择的联系人和材料。</p>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,0 +1,88 @@
+"""Explicit synthetic encrypted-SQLite smoke test, never a live WeChat source."""
+import hashlib
+import hmac
+import os
+from pathlib import Path
+import struct
+import tempfile
+import time
+
+
+def _synthetic_encrypted_database(plain_path, encrypted_path):
+    import apsw
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    expected = "chengzi-synthetic-vfs-check"
+    conn = apsw.Connection(str(plain_path))
+    try:
+        conn.execute("PRAGMA page_size=4096")
+        conn.reserve_bytes("main", 80)
+        conn.execute("VACUUM")
+        conn.execute("CREATE TABLE sample(body TEXT)")
+        conn.execute("INSERT INTO sample VALUES(?)", (expected,))
+    finally:
+        conn.close()
+    raw = plain_path.read_bytes()
+    plain_path.unlink()
+    key, salt = os.urandom(32), os.urandom(16)
+    mac_key = hashlib.pbkdf2_hmac("sha512", key, bytes(byte ^ 0x3A for byte in salt), 2, 32)
+    encrypted = bytearray()
+    for offset in range(0, len(raw), 4096):
+        page_no, plain = offset // 4096 + 1, raw[offset:offset + 4096]
+        iv = os.urandom(16)
+        start = 16 if page_no == 1 else 0
+        encryptor = Cipher(algorithms.AES(key), modes.CBC(iv)).encryptor()
+        body = encryptor.update(plain[start:4016]) + encryptor.finalize()
+        digest = hmac.new(mac_key, body + iv + struct.pack("<I", page_no), hashlib.sha512).digest()
+        encrypted.extend((salt if page_no == 1 else b"") + body + iv + digest)
+    encrypted_path.write_bytes(encrypted)
+    return key, expected
+
+
+def run_database_self_test():
+    started = time.monotonic()
+    result = {"mode": "local-database-runtime-self-test", "ok": False,
+              "userDataUsed": False, "processMemoryRead": False, "networkUsed": False,
+              "decryptionPassed": False, "readOnlyGuard": False, "compressionReady": False}
+    try:
+        import apsw
+        import zstandard
+        from local_database_source import EncryptedSnapshot, open_encrypted_connection
+        with tempfile.TemporaryDirectory(prefix="chengzi-synthetic-runtime-") as temporary:
+            root = Path(temporary)
+            encrypted_path = root / "synthetic-encrypted.db"
+            key, expected = _synthetic_encrypted_database(root / "synthetic-plain.db", encrypted_path)
+            before = hashlib.sha256(encrypted_path.read_bytes()).digest()
+            snapshot = EncryptedSnapshot(encrypted_path, key)
+            conn = vfs = None
+            try:
+                conn, vfs = open_encrypted_connection(snapshot)
+                if conn.execute("SELECT body FROM sample").fetchall() != [(expected,)]:
+                    raise RuntimeError("synthetic-read-mismatch")
+                result["decryptionPassed"] = True
+                try:
+                    conn.execute("INSERT INTO sample VALUES('must not write')")
+                except apsw.ReadOnlyError:
+                    result["readOnlyGuard"] = True
+                else:
+                    raise RuntimeError("read-only-guard-missing")
+            finally:
+                if conn is not None:
+                    conn.close()
+                if vfs is not None:
+                    vfs.unregister()
+                snapshot.close()
+            if hashlib.sha256(encrypted_path.read_bytes()).digest() != before:
+                raise RuntimeError("synthetic-source-modified")
+            payload = b"chengzi-synthetic-zstandard-check"
+            packed = zstandard.ZstdCompressor().compress(payload)
+            if zstandard.ZstdDecompressor().decompress(packed) != payload:
+                raise RuntimeError("compression-roundtrip-failed")
+            result["compressionReady"] = True
+            result["syntheticPages"] = encrypted_path.stat().st_size // 4096
+            result["ok"] = True
+    except Exception as error:
+        result["reason"] = getattr(error, "code", "database-runtime-check-failed")
+        result["errorType"] = type(error).__name__
+    finally:
+        result["elapsedMilliseconds"] = round((time.monotonic() - started) * 1000)
+    return result

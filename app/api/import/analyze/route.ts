@@ -3,6 +3,8 @@ import { COACH_RULES, MODE_RULES } from "@/lib/coach";
 import { buildKnowledgeContext } from "@/lib/knowledge";
 import { loadProfileContext } from "@/lib/profile-context";
 import { parseReplyPaths } from "@/lib/reply-paths";
+import { getD1 } from "@/db";
+import { readAnalysisReport, saveAnalysisReport } from "@/lib/saved-reports.mjs";
 import { qwenChat, qwenKey, qwenPublicError, parseQwenJson, type QwenContent } from "@/lib/qwen";
 
 export const runtime = "edge";
@@ -16,7 +18,7 @@ export async function POST(request: Request) {
   if (!user) return json({ error: "请先登录后分析导入材料。" }, 401);
   if (!request.headers.get("content-type")?.includes("application/json")) return json({ error: "请求格式不正确。" }, 415);
   if (Number(request.headers.get("content-length") || 0) > 13_000_000) return json({ error: "这一批材料过大，请分批上传。" }, 413);
-  let body: { text?: unknown; images?: unknown; me?: unknown; other?: unknown; mappingConfirmed?: unknown; final?: unknown; subjectId?: unknown };
+  let body: { text?: unknown; images?: unknown; me?: unknown; other?: unknown; mappingConfirmed?: unknown; final?: unknown; subjectId?: unknown; reportId?: unknown; requestId?: unknown; batchIndex?: unknown };
   try { body = await request.json(); } catch { return json({ error: "无法读取材料。" }, 400); }
   if (body.mappingConfirmed !== true) return json({ error: "请先确认你和对方的说话人映射。" }, 400);
   const me = typeof body.me === "string" ? body.me.trim().slice(0, 60) : "";
@@ -25,6 +27,11 @@ export async function POST(request: Request) {
   const text = typeof body.text === "string" ? body.text.trim() : "";
   const images = Array.isArray(body.images) ? body.images : [];
   const subjectId = typeof body.subjectId === "string" && body.subjectId.length <= 100 ? body.subjectId : null;
+  const reportId = typeof body.reportId === "string" ? body.reportId : crypto.randomUUID();
+  if (!/^[a-f0-9-]{36}$/.test(reportId)) return json({ error: "报告编号无效。" }, 400);
+  const existing = await readAnalysisReport(getD1(), user.userId, reportId);
+  if (existing && !existing.report.importAnalysis) return json({ error: "请重新添加材料后分析。" }, 409);
+  if (subjectId && !await getD1().prepare("SELECT id FROM coach_subjects WHERE id=? AND owner_id=? AND status='active'").bind(subjectId,user.userId).first()) return json({error:"关联人物已不存在，请重新选择。"},400);
   if (text.length > 30000 || images.length > 2 || !text && !images.length) return json({ error: "每批最多 3 万字或 2 张截图。" }, 400);
   if (images.some((item) => typeof item !== "string" || item.length > 7_000_000 || !/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(item))) return json({ error: "图片格式不支持或过大。" }, 400);
   if (!qwenKey()) return json({ error: "导入分析尚未配置百炼密钥。" }, 503);
@@ -67,7 +74,7 @@ export async function POST(request: Request) {
       when: typeof item.when === "string" ? item.when.trim().slice(0, 150) : "",
       next: parseReplyPaths(item.next),
     })).filter((item) => item.text && item.when);
-    return json({
+    const output = {
       summary: result.summary.slice(0, 1200),
       observations: result.observations.filter((item) => item && typeof item === "object").slice(0, 5).map((item) => ({
         claim: String(item.claim || "").slice(0, 300), evidence: String(item.evidence || "").slice(0, 150), uncertainty: String(item.uncertainty || "").slice(0, 250),
@@ -76,6 +83,16 @@ export async function POST(request: Request) {
       lineInsights,
       replyOptions: replyOptions.length === 3 ? replyOptions : [],
       knowledgeSources: knowledge.sources,
-    });
+    };
+    const prior = existing?.report.importAnalysis;
+    const batches = Array.isArray(prior?.batches) ? [...prior.batches] : [];
+    const index = Number.isInteger(body.batchIndex) ? Number(body.batchIndex) : batches.length;
+    if (index < 0 || index > 50) return json({error:"批次编号无效。"},400);
+    if (!body.final) batches[index] = output;
+    await saveAnalysisReport(getD1(), { ownerId:user.userId, id:reportId, kind:"chat", subjectId,
+      imageCount:1, totalCount:batches.length, result:{decision:{judgment:output.summary}, importAnalysis:{
+        me, other, batches, result:output, complete:body.final===true || batches.length===1,
+      }} });
+    return json({...output,reportId,retention:"until-deleted"});
   } catch (error) { return json({ error: qwenPublicError(error, "材料分析连接失败，请稍后再试。") }, 502); }
 }

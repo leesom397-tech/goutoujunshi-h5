@@ -8,3 +8,18 @@
 .footer button:disabled { opacity:.5; cursor:wait; }
 .footer :is(a,button):focus-visible { outline:2px solid #a46b50; outline-offset:3px; }
 @media(max-width:480px){.saved{padding:14px 16px}.footer{gap:10px;flex-wrap:wrap}.footer a,.footer button{font-size:13px;padding:9px 11px}}
+
+.reportHeader{display:flex;justify-content:space-between;align-items:center;gap:24px;padding:20px 24px;margin-bottom:18px;border:1px solid #ecded3;border-radius:18px;background:linear-gradient(110deg,#fffaf5 45%,#faeee6);color:#302821}.eyebrow{display:flex;align-items:center;gap:7px;font-size:13px;color:#94644f}.reportHeader h1{margin:7px 0 5px;font-size:28px;font-weight:600;line-height:1.4}.reportHeader p{margin:0;color:#796d65;font-size:14px;line-height:1.6}.reportHeader nav{display:flex;gap:8px;flex-shrink:0}.reportHeader nav a{font-size:14px;padding:9px 12px;min-height:44px}@media(max-width:700px){.reportHeader{align-items:flex-start;gap:14px;padding:16px;flex-wrap:wrap;margin-bottom:14px}.reportHeader h1{font-size:24px}.reportHeader nav{gap:8px}.reportHeader nav a{min-height:44px}}
+
+.materialReport :global(.analysis-card),.materialReport :global(.conversation-panel){background:#fffdf9;border:1px solid #ead8ca;border-radius:20px;padding:24px;color:#443930}
+.materialReport :global(.analysis-card p),.materialReport :global(.conversation-bubble p){font-size:17px;line-height:1.9;color:#443930}
+.materialReport :global(.analysis-card h3){font-size:23px}
+.materialReport :global(.observation-list strong){font-size:17px;color:#614737}
+.materialReport :global(.observation-list small),.materialReport :global(.conversation-reading span){font-size:15px;line-height:1.8;color:#7d6a5c}
+
+.materialReport :global(.risk-results){background:#fffdf9;color:#443930;border:1px solid #ead8ca;border-radius:20px;padding:24px}
+.materialReport :global(.risk-results) p{font-size:17px;line-height:1.9;color:#5a483b}
+.materialReport :global(.risk-results) h2{font-size:26px}
+.materialReport :global(.risk-results) h3{font-size:21px}
+.materialReport :global(.risk-alert){background:#fffaf3;border-color:#ecd9c8}
+@media(max-width:600px){.materialReport :global(.risk-results){padding:18px}.materialReport :global(.risk-results) p{font-size:16px}}

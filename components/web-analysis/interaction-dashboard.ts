@@ -9,7 +9,19 @@ const relayed=(value:string)=>/[“”「」『』"]|他说|她说|你说|朋友
 const denied=(value:string)=>/没(?:有)?(?:说|讲|要求|让)|并非|不代表|不是说/.test(value);
 const stop=(value:string)=>!relayed(value)&&!denied(value)&&!/[？?]/.test(value)&&/(?:别再?联系|不要(?:再)?联系|别再找)(?:我|我们)(?:了|吧|[，。！!\s]|$)|(?:^|[，。\s])我?不想(?:和|跟)你继续(?:联系|交往|下去|了|[，。！!\s]|$)/.test(value);
 const actionBlocked=(value:string)=>relayed(value)||/(?:不想|不打算|不方便|不愿意|不一定|不准备|不太想|不能|不会|不要|没想|未打算|还没|未能|无法|取消|本来|原本).{0,24}(?:见|约|来|接|吃饭|喝咖啡|看展|订|买|发)|有空.{0,10}就|(?:能|可以)的话/.test(value);
-function actionKind(value:string){if(actionBlocked(value)||/[？?]|(?:吗|么|呢)[。！!\s]*$/.test(value))return '';if(/我(?:已经|刚刚|刚|已)?(?:订了|买了|发给你了|到了)|(?:票|餐厅|座位).{0,5}(?:订好了|买好了)|我把.{0,15}(?:发给你了|订好了)/.test(value))return '已做自述';if(/(?:周[一二三四五六日天]|明天|后天|\d{1,2}点|[一二三四五六七八九十]点).{0,22}(?:见|来接你|去接你|吃饭|喝咖啡|看展)/.test(value))return '具体安排';return '';}
+function actionKind(value:string){
+ if(actionBlocked(value)||denied(value))return '';
+ // A follow-up question must not erase an earlier completed-action statement:
+ // “我已订好票，还按这个时间吗？” contains both, with different meanings.
+ const clauses=value.match(/[^，,。！!？?；;]+[，,。！!？?；;]?/gu)||[];
+ const statements=clauses.filter(part=>!/[？?]|(?:吗|么|呢)[。！!\s]*$/.test(part));
+ if(statements.some(part=>/我(?:已经|刚刚|刚|已)?(?:订了|买了|发给你了|到了)|(?:票|餐厅|座位).{0,5}(?:订好了|买好了)|我把.{0,15}(?:发给你了|订好了)|我(?:已经|刚刚|刚|已)?(?:确认了|订好了|买好了).{0,20}(?:票|餐厅|座位|预约)/.test(part)))return '已做自述';
+ if(statements.some(part=>/(?:周[一二三四五六日天]|明天|后天|\d{1,2}点|[一二三四五六七八九十]点).{0,22}(?:见|来接你|去接你|吃饭|喝咖啡|看展)/.test(part)))return '具体安排';
+ // Agreeing to a specific time and volunteering the booking is a concrete
+ // arrangement, not proof the outing or payment has already happened.
+ if(statements.some(part=>/(?:\d{1,2}|[一二三四五六七八九十两]{1,3})点(?:半)?(?:可以|行|没问题)[，,。！!\s]*$/.test(part))&&statements.some(part=>/我来(?:订票|买票|订餐厅|安排)/.test(part)))return '具体安排';
+ return '';
+}
 const need=(value:string)=>!relayed(value)&&!denied(value)&&/(?:我|今天|今晚|不过).{0,18}(?:想|需要).{0,12}(?:早点|休息|独处|安静|回家|空间)|我(?:今天|今晚|现在|这次|暂时)?不(?:想|方便|愿意).{0,12}(?:见|聊|发|去)|请别|不要催我|别勉强我/.test(value);
 const respect=(value:string)=>!relayed(value)&&!denied(value)&&!/(?:不|没).{0,3}(?:尊重|理解)|别休息|必须|不许|就要|不行/.test(value)&&/(?:尊重|理解)(?:你|你的)|不(?:会|想)?(?:催|勉强|强求)|按你的节奏|当然|没问题|早点(?:回|休息)|好[的呀啊]?[,，。！!\s]|那.{0,8}(?:休息|回家)|送你.{0,6}(?:回家|地铁)/.test(value);
 const violation=(value:string)=>!relayed(value)&&!denied(value)&&/你必须|你得|不许|别装|别矫情|不来就|不发就|不答应就|不行.{0,10}(?:来|见|发)|我不管/.test(value);

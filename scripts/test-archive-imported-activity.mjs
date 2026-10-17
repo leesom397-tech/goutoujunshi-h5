@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import { mergeArchiveActivityPage } from '../lib/archive-imported-activity-core.ts';
+const source={method:'wechat-local-db',accountId:'owner',sessionId:'s',messageId:'m',messageShard:'0',idStability:'stable',timestampOrigin:'wechat-create-time'};
+const row=i=>({localId:`r${i}`,kind:'text',senderRole:i%2?'self':'other',sender:'',at:`2026-10-16T00:00:${String(i).padStart(2,'0')}Z`,text:`消息${i}`,source});
+const state={ownerId:'public-owner',libraryId:'lib',epoch:2,revision:null,total:null,seen:new Set(),cursors:new Set(),records:[]};
+let page={ownerId:'public-owner',library:{id:'lib',account:'a',friend:'雅欣',kind:'chat',subjectId:'subject',epoch:2,revision:9,total:120,updatedAt:'2026-10-16T00:00:00Z'},records:Array.from({length:100},(_,i)=>row(i)),nextCursor:'c1'};
+let result=mergeArchiveActivityPage(state,page,'');assert.equal(result.nextCursor,'c1');
+page={...page,records:Array.from({length:20},(_,i)=>row(i+100)),nextCursor:null};result=mergeArchiveActivityPage(state,page,'c1');assert.equal(result.nextCursor,'');assert.equal(state.records.length,120);assert.equal(state.total,120);
+assert.throws(()=>mergeArchiveActivityPage(state,{...page,records:[row(119)],nextCursor:null},''),/重复/);
+assert.throws(()=>mergeArchiveActivityPage({ownerId:'different',libraryId:'lib',epoch:2,revision:null,total:null,seen:new Set(),cursors:new Set(),records:[]},page,''),/账号/);
+const stale={ownerId:'public-owner',libraryId:'lib',epoch:2,revision:9,total:120,seen:new Set(),cursors:new Set(),records:[]};assert.throws(()=>mergeArchiveActivityPage(stale,{...page,library:{...page.library,revision:10}},''),/更新/);
+const loop={ownerId:'public-owner',libraryId:'lib',epoch:2,revision:null,total:null,seen:new Set(),cursors:new Set(['same']),records:[]};assert.throws(()=>mergeArchiveActivityPage(loop,{...page,nextCursor:'same'},''),/前进/);
+console.log('PASS: archive owner/epoch/revision guard, 500-page merge, cursor and duplicate checks; no AI/credits');

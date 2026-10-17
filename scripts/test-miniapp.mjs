@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { loadVoiceMemory, validVoiceSubjectId } from "../lib/miniapp-voice-memory.mjs";
 const nativeRiskSignals={},nativeRisk={};
+const nativeImported = { exports: {} };
+new Function('module', readFileSync('miniapp/lib/imported-report.js', 'utf8'))(nativeImported);
 new Function("exports",readFileSync("miniapp/lib/relationship-risk.js","utf8"))(nativeRiskSignals);
 new Function("exports","require",readFileSync("miniapp/lib/risk-aware-presentation.js","utf8"))(nativeRisk,()=>nativeRiskSignals);
 
@@ -241,12 +243,15 @@ assert.equal(interruptedIds[1], interruptedIds[2], "failed screenshot retains it
 assert.equal(interruptedPage.data.result.lines.length, 2);
 const nativeReportSource = readFileSync(resolve("miniapp/pages/report/index.js"), "utf8");
 let nativeReportDefinition;
+const nativeRewrites=[];
 new Function("require", "Page", "wx", nativeReportSource)(
-  id => { if(id==="../../lib/risk-aware-presentation")return nativeRisk; if (id === "../../lib/followup-context") return followup; assert.equal(id, "../../lib/api"); return {
+  id => { if(id==="../../lib/imported-report")return nativeImported.exports; if(id==="../../lib/risk-aware-presentation")return nativeRisk; if (id === "../../lib/followup-context") return followup; assert.equal(id, "../../lib/api"); return {
     STORAGE: api.STORAGE,
     session: api.session,
+    newId: async()=>validId,
     async request(path, method, body, token) {
     if (path === "/api/miniapp/credits") { assert.equal(method, "GET"); return { prices: fixturePrices }; }
+      if(path==='/api/miniapp/rewrite'){nativeRewrites.push(body);return {text:'调整后的回复',status:'adjusted',note:'参考本轮原话',experienceEvidence:[{id:'shared-1',quote:'上次一起看过展',sourceReportId:validId}]};}
       assert.equal(path, "/api/miniapp/report?id=" + validId);
       assert.equal(method, "GET");
       assert.equal(token, "test-token");
@@ -265,6 +270,16 @@ assert.equal(nativeReportPage.data.report.affinity, null, "missing consented sig
 assert.deepEqual(nativeReportPage.data.report.replies.map(item => item.weight), [90, 80, 30]);
 assert.deepEqual(nativeReportPage.data.report.replies.map(item => item.rankLabel), ["本轮首选", "备选 2", "备选 3"]);
 assert.equal(nativeReportPage.data.report.hasReplies, true, "report reply visibility must be explicit for WXML");
+assert.equal(nativeReportPage.data.report.canPersonalize,false,'one self bubble cannot unlock a reliable style rewrite');
+nativeReportPage.data.report.canPersonalize=true;
+await nativeReportPage.personalize({currentTarget:{dataset:{index:0}}});
+assert.equal(nativeRewrites[0].optionIndex,0,'saved-report rewrite must preserve the ranked reply selected by the user');
+assert.equal(nativeReportPage.data.report.replies[0].personalizedText,'调整后的回复');
+assert.equal(nativeReportPage.data.report.replies[0].experienceEvidence[0].quote,'上次一起看过展','shared experience evidence remains available next to the rewritten reply');
+nativeReportPage._unloaded=true;
+await nativeReportPage.personalize({currentTarget:{dataset:{index:1}}});
+assert.equal(nativeRewrites.length,1,'leaving a report must not submit a stale rewrite');
+nativeReportPage._unloaded=false;
 report.affinity = { value: null, valueScope: "partial", contextCount: 5, dimensions: [{ key: "boundary", label: "边界", value: null }, { key: "investment", label: "投入", value: 0 }] };
 await nativeReportPage.refresh();
 assert.equal(nativeReportPage.data.report.affinity.scoreLabel, "总分待验证");
@@ -278,6 +293,31 @@ report.affinity.dimensions = Array.from({ length: 6 }, (_, index) => ({ key: Str
 await nativeReportPage.refresh();
 assert.equal(nativeReportPage.data.report.affinity.radarReady, true, "radar requires all six real dimension values");
 delete report.affinity;
+report.importAnalysis = { me:'测试本人', other:'测试对方', result:{summary:'合并后的材料总结',observations:[{claim:'有具体安排',evidence:'对方提出周六看展',uncertainty:'尚未确认时间'}],questions:['时间是否合适'],lineInsights:[],replyOptions:[]}, batches:[{summary:'第一批判断',observations:[{claim:'先确认时间',evidence:'虚构原话 A',uncertainty:'日期未明确'}],questions:[],lineInsights:[],replyOptions:[]},{summary:'最近一批判断',observations:[],questions:[],lineInsights:[{quote:'周六看展吗？',speaker:'测试对方',signal:'提出具体活动',alternative:'也可能是普通朋友邀约',certainty:'仅为线索'},{quote:'我看看时间',speaker:'未确认称呼',signal:'暂未确认',alternative:'可能需要安排',certainty:'有限'}],replyOptions:[{text:'周六下午可以吗？',when:'你也愿意见面时',next:{positive:'确认地点',unclear:'留出时间',stop:'尊重拒绝'}}]}] };
+await nativeReportPage.refresh();
+assert.equal(nativeReportPage.data.report.isImported,true);
+assert.equal(nativeReportPage.data.report.judgment,'合并后的材料总结');
+assert.equal(nativeReportPage.data.report.importBatches.length,2,'each saved batch must remain readable');
+assert.equal(nativeReportPage.data.report.lines.length,2,'summary with empty insights must use the latest batch');
+assert.equal(nativeReportPage.data.report.lines[1].who,'未确认称呼','unknown speaker must not be assigned to the other person');
+assert.equal(nativeReportPage.data.report.lines[0].alternative,'也可能是普通朋友邀约');
+assert.equal(nativeReportPage.data.report.replies[0].next.stop,'尊重拒绝');
+assert.equal(nativeReportPage.data.report.canPersonalize,false);
+assert.equal(nativeReportPage.data.report.replies[0].rewriteIndex,-1,'imported replies cannot enter screenshot rewrite index mapping');
+await nativeReportPage.personalize({currentTarget:{dataset:{index:0}}});
+assert.equal(nativeRewrites.length,1,'opening imported reports must not submit a paid rewrite');
+delete report.importAnalysis;
+report.riskAnalysis = {summary:'存在明确转账要求，先核实',alerts:[{title:'要求先付保证金',level:'警惕',evidence:'虚构原话：先付保证金才能提现',uncertainty:'平台身份尚未核实',nextStep:'暂停转账并独立核实'}],questions:['是否能通过官方渠道核实']};
+await nativeReportPage.refresh();
+assert.equal(nativeReportPage.data.report.isRiskAnalysis,true);
+assert.equal(nativeReportPage.data.report.judgment,'存在明确转账要求，先核实');
+assert.equal(nativeReportPage.data.report.riskAlerts[0].uncertainty,'平台身份尚未核实');
+assert.equal(nativeReportPage.data.report.riskAlerts[0].nextStep,'暂停转账并独立核实');
+assert.equal(nativeReportPage.data.report.riskQuestions.length,1);
+assert.equal(nativeReportPage.data.report.hasReplies,false,'risk notes must not invent reply drafts');
+assert.equal(nativeReportPage.data.report.lines.length,0,'risk evidence is not a full transcript');
+delete report.riskAnalysis;
+await nativeReportPage.refresh();
 nativeReportPage.toggleReply({ currentTarget: { dataset: { index: 0 } } });
 assert.equal(nativeReportPage.data.report.replies[0].expanded, true);
 nativeReportPage._id = "-".repeat(36);
@@ -330,7 +370,7 @@ assert.match(readFileSync(resolve("miniapp/pages/quick/index.wxml"), "utf8"), /�
 page.setData({ result: { ...page.data.result, canPersonalize: true } });
 await page.personalize({ currentTarget: { dataset: { index: 0 } } });
 assert.equal(sent.at(-1).path, "/api/miniapp/rewrite");
-assert.deepEqual(sent.at(-1).body, { reportId: validId, optionIndex: 1, styleReportIds: page.data.result.styleReportIds, confirmed: true, requestId: '22222222-2222-4222-8222-222222222222' });
+assert.deepEqual(sent.at(-1).body, { reportId: validId, optionIndex: 0, styleReportIds: page.data.result.styleReportIds, confirmed: true, requestId: '22222222-2222-4222-8222-222222222222' }, 'rewrite endpoint takes the ranked option index, not its original array position');
 assert.equal(page.data.result.replies[0].personalizedText, "周日下午见面行吗？");
 assert.doesNotMatch(readFileSync(resolve("miniapp/pages/quick/index.wxml"), "utf8"), /关联已有账号/);
 
@@ -360,8 +400,8 @@ assert.equal((homeMarkup.match(/data-entry="social-profile"/g) || []).length, 1,
 assert.doesNotMatch(homeMarkup, /NEW|action-index|单张 5 MB|单张 12 MB|不是 46 本书/, "home must not display upload limits or maintainer copy");
 assert.match(homeMarkup, /结合聊天原话与已确认档案/);
 assert.match(homeMarkup, /assets\/chengzi-orbit\.png/, "home must use the approved shared Orbit logo");
-assert.match(homeMarkup, /assets\/relationship-daylight\.jpg/, "home must reference the original glass relationship artwork");
-const homeArt = readFileSync(resolve("miniapp/assets/relationship-daylight.jpg"));
+assert.match(homeMarkup, /assets\/aurora-fluted-light\.jpg/, "home must use the same approved dense vertical glass artwork as web");
+const homeArt = readFileSync(resolve("miniapp/assets/aurora-fluted-light.jpg"));
 assert.equal(homeArt.subarray(0, 3).toString("hex"), "ffd8ff", "hero artwork must be a portable JPEG in the miniapp package");
 assert.ok(homeArt.length < 250000, "hero artwork must remain small enough for the miniapp package");
 const homeLogo = readFileSync(resolve("miniapp/assets/chengzi-orbit.png"));
@@ -379,7 +419,8 @@ assert.equal(homePage.data.motionVisible, false, "background pages pause decorat
 const knowledgeManifest = JSON.parse(readFileSync(resolve("lib/knowledge-manifest.generated.json"), "utf8"));
 const publicHanCharacters = knowledgeManifest.documents.filter(item => item.category !== "core").reduce((total, item) => total + item.hanCharacters, 0);
 assert.equal(homePage.data.knowledgeSources, knowledgeManifest.referenceDocuments, "home must show the generated count of public topic notes");
-assert.equal(homePage.data.knowledgeWan, (publicHanCharacters / 10000).toFixed(1), "home must show the generated public Han character count");
+assert.equal(homePage.data.knowledgeWan, (knowledgeManifest.hanCharacters / 10000).toFixed(1), "home volume must agree with the web method-library count");
+assert.equal(homePage.data.knowledgeReferences, Number(readFileSync(resolve("lib/knowledge-origins.ts"), "utf8").match(/referenceCount:\s*(\d+)/)[1]), "the attributed source count must agree across platforms");
 assert.match(homeMarkup, /\{\{knowledgeWan\}\}[\s\S]*?万字[\s\S]*?系统整理的情感与关系知识[\s\S]*?\{\{knowledgeSources\}\}[\s\S]*?份主题指南/, "knowledge figures need a prominent and accurate label");
 assert.match(homeMarkup, /长期关系跟踪/, "home should explain continuity without claiming a different model");
 assert.doesNotMatch(homeMarkup, /通用 AI/, "home should not position its own model as an opponent");
@@ -809,7 +850,38 @@ const voiceMemory = await loadVoiceMemory(voiceDb, "owner-1", voiceSubjectId);
 assert.match(voiceMemory.text, /阿青/);
 assert.match(voiceMemory.text, /约好周日看展/);
 assert.match(voiceMemory.text, /对方说周日有空/);
-assert.equal(voiceQueries.length, 3, "voice memory must verify profile consent, subject ownership, and accepted facts");
+assert.equal(voiceQueries.length, 4, "voice memory must verify profile consent, subject ownership, archive scope, and accepted facts");
+const archiveVoiceDb = {
+  prepare(sql) {
+    return { bind(...args) {
+      if (sql.includes("coach_capture")) assert.deepEqual(args, ["owner-1", "owner-1", voiceSubjectId], "voice archive must stay owner/person scoped");
+      if (sql.includes("coach_facts")) assert.deepEqual(args, ["owner-1", voiceSubjectId], "voice facts must stay owner/person scoped");
+      return {
+        async first() {
+          if (sql.includes("coach_profiles")) return { consent_at: 1, paused: 0, data: "{}" };
+          if (sql.includes("coach_subjects")) return { label: "阿青", data: "{}" };
+          if (sql.includes("coach_capture")) return { total: 3, libraries: 1, self: 1, other: 2, voices: 1 };
+          throw Error("unexpected archive first query");
+        },
+        async all() {
+          if (sql.includes("coach_capture")) return { results: [
+            { record_json: JSON.stringify({ kind: "text", senderRole: "other", at: "2026-10-01", text: "完整归档里的第一句话" }), seq: 1, sort_known: 0, sort_time: 1 },
+            { record_json: JSON.stringify({ kind: "text", senderRole: "self", at: "2026-10-02", text: "我的归档回复" }), seq: 2, sort_known: 0, sort_time: 2 },
+            { record_json: JSON.stringify({ kind: "other", senderRole: "other", at: "2026-10-03", text: "语音转写：周末有空", source: { mediaKind: "voice", transcriptionStatus: "visible-text" } }), seq: 3, sort_known: 0, sort_time: 3 }
+          ] };
+          return { results: [] };
+        }
+      };
+    } };
+  }
+};
+const archiveVoice = await loadVoiceMemory(archiveVoiceDb, "owner-1", voiceSubjectId);
+assert.match(archiveVoice.text, /完整聊天资料库/);
+assert.match(archiveVoice.text, /完整归档里的第一句话/);
+assert.match(archiveVoice.text, /语音转写：周末有空/);
+assert.match(archiveVoice.text, /"total":3/);
+assert.match(archiveVoice.text, /"voices":1/);
+assert.ok(archiveVoice.text.length <= 2600, "voice archive projection must stay within realtime prompt budget");
 assert.equal((await loadVoiceMemory(voiceDb, "owner-1", "bad")).status, 400);
 const pausedVoiceDb = { prepare(sql) { assert.match(sql, /coach_profiles/, "paused archive must stop before subject data is read"); return { bind() { return { async first() { return { consent_at: 1, paused: 1, data: "{}" }; } }; } }; } };
 assert.equal((await loadVoiceMemory(pausedVoiceDb, "owner-1", voiceSubjectId)).status, 403);

@@ -3,14 +3,14 @@
   <view wx:if="{{phase === 'loading'}}" class="panel center"><busy-indicator label="正在读取报告"/></view>
   <view wx:elif="{{phase === 'error'}}" class="panel"><text class="heading">报告暂时无法打开</text><text class="muted">{{error}}</text><button class="retry" bindtap="refresh">重新读取</button></view>
   <block wx:else>
-    <view class="hero page-scene-hero"><view class="glass-stamp page-scene-stamp"><image class="glass-stamp-art" src="/assets/page-scenes/report.png" mode="aspectFit"/><image class="glass-stamp-symbol" src="/assets/ui-sparkles.png" mode="aspectFit"/><text>关系记录</text></view><text class="eyebrow">从原话到行动</text><text class="title">聊天分析报告</text><text class="sub">核对材料，理解可能性，再选择适合自己的回应。</text></view>
+    <view class="hero page-scene-hero"><view class="glass-stamp page-scene-stamp"><image class="glass-stamp-art" src="/assets/page-scenes/report.png" mode="aspectFit"/><image class="glass-stamp-symbol" src="/assets/ui-sparkles.png" mode="aspectFit"/><text>关系记录</text></view><text class="eyebrow">从原话到行动</text><text class="title">{{report.isRiskAnalysis ? '关系风险报告' : report.isImported ? '导入材料分析报告' : '聊天分析报告'}}</text><text class="sub">核对材料，理解可能性，再选择适合自己的回应。</text></view>
     <view class="report-shortcuts">
-      <button data-section="judgment" bindtap="jumpReport">本轮判断</button><button data-section="replies" bindtap="jumpReport">怎么回复</button>
-      <button data-section="lines" bindtap="jumpReport">逐句解读</button><button data-section="metrics" bindtap="jumpReport">互动指标</button>
+      <button data-section="judgment" bindtap="jumpReport">本轮判断</button><button wx:if="{{!report.isRiskAnalysis}}" data-section="replies" bindtap="jumpReport">怎么回复</button>
+      <button wx:if="{{!report.isRiskAnalysis}}" data-section="lines" bindtap="jumpReport">{{report.isImported ? '关键原话' : '逐句解读'}}</button><button data-section="metrics" bindtap="jumpReport">{{report.isRiskAnalysis ? '风险与依据' : report.isImported ? '分批依据' : '互动指标'}}</button>
       <button wx:if="{{report.photoClueCount}}" data-section="photos" bindtap="jumpReport">照片线索</button>
       <button wx:if="{{report.compatibility}}" data-section="fit" bindtap="jumpReport">补充适配</button>
     </view>
-    <view class="affection-highlight">
+    <view wx:if="{{!report.isImported && !report.isRiskAnalysis}}" class="affection-highlight">
       <view class="affection-highlight-head"><text class="affection-highlight-title">好感度 · 互动参考</text><text class="affection-highlight-scope">{{report.affectionScope}}</text></view>
       <view wx:if="{{report.hasAffectionScore}}" class="affection-highlight-score"><text>{{report.affectionScore}}</text><text class="affection-highlight-unit">/ 100</text></view>
       <view wx:else class="affection-overview">
@@ -38,7 +38,17 @@
       <view wx:if="{{!report.interactionInsight && report.judgment && report.possibleIntent && report.possibleIntent !== report.judgment}}" class="verdict-block intent-highlight"><text class="label">对方可能的意思 · 推测</text><text class="lead">{{report.possibleIntent}}</text></view>
       <button class="disclosure-button" bindtap="toggleEvidence" aria-expanded="{{showEvidence}}"><text>{{showEvidence ? '收起事实与判断依据' : '查看事实与判断依据'}}</text><view class="disclosure-chevron {{showEvidence ? 'expanded' : ''}}"/></button>
       <view wx:if="{{showEvidence}}" class="verdict-block verdict-evidence"><block wx:if="{{report.observation}}"><text class="label">看见的事实</text><text>{{report.observation}}</text></block><text class="label">判断依据</text><text>{{report.evidence}}</text></view>
+      <view wx:if="{{report.isImported}}" wx:for="{{report.importObservations}}" wx:key="index" class="import-observation"><text class="label">{{item.claim}}</text><text>依据：{{item.evidence || '材料未提供可核对原话'}}</text><text class="muted">仍待核对：{{item.uncertainty || '结合后续实际行为继续判断'}}</text></view>
       <view class="verdict-block verdict-action"><text class="label">下一步怎么做</text><text class="lead">{{report.nextStep}}</text></view>
+      <view wx:if="{{report.relationshipDiagnosis}}" class="relationship-diagnosis-mini">
+        <view class="relationship-diagnosis-head"><text class="section-title">关系全景 · {{report.relationshipDiagnosis.questionLabel}}</text><text class="relationship-trend">{{report.relationshipDiagnosis.trend}}</text></view>
+        <text class="relationship-state">{{report.relationshipDiagnosis.currentState}}</text>
+        <text class="muted">{{report.relationshipDiagnosis.reciprocity}}</text>
+        <text class="label">说法与行动</text>
+        <view wx:for="{{report.relationshipDiagnosis.claimActions}}" wx:key="id" class="relationship-claim"><text class="relationship-claim-status {{item.status === '已有后续线索' ? 'done' : 'pending'}}">{{item.status}}</text><text class="relationship-claim-title">{{item.claim}}</text><text class="muted">{{item.action}}</text></view>
+        <text class="label">首选下一步</text><text>{{report.relationshipDiagnosis.recommendation}}</text>
+        <text wx:if="{{report.relationshipDiagnosis.observeWindow}}" class="muted">观察：{{report.relationshipDiagnosis.observeWindow}}</text>
+      </view>
       <text class="muted">基于本轮可读聊天推测，不代表对方已确认的想法。</text>
       <button class="followup-button" bindtap="openFollowup" disabled="{{followupBusy}}" loading="{{followupBusy}}">{{followupBusy ? '正在打开…' : '继续追问'}}</button>
       <text class="followup-note">带着这份分析，和军师接着聊。</text>
@@ -46,33 +56,40 @@
     </view>
     <risk-review value="{{report.riskReview}}"/>
     <personal-connection value="{{report.personalConnection}}"/>
-    <view id="report-replies" class="panel">
+    <view wx:if="{{!report.isRiskAnalysis}}" id="report-replies" class="panel">
       <text class="step">02 · 回复选择</text><text class="heading">现在怎么回</text>
       <block wx:if="{{report.hasReplies}}">
         <text class="muted">按本轮推荐顺序，选符合你意思的一句。</text>
         <view wx:for="{{report.replies}}" wx:for-index="replyIndex" wx:key="text" class="reply {{replyIndex === 0 ? 'reply-first' : ''}}">
-          <text class="label">{{item.rankLabel}} · {{item.style}}</text><text class="reply-text" selectable>{{item.text}}</text>
+          <text class="label">{{item.rankLabel}} · {{item.style}}</text><text class="reply-text" selectable>{{item.personalizedText || item.text}}</text>
+          <text wx:if="{{item.personalizedText}}" class="muted">原推荐：{{item.text}}</text>
           <text class="reply-reason">为什么这样回：{{item.reason || '请结合上下文判断。'}}</text>
           <button class="reply-copy" data-index="{{replyIndex}}" bindtap="copyReply">{{copiedReplyIndex === replyIndex ? '已复制' : '复制这句'}}</button>
+          <button wx:if="{{item.rewriteIndex >= 0}}" class="light" data-index="{{replyIndex}}" bindtap="personalize" disabled="{{!report.canPersonalize || rewriteBusy >= 0}}">{{rewriteBusy === replyIndex ? '正在调整语气…' : '改得更像我'}}</button>
+          <text wx:if="{{!report.isImported && !report.canPersonalize && replyIndex === 0}}" class="muted">本轮你的原话较少，补充后可参考你的用词调整。</text>
+          <text wx:if="{{item.note}}" class="muted">{{item.note}}</text><text wx:if="{{item.rewriteError}}" class="error">{{item.rewriteError}}</text>
+          <view wx:for="{{item.experienceEvidence}}" wx:for-item="experience" wx:key="id" class="experience-evidence"><text class="label">用到的共同经历 · 已确认原话</text><text selectable>{{experience.quote}}</text></view>
           <button class="disclosure-button" data-index="{{replyIndex}}" bindtap="toggleReply" aria-expanded="{{item.expanded}}"><text>{{item.expanded ? '收起注意事项' : '查看注意事项'}}</text><view class="disclosure-chevron {{item.expanded ? 'expanded' : ''}}"/></button>
-          <view wx:if="{{item.expanded}}" class="details"><text>可能的代价：{{item.cost || '本轮没有可靠的代价分析。'}}</text></view>
+          <view wx:if="{{item.expanded}}" class="details"><block wx:if="{{report.isImported && item.next}}"><text wx:if="{{item.next.positive}}">对方积极回应：{{item.next.positive}}</text><text wx:if="{{item.next.unclear}}">回应不明确：{{item.next.unclear}}</text><text wx:if="{{item.next.stop}}">对方拒绝或不适：{{item.next.stop}}</text></block><text wx:else>可能的代价：{{item.cost || '本轮没有可靠的代价分析。'}}</text></view>
         </view>
         <text wx:if="{{copyError}}" class="error">{{copyError}}</text>
       </block>
       <text wx:else class="empty-note">本轮没有可靠的候选回复，不必为了发而发。</text>
       <view wx:if="{{report.review}}" class="review"><text class="section-title">你刚才回得怎么样</text><text>{{report.review}}</text></view>
     </view>
-    <view id="report-lines" class="panel">
-      <text class="step">03 · 逐句解读</text><text class="heading">逐句解读</text>
+    <view wx:if="{{!report.isRiskAnalysis}}" id="report-lines" class="panel">
+      <text class="step">03 · 原话与解释</text><text class="heading">{{report.isImported ? '最近一批关键原话' : '逐句解读'}}</text>
       <button class="disclosure-button" bindtap="toggleLines" aria-expanded="{{showLines}}"><text>{{showLines ? '收起逐句分析' : report.linesLabel + ' · 点击展开'}}</text><view class="disclosure-chevron {{showLines ? 'expanded' : ''}}"/></button>
-      <text wx:if="{{showLines}}" class="muted">权重表示解释倾向，不是对方喜欢你的概率。</text>
+      <text wx:if="{{showLines}}" class="muted">{{report.isImported ? '这里保留最近一批可辨认的关键句，不代表完整聊天记录。' : '权重表示解释倾向，不是对方喜欢你的概率。'}}</text>
       <view wx:if="{{showLines}}" wx:for="{{report.lines}}" wx:key="id" class="line {{item.who === '我' ? 'line-self' : item.who === '对方' ? 'line-other' : 'line-unknown'}}">
         <text class="label">{{item.lineNumber}} · {{item.who}}</text><text class="quote" selectable>{{item.text}}</text>
-        <signal-tags title="语气与情绪" tags="{{item.emotionTags}}"/><signal-tags title="可能的意思" tags="{{item.intentTags}}" note="{{item.note}}"/>
+        <block wx:if="{{report.isImported}}"><text>{{item.note}}</text><text wx:if="{{item.alternative}}" class="muted">另一种解释：{{item.alternative}}</text><text wx:if="{{item.certainty}}" class="muted">判断把握：{{item.certainty}}</text></block><block wx:else><signal-tags title="语气与情绪" tags="{{item.emotionTags}}"/><signal-tags title="可能的意思" tags="{{item.intentTags}}" note="{{item.note}}"/></block>
         <text wx:if="{{item.evidence}}" class="muted">{{item.evidence}}</text>
       </view>
     </view>
-    <view id="report-metrics" class="panel">
+    <view wx:if="{{report.isImported}}" id="report-metrics" class="panel"><text class="step">04 · 材料依据</text><text class="heading">分批保存的判断与依据</text><view wx:for="{{report.importBatches}}" wx:for-item="batch" wx:key="number" class="import-batch"><text class="label">第 {{batch.number}} 批材料</text><text>{{batch.summary}}</text><view wx:for="{{batch.observations}}" wx:key="index" class="import-observation"><text class="label">{{item.claim}}</text><text>依据：{{item.evidence || '材料未提供可核对原话'}}</text><text class="muted">仍待核对：{{item.uncertainty || '结合后续实际行为继续判断'}}</text></view><text wx:if="{{batch.questions}}" class="muted">可进一步核对：{{batch.questions}}</text></view></view>
+    <view wx:elif="{{report.isRiskAnalysis}}" id="report-metrics" class="panel"><text class="step">02 · 风险与依据</text><text class="heading">值得留意的具体行为</text><view wx:for="{{report.riskAlerts}}" wx:key="index" class="import-observation"><text class="label">{{item.level}} · {{item.title}}</text><text>依据：{{item.evidence || '材料未提供可核对原话'}}</text><text class="muted">尚不能确定：{{item.uncertainty || '需要结合上下文核实'}}</text><text class="label">可以怎么做</text><text>{{item.nextStep}}</text></view><text wx:if="{{!report.hasRiskAlerts}}" class="muted">本次没有可单列的风险条目，结合上方总结继续核对。</text><block wx:if="{{report.hasRiskQuestions}}"><text class="label">继续判断前可核对</text><text wx:for="{{report.riskQuestions}}" wx:key="index">· {{item}}</text></block></view>
+    <view wx:else id="report-metrics" class="panel">
       <text class="step">04 · 互动信号</text><text class="heading">互动指标</text>
       <view class="affection-card">
         <text class="muted">{{report.affectionScope}}</text><text class="score">{{report.hasAffectionScore ? report.affectionScore + '/100' : '待建立基线'}}</text>

@@ -9,7 +9,10 @@ import base64
 import io
 import re
 import sys
+import time
 from normalize import normalized_capture
+from voice_transcript import parse_voice_transcript
+from voice_ui import transcribe_visible_voice
 
 
 class CaptureError(Exception):
@@ -88,7 +91,49 @@ def _open_target(friend, modules):
     return main
 
 
-def _chat(friend, limit, nickname, progress, modules):
+def _native_voice(item, content, friend, sender, at, history, main, modules, timeout):
+    Navigator, Tools, ui = modules
+    import win32gui
+    import win32process
+    from pywinauto import Desktop
+    process = item.process_id()
+    identity = tuple(item.element_info.runtime_id or [])
+    def foreground_ok():
+        active = win32gui.GetForegroundWindow()
+        return bool(active and win32process.GetWindowThreadProcessId(active)[1] == process)
+    def read_body():
+        raw = item.window_text()
+        stamp = ui.Regex_Patterns.Chathistory_Timestamp_pattern.search(raw)
+        if (stamp.group(0) if stamp else "") != at:
+            raise ValueError("voice timestamp changed")
+        body = (raw[:stamp.start()] + raw[stamp.end():]).strip() if stamp else raw.strip()
+        if not sender or not (body == sender or body.startswith(sender + " ") or body.startswith(sender + "\n")):
+            raise ValueError("voice sender changed")
+        body = body[len(sender):].lstrip()
+        before = parse_voice_transcript(content, ui.Regex_Patterns.Audio_pattern, ui_class=item.class_name())
+        after = parse_voice_transcript(body, ui.Regex_Patterns.Audio_pattern, ui_class=item.class_name())
+        if not before or not after or not before["source"].get("rawMediaLabel") or before["source"].get("rawMediaLabel") != after["source"].get("rawMediaLabel"):
+            raise ValueError("voice duration/source changed")
+        return body
+    def menus():
+        return [node for window in Desktop(backend="uia").windows(process=process, visible_only=True)
+                for node in window.descendants(control_type="MenuItem")]
+    def verify_source():
+        if (not identity or tuple(item.element_info.runtime_id or []) != identity
+                or not foreground_ok() or not item.is_visible() or not history.is_visible()):
+            raise ValueError("voice source/window changed")
+        _assert_target(main, friend, ui.Texts, Tools)
+        read_body()
+    # UIA still identifies the exact source message. Only menu recognition
+    # falls back to local OCR when Qt does not expose its MenuItem controls.
+    from voice_menu_ui import NativeVoiceMenu
+    native_menu = NativeVoiceMenu(history, verify_source, timeout=timeout)
+    return transcribe_visible_voice(item, content, getattr(ui.Regex_Patterns, "Audio_pattern", None),
+        verify_target=verify_source, menu_items=menus,
+        read_body=read_body, foreground_ok=foreground_ok, timeout=timeout, native_menu=native_menu)
+
+
+def _chat(friend, limit, nickname, progress, modules, convert_voices=False):
     Navigator, Tools, ui = modules
     main = _open_target(friend, modules)
     history = Navigator.open_chat_history(friend=friend, search_pages=0, is_maximize=False, close_weixin=False)
@@ -100,6 +145,9 @@ def _chat(friend, limit, nickname, progress, modules):
         if Tools.select_chatHistoryList(history) is None:
             raise CaptureError("NO_READABLE_MESSAGES", "没有可读取的聊天消息。")
         last_runtime, repeats, media_count = None, 0, 0
+        # The bridge has a 180 s overall deadline. Native conversion gets at
+        # most 45 s in total, preserving already-read rows and explicit leftovers.
+        voice_seconds = 0.0
         for _ in range(limit * 4 + 20):
             selected = [item for item in listing.children() if item.has_keyboard_focus()]
             if selected:
@@ -126,7 +174,27 @@ def _chat(friend, limit, nickname, progress, modules):
                                 break
                         if friend == nickname:
                             role = "unknown"
-                        if "ChatTextItemView" in class_name:
+                        voice = parse_voice_transcript(content, getattr(ui.Regex_Patterns, "Audio_pattern", None), ui_class=class_name)
+                        if convert_voices and voice is not None and voice["source"].get("transcriptionStatus") != "visible-text":
+                            remaining = 45.0 - voice_seconds
+                            if sender and role != "unknown" and remaining > 0:
+                                progress(min(90, 15 + int(len(rows) / limit * 70)), f"文字已导入，正在补全第 {len(rows)+1} 条语音…")
+                                started = time.monotonic()
+                                try:
+                                    converted, outcome = _native_voice(item, content, friend, sender, at, history, main, modules, min(8.0, remaining))
+                                    if isinstance(converted, dict) and isinstance(converted.get("source"), dict):
+                                        voice = converted
+                                    else:
+                                        outcome = "source-or-window-changed"
+                                except Exception:
+                                    outcome = "source-or-window-changed"
+                                voice_seconds += time.monotonic() - started
+                                voice["source"]["nativeConversionOutcome"] = outcome
+                            else:
+                                voice["source"]["nativeConversionOutcome"] = "time-limit" if remaining <= 0 else "sender-unconfirmed"
+                        if voice is not None:
+                            kind = voice["kind"]
+                        elif "ChatTextItemView" in class_name:
                             kind = "text"
                         elif re.match(r"^(?:\[|【)?(?:动画表情|動態貼圖|表情|貼圖|Sticker|Animated Stickers|Animated emoji)", content, re.I):
                             kind = "sticker"
@@ -134,9 +202,12 @@ def _chat(friend, limit, nickname, progress, modules):
                             kind = "image"
                         else:
                             kind = "other"
-                        row = {"kind": kind, "sender": sender, "senderRole": role, "at": at, "text": content,
+                        row = {"kind": kind, "sender": sender, "senderRole": role, "at": at, "text": (voice["text"] or content) if voice else content,
                                "source": {"uiClass": class_name, "timePrecision": "ui-label" if at else "unknown"}}
-                        if kind in ("image", "sticker", "other") and media_count < 30:
+                        if voice is not None:
+                            row["source"].update(voice["source"])
+                            row["source"].setdefault("transcriptionSource", "wechat-visible-ui")
+                        if voice is None and kind in ("image", "sticker", "other") and media_count < 30:
                             try:
                                 row["images"] = [_image(item, f"chat-preview-{len(rows)+1}.jpg")]
                                 row["source"]["imageType"] = "visible-ui-preview"
@@ -154,7 +225,11 @@ def _chat(friend, limit, nickname, progress, modules):
             raise CaptureError("NO_READABLE_MESSAGES", "未读取到消息，请确认这位好友有本机可见的聊天记录。")
         warnings.append("聊天采集从新到旧遍历，结果已按旧到新整理；时间保留界面原标签，未知时间不补写。")
         if media_count:
-            warnings.append("图片和表情仅保存消息区域的可见预览，不是原始文件；语音与视频未转写。")
+            warnings.append("图片和表情仅保存消息区域的可见预览，不是原始文件；视频内容未转写。")
+        voices = [row for row in rows if row["source"].get("mediaKind") == "voice"]
+        if voices:
+            readable = sum(row["source"].get("transcriptionStatus") == "visible-text" for row in voices)
+            warnings.append(f"采集到 {len(voices)} 条语音，已保留 {readable} 条微信界面转文字；其余 {len(voices)-readable} 条未取得转写，不参与文字分析。转写内容请核对。")
         return rows, warnings
     finally:
         try:
@@ -245,7 +320,7 @@ def _moments(friend, limit, progress, modules):
     return rows, warnings
 
 
-def capture(request, progress):
+def capture(request, progress, on_partial=None):
     if sys.platform != "win32":
         raise CaptureError("UNSUPPORTED_PLATFORM", "本采集器仅支持Windows。Mac请使用网页屏幕共享采集。")
     import pythoncom
@@ -258,14 +333,40 @@ def capture(request, progress):
         progress(5, "正在核对当前微信账号")
         account, nickname = _account(Navigator)
         modules = Navigator, Tools, ui
+        include_voice = request.get("includeVoice", False)
+        if type(include_voice) is not bool:
+            raise CaptureError("INVALID_REQUEST", "语音补全选项必须明确为是或否。")
+        two_phase = request["kind"] == "chat" and include_voice and on_partial is not None
+        first_progress = (lambda value, message: progress(5 + int(value * .45), message)) if two_phase else progress
         if request["kind"] == "chat":
-            rows, warnings = _chat(request["friend"], request["limit"], nickname, progress, modules)
+            rows, warnings = _chat(request["friend"], request["limit"], nickname, first_progress, modules, convert_voices=False)
         else:
             rows, warnings = _moments(request["friend"], request["limit"], progress, modules)
-        progress(95, "正在核对采集账号并整理原文")
-        final_account, _ = _account(Navigator)
-        if account != final_account:
+        progress(50 if two_phase else 95, "正在核对采集账号并整理原文")
+        final_account, final_nickname = _account(Navigator)
+        if (account, nickname) != (final_account, final_nickname):
             raise CaptureError("ACCOUNT_CHANGED", "采集期间微信账号发生变化，结果已丢弃，请重新采集。")
-        return normalized_capture(request["kind"], request["friend"], account, rows, warnings)
+        batch = normalized_capture(request["kind"], request["friend"], account, rows, warnings)
+        missing = any(row.get("source", {}).get("mediaKind") == "voice" and row["source"].get("transcriptionStatus") != "visible-text" for row in rows)
+        # Default capture releases the desktop after the quick read. Conversion
+        # requires an explicit request and a consumer able to retain partials.
+        if not two_phase or not missing:
+            return batch
+        on_partial(batch)
+        progress(55, "文字已导入，正在补全语音…请保持微信前台，可随时停止。")
+        converted, converted_warnings = _chat(request["friend"], request["limit"], nickname,
+            lambda value, message: progress(55 + int(value * .4), message if message.startswith("文字已导入") else "文字已导入，正在补全语音…" + message), modules, convert_voices=True)
+        final_account, final_nickname = _account(Navigator)
+        if (account, nickname) != (final_account, final_nickname):
+            raise CaptureError("ACCOUNT_CHANGED", "补全期间微信账号发生变化。已保留此前核对的文字，本轮语音未导入。")
+        def identity(row):
+            source = row.get("source", {})
+            voice = source.get("mediaKind") == "voice"
+            return (row.get("sender"), row.get("senderRole"), row.get("at"), source.get("uiClass"),
+                    "voice" if voice else row.get("kind"), source.get("rawMediaLabel") if voice else row.get("text"))
+        if [identity(row) for row in rows] != [identity(row) for row in converted]:
+            raise CaptureError("SOURCE_CHANGED", "补全期间聊天范围或说话人发生变化。已保留此前核对的文字，请重新选择范围。")
+        progress(95, "文字与语音已核对，正在整理原文。")
+        return normalized_capture(request["kind"], request["friend"], account, converted, converted_warnings)
     finally:
         pythoncom.CoUninitialize()

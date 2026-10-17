@@ -1,21 +1,14 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowRight, ArrowUpRight, Check, CheckCheck, FileArchive, FileAudio, FileText, ImagePlus, LoaderCircle, ShieldCheck, Sparkles, UploadCloud, UsersRound } from "lucide-react";
-import Link from "next/link";
 import { AuroraPageHero } from "@/components/AuroraPageHero";
 import { CaptureEntry } from "@/components/CaptureEntry";
 import styles from "./import.module.css";
 import type { ProfileState } from "@/lib/profile";
-import { ReplyPaths } from "@/components/ReplyPaths";
-import { KnowledgeBasis } from "@/components/KnowledgeBasis";
-import type { ReplyPaths as Paths } from "@/lib/reply-paths";
-import type { KnowledgeSource } from "@/lib/knowledge-public";
+import { AnalysisCard, ConversationPanel, type Analysis } from "@/components/MaterialReport";
 import type { WechatZipPreview } from "@/lib/wechat-zip-preview";
 
 type Segment = { speaker: string; text: string; start: number; end: number };
-type LineInsight = { quote: string; speaker: string; signal: string; alternative: string; certainty: string };
-type ReplyOption = { text: string; when: string; next?: Paths };
-type Analysis = { summary: string; observations: Array<{ claim: string; evidence: string; uncertainty: string }>; questions: string[]; lineInsights: LineInsight[]; replyOptions: ReplyOption[]; knowledgeSources?: KnowledgeSource[] };
 const empty: Analysis = { summary: "", observations: [], questions: [], lineInsights: [], replyOptions: [] };
 const readImage = (file: File) => new Promise<string>((resolve, reject) => {
   const reader = new FileReader();
@@ -39,6 +32,9 @@ export default function ImportPage() {
   const [zipError, setZipError] = useState("");
   const [images, setImages] = useState<File[]>([]);
   const [audioFile, setAudioFile] = useState<File | null>(null);
+  const audioTask = useRef<{ key: string; requestId: string } | null>(null);
+  const transcribing = useRef(false);
+  const [audioPending, setAudioPending] = useState(false);
   const [segments, setSegments] = useState<Segment[]>([]);
   const [speakerMap, setSpeakerMap] = useState<Record<string, string>>({});
   const [me, setMe] = useState("我");
@@ -51,9 +47,15 @@ export default function ImportPage() {
   const [results, setResults] = useState<Analysis[]>([]);
   const [finalResult, setFinalResult] = useState<Analysis | null>(null);
   const [busy, setBusy] = useState(false);
+  const plan = useRef<{key:string;reportId:string;ids:string[];completed:Analysis[]}|null>(null);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   useEffect(() => {
+    const savedId = new URLSearchParams(window.location.search).get("reportId");
+    if(savedId && /^[a-f0-9-]{36}$/.test(savedId)) void fetch("/api/web/report?id="+savedId,{cache:"no-store"}).then(async response=>{
+      if(!response.ok)throw new Error("report unavailable");const data=await response.json() as {report?:{importAnalysis?:{batches:Analysis[];result:Analysis;me:string;other:string}}};const saved=data.report?.importAnalysis;
+      if(saved){setResults(saved.batches||[]);setFinalResult({...saved.result,reportId:savedId});setAnalyzedAs({me:saved.me,other:saved.other});setStatus("已恢复保存的分析报告。添加新材料可开始新的分析。");}
+    }).catch(()=>setError("报告暂未读取，可在历史报告中重新打开。"));
     void fetch("/api/profile", { cache: "no-store" }).then(async (response) => {
       if (response.ok) {
         const next = await response.json() as ProfileState;
@@ -89,7 +91,7 @@ export default function ImportPage() {
       const { extractWechatZipText } = await import("@/lib/wechat-zip-preview");
       const extracted = extractWechatZipText(new Uint8Array(await zipFile.arrayBuffer()), zipSelf);
       setText(extracted.text); setTextFilename(zipFile.name + " · 已提取文字");
-      setMe(extracted.me); setOther(extracted.other); setImages([]); setAudioFile(null); setSegments([]);
+      setMe(extracted.me); setOther(extracted.other); setImages([]); setAudioFile(null); setAudioPending(false); setSegments([]);
       setMappingConfirmed(false); setRightsConfirmed(false); setResults([]); setFinalResult(null); setError("");
       setStatus("已将可读文字放入下方表单。请核对双方称呼、逐句文字和授权，再决定是否分析；ZIP 不会上传。");
     } catch (cause) { setZipError(cause instanceof Error ? cause.message : "这份 ZIP 暂不能转入分析。"); }
@@ -103,23 +105,37 @@ export default function ImportPage() {
     setImages(selected); setError(""); setResults([]); setFinalResult(null); setMappingConfirmed(false);
   }
   async function transcribe() {
+    if (busy || transcribing.current) return;
     if (!audioFile || !rightsConfirmed) { setError("请先选择录音，并确认你有权提供它。"); return; }
+    if (!audioFile.size || audioFile.size > 7_000_000 || !/\.(mp3|mp4|mpeg|mpga|m4a|wav|webm)$/i.test(audioFile.name)) { setError("请选择 7 MB 内、时长不超过 5 分钟的有效录音文件。"); return; }
+    transcribing.current = true;
     setBusy(true); setError(""); setStatus("正在转写录音，请稍候…");
     try {
+      const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", await audioFile.arrayBuffer())), value => value.toString(16).padStart(2, "0")).join("");
+      const key = JSON.stringify([audioFile.name, audioFile.type, audioFile.size, hash]);
+      if (audioTask.current?.key !== key) audioTask.current = { key, requestId: crypto.randomUUID() };
+      const requestId = audioTask.current.requestId;
+      setAudioPending(true);
       const form = new FormData();
       form.set("audio", audioFile);
       form.set("rightsConfirmed", "true");
-      const response = await fetch("/api/import/transcribe", { method: "POST", body: form });
-      const data = await response.json() as { error?: string; text?: string; segments?: Segment[] };
-      if (!response.ok) throw new Error(data.error || "录音转写失败。");
+      const response = await fetch("/api/import/transcribe", { method: "POST", headers: { "X-Request-Id": requestId }, body: form });
+      if (response.headers.get("X-Credit-Task-Status") === "released") { audioTask.current = null; setAudioPending(false); window.dispatchEvent(new Event("chengzi:credits-changed")); }
+      const data = await response.json() as { error?: string; text?: string; segments?: Segment[]; creditTaskStatus?: string; code?: string };
+      if (!response.ok) {
+        const released = data.creditTaskStatus === "released" || data.code === "CREDIT_RELEASED" || response.headers.get("X-Credit-Task-Status") === "released";
+        if (released) { audioTask.current = null; setAudioPending(false); window.dispatchEvent(new Event("chengzi:credits-changed")); }
+        throw new Error((data.error || "录音转写失败。") + (released ? " 本次积分已退回，录音已保留，可重新转写。" : ""));
+      }
       setSegments(data.segments || []);
       const speakers = [...new Set((data.segments || []).map((item) => item.speaker))];
       setSpeakerMap(Object.fromEntries(speakers.map((speaker) => [speaker, "unknown"])));
       setText(data.text || "");
       setMappingConfirmed(false);
+      audioTask.current = null; setAudioPending(false); window.dispatchEvent(new Event("chengzi:credits-changed"));
       setStatus(speakers.length ? "转写完成。请核对各说话人是谁，再把标签写入文本。" : "转写完成。请核对文字和说话人。");
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "录音转写失败。"); }
-    finally { setBusy(false); }
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "录音转写失败。"); setStatus(audioTask.current ? "原任务编号已保留，可继续核对转写结果。" : "录音已保留，可重新转写。"); }
+    finally { transcribing.current = false; setBusy(false); }
   }
   function applySpeakers() {
     if (!segments.length) return;
@@ -141,34 +157,40 @@ export default function ImportPage() {
     const textBatches = text.trim() ? chunks(text.trim()) : [];
     const imageBatches = Math.ceil(images.length / 2);
     const total = textBatches.length + imageBatches;
-    if (total > 5 && !window.confirm("这次需要调用智能分析约 " + (total + 1) + " 次，会产生 API 费用。继续吗？")) return;
-    setBusy(true); setError(""); setResults([]); setFinalResult(null); setAnalyzedAs({ me: me.trim(), other: other.trim() });
-    const collected: Analysis[] = [];
+    const key = JSON.stringify({text,images:images.map(f=>[f.name,f.size,f.lastModified]),me,other,subjectId});
+    if(plan.current?.key!==key)plan.current={key,reportId:crypto.randomUUID(),ids:Array.from({length:total+1},()=>crypto.randomUUID()),completed:[]};
+    const currentPlan=plan.current;
+    setBusy(true); setError(""); setResults([...currentPlan.completed]); setFinalResult(null); setAnalyzedAs({ me: me.trim(), other: other.trim() });
+    const collected = currentPlan.completed;
+
     try {
-      for (let i = 0; i < total; i++) {
+      for (let i = collected.length; i < total; i++) {
+
         setStatus("正在分析第 " + (i + 1) + "/" + total + " 批…");
         const batchImages = i >= textBatches.length ? await Promise.all(images.slice((i - textBatches.length) * 2, (i - textBatches.length + 1) * 2).map(readImage)) : [];
         const response = await fetch("/api/import/analyze", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: textBatches[i] || "", images: batchImages, me, other, subjectId: subjectId || null, mappingConfirmed: true }),
+          body: JSON.stringify({ text: textBatches[i] || "", images: batchImages, me, other, subjectId: subjectId || null, mappingConfirmed: true, reportId:currentPlan.reportId,requestId:currentPlan.ids[i],batchIndex:i }),
         });
         const result = await response.json() as Analysis & { error?: string };
-        if (!response.ok) throw new Error(result.error || "材料分析失败。");
+        if (!response.ok) { if((result as Analysis & {creditTaskStatus?:string}).creditTaskStatus==="released")currentPlan.ids[i]=crypto.randomUUID(); throw new Error(result.error || "材料分析失败。"); }
+        window.history.replaceState(null,"","/import?reportId="+currentPlan.reportId);
         collected.push(result); setResults([...collected]);
       }
       if (collected.length > 1) {
+
         setStatus("正在汇总全部批次…");
         const summaries = collected.map((item, index) => "第" + (index + 1) + "批：" + item.summary + "\n观察：" + item.observations.map((o) => o.claim + "（依据：" + o.evidence + "）").join("；")).join("\n");
         const response = await fetch("/api/import/analyze", {
           method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ text: summaries.slice(0, 30000), me, other, subjectId: subjectId || null, mappingConfirmed: true, final: true }),
+          body: JSON.stringify({ text: summaries.slice(0, 30000), me, other, subjectId: subjectId || null, mappingConfirmed: true, final: true,reportId:currentPlan.reportId,requestId:currentPlan.ids[total] }),
         });
         const result = await response.json() as Analysis & { error?: string };
-        if (!response.ok) throw new Error(result.error || "综合分析失败。");
+        if (!response.ok) { if((result as Analysis & {creditTaskStatus?:string}).creditTaskStatus==="released")currentPlan.ids[total]=crypto.randomUUID(); throw new Error(result.error || "综合分析失败。"); }
         setFinalResult(result);
       } else setFinalResult(collected[0] || empty);
-      setStatus("分析完成。请核对引用与结论；原始材料没有保存到本站档案。");
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "分析中断。"); setStatus("已完成 " + collected.length + "/" + total + " 批；可保留当前结果，稍后重试。"); }
+      setStatus("分析完成，报告已永久保存，可在「历史报告」随时继续查看。原始文件不保存。");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "分析中断。"); setStatus("已完成 " + collected.length + "/" + total + " 批；已完成报告已保存。再次点击将继续未完成批次，不重复扣费。"); }
     finally { setBusy(false); }
   }
   async function saveCandidates() {
@@ -194,6 +216,8 @@ export default function ImportPage() {
     zipPreview.imageFiles + zipPreview.audioFiles + zipPreview.otherFiles === 0;
   const hasMaterials = !!(text.trim() || images.length || audioFile || zipPreview);
   const identityReady = !!me.trim() && !!other.trim() && me.trim() !== other.trim();
+  const batchCount=(text.trim()?Math.ceil(text.trim().length/28000):0)+Math.ceil(images.length/2);
+  const estimatedCredits=(batchCount+(batchCount>1?1:0))*20;
   const analysisReady = !!(text.trim() || images.length) && identityReady && rightsConfirmed && mappingConfirmed;
   const currentStep = finalResult ? 3 : analysisReady || busy ? 2 : hasMaterials ? 1 : 0;
   return <main className={styles.page}><div className={styles.wrap}>
@@ -210,7 +234,7 @@ export default function ImportPage() {
         <div className={styles.uploadGrid}>
           <label className={styles.uploadTile} data-selected={!!textFilename} data-disabled={busy}><span className={styles.uploadIcon}><FileText size={24} aria-hidden="true"/></span><strong>文字文件</strong><small>TXT / CSV / JSON · 2 MB 内</small><span className={styles.fileState}>{textFilename?<><CheckCheck size={15} aria-hidden="true"/>{textFilename}</>:<>选择文字文件 <ArrowRight size={16} aria-hidden="true"/></>}</span><input aria-label="选择文字文件" disabled={busy} type="file" accept=".txt,.csv,.json,text/plain" onChange={(event)=>void onTextFile(event.target.files?.[0])}/></label>
           <label className={styles.uploadTile} data-selected={images.length>0} data-disabled={busy}><span className={styles.uploadIcon}><ImagePlus size={24} aria-hidden="true"/></span><strong>聊天截图</strong><small>最多 20 张 · 每张 5 MB 内</small><span className={styles.fileState}>{images.length?<><CheckCheck size={15} aria-hidden="true"/>已选 {images.length} 张截图</>:<>选择聊天截图 <ArrowRight size={16} aria-hidden="true"/></>}</span><input aria-label="选择聊天截图" disabled={busy} type="file" multiple accept="image/png,image/jpeg,image/webp" onChange={(event)=>onImages(event.target.files)}/></label>
-          <label className={styles.uploadTile} data-selected={!!audioFile} data-disabled={busy}><span className={styles.uploadIcon}><FileAudio size={24} aria-hidden="true"/></span><strong>对话录音</strong><small>7 MB 内 · 不超过 5 分钟</small><span className={styles.fileState}>{audioFile?<><CheckCheck size={15} aria-hidden="true"/>{audioFile.name}</>:<>选择对话录音 <ArrowRight size={16} aria-hidden="true"/></>}</span><input aria-label="选择对话录音" disabled={busy} type="file" accept=".mp3,.mp4,.mpeg,.mpga,.m4a,.wav,.webm,audio/*" onChange={(event)=>{setAudioFile(event.target.files?.[0]||null);setSegments([]);setMappingConfirmed(false);}}/></label>
+          <label className={styles.uploadTile} data-selected={!!audioFile} data-disabled={busy}><span className={styles.uploadIcon}><FileAudio size={24} aria-hidden="true"/></span><strong>对话录音</strong><small>7 MB 内 · 不超过 5 分钟</small><span className={styles.fileState}>{audioFile?<><CheckCheck size={15} aria-hidden="true"/>{audioFile.name}</>:<>选择对话录音 <ArrowRight size={16} aria-hidden="true"/></>}</span><input aria-label="选择对话录音" disabled={busy} type="file" accept=".mp3,.mp4,.mpeg,.mpga,.m4a,.wav,.webm,audio/*" onChange={(event)=>{setAudioFile(event.target.files?.[0]||null);setAudioPending(false);setSegments([]);setMappingConfirmed(false);}}/></label>
           <label className={styles.uploadTile} data-selected={!!zipFilename} data-disabled={busy}><span className={styles.uploadIcon}><FileArchive size={24} aria-hidden="true"/></span><strong>微信聊天 ZIP</strong><small>5 MB 内 · 仅在本机预览</small><span className={styles.fileState}>{zipFilename?<><CheckCheck size={15} aria-hidden="true"/>{zipFilename}</>:<>选择 ZIP 压缩包 <ArrowRight size={16} aria-hidden="true"/></>}</span><input aria-label="选择微信聊天 ZIP" disabled={busy} type="file" accept=".zip,application/zip" onChange={event=>void previewWechatZip(event.target.files?.[0])}/></label>
         </div>
         {zipError&&<p className={styles.error} role="alert">{zipError}</p>}
@@ -225,7 +249,7 @@ export default function ImportPage() {
         </section>}
         <label className={`${styles.field} ${styles.textField}`}><span>直接粘贴聊天文字 <small>{text.length?text.length.toLocaleString()+" 字":"也可修改文件内容和录音转写"}</small></span><textarea disabled={busy} rows={8} value={text} onChange={event=>{setText(event.target.value);setMappingConfirmed(false);}} placeholder={"我：周末有空吗？\n对方：有空，怎么啦？\n\n请保留时间与称呼，移除无关隐私。"}/></label>
         {images.length>0&&<p className={styles.selectedFiles}><ImagePlus size={16} aria-hidden="true"/><span>已选 {images.length} 张：{images.slice(0,3).map(file=>file.name).join("、")}{images.length>3?"…":""}</span></p>}
-        {audioFile&&<div className={styles.audioTransfer}><FileAudio size={20} aria-hidden="true"/><div><strong>{audioFile.name}</strong><small>{rightsConfirmed?"转写后请核对文字和说话人。":"请先在「确认谁是你」中勾选材料授权，再转写。"}</small></div><button type="button" className={styles.secondaryButton} disabled={busy||!rightsConfirmed} onClick={()=>void transcribe()}>转写录音</button></div>}
+        {audioFile&&<div className={styles.audioTransfer}><FileAudio size={20} aria-hidden="true"/><div><strong>{audioFile.name}</strong><small>{rightsConfirmed?(audioPending?"继续原转写任务，不会因断网重试重复扣费。":"转写 5 积分。完成后请核对文字和说话人，后续分析单独计费。"):"请先在「确认谁是你」中勾选材料授权，再转写。"}</small></div><button type="button" className={styles.secondaryButton} disabled={busy||!rightsConfirmed} onClick={()=>void transcribe()}>{audioPending?"继续转写 · 原任务":"转写录音 · 5 积分"}</button></div>}
         {segments.length>0&&<section className={styles.speakerMap}><h3><UsersRound size={18} aria-hidden="true"/>核对录音中的说话人</h3><p className={styles.help}>编号不代表真实身份。不确定的保留为“其他”。</p>{Object.keys(speakerMap).map(speaker=><label className={styles.field} key={speaker}><span>{speaker}</span><select disabled={busy} value={speakerMap[speaker]} onChange={event=>{setSpeakerMap({...speakerMap,[speaker]:event.target.value});setMappingConfirmed(false);}}><option value="unknown">其他／不确定</option><option value="me">我</option><option value="other">对方</option></select></label>)}<button className={styles.secondaryButton} type="button" disabled={busy} onClick={applySpeakers}>把标签写入上方文字</button></section>}
         <p className={styles.privacyNote}><ShieldCheck size={17} aria-hidden="true"/><span>只读取你主动提供的文件。原始聊天、截图和录音不写入长期档案。</span></p>
       </section>
@@ -235,33 +259,13 @@ export default function ImportPage() {
         <div className={styles.identityFields}><label className={styles.field}><span>聊天里我的称呼 / 标识</span><input disabled={busy} value={me} onChange={event=>{setMe(event.target.value);setMappingConfirmed(false);}} placeholder="例如：我／微信昵称"/></label><label className={styles.field}><span>对方的称呼 / 标识</span><input disabled={busy} value={other} onChange={event=>{setOther(event.target.value);setMappingConfirmed(false);}} placeholder="例如：小A／昵称"/></label></div>
         {profile?.enabled&&!profile.paused&&profile.subjects.length>0&&<label className={styles.field}><span>关联人物档案 <small>可选</small></span><select disabled={busy} value={subjectId} onChange={event=>setSubjectId(event.target.value)}><option value="">本次不关联对象</option>{profile.subjects.map(item=><option key={item.id} value={item.id}>{item.label}</option>)}</select></label>}
         <div className={styles.consentGroup}><label className={styles.check}><input type="checkbox" disabled={busy} checked={rightsConfirmed} onChange={event=>setRightsConfirmed(event.target.checked)}/><span>我有权提供这些材料，已考虑相关人的隐私，并同意交由阿里云百炼千问模型处理。</span></label><label className={styles.check}><input type="checkbox" disabled={busy} checked={mappingConfirmed} onChange={event=>setMappingConfirmed(event.target.checked)}/><span>我已核对双方身份；看不清或认不出的内容保持未知。</span></label></div>
-        <div className={styles.submitArea}><span className={styles.kicker}>03 · 查看分析</span><button className={styles.primaryButton} type="button" disabled={busy||!analysisReady} onClick={()=>void analyze()}>{busy?<LoaderCircle className={styles.spin} size={19} aria-hidden="true"/>:<Sparkles size={19} aria-hidden="true"/>}{busy?"正在处理材料…":"开始分批分析"}{!busy&&<ArrowRight size={17} aria-hidden="true"/>}</button><p className={styles.caption}>{busy?"完成的批次会显示在下方。":!hasMaterials?"先添加材料，再确认双方身份。":!identityReady?"请填写你和对方的不同称呼。":!rightsConfirmed||!mappingConfirmed?"完成上方两项确认后即可开始。":!text.trim()&&!images.length?"请先将 ZIP 文字带入，或完成录音转写。":"分析后可挑选有依据的事件，再确认留档。"}</p></div>
+        <div className={styles.submitArea}>{batchCount>0&&<p className={styles.help}>本次 {estimatedCredits} 积分 · {batchCount} 批材料{batchCount>1?"及综合报告":""} · 报告永久保存</p>}<span className={styles.kicker}>03 · 查看分析</span><button className={styles.primaryButton} type="button" disabled={busy||!analysisReady} onClick={()=>void analyze()}>{busy?<LoaderCircle className={styles.spin} size={19} aria-hidden="true"/>:<Sparkles size={19} aria-hidden="true"/>}{busy?"正在处理材料…":"开始分批分析"}{!busy&&<ArrowRight size={17} aria-hidden="true"/>}</button><p className={styles.caption}>{busy?"完成的批次会显示在下方。":!hasMaterials?"先添加材料，再确认双方身份。":!identityReady?"请填写你和对方的不同称呼。":!rightsConfirmed||!mappingConfirmed?"完成上方两项确认后即可开始。":!text.trim()&&!images.length?"请先将 ZIP 文字带入，或完成录音转写。":"分析后可挑选有依据的事件，再确认留档。"}</p></div>
         {status&&<p className={styles.status} role="status">{status}</p>}{error&&<p className={styles.error} role="alert">{error}</p>}
       </section>
     </div>
-    {results.length>0&&<section className={styles.results} aria-label="材料分析结果"><div className={styles.resultsHead}><div><span className={styles.kicker}>分析结果</span><h2>这批记录说明了什么</h2></div><span>{results.length} 批已完成</span></div>{finalResult&&<AnalysisCard title={results.length>1?"跨批次综合":"本次总结"} result={finalResult} main/>}{latestConversation&&<ConversationPanel key={results.length+latestConversation.summary} result={latestConversation} me={analyzedAs.me} other={analyzedAs.other} ready={!!finalResult&&!busy}/>}
+    {results.length>0&&<section className={styles.results} aria-label="材料分析结果"><div className={styles.resultsHead}><div><span className={styles.kicker}>分析结果</span><h2>这批记录说明了什么</h2></div><span>{results.length} 批已完成</span></div>{(finalResult?.reportId||results.at(-1)?.reportId)&&<a className={styles.secondaryButton} href={"/report?id="+(finalResult?.reportId||results.at(-1)?.reportId)}>打开已保存报告 <ArrowRight size={16}/></a>}{finalResult&&<AnalysisCard title={results.length>1?"跨批次综合":"本次总结"} result={finalResult} main/>}{latestConversation&&<ConversationPanel key={results.length+latestConversation.summary} result={latestConversation} me={analyzedAs.me} other={analyzedAs.other} ready={!!finalResult&&!busy}/>}
       <details className="batch-details"><summary>查看每批证据与分析</summary>{results.map((item,index)=><AnalysisCard key={index} title={"第 "+(index+1)+" 批"} result={item}/>)}</details>
-      {profile?.enabled&&<div className="save-import"><label>加入哪位对象的待确认区<select value={subjectId} onChange={event=>setSubjectId(event.target.value)}><option value="">先选择对象</option>{profile.subjects.map(item=><option key={item.id} value={item.id}>{item.label}</option>)}</select></label><button type="button" disabled={busy||!subjectId||!finalResult} onClick={()=>void saveCandidates()}>把有依据的事件放入待确认</button><a href="/profile">去档案核对 →</a></div>}
+      {profile?.enabled&&<div className="save-import"><label>加入哪位对象的待确认区<select value={subjectId} onChange={event=>setSubjectId(event.target.value)}><option value="">先选择对象</option>{profile.subjects.map(item=><option key={item.id} value={item.id}>{item.label}</option>)}</select></label><button type="button" disabled={busy||!subjectId||!finalResult} onClick={()=>void saveCandidates()}>把有依据的事件放入待确认</button><a href="/archive">去档案核对 →</a></div>}
     </section>}
   </div></main>;
 }
-
-function AnalysisCard({ title, result, main = false }: { title: string; result: Analysis; main?: boolean }) {
-  return <article className={"analysis-card " + (main ? "main" : "")}><h3>{title}</h3><p>{result.summary}</p>{result.observations.length > 0 && <div className="observation-list">{result.observations.map((item, index) => <div key={index}><strong>{item.claim}</strong><small>依据：{item.evidence || "材料未提供可核对原话"}</small><small>仍未知：{item.uncertainty || "需结合线下实际行为"}</small></div>)}</div>}{result.questions.length > 0 && <p className="next-questions">继续判断前可核对：{result.questions.join("；")}</p>}<KnowledgeBasis sources={result.knowledgeSources} /></article>;
-}
-
-function ConversationPanel({ result, me, other, ready }: { result: Analysis; me: string; other: string; ready: boolean }) {
-  const [copied, setCopied] = useState<number | null>(null);
-  const [copyError, setCopyError] = useState("");
-  const labels = ["稳妥回应", "主动推进", "说明边界"];
-  async function copy(text: string, index: number) {
-    try { await navigator.clipboard.writeText(text); setCopyError(""); setCopied(index); window.setTimeout(() => setCopied(null), 2200); }
-    catch { setCopied(null); setCopyError("暂时无法自动复制，请长按或选中文字复制。"); }
-  }
-  return <section className="conversation-panel" aria-label="逐句线索与回复方向">
-    <div className="conversation-head"><div><span className="eyebrow">逐句看信号</span><h3>看得见的原话，和还不能确定的事</h3></div><span>仅展示最近一批可辨认的关键句</span></div>
-    {result.lineInsights?.length > 0 ? <div className="conversation-lines">{result.lineInsights.map((line, index) => <article key={index} className={"conversation-line " + (line.speaker === me ? "mine" : "") }><div className="conversation-bubble"><div className="conversation-speaker"><strong>{line.speaker === me ? "我" : line.speaker === other ? other : line.speaker}</strong><span>{line.certainty}</span></div><p>“{line.quote}”</p></div><div className="conversation-reading"><strong>{line.signal}</strong><span>另一种解释：{line.alternative}</span></div></article>)}</div> : <p className="conversation-empty">这批材料暂时无法可靠地分出原话和说话人。可以补充带称呼、时间的文字记录，或更清楚的截图。</p>}
-    <div className="conversation-replies"><div className="conversation-replies-head"><h4>如果现在要回复</h4><span>根据最后一批材料，选择符合你真实意愿的一条</span></div>{!ready ? <p className="conversation-empty">全部材料分析完成后，再看回复方向。</p> : result.replyOptions?.length === 3 ? <div className="conversation-reply-grid">{result.replyOptions.map((option, index) => <article key={index} className="conversation-reply"><div><strong>{labels[index]}</strong><button type="button" onClick={() => void copy(option.text, index)} aria-label={"复制" + labels[index]}>{copied === index ? "已复制" : "复制"}</button></div><p>{option.text}</p><small>{option.when}</small><ReplyPaths paths={option.next} /></article>)}</div> : <p className="conversation-empty">这批材料暂时不足以给出可靠的回复备选，或当前情境不适合直接发话术。先看上方总结与待核对的问题。</p>}{copyError && <p className="conversation-empty" role="status">{copyError}</p>}<span className="sr-only" role="status">{copied !== null ? "回复已复制" : ""}</span></div>
-  </section>;
-}
-

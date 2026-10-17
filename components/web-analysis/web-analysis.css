@@ -46,3 +46,7 @@
 @media(max-width:680px){.wa-heading h1,.wa-chat-layout .wa-heading h1{font-size:29px;line-height:1.4}.wa-heading p{font-size:14px;line-height:1.85}.wa-eyebrow,.wa-panel-kicker{font-size:12px;letter-spacing:.06em}.wa-card h2{font-size:20px}.wa-card h3{font-size:16px}.wa-card#judgment h2{font-size:24px;line-height:1.55}.wa-card#judgment>h3+p{font-size:16px}.wa-tabs button{font-size:13px;padding:11px 8px;gap:5px}.wa-check,.wa-chat-settings .wa-check,.wa-composer .wa-check{font-size:13px}.wa-section-links a{font-size:13px;padding:9px 11px}.wa-metric strong{font-size:35px}.wa-grid>aside .wa-metric strong{font-size:33px}.wa-observable-grid strong{font-size:18px}.wa-observable-grid small,.wa-observable-grid span{font-size:13px}.wa-chat-empty h2{font-size:20px}.wa-chat-empty>p{font-size:14px}.wa-chat-message p{font-size:15px}.wa-chat-message>small{font-size:13px}.wa-starter-list button{font-size:14px}.wa-chat-settings>.wa-actions .wa-button,.wa-chat-settings>.wa-actions button,.wa-composer .wa-actions button,.wa-voice-card .wa-actions button,.wa-voice-card .wa-actions a{font-size:14px;padding:11px 13px}.wa-voice-description{font-size:12px;gap:7px 16px}.wa-radar text{font-size:13px}}
 
 }
+/* Keep the short report sidebar available while the main reader grows. */
+@media(min-width:681px){
+  .wa-grid>aside{position:sticky;top:108px;align-self:start;max-height:calc(100dvh - 128px);overflow:auto;overscroll-behavior:contain;scrollbar-width:thin}
+}

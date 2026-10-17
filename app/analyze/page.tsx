@@ -1,12 +1,13 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { ScanLine, Link2, MessageSquare, Images, UserRound, Sparkles, Coins, ArrowRight, ArrowUp, ArrowDown, Check, CheckCheck, Clipboard, CloudUpload, FileCheck2, FolderHeart, ImagePlus, LoaderCircle, Plus, RotateCcw, ShieldCheck, SlidersHorizontal, History, BookmarkCheck, X } from "lucide-react";
+import { ScanLine, Link2, MessageSquare, Images, UserRound, Sparkles, Coins, ArrowRight, ArrowUp, ArrowDown, Check, CheckCheck, Clipboard, CloudUpload, FileCheck2, FolderHeart, ImagePlus, LoaderCircle, Plus, RotateCcw, ShieldCheck, SlidersHorizontal, History, BookmarkCheck, X, Monitor, Video, FileUp, Library } from "lucide-react";
 import { AnalysisIllustration } from "@/components/web-analysis/Visuals";
 import { WebNav } from "@/components/WebNav";
+import { FirstUseTour } from "@/components/FirstUseTour";
 import { AnalysisAuthGate } from "@/components/AnalysisAuthGate";
 import { AnalysisExample } from "@/components/web-analysis/AnalysisExample";
-import { CaptureEntry } from "@/components/CaptureEntry";
-import { getCaptureLibrary, linkReportSources } from "@/lib/desktop-capture-vault";
+import { getCaptureLibrary } from "@/lib/desktop-capture-vault";
+import { linkSyncedReportSources as linkReportSources } from "@/lib/capture-cloud-client";
 import ui from "@/components/AuroraUI.module.css";
 import { AuroraPageHero } from "@/components/AuroraPageHero";
 import { AccountNotice, ErrorNotice, PersonSelect, InlinePerson, api, message, priceLabel, hasPrice, useAccount, type Json, WebError } from "@/components/web-analysis/client";
@@ -45,6 +46,7 @@ export default function AnalyzePage() {
   const [reviewBusy,setReviewBusy] = useState(false);
   const reviewController = useRef<AbortController | null>(null);
   const [captureSource, setCaptureSource] = useState<{libraryId:string;sourceIds:string[]}|null>(null);
+  const [sourcePickerOpen, setSourcePickerOpen] = useState(false);
   const captureFiles = useRef(new WeakMap<File, string>());
   const preferenceHydrated = useRef("");
   const originalFiles = useRef(new WeakMap<File, File>());
@@ -156,7 +158,26 @@ export default function AnalyzePage() {
     if (disabled) return;
     if (!owner && account.loading) { setPendingAuth(true); return; }
     if (!owner) { setShowAuth(true); return; }
-    fileInputRef.current?.click();
+    setSourcePickerOpen(true);
+  }
+  useEffect(() => {
+    if (!sourcePickerOpen) return;
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") setSourcePickerOpen(false); };
+    document.addEventListener("keydown", escape);
+    const focus = window.requestAnimationFrame(() => document.querySelector<HTMLButtonElement>("[data-source-picker] button")?.focus());
+    return () => { document.removeEventListener("keydown", escape); window.cancelAnimationFrame(focus); };
+  }, [sourcePickerOpen]);
+  function chooseUploadSource(source: "screenshots" | "computer" | "video" | "file" | "library") {
+    setSourcePickerOpen(false);
+    if (source === "screenshots") { window.requestAnimationFrame(() => fileInputRef.current?.click()); return; }
+    const href = source === "computer" ? "/capture?method=computer" : source === "video" ? "/capture?method=video" : source === "library" ? "/capture?method=library" : "/import";
+    const next = new URL(href, window.location.origin);
+    if (next.pathname === "/capture") {
+      window.location.assign(intakeHref("/capture", { kind: mode === "moments" ? "moments" : "chat", method: next.searchParams.get("method") || undefined, subjectId: targetSelf ? "" : subject, returnTo }));
+    } else {
+      if (!targetSelf && subject) next.searchParams.set("subjectId", subject);
+      window.location.assign(next.pathname + next.search);
+    }
   }
   useEffect(() => {
     if (!pendingAuth || account.loading) return;
@@ -234,7 +255,8 @@ export default function AnalyzePage() {
         const linkKey = `chengzi-capture:${currentTask.owner}:link:${savedId}`;
         try { sessionStorage.setItem(linkKey, JSON.stringify(capture)); } catch {}
         try {
-          await linkReportSources(currentTask.owner, savedId, capture);
+          const synced=await linkReportSources(currentTask.owner, savedId, capture);
+          if(synced.cloudError&&!abort.signal.aborted)setError(synced.cloudError);
           try { sessionStorage.removeItem(linkKey); sessionStorage.removeItem(`chengzi-capture:${currentTask.owner}:handoff`); } catch {}
         } catch {
           if (!abort.signal.aborted) setError("报告已保存并可正常阅读。本机原文暂未关联成功，刷新本页可重试关联，无需再次分析。");
@@ -321,14 +343,15 @@ export default function AnalyzePage() {
   ];
 
   return <>
-    <WebNav/>
+    <WebNav guideReady={!!owner && !account.loading}/>
+    <FirstUseTour owner={owner} page="analyze" ready={!account.loading && owner === restoredOwner}/>
     <main className={`wa-shell ax-shell ${styles.page}`}>
       <AuroraPageHero eyebrow="从材料到判断" title={mode === "chat" ? "聊天分析" : mode === "moments" ? "朋友圈分析" : "社交主页分析"} description={selectedMode.description}/>
       {returnTo && <a className={intake.returnLink} href={returnTo}><History size={16}/>{returnTo.startsWith('/archive') ? '返回人物档案与对照' : '返回刚才的报告'}</a>}
       {restoringReport && <p className={styles.resumeBar} role="status"><LoaderCircle size={19} className="ax-spin"/>正在取回已保存的完整报告…</p>}
       {owner && !visibleResult && lastReport && !restoringReport && <a className={styles.resumeBar} href={`/report?id=${lastReport.id}#report-detail-action`}><History size={21}/><span><strong>继续看上次的报告</strong><small>之前的分析都在历史报告中</small></span><ArrowRight size={19}/></a>}
       {owner && !visibleResult && error && new URLSearchParams(typeof window==='undefined'?'':window.location.search).has('reportId') && <ErrorNotice error={error}/>}
-      {owner && account.error && <AccountNotice state={account}/>}
+      {account.error && <AccountNotice state={account}/>}
       {pendingAuth && <p role="status" className="wa-muted">正在确认账户，请稍等…</p>}
       {authComplete && owner && !hasMaterials && <p role="status" className="wa-muted">已登录，点击下方选图即可继续。</p>}
 
@@ -345,7 +368,6 @@ export default function AnalyzePage() {
       {task && !visibleResult && !restoringReport && <LiveAnalysis taskId={task.taskId} status={status} imageCount={task.files.length} previews={previews} busy={busy} reviewBusy={reviewBusy} error={error} onResume={()=>void execute(task)} onCancel={()=>void cancel()} onConfirmReview={recognition=>void confirmReview(recognition)}/>}
       {!visibleResult && !restoringReport && !task && <>
         {owner && !targetSelf && selectedPerson && <section className={intake.remembered} aria-label="当前分析人物"><UserRound size={22}/><div><strong>继续了解 {selectedPerson.label}</strong><small>{mode === 'chat' && side ? `已沿用：${side==='left'?'左侧':'右侧'}是我 · ` : ''}新增材料会结合这个人物已有的资料；选错可以直接更换。</small></div>{editPerson?<PersonSelect people={account.people} value={subject} disabled={disabled} onChange={choosePerson} empty="本次不关联人物"/>:<button type="button" disabled={disabled} onClick={()=>setEditPerson(true)}>换个人</button>}{mode==='chat'&&side&&<button type="button" disabled={disabled} onClick={()=>chooseSide(side==='left'?'right':'left')}>改为{side==='left'?'右侧':'左侧'}是我</button>}</section>}
-        {!captureSource && <CaptureEntry kind={mode} subjectId={targetSelf?'':subject} returnTo={returnTo}/>}
         {captureSource && <p className="wa-status"><CheckCheck size={18}/>已带入采集截图。请核对顺序与身份，分析完成后可回看这些原图。</p>}
         <div className="ax-mode-heading"><h2>选择分析类型</h2><a href="#analysis-example">先看分析案例 ↓</a></div>
         <div className={`ax-modes ${styles.entryModes}`} role="tablist" aria-label="分析材料" onKeyDown={event => {
@@ -371,7 +393,7 @@ export default function AnalyzePage() {
 
         <div className="ax-workspace" data-ready={hasMaterials} id="analysis-workspace" role="tabpanel" aria-labelledby={"analysis-mode-" + mode}>
           <div className="ax-main-column">
-            <section className="wa-card ax-materials" aria-labelledby="analysis-material-title">
+            <section className="wa-card ax-materials" id="materials" aria-labelledby="analysis-material-title">
               <div className="ax-section-heading">
                 <div><span className="ax-section-number">01 · 添加材料</span><h2 id="analysis-material-title">{selectedMode.upload}</h2></div>
                 <span className="ax-count" aria-live="polite">{files.length + previousCount} / 9 张</span>
@@ -380,21 +402,20 @@ export default function AnalyzePage() {
               {draft.available && !files.length && !task && <section className={intake.partial} aria-label="本机上传草稿"><h3><FolderHeart size={20}/>有一份尚未分析的材料</h3><p>{draft.available.files.length} 张截图和原来顺序已暂存在这台浏览器，24 小时内可恢复。恢复后再由你确认分析。</p><div className="wa-actions"><button type="button" onClick={restoreDraft}>恢复材料</button><button type="button" onClick={()=>void draft.discard()}>丢弃草稿</button></div></section>}
               {!!files.length && !task && draft.state && <p className={intake.hint} role="status">{draft.state}</p>}
 
-              <div className="ax-dropzone" id="analysis-upload" data-dragging={dragging} data-disabled={disabled}
-                role="button" tabIndex={disabled ? -1 : 0}
+              <button type="button" className="ax-dropzone" id="analysis-upload" data-dragging={dragging} data-disabled={disabled}
+                tabIndex={disabled ? -1 : 0}
                 aria-label={owner ? "添加分析截图，支持选择文件、拖放或粘贴图片" : "登录后添加分析截图"}
                 aria-describedby="analysis-upload-limits" aria-disabled={disabled}
                 onClick={requestUpload}
-                onKeyDown={event => { if (["Enter", " "].includes(event.key) && !disabled) { event.preventDefault(); requestUpload(); } }}
                 onDragEnter={event => { event.preventDefault(); if (disabled) return; dragDepth.current++; setDragging(true); }}
                 onDragOver={event => { event.preventDefault(); event.dataTransfer.dropEffect = disabled ? "none" : "copy"; }}
                 onDragLeave={event => { event.preventDefault(); dragDepth.current = Math.max(0, dragDepth.current - 1); if (!dragDepth.current) setDragging(false); }}
                 onDrop={event => { event.preventDefault(); dragDepth.current = 0; setDragging(false); if (!disabled) void selectFiles(event.dataTransfer.files); }}>
                 <div className="ax-upload-illustration" aria-hidden="true"><CloudUpload/></div>
-                <strong>{dragging ? "松开鼠标，添加截图" : preparing ? "正在整理图片…" : files.length ? "继续添加截图" : "点击上传截图，或拖到这里"}</strong>
-                <span className="ax-upload-action">{preparing ? <LoaderCircle size={18} className="ax-spin"/> : <ImagePlus size={18}/>}<span>{!owner ? "登录后上传" : "从相册选择 / 拍照"}</span><ArrowRight size={16}/></span>
+                <strong>{dragging ? "松开鼠标，添加截图" : preparing ? "正在整理图片…" : files.length ? "继续添加截图" : "点击选择来源，或拖到这里"}</strong>
+                <span className="ax-upload-action">{preparing ? <LoaderCircle size={18} className="ax-spin"/> : <ImagePlus size={18}/>}<span>{!owner ? "登录后上传" : "选择材料来源"}</span><ArrowRight size={16}/></span>
                 <small className="ax-paste-hint"><Clipboard size={14}/>电脑上可直接粘贴截图 · Ctrl / ⌘ + V</small>
-              </div>
+              </button>
               <input ref={fileInputRef} className="ax-file-input" aria-label="选择分析截图" type="file" accept="image/jpeg,image/png" multiple tabIndex={-1} disabled={disabled || !owner} onChange={event => { void selectFiles(event.target.files); event.target.value = ""; }}/>
               <p className="ax-upload-limits" id="analysis-upload-limits">JPG / PNG · 每组最多 9 张 · {mode === "chat" ? "每张不超过 5 MB" : "原图每张不超过 12 MB，大图在本机自动优化"}</p>
               {preparing && <p className="ax-preparing" role="status"><LoaderCircle size={17} className="ax-spin"/>正在本机整理图片，请稍等…</p>}
@@ -444,7 +465,7 @@ export default function AnalyzePage() {
                 </select>
               </label>}
 
-              {(!targetSelf || mode === "chat") && <section className={styles.personPicker} aria-labelledby="analysis-person-title">
+              {(!targetSelf || mode === "chat") && <section className={styles.personPicker} data-tour="analysis-person" aria-labelledby="analysis-person-title">
                 <header><UserRound size={21}/><div><h3 id="analysis-person-title">这次在分析谁？</h3><p>{selectedPerson ? "已关联「" + selectedPerson.label + "」，不用重新填写档案。" : "选一次人物，后续直接补充新材料。"}</p></div><span>可选</span></header>
                 <div className="ax-options-body">
                   {selectedPerson && !editPerson ? <div className={intake.quickActions}><strong>{selectedPerson.label}</strong><button type="button" disabled={disabled||previousCount>0} onClick={()=>setEditPerson(true)}>更换人物</button><a href={'/archive?subjectId='+subject}>查看已存资料</a></div> : <><PersonSelect people={account.people} value={subject} disabled={disabled || previousCount > 0} onChange={choosePerson} empty="暂不关联人物（报告仍会保存）"/><InlinePerson avatarSources={files} disabled={disabled || !owner} onCreated={async id => { choosePerson(id); await account.refresh(); }}/></>}
@@ -525,6 +546,21 @@ export default function AnalyzePage() {
           </section>
         </>}
       </div>
+      {sourcePickerOpen && <div className={styles.sourcePickerBackdrop} role="presentation" onMouseDown={() => setSourcePickerOpen(false)}>
+        <section className={styles.sourcePicker} role="dialog" aria-modal="true" aria-labelledby="source-picker-title" data-source-picker onMouseDown={event => event.stopPropagation()}>
+          <header><div><span className={styles.sourcePickerEyebrow}>添加材料</span><h2 id="source-picker-title">选择材料来源</h2><p>{mode === "chat" ? "可导入完整聊天，也可以先选几张截图。" : mode === "moments" ? "选择朋友圈截图或从电脑采集的动态。" : "选择主页截图，整理后再开始分析。"}</p></div><button type="button" className={styles.sourcePickerClose} aria-label="关闭来源选择" onClick={() => setSourcePickerOpen(false)}><X size={19}/></button></header>
+          <div className={styles.sourcePickerOptions}>
+            <button type="button" onClick={() => chooseUploadSource("screenshots")}><span className={styles.sourcePickerIcon}><ImagePlus size={21}/></span><span><strong>{mode === "moments" ? "朋友圈截图" : mode === "social" ? "主页截图" : "聊天截图"}</strong><small>从电脑或手机相册选择，也可以直接粘贴</small></span><ArrowRight size={17}/></button>
+            {mode !== "social" && <>
+              <button type="button" onClick={() => chooseUploadSource("computer")}><span className={styles.sourcePickerIcon}><Monitor size={21}/></span><span><strong>{mode === "moments" ? "电脑采集朋友圈" : "电脑微信"}</strong><small>{mode === "moments" ? "读取电脑微信里的朋友圈动态" : "读取电脑微信里的完整聊天记录"}</small></span><ArrowRight size={17}/></button>
+              <button type="button" onClick={() => chooseUploadSource("video")}><span className={styles.sourcePickerIcon}><Video size={21}/></span><span><strong>{mode === "moments" ? "朋友圈录屏" : "聊天录屏"}</strong><small>{mode === "moments" ? "上传手机录屏，自动整理动态内容" : "上传手机录屏，自动整理聊天内容"}</small></span><ArrowRight size={17}/></button>
+              {mode === "chat" && <button type="button" onClick={() => chooseUploadSource("file")}><span className={styles.sourcePickerIcon}><FileUp size={21}/></span><span><strong>聊天文件</strong><small>导入已导出的聊天记录文件</small></span><ArrowRight size={17}/></button>}
+              <button type="button" onClick={() => chooseUploadSource("library")}><span className={styles.sourcePickerIcon}><Library size={21}/></span><span><strong>{mode === "moments" ? "已导入朋友圈" : "已导入材料"}</strong><small>{mode === "moments" ? "继续使用之前采集的朋友圈内容" : "继续使用之前采集的聊天内容"}</small></span><ArrowRight size={17}/></button>
+            </>}
+          </div>
+          <p className={styles.sourcePickerNote}><ShieldCheck size={15}/>你可以先选择来源，再核对材料、人物和费用，确认后才会开始分析。</p>
+        </section>
+      </div>}
     </main>
     <AnalysisAuthGate open={showAuth} onClose={() => setShowAuth(false)} returnTo={intakeHref('/analyze',{mode,subjectId:subject,returnTo,targetSelf})} contextLabel={selectedMode.label} onSuccess={authenticated}/>
   </>;

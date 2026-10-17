@@ -116,13 +116,28 @@ Page({
     if (selectors[section]) wx.pageScrollTo({ selector: selectors[section], duration: 240 });
   },
   data: { phase: "loading", prices: null, pricesReady: false, priceError: "", busy: false, linkBusy: false, profileUrl: "", linkMessage: "", images: [], imageCount: 0, canAdd: true, completedCount: 0, totalCount: 0, canContinue: false, agreed: false, error: "", result: null, label: "", archiveConsent: false, archiveTogether: false, archiveBusy: false, archiveMessage: "", people: [{ id: "", label: "暂不归档" }], personIndex: 0, compareSelf: false, targetSelf: false, showUploadHelp: false, showPrivacyDetails: false, showReportDetails: false, showFitDetails: false, showMomentsDetails: false, showMomentsTimeline: false },
-  onLoad(options = {}) { this._explicitSubject = options.subjectId || ""; this.setData({materialType: "profile"}); if (options.target === "self") this.setData({ targetSelf: true }); },
+  onLoad(options = {}) { this._explicitSubject = options.subjectId || ""; this._savedReportId = /^[a-f0-9-]{36}$/.test(options.reportId || '') ? options.reportId : ''; this.setData({materialType: "profile"}); if (options.target === "self") this.setData({ targetSelf: true }); },
+  async loadSavedReport() {
+    if (this._readingSaved) return; this._readingSaved = true;
+    this.setData({ phase: 'loading', result: null, error: '' });
+    try {
+      const session = await api.session(); this._token = session.token;
+      const saved = await api.request('/api/miniapp/report?id=' + encodeURIComponent(this._savedReportId), 'GET', null, this._token);
+      if (this._unloaded || wx.getStorageSync(api.STORAGE)?.token !== this._token) return;
+      if (saved.reportId !== this._savedReportId || !saved.report || !['moments','social'].includes(saved.kind)) throw Error('这份资料报告暂时无法打开。');
+      this._explicitSubject = saved.subjectId || ''; this._selectedSubject = this._explicitSubject;
+      const people = [{ id: '', label: '暂不归档' }, ...(session.state?.subjects || [])];
+      this.setData({ phase: 'ready', result: decorateResult({ ...saved.report, reportId: saved.reportId }, saved.totalCount), people, personIndex: Math.max(0, people.findIndex(person => person.id === saved.subjectId)), materialType: saved.kind === 'moments' ? 'moments' : 'profile', totalCount: saved.totalCount || 0, targetSelf: saved.targetSelf === true });
+    } catch (error) { if (!this._unloaded) this.setData({ phase: 'error', error: error.message || '报告暂时无法打开，请稍后回来。' }); }
+    finally { this._readingSaved = false; }
+  },
   materialChange(event) { if(this.data.busy || this.data.backgroundPending) return; this._previousResult=null; this.setData({...this.resetReportView(),materialType:event.currentTarget.dataset.type === "moments" ? "moments" : "profile",result:null,completedCount:0,canContinue:false,agreed:false}); },
   onHide() { this._hiddenAt = Date.now(); this._hidden = true; },
   onUnload() { this._unloaded = true; this._hidden = true; },
   resumeAfterReturn() { if (this._resumeWhenIdle && !this._hidden && this.data.backgroundPending && !this._unloaded) { this._resumeWhenIdle = false; this.resumeAnalysis(); } },
   async onShow() {
     this._hidden = false;
+    if (this._savedReportId) return this.loadSavedReport();
     if (this.data.busy) { this._resumeWhenIdle = true; return; }
     const requestedSubject = this._explicitSubject || "";
     if (this._loaded && this.data.phase === "ready" && !savedTaskId() && requestedSubject === (this._selectedSubject || "")) { this.loadPrices(); return; }

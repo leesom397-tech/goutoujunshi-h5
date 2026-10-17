@@ -36,3 +36,17 @@ coverage/
 /experiments/card-render/package/
 /experiments/card-render/*.otf
 *.tsbuildinfo
+
+# Local Python builds and one-off inspection files
+desktop/wechat-collector/.venv/
+desktop/wechat-collector/dist/
+desktop/wechat-collector/build/
+__pycache__/
+*.pyc
+.tmp-cssrg.txt
+tmp-zip-inspect-*/
+
+public/downloads/*.bin
+public/downloads/*.exe
+public/downloads/*.zip
+

@@ -30,3 +30,8 @@ body .desk .desk-empty a{color:#176c88}
 @media(prefers-reduced-motion:reduce){.desk-columns,.desk-actions,.desk-loading>span{animation:none}.desk-primary,.desk-actions>a,.desk-metrics>a{transition:none}.desk-primary:hover,.desk-actions>a:hover{transform:none}}
 
 }
+
+/* Keep dashboard companion panels visible beside long report lists on desktop. */
+@media(min-width:701px){
+  .desk-aside{position:sticky;top:108px;align-self:start;max-height:calc(100dvh - 128px);overflow:auto;overscroll-behavior:contain;scrollbar-width:thin}
+}

@@ -3,14 +3,14 @@ import {readFileSync} from 'node:fs';
 import {resolve,dirname} from 'node:path';
 import {createRequire} from 'node:module';
 import ts from 'typescript';
-const native=createRequire(import.meta.url),cache=new Map();let authenticated=true,calls=[],budget=0;
+const native=createRequire(import.meta.url),cache=new Map();let authenticated=true,calls=[],budget=0,override;
 const observation={kind:'profile',readable:true,summary:'记录登山',visibility:{evidence:''},posts:[{date:'10月8日',content:'周末登山',evidence:'第1张：周末登山',contentTags:['旅行'],copyTags:['生活记录'],selfie:'unknown',milestone:null}],profileBasics:[],photoClues:[{item:'山路',evidence:'图1步道与配文周末登山',style:'普通户外路线'}]};
 function load(file){const path=resolve(file);if(cache.has(path))return cache.get(path).exports;const m={exports:{}};cache.set(path,m);if(path.endsWith('.json')){m.exports=JSON.parse(readFileSync(path,'utf8'));return m.exports;}const source=ts.transpileModule(readFileSync(path,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,esModuleInterop:true}}).outputText;const req=id=>{
  if(id==='cloudflare:workers')return {env:{WECHAT_CALLBACK_TOKEN:'internal-test-key'}};
  if(id==='@/lib/miniapp-auth')return {miniappOwner:async()=>authenticated?{ownerId:'test-owner'}:null};
  if(id==='@/lib/crush/service')return {reserveBudget:async()=>{budget++;}};
  if(id==='@/db')return {getD1:()=>{throw Error('unexpected DB access');}};
- if(id==='@/lib/qwen')return {parseQwenJson:JSON.parse,qwenPublicError:(_e,f)=>f,qwenChat:async(messages,options)=>{calls.push({messages,options});return JSON.stringify(options.vision?observation:{kind:'profile',readable:true,summary:'汇总完成',moments:{summary:'旅行记录',posts:[{date:'未来',content:'虚构购车',evidence:'虚构'}],hypotheses:[],starters:[]},photoClues:[{item:'山路',evidence:'图1步道与配文周末登山',inference:'可能愿意聊路线体验',alternative:'也可能只是一次体验',verify:'问这次路线感觉怎样'},{item:'虚构豪车',evidence:'图9不存在',inference:'无依据',alternative:'无依据'}],profileBasics:[{field:'occupation',value:'虚构职业',evidence:'虚构'}]});}};
+ if(id==='@/lib/qwen')return {parseQwenJson:JSON.parse,qwenPublicError:(_e,f)=>f,qwenChat:async(messages,options)=>{calls.push({messages,options});return JSON.stringify(override??(options.vision?observation:{kind:'profile',readable:true,summary:'汇总完成',moments:{summary:'旅行记录',posts:[{date:'未来',content:'虚构购车',evidence:'虚构'}],hypotheses:[],starters:[]},photoClues:[{item:'山路',evidence:'图1步道与配文周末登山',inference:'可能愿意聊路线体验',alternative:'也可能只是一次体验',verify:'问这次路线感觉怎样'},{item:'虚构豪车',evidence:'图9不存在',inference:'无依据',alternative:'无依据'}],profileBasics:[{field:'occupation',value:'虚构职业',evidence:'虚构'}]}));}};
  if(id.startsWith('@/')||id.startsWith('.')){let p=id.startsWith('@/')?resolve(id.slice(2)):resolve(dirname(path),id);if(!/\.(ts|mjs|json)$/.test(p))p+='.ts';return load(p);}return native(id);};new Function('require','module','exports',source)(req,m,m.exports);return m.exports;}
 const route=load('app/api/miniapp/social-profile/route.ts');
 const {DEEP_INFERENCE_GUIDANCE}=load('lib/deep-inference-guidance.ts');
@@ -36,4 +36,17 @@ assert.ok(!result.photoClues.some(x=>x.item==='虚构豪车'),'synthesis cannot 
 assert.equal(result.moments.photoClues[0].inference,result.photoClues[0].inference,'same interpretation survives moments cleaning');
 assert.ok(result.fit.every(x=>!['年龄阶段','见面距离','教育经历'].includes(x.dimension)),'moments use visible lifestyle dimensions');
 assert.match(result.note,/2 张/);assert.equal(budget,1);
+assert.equal(calls.at(-1).messages.at(-1).role,'user','source observations are the final turn, after all system contracts');
+override={...observation,posts:[]};assert.equal((await route.POST(request(extract))).status,502,'readable empty extraction is not a completed paid report');
+override={kind:'profile',readable:true,summary:'嵌套返回',moments:observation};const nested=await (await route.POST(request(extract))).json();assert.equal(nested.posts.length,1,'retain actual nested source rows instead of accepting an empty feed');
+override={result:{kind:'profile',readable:true,summary:'识别内容支持总结',hypotheses:[]}};
+const topSummary=await (await route.POST(request({momentsPhase:'summarize',imageCount:1,observations:[recognized]}))).json();
+assert.equal(topSummary.moments.posts[0].content,observation.posts[0].content,'top-level summary drift cannot erase the saved original posts');
+const profileBody={materialType:'profile',images:['data:image/png;base64,YQ==']};
+override={summary:'只有结论，没有结构字段'};assert.equal((await route.POST(request(profileBody))).status,502,'missing kind/readable cannot silently become unclear success');
+override={kind:'unclear',readable:false,summary:'未识别'};assert.equal((await route.POST(request(profileBody))).status,422,'unreadable material is not a successful paid analysis');
+override={kind:'profile',readable:true,summary:'资料看似清楚',profileBasics:[],visibleFacts:[]};assert.equal((await route.POST(request(profileBody))).status,502,'no verified material means incomplete output');
+override={data:{kind:'profile',readable:true,summary:'资料写明希望认真恋爱',profileBasics:[{field:'relationshipStatus',value:'希望认真恋爱，合适可结婚',evidence:'图1恋爱目标栏原文'}]}};
+const validProfile=await (await route.POST(request(profileBody))).json();assert.equal(validProfile.profileBasics[0].value,'希望认真恋爱，合适可结婚');
+assert.equal(calls.at(-1).messages.at(-1).role,'user');assert.ok(calls.at(-1).messages.at(-1).content.some(item=>item.type==='image_url'),'image remains the final material turn');
 console.log('PASS moments pipeline: internal stage authorization, validation, image-free summary, deduplication, source preservation and one budget reservation');

@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import {build} from 'esbuild';
+const compiled=await build({entryPoints:['lib/capture-cloud.ts'],bundle:true,write:false,format:'esm',platform:'node'});
+const {sanitizeCloudCaptureRecord:clean,validateCloudCaptureRecord:validate}=await import('data:text/javascript;base64,'+Buffer.from(compiled.outputFiles[0].text).toString('base64'));
+const at='2026-10-16T01:00:00.000Z';
+const base={id:'native-1',localId:'local-1',namespace:'private-local-scope',kind:'text',sender:'我',senderRole:'self',at:'2026-10-14 12:32:01',text:'  我周六可以。\n下午两点。 ',firstCapturedAt:at,lastCapturedAt:at,source:{label:'原始记录',method:'wechat-local-db',accountId:'test-account',sessionId:'test-contact',messageId:'1',messageShard:'message_0',idStability:'stable',timestampOrigin:'wechat-create-time',key:'private-secret',databaseKey:'secret-key',path:'C:\\private\\db',token:'secret-token'},images:[{mime:'image/png',name:'one.png',data:'private-image-payload'}]};
+const result=clean(base);
+assert.equal(result.text,base.text);assert.equal(result.at,base.at);assert.equal(result.senderRole,'self');assert.equal(result.localId,base.localId);assert.equal(result.imageCount,1);
+assert.equal(result.namespace,undefined);assert.equal(result.images,undefined);assert.equal(result.source.databaseKey,undefined);assert.equal(result.source.path,undefined);assert.equal(result.source.token,undefined);assert.equal(result.source.key,undefined);
+assert.equal(JSON.stringify(result).includes('secret'),false);assert.equal(result.source.idStability,'stable');
+const voice=clean({...base,images:[],source:{label:'语音已转写',method:'wechat-local-db',mediaKind:'voice',transcriptionStatus:'visible-text',transcriptionSource:'local-audio-asr',voiceAvailability:'transcribed',durationSeconds:5,transcriptCapturedAt:at}});
+assert.equal(voice.source.mediaKind,'voice');assert.equal(voice.source.transcriptionStatus,'visible-text');assert.equal(voice.imageCount,0);
+assert.throws(()=>validate({...result,senderRole:'guessed'}));assert.throws(()=>validate({...result,imageCount:10}));assert.throws(()=>validate({...result,firstCapturedAt:'昨天'}));assert.throws(()=>validate({...result,text:'x'.repeat(30001)}));
+const malicious=validate({...result,media:[{id:'forged-ref'}],seq:999,source:{label:'截图',databaseIdentity:{version:1,matchedBy:'unique-text-interval-v1',messageId:'2',secret:'no',filePath:'/private/no'}}});
+assert.equal(malicious.media,undefined);assert.equal(malicious.seq,undefined);assert.equal(malicious.source.databaseIdentity.secret,undefined);assert.equal(malicious.source.databaseIdentity.messageId,'2');
+console.log('Cloud contract: original text/roles/times, voice metadata, private-field exclusion, forged media and validation checks passed.');

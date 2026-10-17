@@ -2,13 +2,13 @@
 import { useEffect, useRef, useState } from "react";
 import ui from "@/components/AuroraUI.module.css";
 import {PersonAvatarChoice} from "@/components/PersonAvatarChoice";
+import { fetchWebJson } from '@/lib/web-api-request.mjs';
 export type Json = Record<string, any>;
 export class WebError extends Error { constructor(message: string, public status = 0, public details: Json = {}) { super(message); } }
 export async function api(path: string, body?: Json, signal?: AbortSignal): Promise<Json> {
-  let response: Response;
-  try { response = await fetch(path, { method: body ? "POST" : "GET", credentials: "same-origin", cache: "no-store", ...(body ? { headers: { "Content-Type": "application/json", ...(body.taskId || body.requestId ? { "X-Request-Id": String(body.taskId || body.requestId) } : {}) }, body: JSON.stringify(body) } : {}), signal }); }
-  catch (error) { if (signal?.aborted) throw error; throw new WebError("连接中断，输入与任务已保留，请重试。"); }
-  const data = await response.json().catch(() => ({})) as Json;
+  let response: Response, data: Json;
+  try { ({ response, data } = await fetchWebJson(path, { method: body ? "POST" : "GET", credentials: "same-origin", cache: "no-store", ...(body ? { headers: { "Content-Type": "application/json", ...(body.taskId || body.requestId ? { "X-Request-Id": String(body.taskId || body.requestId) } : {}) }, body: JSON.stringify(body) } : {}), signal })); }
+  catch (error) { if (signal?.aborted) throw error; throw new WebError(error instanceof Error && error.name === "TimeoutError" ? "连接暂时较慢，输入与任务已保留，请重新连接。" : "连接中断，输入与任务已保留，请重试。"); }
   if (!response.ok) throw new WebError(data.error || (response.status === 401 ? "请登录后继续。" : "暂时无法完成，请稍后重试。"), response.status, data);
   return data;
 }
@@ -72,8 +72,8 @@ export function encodeBase64(bytes: Uint8Array) { let output = ""; for (let i = 
 
 
 
-export function InlinePerson({ disabled = false, onCreated, avatarSources, avatarCandidates }: { disabled?: boolean; onCreated: (id: string) => void | Promise<void>; avatarSources?:File[]; avatarCandidates?:Parameters<typeof PersonAvatarChoice>[0]["candidates"] }) {
-  const [name, setName] = useState(""), [consent, setConsent] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(""), [done, setDone] = useState(false);
+export function InlinePerson({ disabled = false, onCreated, avatarSources, avatarCandidates, initialName = "" }: { disabled?: boolean; onCreated: (id: string) => void | Promise<void>; avatarSources?:File[]; avatarCandidates?:Parameters<typeof PersonAvatarChoice>[0]["candidates"]; initialName?:string }) {
+  const [name, setName] = useState(initialName.slice(0,60)), [consent, setConsent] = useState(false), [busy, setBusy] = useState(false), [error, setError] = useState(""), [done, setDone] = useState(false);
   const pending = useRef<{ id: string; label: string } | null>(null);
   async function create() { if (!name.trim() || !consent || busy) return; setBusy(true); setError(""); try { const state = await api("/api/web/profile"); if (!state.enabled || state.paused) await api("/api/web/profile", { action: "consent", enabled: true }); pending.current ||= { id: crypto.randomUUID(), label: name.trim() }; const created = await api("/api/web/profile", { action: "create-manual", ...pending.current, data: {}, confirmed: true }); if (created.createdSubjectId !== pending.current.id) throw new Error("建档结果尚未确认，再次点击会核对同一人物。"); await onCreated(created.createdSubjectId); setDone(true); } catch (e) { setError(message(e)); } finally { setBusy(false); } }
   if (done) return <div><p className="wa-muted" role="status">已建立「{name}」的人物档案。</p><PersonAvatarChoice subjectId={pending.current!.id} name={name} sources={avatarSources} candidates={avatarCandidates} autoOpen/></div>;

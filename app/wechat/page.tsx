@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import type { ProfileState } from "@/lib/profile";
 
 type Link = { id: string; subjectId: string | null; createdAt: number };
@@ -99,7 +98,7 @@ export default function WechatPage() {
     catch(error){setNotice(error instanceof Error?error.message:"设置未完成");}finally{setBusy(false);}
   }
   return <main className="wechat-shell">
-    <Link className="wechat-back" href="/">← 返回对话</Link>
+    <a className="wechat-back" href="/">← 返回对话</a>
     <div className="wechat-eyebrow">微信聊天副驾 · 截图快判断</div>
     <h1>发一张截图，知道下一句怎么接</h1>
     <p className="wechat-lead">微信负责眼前的判断和回复；网页负责完整关系档案、六维图、择偶定位与长录音分析。两端接着同一个对象。</p>
@@ -151,7 +150,7 @@ export default function WechatPage() {
       <h2>完整能力在网页，微信只保留轻用法</h2>
       <p>推荐入口是截图。合并转发文字和单条语音属于补充方式：合并记录的语音可能只是占位，单独语音无法自动知道原聊天是谁说的。复杂说话人核对、长录音转写、完整历史与多对象比较，请在网页操作。</p>
       <p>你发给微信客服的内容会经企业微信接口送到本站，并发送给阿里云百炼完成识别和分析；分析图由本站托管服务 Cloudflare 渲染，包含本次原话与分析标签，不公开分享。仅在单独开启第三方快判断后，文字摘录才会再发送给 TypeSafe AI。原截图、原录音不在本站归档；等待处理的消息临时缓存最长 1 小时，处理后清空原始消息。开启逐句解读后，聊天文字与报告另行保存 7 天，可在逐句页面删除；归档线索仍需你去<a href="/profile">关系档案</a>确认。你也可以随时暂停档案或解除微信绑定。</p>
-      <Link className="wechat-open" href="/">进入实时语音对话</Link>
+      <a className="wechat-open" href="/">进入实时语音对话</a>
     </section>
     </>}
   </main>;

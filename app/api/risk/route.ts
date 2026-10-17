@@ -3,6 +3,8 @@ import { COACH_RULES } from "@/lib/coach";
 import { buildKnowledgeContext } from "@/lib/knowledge";
 import { loadProfileContext } from "@/lib/profile-context";
 import { parseQwenJson, qwenChat, qwenKey, qwenPublicError, type QwenContent } from "@/lib/qwen";
+import { getD1 } from "@/db";
+import { saveAnalysisReport } from "@/lib/saved-reports.mjs";
 import { parseRiskReport } from "@/lib/risk";
 
 export const runtime = "edge";
@@ -23,6 +25,9 @@ export async function POST(request: Request) {
   if ((!text && !image) || text.length > 6000) return json({ error: "请提供一段具体经历或截图，文字不超过 6000 字。" }, 400);
   if (image && (image.length > 7_000_000 || !/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(image))) return json({ error: "请使用 5 MB 内的 PNG、JPG 或 WebP 截图。" }, 400);
   if (body.subjectId != null && (typeof body.subjectId !== "string" || body.subjectId.length > 100)) return json({ error: "对象无效。" }, 400);
+  const reportId=typeof body.requestId==="string"?body.requestId:crypto.randomUUID();
+  if(!/^[a-f0-9-]{36}$/.test(reportId))return json({error:"报告编号无效。"},400);
+  if(body.subjectId && !await getD1().prepare("SELECT id FROM coach_subjects WHERE owner_id=? AND id=? AND status='active'").bind(user.userId,body.subjectId).first())return json({error:"关联人物不存在，请重新选择。"},400);
   if (!qwenKey()) return json({ error: "智能分析暂未配置。" }, 503);
   const knowledge = buildKnowledgeContext("关系风险 聊天记录 PUA 投入失衡 " + text, "decision");
   let profile = "";
@@ -41,6 +46,8 @@ export async function POST(request: Request) {
       ].join("\n") },
       { role: "user", content },
     ], { vision: !!image, json: true, quality: "max", maxTokens: 1900, timeoutMs: 90000 });
-    return json({ ...parseRiskReport(parseQwenJson(raw), text, !!image), knowledgeSources: knowledge.sources });
+    const result={ ...parseRiskReport(parseQwenJson(raw), text, !!image), knowledgeSources: knowledge.sources };
+    await saveAnalysisReport(getD1(),{ownerId:user.userId,id:reportId,kind:"chat",subjectId:body.subjectId||null,imageCount:1,result:{decision:{judgment:result.summary},riskAnalysis:result}});
+    return json({...result,reportId,retention:"until-deleted"});
   } catch (error) { return json({ error: qwenPublicError(error, "这次没能整理出可靠的提醒，请稍后重试。") }, 502); }
 }

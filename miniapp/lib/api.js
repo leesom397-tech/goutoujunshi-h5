@@ -10,7 +10,7 @@ function setCurrentSubject(id) { try { wx.setStorageSync(CURRENT_SUBJECT, id || 
 
 function request(path, method, data, token) {
   return new Promise((resolve, reject) => {
-    const timeout = path.endsWith("/social-profile") ? 110000 : path.endsWith("/screenshot") ? 60000 : path.endsWith("/voice-live/check") ? 25000 : path.endsWith("/transcribe") ? 45000 : path.endsWith("/rewrite") || path.endsWith("/text") ? 30000 : 12000;
+    const timeout = path.endsWith("/social-profile") || path.endsWith("/capture/analyze") ? 110000 : path.endsWith("/screenshot") ? 60000 : path.endsWith("/voice-live/check") ? 25000 : path.endsWith("/transcribe") ? 45000 : path.endsWith("/rewrite") || path.endsWith("/text") ? 30000 : 12000;
     const tracked = (data && ['init','part','commit'].includes(data.uploadAction) && typeof data.taskId === 'string' && ['/api/miniapp/social-profile','/api/miniapp/screenshot/batch'].includes(path)) || (method === 'GET' && /^\/api\/miniapp\/(social-profile|screenshot\/batch)\?taskId=/.test(path));
     let handle, entry, settled = false;
     const accept = resolve, decline = reject;

@@ -42,12 +42,47 @@ assert.equal(recapture(initial([row('嗯', { at: '昨天 10:32' })]).records, [r
 const anchored = [row('下周展览活动确认', { at: '2026-10-13 10:32' }), row('嗯')];
 assert.equal(recapture(initial(anchored).records, anchored).added, 0, 'a short reply may align through an adjacent unambiguous dated message');
 
+// Legacy database aliases from the first importer release omitted sender. The
+// stored UI row is the only safe fallback; a changed alias must still stop the
+// merge before it can move evidence between messages.
+const dbAt = '2026-10-13T10:00:00.000Z';
+const dbSource = { label: '本机数据库原文', method: 'wechat-local-db', accountId: ns.account, sessionId: 'session-a', messageShard: 'shard-a', messageId: 'message-a' };
+const dbRow = row('数据库原文', { id: 'db-message-a', at: dbAt, source: dbSource });
+const dbStored = initial([dbRow]).records[0];
+const legacyIdentity = { version: 1, matchedBy: 'unique-text-interval-v1', anchors: ['record:left', 'record:right'], id: dbRow.id, accountId: ns.account, sessionId: 'session-a', messageShard: 'shard-a', messageId: 'message-a', senderRole: dbRow.senderRole, at: dbAt };
+const legacyDb = { ...dbStored, source: { ...dbStored.source, method: 'uia', databaseIdentity: legacyIdentity } };
+const legacyMerged = merge([legacyDb], batch([dbRow]), ns);
+assert.equal(legacyMerged.added, 0, 'legacy database alias without sender is reused');
+const changedLegacy = { ...legacyDb, source: { ...legacyDb.source, databaseIdentity: { ...legacyIdentity, messageId: 'message-changed' } } };
+assert.throws(() => merge([changedLegacy], batch([dbRow]), ns), /数据库.*(?:冲突|凭据)/);
+
+// Growing the read window must insert older history before the already-known suffix.
+const expanded = recapture(first.records, [row('嗯'), row('嗯'), ...context, row('后来确认了具体时间。')]);
+assert.deepEqual(expanded.records.map(item => item.text), ['嗯', '嗯', ...context.map(item => item.text), '后来确认了具体时间。']);
+assert.deepEqual([expanded.added, expanded.repeated], [3, 3]);
+assert.deepEqual(expanded.records.slice(2, 5).map(item => item.localId), first.records.map(item => item.localId), 'backfill keeps original evidence IDs and source attribution');
+assert.equal(recapture(expanded.records, [row('嗯'), row('嗯'), ...context, row('后来确认了具体时间。')]).added, 0, 'repeat of the expanded window still deduplicates after insertion');
+const nativeA = row('相同时间的第一句', {id:'ordered-a',at:'2026-10-13 10:00:00'}), nativeB = row('嗯',{id:'ordered-b',at:'2026-10-13 10:00:00'}), nativeC = row('嗯',{id:'ordered-c',at:'2026-10-13 10:00:00'});
+const middle = recapture(initial([nativeA,nativeC]).records,[nativeA,nativeB,nativeB,nativeC]);
+assert.deepEqual(middle.records.map(item=>item.id),['ordered-a','ordered-b','ordered-c'],'new row is inserted between known anchors; distinct short-message IDs survive while one actual ID is not duplicated');
+const datedBackfill = recapture(initial([row('新日期消息',{at:'2026-10-14 10:00'})]).records,[row('旧日期消息',{at:'2026-10-12 10:00'})]);
+assert.deepEqual(datedBackfill.records.map(item=>item.text),['旧日期消息','新日期消息'],'fully explicit disjoint older dates can precede a non-overlapping window');
+const equalTime = recapture(initial([row('先读到的一句',{at:'2026-10-14 10:00'})]).records,[row('同分钟的另一句',{at:'2026-10-14 10:00'})]);
+assert.deepEqual(equalTime.records.map(item=>item.text),['先读到的一句','同分钟的另一句'],'equal timestamps do not invent an order or erase a different message');
+const unknownOrder = recapture(initial([row('原有未知时间消息')]).records,[row('另一个未知时间消息')]);
+assert.deepEqual(unknownOrder.records.map(item=>item.text),['原有未知时间消息','另一个未知时间消息'],'no anchors or precise dates means retain existing order');
+const conflict = recapture(initial([nativeA,nativeC]).records,[nativeC,nativeB,nativeA]);
+assert.deepEqual(conflict.records.map(item=>item.id),['ordered-a','ordered-c','ordered-b'],'conflicting incoming anchors do not rewrite the stored timeline');
+
 const postNs = { ...ns, kind: 'moments' };
 const postBatch = records => batch(records, { kind: 'moments' });
 const post = row('周末去看了新的摄影展，分享几张照片。', { kind: 'post', at: '2026年10月13日' });
 const posts = merge([], postBatch([post]), postNs);
 assert.equal(merge(posts.records, postBatch([post]), postNs).added, 0);
 assert.equal(merge(posts.records, postBatch([{ ...post, at: '2026年10月14日' }]), postNs).added, 1, 'same copy on a different day is another post');
+assert.deepEqual(merge(posts.records, postBatch([{...post,at:'2026年10月14日'}]),postNs).records.map(item=>item.at),['2026年10月14日','2026年10月13日'],'explicit newer moments retain newest-first presentation');
+const extendedPosts=merge(posts.records,postBatch([{...post,id:'moment-newer',at:'2026年10月14日'},post,{...post,id:'moment-older',at:'2026年10月12日'}]),postNs);
+assert.deepEqual(extendedPosts.records.map(item=>item.at),['2026年10月14日','2026年10月13日','2026年10月12日'],'moments expansion inserts new/old posts around the shared original');
 const png = { mime: 'image/png', name: 'test.png', data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aXGkAAAAASUVORK5CYII=' };
 const withImage = { ...post, images: [png] };
 assert.equal(merge(posts.records, postBatch([withImage]), postNs).added, 1, 'different media is not discarded as a duplicate of identical copy');
@@ -116,6 +151,10 @@ try {
     // Both calls race for the same library: a single read/write transaction prevents lost updates.
     await Promise.all([storage.saveCaptureBatch('owner-a', { ...payload, records: [{ ...payload.records[0], id: 'concurrent-a', text: '并发新消息A' }] }), storage.saveCaptureBatch('owner-a', { ...payload, records: [{ ...payload.records[0], id: 'concurrent-b', text: '并发新消息B' }] })]);
     expect((await storage.getCaptureLibrary('owner-a', first.library.id)).records.length === 5, 'concurrent saves preserve both additions');
+    const expanded=await storage.saveCaptureBatch('owner-a',{...payload,records:[{...payload.records[0],id:'older-history',text:'更早的完整原文。'},...payload.records]});
+    expect(expanded.library.records[0].text==='更早的完整原文。','real IndexedDB persists older history before the shared suffix');
+    expect(storage.pendingCaptureRecords(expanded.library)[0].localId===expanded.newRecords[0].localId,'pending analysis follows the repaired material order');
+    expect(JSON.stringify((await storage.readReportSources('owner-a','report-1')).records.map(item=>item.localId))===JSON.stringify(sourceIds),'backfilling history does not break an existing report source link');
     await storage.removeCaptureLibrary('owner-a', first.library.id);
     expect(await storage.getCaptureLibrary('owner-a', first.library.id) === null && await storage.readReportSources('owner-a', 'report-1') === null, 'deletion removes originals and report link together');
     return checks;

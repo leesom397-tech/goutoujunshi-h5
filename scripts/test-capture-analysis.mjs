@@ -79,6 +79,14 @@ const route = load('app/api/web/capture/analyze/route.ts', {
   '@/lib/capture-analysis-input': { captureAnalysisInput, captureReadableText },
   '@/lib/personal-context-server': { personalizeReport: async (_owner,_subject,report) => load('lib/personal-context.ts').personalConnection(report) },
   '@/lib/personal-context': load('lib/personal-context.ts'),
+  '@/lib/conversation-profile-memory': load('lib/conversation-profile-memory.ts'),
+  '@/lib/conversation-profile-memory-server': {
+    conversationMemoryScope: async () => null,
+    emptyConversationMemory: status => ({ status, pendingCount: 0, selfCount: 0, subjectCount: 0, sourceCount: 0, items: [] }),
+    saveConversationProfileMemory: async () => ({ status: 'disabled', pendingCount: 0, selfCount: 0, subjectCount: 0, sourceCount: 0, items: [] }),
+  },
+  '@/lib/chat-activity': { computeChatActivity: records => ({ totalRecords: records.length }) },
+  '@/lib/relationship-diagnosis': { buildRelationshipDiagnosis: summary => ({ version: 1, summary }) },
   '@/lib/account-credits.mjs': credits,
   '@/lib/credit-response.mjs': { creditResponse },
   '@/lib/saved-reports.mjs': savedReports,
@@ -99,7 +107,7 @@ const route = load('app/api/web/capture/analyze/route.ts', {
     const lines = quick.lines.filter(line => ['text', 'sticker'].includes(line[1]) && line[2].trim()).map(line => ({ speaker: line[0] === 'right' ? 'self' : 'other', text: (line[1] === 'sticker' ? '【表情包文字】' : '') + line[2].trim(), annotation: {} }));
     return { text: lines.map(line => `${line.speaker === 'self' ? '我' : '对方'}：${line.text}`).join('\n'), prepared: { lines }, decision: { judgment: '合成判断' } };
   } },
-  '@/lib/profile-context': { loadProfileContext: async (actualOwner, actualSubject) => { assert.equal(actualOwner, owner); assert.equal(actualSubject, subject); return '合成档案'; } },
+  '@/lib/profile-context': { loadProfileContext: async (actualOwner, actualSubject) => { assert.equal(actualOwner, owner); assert.ok(actualSubject === subject || actualSubject === null); return '合成档案'; } },
   '@/lib/qwen': {
     parseQwenJson: JSON.parse,
     qwenPublicError: (_error, fallback) => fallback,

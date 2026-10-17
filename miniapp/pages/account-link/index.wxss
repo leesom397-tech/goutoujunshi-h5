@@ -1,0 +1,1 @@
+.link-error{padding:48rpx;color:#574538}.link-error text{display:block;margin-bottom:24rpx;line-height:1.8}.link-error text:first-child{font-size:36rpx;font-weight:600}.link-error button{background:#b96d52;color:white;font-size:28rpx}

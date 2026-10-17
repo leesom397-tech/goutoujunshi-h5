@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 
 type LinkRow = { id: string; createdAt: number };
 
@@ -35,5 +34,5 @@ export default function MiniappManagePage() {
     } catch (cause) { setError(cause instanceof Error ? cause.message : "解除关联暂时失败。"); }
     finally { setBusy(""); }
   }
-  return <main className="mini-link"><div className="mini-link-brand">成 <span>成子</span></div><div className="mini-link-card"><span className="mini-link-step">账号与隐私</span><h1>小程序关联管理</h1><p>只有你确认关联过的微信小程序身份，才能通过小程序访问这份 成子 资料。解除后，所有对应小程序会话立即失效，不删除你的网页档案。</p>{loading ? <p>正在读取…</p> : loggedOut ? <Link className="mini-link-primary" href="/login?return_to=%2Fminiapp%2Fmanage">登录后查看 →</Link> : items.length ? <div className="mini-devices">{items.map(item => <div key={item.id}><div><strong>微信小程序身份 · {item.id.slice(-6)}</strong><span>关联于 {new Date(item.createdAt).toLocaleDateString("zh-CN")}</span></div><button type="button" disabled={!!busy} onClick={() => void unlink(item.id)}>{busy === item.id ? "正在解除…" : "解除关联"}</button></div>)}</div> : <p>目前没有关联的小程序身份。</p>}{error && <p className="mini-link-error" role="alert">{error}</p>}</div><p className="mini-link-foot"><Link href="/profile">返回关系档案</Link></p></main>;
+  return <main className="mini-link"><div className="mini-link-brand">成 <span>成子</span></div><div className="mini-link-card"><span className="mini-link-step">账号与隐私</span><h1>小程序关联管理</h1><p>只有你确认关联过的微信小程序身份，才能通过小程序访问这份 成子 资料。解除后，所有对应小程序会话立即失效，不删除你的网页档案。</p>{loading ? <p>正在读取…</p> : loggedOut ? <a className="mini-link-primary" href="/login?return_to=%2Fminiapp%2Fmanage">登录后查看 →</a> : items.length ? <div className="mini-devices">{items.map(item => <div key={item.id}><div><strong>微信小程序身份 · {item.id.slice(-6)}</strong><span>关联于 {new Date(item.createdAt).toLocaleDateString("zh-CN")}</span></div><button type="button" disabled={!!busy} onClick={() => void unlink(item.id)}>{busy === item.id ? "正在解除…" : "解除关联"}</button></div>)}</div> : <p>目前没有关联的小程序身份。</p>}{error && <p className="mini-link-error" role="alert">{error}</p>}</div><p className="mini-link-foot"><a href="/archive">返回关系档案</a></p></main>;
 }

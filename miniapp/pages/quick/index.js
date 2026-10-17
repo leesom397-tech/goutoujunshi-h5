@@ -103,6 +103,7 @@ function styleSamples(lines) {
 }
 
 Page({
+  openLibrary() { wx.navigateTo({ url: "/pages/library/index" }); },
   async loadPrices() {
     const token = this.data.token;
     if (!token) return false;
@@ -186,6 +187,7 @@ Page({
       this.clearPartialReports();
       let result = entries.at(-1);
       const collected = entries.flatMap((entry, index) => entry.lines.map(line => ({ ...line, screenshotNumber: index + 1 })));
+      const rankedOriginal = [...(result.decision?.replyOptions || [])].map((item,originalIndex)=>({...item,originalIndex})).sort((a,b)=>(b.weight??-1)-(a.weight??-1)).slice(0,3);
       const risk=riskAwarePresentation({...result,lines:collected,riskReview:{signals:entries.flatMap(entry=>[...(entry.riskReview?.signals||[]),...(entry.decision?.riskReview?.signals||[])])}});result=risk.viewReport;
       this._riskPresentation=risk;
       const collectedAnnotations = entries.flatMap(entry => entry.annotations || []);
@@ -199,7 +201,7 @@ Page({
       const lastOther = [...collected].reverse().find(item => item.speaker === "other");
       const annotation = tags.get(lastOther?.id);
       const options = risk.replyOptions.slice(0,3);
-      const replies = options.map((option, index) => ({ ...option, rankLabel: index === 0 ? "本轮首选" : `备选 ${index + 1}`, expanded: false, personalizedText: "", note: "", rewriteError: "" }));
+      const replies = options.map((option, index) => ({ ...option, rewriteIndex:rankedOriginal.findIndex(item=>item.originalIndex===option.originalIndex),rankLabel: index === 0 ? "本轮首选" : `备选 ${index + 1}`, expanded: false, personalizedText: "", note: "", rewriteError: "",experienceEvidence:[] }));
       const latestSpeaker = [...collected].reverse().find(item => item.speaker === "self" || item.speaker === "other")?.speaker;
       const styleReportIds = entries.filter(entry => entry.lines?.some(line => line.speaker === "self")).map(entry => entry.id).filter(Boolean).slice(-9);
       const score = interactionScore(result);
@@ -319,6 +321,7 @@ Page({
     this.setData({ images: images.map((item, index) => ({ ...item, order: index + 1 })), agreed: false, result: empty() });
   },
   sideChange(event) { if (this.data.busy) return; const index = Number(event.detail.value) || 0; this._requestId = null; this._sessionId = null; this._selfLines = []; this._batchResults = null; this.setData({ side: index === 1 ? "right" : index === 2 ? "left" : "ask", sideIndex: index, agreed: false, result: empty() }); },
+  chooseSide(event) { const side = event.currentTarget.dataset.side; if (side !== 'left' && side !== 'right') return; this.sideChange({ detail: { value: side === 'right' ? 1 : 2 } }); },
   personChange(event) { if (this.data.busy) return; const candidate = Number(event.detail.value); const index = Number.isInteger(candidate) && candidate >= 0 && candidate < this.data.people.length ? candidate : 0; this._requestId = null; this._sessionId = null; this._selfLines = []; this._batchResults = null; api.setCurrentSubject?.(this.data.people[index]?.id || ""); this.setData({ personIndex: index, archivePrompt: false, agreed: false, result: empty() }); },
   skipArchive() { this.personChange({ detail: { value: 0 } }); },
   async openNewPerson() {
@@ -500,23 +503,25 @@ Page({
   async personalize(event) {
     const index = Number(event.currentTarget.dataset.index);
     if (!this.data.result.canPersonalize || this.data.rewriteBusy >= 0 || !Number.isInteger(index) || index < 0 || index >= this.data.result.replies.length) return;
-    const optionIndex=this.data.result.replies[index].originalIndex;
-    if(!Number.isInteger(optionIndex))return;
-    if (!this.data.pricesReady) { this.setData({ error: "请先重试读取改写价格。" }); return; }
+    const optionIndex=this.data.result.replies[index].rewriteIndex;
+    if(!Number.isInteger(optionIndex) || optionIndex<0)return;
     const reportId = this.data.result.reportId;
+    const token=this.data.token,current=()=>!this._unloaded && this.data.token===token && this.data.result.reportId===reportId;
     this.setData({ rewriteBusy: index, copiedReplyIndex: -1, copyError: "" });
     try {
       this._rewriteIds ||= {};
       const rewriteKey = reportId + ":" + optionIndex;
       this._rewriteIds[rewriteKey] ||= await api.newId();
-      const rewritten = await api.request("/api/miniapp/rewrite", "POST", { reportId, optionIndex, styleReportIds: this.data.result.styleReportIds, confirmed: true, requestId: this._rewriteIds[rewriteKey] }, this.data.token);
+      if(!current())return;
+      const rewritten = await api.request("/api/miniapp/rewrite", "POST", { reportId, optionIndex, styleReportIds: this.data.result.styleReportIds, confirmed: true, requestId: this._rewriteIds[rewriteKey] }, token);
+      if(!current())return;
       if (!rewritten.text || !rewritten.status || !rewritten.note) throw new Error("云端改写暂未完成，原推荐仍可使用。");
       if(this._riskPresentation&&!riskReplyAllowed(this._riskPresentation,rewritten.text))throw new Error("这条改写与当前风险提醒冲突，请使用原来的边界回复。");
       if (this.data.result.reportId !== reportId) return;
-      this.setData({ result: { ...this.data.result, replies: this.data.result.replies.map((item, position) => position === index ? { ...item, personalizedText: rewritten.status === "adjusted" ? rewritten.text : "", note: rewritten.note, rewriteError: "" } : item) } });
+      this.setData({ result: { ...this.data.result, replies: this.data.result.replies.map((item, position) => position === index ? { ...item, personalizedText: rewritten.status === "adjusted" ? rewritten.text : "", note: rewritten.note, rewriteError: "",experienceEvidence:Array.isArray(rewritten.experienceEvidence)?rewritten.experienceEvidence:[] } : item) } });
     } catch (error) {
-      if (this.data.result.reportId === reportId) this.setData({ result: { ...this.data.result, replies: this.data.result.replies.map((item, position) => position === index ? { ...item, rewriteError: error.message || "云端改写暂未完成。" } : item) } });
-    } finally { this.setData({ rewriteBusy: -1 }); }
+      if (current()) this.setData({ result: { ...this.data.result, replies: this.data.result.replies.map((item, position) => position === index ? { ...item, rewriteError: error.message || "云端改写暂未完成。" } : item) } });
+    } finally { if(current())this.setData({ rewriteBusy: -1 }); }
   },
   reset() { this.clearPartialReports(); this._requestId = null; this._sessionId = null; this._selfLines = []; this._batchResults = null; this.setData({ image: "", images: [], imageCount: 0, side: "ask", sideIndex: 0, personIndex: 0, agreed: false, result: empty(), error: "", elapsedSeconds: 0, lastElapsedSeconds: 0, archivePrompt: false, newPersonOpen: false, newPersonName: "", newPersonConsent: false, showLines: true, showEvidence: false, showPrivacyDetails: false, copiedReplyIndex: -1, copyError: "" }); if (typeof wx.pageScrollTo === 'function') wx.pageScrollTo({ scrollTop: 0, duration: 250 }); },
   openSocialProfile() { wx.navigateTo({ url: "/pages/social-profile/index" }); },

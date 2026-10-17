@@ -2,24 +2,22 @@
   "pages": [
     "pages/home/index",
     "pages/quick/index",
+    "pages/library/index",
+    "pages/account-link/index",
     "pages/social-profile/index",
     "pages/chat/index",
     "pages/voice/index",
     "pages/report/index",
+    "pages/reports/index",
     "pages/archive/index",
     "pages/person-new/index",
     "pages/account/index"
   ],
   "window": {
     "navigationBarTitleText": "成子关系决策智能体",
-    "navigationBarBackgroundColor": "#f5f9fb",
+    "navigationBarBackgroundColor": "#fffaf4",
     "navigationBarTextStyle": "black",
-    "backgroundColor": "#f5f9fb"
-  },
-  "permission": {
-    "scope.record": {
-      "desc": "用于按住说话转文字和实时语音对话"
-    }
+    "backgroundColor": "#fffaf4"
   },
   "usingComponents": {
     "avatar-picker": "/components/avatar-picker/index",

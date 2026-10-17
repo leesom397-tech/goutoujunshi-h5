@@ -84,11 +84,22 @@
         </view>
         <view wx:if="{{selectedId === item.id && item.momentsReport && !paused && detailSection === 'overview'}}" class="panel"><template is="momentsReport" data="{{report:item.momentsReport,archiveView:true,hideFindings:item.communicationReading,showDetails:showMomentsDetails,showTimeline:showMomentsTimeline}}"/><button class="light" data-id="{{item.id}}" bindtap="deleteMoments">删除这份朋友圈报告</button></view>
       </block>
+      <view wx:if="{{selectedId && !paused && detailSection === 'trend' && automaticUpdate.hasEvidenceReview}}" class="panel evidence-review-panel">
+        <text class="action-kicker">把不同时间、不同材料放在一起看</text><text class="heading">说过什么，后来如何</text>
+        <view wx:for="{{automaticUpdate.evidenceReview.cards}}" wx:key="title" class="evidence-review-card {{item.kind}}">
+          <text class="evidence-kind">{{item.kindLabel}}</text><text class="section-title">{{item.title}}</text><text class="evidence-reading">{{item.reading}}</text>
+          <text wx:if="{{item.explanation}}" class="muted">可能的解释：{{item.explanation}}</text>
+          <view wx:for="{{item.steps}}" wx:for-item="step" wx:key="label" class="evidence-step {{step.status}}"><text>{{step.label}} · {{step.statusLabel}}</text><text class="muted">{{step.detail}}</text></view>
+          <view wx:for="{{item.sources}}" wx:for-item="source" wx:key="text" class="evidence-source"><text class="muted">{{source.date}} {{source.label}}</text><text selectable>{{source.text}}</text></view>
+          <text wx:if="{{item.observe}}" class="evidence-observe">接着留意：{{item.observe}}</text><text wx:if="{{item.question}}" class="muted">可以自然问：{{item.question}}</text>
+        </view><text class="muted">{{automaticUpdate.evidenceReview.note}}</text>
+      </view>
       <view wx:if="{{selectedId && !paused && detailSection === 'overview'}}" class="panel action-feedback-panel">
         <view class="action-heading"><view><text class="action-kicker">跟着真实聊天更新</text><text class="heading">{{automaticUpdate.headline || '新聊天，接着上次分析'}}</text></view><image src="../../assets/icon-chat.png" class="feedback-icon"></image></view>
         <text wx:if="{{feedbackLoading}}" class="muted">正在读取行动记录…</text>
         <view wx:if="{{automaticUpdate.current}}" class="automatic-summary"><text class="brief-label">这次重点 {{automaticUpdate.current.date}}</text><text>{{automaticUpdate.current.summary}}</text><view wx:if="{{automaticUpdate.previous}}"><text class="brief-label">之前的材料 {{automaticUpdate.previous.date}}</text><text>{{automaticUpdate.previous.summary}}</text></view><view wx:for="{{automaticUpdate.changes}}" wx:key="label"><text class="brief-label">{{item.label}}</text><text>{{item.text}}</text></view></view>
         <text class="muted">{{automaticUpdate.note || '补充同一人物的新聊天，会自动对照已有材料。'}}不必重复填写后续。</text><button class="primary" bindtap="openSelectedQuick">补充新聊天</button>
+        <button wx:if="{{automaticUpdate.hasEvidenceReview}}" class="light" data-section="trend" bindtap="switchDetailSection">查看说法与行动 · {{automaticUpdate.evidenceReview.cards.length}} 条线索</button>
         <button wx:if="{{hasCorrectionCards}}" class="light" bindtap="toggleManualFeedback">{{showManualFeedback?'收起历史记录':'查看或更正已保存记录'}}</button>
         <block wx:if="{{showManualFeedback || feedbackOpen}}">
         <view wx:for="{{correctionCards}}" wx:key="reportId" class="feedback-card">

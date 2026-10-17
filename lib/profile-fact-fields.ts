@@ -1,4 +1,4 @@
-const aliases: Record<string, string> = { 年龄: "ageRange", 年龄范围: "ageRange", 常住地: "city", 当前所在地: "city", 现居地: "city", 学历: "education", 职业: "occupation", 婚恋状态: "relationshipStatus", 婚育想法: "childrenPlan", 生活方式: "lifestyle", 关系阶段: "stage", 认识方式: "howMet", 价值观: "values", 明确价值观: "values", 边界: "boundaries" };
+const aliases: Record<string, string> = { 年龄: "ageRange", 年龄范围: "ageRange", 常住地: "city", 当前所在地: "city", 现居地: "city", 学历: "education", 职业: "occupation", 婚恋状态: "relationshipStatus", 婚育想法: "childrenPlan", 生活方式: "lifestyle", 关系阶段: "stage", 认识方式: "howMet", 价值观: "values", 明确价值观: "values", 边界: "boundaries", 兴趣爱好: "interests", 沟通偏好: "communicationStyle", 当前目标: "goals", 期待的关系: "preferredRelationship", 自述长处: "strengths" };
 type Fact = { status: string; subject_id?: string | null; subjectId?: string | null; field?: string; kind?: string; value: string };
 export function recoverProfileFields(data: Record<string, unknown>, facts: Fact[], subjectId: string | null) {
   const result = { ...data };

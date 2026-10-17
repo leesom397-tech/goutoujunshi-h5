@@ -1,0 +1,12 @@
+.page{background:#fffaf4;color:#443a32;min-height:100vh}
+.page :global(.risk-wrap){max-width:1180px}
+.page :global(.risk-form){margin-top:28px;background:#fffdf9;border-color:#ead8c9;box-shadow:0 12px 36px #80523805}
+.page :global(.field)>span{font-size:16px;color:#644c3c}
+.page :global(.field) :is(input,textarea,select){font-size:17px;color:#443a32;line-height:1.7;background:#fffefd;border-color:#e6d2c1}
+.page :global(.risk-submit){background:#b86c51;color:white;font-size:17px;min-height:54px}
+.page :global(.risk-privacy),.page :global(.risk-upload) span{font-size:14px;color:#826e5e;line-height:1.8}
+.page :global(.risk-results) :is(p,blockquote){font-size:17px;color:#5a483b;line-height:1.9}
+.page :global(.risk-results) h2{font-size:26px}
+.page :global(.risk-results) h3{font-size:21px}
+.page :global(.risk-upload) button{color:#9b5f45;background:#f9e9db;border-color:#e9cdb7;font-size:15px}
+@media(max-width:600px){.page :global(.risk-wrap){padding-inline:18px}.page :global(.risk-form){padding:20px}.page :global(.risk-results) :is(p,blockquote){font-size:16px}}

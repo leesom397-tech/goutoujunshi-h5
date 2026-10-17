@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import ts from 'typescript';
-const evidenceApi={};new Function('exports',ts.transpileModule(readFileSync('lib/relationship-evidence.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(evidenceApi);
+const patternApi={};new Function('exports',ts.transpileModule(readFileSync('lib/relationship-patterns.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(patternApi);
+const evidenceApi={};new Function('exports','require',ts.transpileModule(readFileSync('lib/relationship-evidence.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(evidenceApi,()=>patternApi);
 const exports={};
 new Function('exports','require',ts.transpileModule(readFileSync('lib/relationship-updates.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(exports,()=>evidenceApi);
 const {automaticRelationshipUpdate:review}=exports;

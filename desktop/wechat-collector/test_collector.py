@@ -8,16 +8,34 @@ from types import SimpleNamespace
 from unittest.mock import patch
 import re
 
-from bridge import BridgeError, CollectorState, ORIGINS, server_for
+from bridge import BridgeError, CollectorState, ORIGINS, server_for, _capture_process
 from normalize import normalized_capture
-from adapter import CaptureError, _account, _chat, _assert_target, _open_target, _moments_window
+from adapter import CaptureError, _account, _chat, _assert_target, _open_target, _moments_window, capture
 
 
 def fake_capture(conn, request):
     conn.send({"type": "progress", "progress": 40, "message": "mock progress"})
     time.sleep(0.2)
-    result = normalized_capture(request["kind"], request["friend"], "fake_account_only", [{"kind": "text", "text": "虚构测试消息", "sender": "测试人", "at": ""}])
+    result = normalized_capture(request["kind"], request["friend"], "fake_account_only", [{"kind": "text", "text": "虚构测试消息", "sender": "测试人", "at": "", "source": {"requestedVoice": request.get("includeVoice")}}])
     conn.send({"type": "result", "result": result})
+    conn.close()
+
+
+def fake_partial_capture(conn, request):
+    result = normalized_capture(request["kind"], request["friend"], "fake_account_only", [
+        {"kind": "text", "text": "已核对的虚构文字", "sender": "测试人", "at": "",
+         "source": {"requestedVoice": request["includeVoice"]}}])
+    conn.send({"type": "partial", "partial": result})
+    if request["limit"] in (1, 5):
+        time.sleep(30)  # cancelled/terminated by the test, never a real UI operation
+    elif request["limit"] == 2:
+        conn.send({"type": "error", "error": {"code": "SOURCE_CHANGED", "message": "synthetic source changed"}})
+    elif request["limit"] == 4:
+        conn.close()
+        return
+    else:
+        time.sleep(.15)
+        conn.send({"type": "result", "result": result})
     conn.close()
 
 
@@ -49,6 +67,57 @@ class NormalizationTest(unittest.TestCase):
 
 
 class AdapterTest(unittest.TestCase):
+    def test_voice_transcript_keeps_provenance_and_excludes_duration_from_body(self):
+        class Item:
+            def __init__(self, index, label, ui_class="mmui::ChatVoiceItemView"):
+                self.element_info = SimpleNamespace(runtime_id=[index])
+                self.label, self.ui_class = label, ui_class
+            def has_keyboard_focus(self): return True
+            def class_name(self): return self.ui_class
+            def window_text(self): return self.label
+        class Listing:
+            index = 0
+            items = [Item(1, '好友 2026-10-13 10:03 语音12"秒周六下午可以。'),
+                     Item(2, '我 2026-10-13 10:02 语音3"秒'),
+                     Item(3, '好友 2026-10-13 10:01 语音8"秒转换失败'),
+                     Item(4, '好友 2026-10-13 10:00 语音12"秒这是输入的字', "mmui::ChatTextItemView")]
+            def exists(self, **kwargs): return True
+            def children(self): return [self.items[self.index]]
+            def type_keys(self, *args, **kwargs): self.index = min(self.index + 1, len(self.items)-1)
+        listing = Listing()
+        history = SimpleNamespace(child_window=lambda **kwargs: listing, type_keys=lambda *args: None, close=lambda: None)
+        navigator = SimpleNamespace(open_chat_history=lambda **kwargs: history)
+        tools = SimpleNamespace(select_chatHistoryList=lambda window: object())
+        ui = SimpleNamespace(Lists=SimpleNamespace(ChatHistoryList={}), Regex_Patterns=SimpleNamespace(
+            Chathistory_Timestamp_pattern=re.compile(r"2026-10-13 \d{2}:\d{2}"), Audio_pattern=re.compile(r'(?<=语音)\d+"秒(.*)$')))
+        with patch("adapter._open_target", return_value=object()), patch("adapter._image") as screenshot, \
+             patch("adapter._native_voice", side_effect=[(None, "not-voice"), RuntimeError("source gone")]):
+            rows, warnings = _chat("好友", 4, "我", lambda *args: None, (navigator, tools, ui), convert_voices=True)
+        screenshot.assert_not_called()
+        self.assertEqual([row["kind"] for row in rows], ["text", "other", "other", "text"])
+        self.assertEqual(rows[0]["text"], "周六下午可以。")
+        self.assertEqual(rows[0]["senderRole"], "other")
+        self.assertEqual(rows[0]["at"], "2026-10-13 10:03")
+        self.assertEqual(rows[0]["source"]["mediaKind"], "voice")
+        self.assertEqual(rows[0]["source"]["transcriptionStatus"], "visible-text")
+        self.assertEqual(rows[1]["source"]["transcriptionStatus"], "not-visible")
+        self.assertEqual(rows[2]["source"]["transcriptionStatus"], "failed")
+        self.assertEqual(rows[1]["source"]["nativeConversionOutcome"], "source-or-window-changed")
+        self.assertEqual(rows[2]["source"]["nativeConversionOutcome"], "source-or-window-changed")
+        self.assertNotIn("mediaKind", rows[3]["source"])
+        self.assertEqual(rows[3]["text"], '语音12"秒这是输入的字')
+        normalized = normalized_capture("chat", "好友", "synthetic_account", rows, warnings)
+        self.assertEqual(normalized["records"][-1]["source"]["mediaKind"], "voice")
+        self.assertEqual(normalized["records"][-1]["text"], "周六下午可以。")
+        self.assertTrue(any("3 条语音" in warning and "1 条" in warning and "2 条未取得转写" in warning for warning in warnings))
+        listing.index = 0
+        with patch("adapter._open_target", return_value=object()), patch("adapter._native_voice") as native:
+            quick, _ = _chat("好友", 4, "我", lambda *args: None, (navigator, tools, ui))
+        native.assert_not_called()
+        self.assertEqual(quick[0]["text"], "周六下午可以。")
+        self.assertEqual([row["kind"] for row in quick], ["text", "other", "other", "text"])
+        self.assertNotIn("nativeConversionOutcome", quick[1]["source"])
+
     def test_moments_new_embedded_ui_requires_unique_visible_album(self):
         old = SimpleNamespace(exists=lambda **kwargs: True)
         missing = SimpleNamespace(exists=lambda **kwargs: False)
@@ -140,6 +209,120 @@ class AdapterTest(unittest.TestCase):
         self.assertEqual(error.exception.code, "GROUP_NOT_SUPPORTED")
 
 
+class TwoPhaseCaptureTest(unittest.TestCase):
+    def setUp(self):
+        self.events = []
+        self.modules = {
+            "pythoncom": SimpleNamespace(CoInitialize=lambda: None, CoUninitialize=lambda: None),
+            "pyweixin": SimpleNamespace(Navigator=object(), Tools=object(), GlobalConfig=SimpleNamespace(), Uielements=object()),
+        }
+        self.voice = {"kind": "other", "sender": "本人", "senderRole": "self", "at": "原时间", "text": '语音6"秒',
+                      "source": {"uiClass": "mmui::ChatVoiceItemView", "mediaKind": "voice", "rawMediaLabel": '语音6"秒', "transcriptionStatus": "not-visible"}}
+        self.line = {"kind": "text", "sender": "好友", "senderRole": "other", "at": "原时间", "text": "合成测试的文字原文", "source": {"uiClass": "mmui::ChatTextItemView"}}
+        self.converted = {**self.voice, "kind": "text", "text": "合成原生语音正文", "source": {**self.voice["source"], "transcriptionStatus": "visible-text"}}
+
+    def run_capture(self, *, include_voice=None, callback=True, accounts=None, second=None, no_voice=False):
+        def read(*args, convert_voices=False):
+            self.events.append("convert" if convert_voices else "quick")
+            if convert_voices:
+                return second if second is not None else ([self.converted, self.line], [])
+            return ([self.line] if no_voice else [self.voice, self.line], [])
+        def partial(batch):
+            self.events.append(("partial", batch))
+        request = {"kind": "chat", "friend": "好友", "limit": 2}
+        if include_voice is not None:
+            request["includeVoice"] = include_voice
+        with patch.dict("sys.modules", self.modules), patch("adapter.sys.platform", "win32"), \
+             patch("adapter._account", side_effect=accounts or [("synthetic_account", "本人")] * 3), \
+             patch("adapter._chat", side_effect=read):
+            return capture(request, lambda *args: None, on_partial=partial if callback else None)
+
+    def test_default_and_explicit_false_end_after_fast_capture(self):
+        for flag in (None, False):
+            self.events.clear()
+            result = self.run_capture(include_voice=flag)
+            self.assertEqual(self.events, ["quick"])
+            self.assertEqual(result["records"][0]["text"], self.line["text"])
+            self.assertEqual(result["records"][1]["kind"], "other")
+
+    def test_explicit_voice_first_publishes_account_checked_text_then_converts(self):
+        result = self.run_capture(include_voice=True)
+        self.assertEqual([event[0] if isinstance(event, tuple) else event for event in self.events], ["quick", "partial", "convert"])
+        partial = self.events[1][1]
+        self.assertEqual(partial["account"], "synthetic_account")
+        self.assertEqual(partial["records"][1]["kind"], "other")
+        self.assertEqual(result["records"][1]["text"], self.converted["text"])
+        self.assertEqual(partial["records"][1]["kind"], "other", "final result cannot mutate already published partial")
+
+    def test_no_callback_or_no_missing_voice_does_not_start_second_pass(self):
+        for kwargs in ({"callback": False}, {"no_voice": True}):
+            self.events.clear()
+            self.run_capture(include_voice=True, **kwargs)
+            self.assertEqual(self.events, ["quick"])
+
+    def test_account_change_before_partial_publishes_nothing(self):
+        with self.assertRaises(CaptureError) as result:
+            self.run_capture(include_voice=True, accounts=[("original", "本人"), ("foreign", "本人")])
+        self.assertEqual(result.exception.code, "ACCOUNT_CHANGED")
+        self.assertEqual(self.events, ["quick"])
+
+    def test_account_or_nickname_change_after_partial_preserves_only_first_batch(self):
+        for changed in (("foreign", "本人"), ("synthetic_account", "另一人")):
+            self.events.clear()
+            with self.assertRaises(CaptureError) as result:
+                self.run_capture(include_voice=True, accounts=[("synthetic_account", "本人")] * 2 + [changed])
+            self.assertEqual(result.exception.code, "ACCOUNT_CHANGED")
+            self.assertEqual(len([event for event in self.events if isinstance(event, tuple)]), 1)
+            self.assertEqual(self.events[1][1]["records"][1]["kind"], "other")
+
+    def test_changed_second_pass_speaker_or_range_is_not_published(self):
+        for rows in ([{**self.converted, "senderRole": "other"}, self.line], [self.converted]):
+            self.events.clear()
+            with self.assertRaises(CaptureError) as result:
+                self.run_capture(include_voice=True, second=(rows, []))
+            self.assertEqual(result.exception.code, "SOURCE_CHANGED")
+            self.assertEqual(len([event for event in self.events if isinstance(event, tuple)]), 1)
+
+    def test_worker_relays_partial_before_final(self):
+        events = []
+        partial = {"version": 1, "records": [{"text": "合成原文"}]}
+        final = {"version": 1, "records": [{"text": "合成原文与语音"}]}
+        def run(request, progress, on_partial=None):
+            on_partial(partial)
+            progress(60, "文字已导入，正在补全语音…")
+            return final
+        conn = SimpleNamespace(send=events.append, close=lambda: None)
+        with patch("adapter.capture", side_effect=run):
+            _capture_process(conn, {"includeVoice": True})
+        self.assertEqual([event["type"] for event in events], ["partial", "progress", "result"])
+        self.assertEqual(events[0]["partial"], partial)
+        self.assertEqual(events[-1]["result"], final)
+
+
+class CompatibilityTest(unittest.TestCase):
+    def test_qt_shell_is_not_misreported_as_a_login_request(self):
+        import compatibility
+        state = {"class": "Qt51514QWindowIcon"}
+        modules = {
+            "psutil": SimpleNamespace(process_iter=lambda fields: [SimpleNamespace(pid=123, info={"name": "Weixin.exe", "exe": "synthetic.exe"})]),
+            "win32api": SimpleNamespace(GetFileVersionInfo=lambda *args: {"FileVersionMS": (4 << 16) | 1, "FileVersionLS": (15 << 16) | 13}),
+            "win32gui": SimpleNamespace(EnumWindows=lambda callback, arg: callback(1, arg), IsWindowVisible=lambda hwnd: True, GetClassName=lambda hwnd: "Qt51514QWindowIcon"),
+            "win32process": SimpleNamespace(GetWindowThreadProcessId=lambda hwnd: (1, 123)),
+            "pythoncom": SimpleNamespace(CoInitialize=lambda: None, CoUninitialize=lambda: None),
+            "pywinauto": SimpleNamespace(Desktop=lambda **kwargs: SimpleNamespace(window=lambda **kwargs: SimpleNamespace(element_info=SimpleNamespace(class_name=state["class"])))),
+        }
+        with patch.dict("sys.modules", modules), patch.object(compatibility.sys, "platform", "win32"), patch.object(compatibility.importlib.metadata, "version", return_value="synthetic"):
+            shell = compatibility.compatibility_probe()
+            self.assertFalse(shell["ready"])
+            self.assertIn("微信已打开", shell["message"])
+            self.assertIn("界面文字暂不可读取", shell["message"])
+            self.assertNotIn("登录", shell["message"])
+            state["class"] = "mmui::LoginWindow"
+            self.assertIn("完成登录", compatibility.compatibility_probe()["message"])
+            state["class"] = "mmui::MainWindow"
+            self.assertTrue(compatibility.compatibility_probe()["ready"])
+
+
 class BridgeTest(unittest.TestCase):
     def setUp(self):
         self.state = CollectorState(health_provider=lambda: {"ready": True, "capabilities": {"chat": True, "moments": True}, "message": "mock only"}, capture_target=fake_capture)
@@ -175,7 +358,9 @@ class BridgeTest(unittest.TestCase):
         return {"Authorization": "Bearer " + payload["token"]}
 
     def test_origin_host_token_and_paths(self):
-        self.assertEqual(self.request("GET", "/health")[0], 200)
+        status, health, _ = self.request("GET", "/health")
+        self.assertEqual(status, 200)
+        self.assertTrue(health["capabilities"]["deferredVoice"])
         self.assertEqual(self.request("GET", "/health", headers={"Origin": "https://evil.example"})[0], 403)
         self.assertEqual(self.request("GET", "/health", headers={"Origin": "null"})[0], 403)
         self.assertEqual(self.request("GET", "/health", headers={"Host": "evil.example"})[0], 403)
@@ -186,6 +371,8 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(self.request("POST", "/capture", {"kind": "chat", "friend": "虚构", "limit": True}, token)[0], 400)
         self.assertEqual(self.request("POST", "/capture", {"kind": "chat", "friend": "虚构", "limit": 501}, token)[0], 400)
         self.assertEqual(self.request("POST", "/capture", {"kind": "chat", "friend": "虚构", "limit": 5, "path": "C:/secret"}, token)[0], 400)
+        for flag in (1, 0, "true", None, []):
+            self.assertEqual(self.request("POST", "/capture", {"kind": "chat", "friend": "虚构", "limit": 5, "includeVoice": flag}, token)[0], 400)
         self.assertEqual(self.request("GET", "/jobs/" + "a" * 24, headers={**token, "Origin": "http://localhost:3000"})[0], 401)
         self.state.rotate()
         self.assertEqual(self.request("GET", "/jobs/" + "a" * 24, headers=token)[0], 401)
@@ -201,12 +388,28 @@ class BridgeTest(unittest.TestCase):
         self.state.code_created -= 601
         self.assertEqual(self.request("POST", "/pair", {"code": self.state.code})[0], 410)
 
+    def test_not_ready_preserves_specific_bounded_health_message(self):
+        token = self.pair()
+        message = "微信已打开，但当前账号的界面文字暂不可读取。"
+        self.state.health_provider = lambda: {"ready": False, "message": message}
+        status, payload, _ = self.request("POST", "/capture", {"kind": "chat", "friend": "虚构", "limit": 5}, token)
+        self.assertEqual(status, 409)
+        self.assertEqual(payload["error"], {"code": "WECHAT_NOT_READY", "message": message})
+        self.assertEqual(self.state.jobs, {})
+        for invalid in (None, {}, "   ", "长" * 1000):
+            self.state.health_provider = lambda value=invalid: {"ready": False, "message": value}
+            with self.assertRaises(BridgeError) as result:
+                self.state.start({"kind": "chat", "friend": "虚构", "limit": 5})
+            self.assertEqual(result.exception.code, "WECHAT_NOT_READY")
+            self.assertTrue(0 < len(result.exception.message) <= 500)
+            self.assertNotIn("登录", result.exception.message)
+
     def test_preflight_and_body_limit(self):
         status, _, headers = self.request("OPTIONS", "/capture", headers={"Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "authorization, content-type", "Access-Control-Request-Private-Network": "true"})
         self.assertEqual(status, 200)
         self.assertEqual(headers.get("Access-Control-Allow-Origin"), self.origin)
         self.assertEqual(headers.get("Access-Control-Allow-Private-Network"), "true")
-        self.assertEqual(self.request("POST", "/pair", {"code": "a" * 5000})[0], 413)
+        self.assertEqual(self.request("POST", "/pair", {"code": "a" * (64 * 1024)})[0], 413)
         self.assertEqual(self.request("OPTIONS", "/capture", headers={"Access-Control-Request-Method": "DELETE"})[0], 403)
 
     def test_mock_job_scope_and_result(self):
@@ -222,6 +425,7 @@ class BridgeTest(unittest.TestCase):
             time.sleep(0.05)
         self.assertEqual(job["status"], "completed", job)
         self.assertEqual(job["result"]["account"], "fake_account_only")
+        self.assertIs(job["result"]["records"][0]["source"]["requestedVoice"], False)
         self.assertNotIn("process", job)
         self.state.jobs[started["jobId"]]["updated"] -= 901
         self.assertEqual(self.request("GET", "/jobs/" + started["jobId"], headers=token)[0], 404)
@@ -234,6 +438,63 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(stopped["status"], "cancelled")
         self.assertIsNone(self.state.active)
         self.assertNotIn("result", self.state.get(started["jobId"]))
+
+    def wait_job(self, job_id, token, predicate):
+        deadline = time.monotonic() + 8
+        while time.monotonic() < deadline:
+            status, job, _ = self.request("GET", "/jobs/" + job_id, headers=token)
+            self.assertEqual(status, 200)
+            if predicate(job):
+                return job
+            time.sleep(.03)
+        self.fail("synthetic capture did not reach expected state")
+
+    def start_partial(self, limit=3):
+        self.state.capture_target = fake_partial_capture
+        token = self.pair()
+        status, started, _ = self.request("POST", "/capture", {"kind": "chat", "friend": "虚构", "limit": limit, "includeVoice": True}, token)
+        self.assertEqual(status, 202)
+        return started["jobId"], token
+
+    def test_partial_is_available_before_final_and_stays_scoped(self):
+        job_id, token = self.start_partial()
+        interim = self.wait_job(job_id, token, lambda job: job["partialRevision"] == 1)
+        self.assertEqual(interim["partial"]["account"], "fake_account_only")
+        self.assertTrue(interim["partial"]["records"][0]["source"]["requestedVoice"])
+        final = self.wait_job(job_id, token, lambda job: job["status"] == "completed")
+        self.assertEqual(final["partialRevision"], 1)
+        self.assertEqual(final["partial"], final["result"])
+        self.assertEqual(self.request("GET", "/jobs/" + job_id, headers={**token, "Origin": "http://localhost:3000"})[0], 401)
+        self.state.rotate()
+        self.assertEqual(self.request("GET", "/jobs/" + job_id, headers=token)[0], 401)
+
+    def test_cancel_returns_and_preserves_completed_partial(self):
+        job_id, token = self.start_partial(1)
+        interim = self.wait_job(job_id, token, lambda job: job["partialRevision"] == 1)
+        status, cancelled, _ = self.request("POST", "/jobs/" + job_id + "/cancel", {}, token)
+        self.assertEqual(status, 200)
+        self.assertEqual(cancelled["status"], "cancelled")
+        self.assertEqual(cancelled["partialRevision"], 1)
+        self.assertEqual(cancelled["partial"], interim["partial"])
+        self.assertEqual(self.state.get(job_id)["partial"], interim["partial"])
+        self.assertIsNone(self.state.active)
+
+    def test_error_or_interruption_preserves_completed_partial(self):
+        for limit, code in ((2, "SOURCE_CHANGED"), (4, "CAPTURE_INTERRUPTED")):
+            job_id, token = self.start_partial(limit)
+            failed = self.wait_job(job_id, token, lambda job: job["status"] == "failed")
+            self.assertEqual(failed["error"]["code"], code)
+            self.assertEqual(failed["partialRevision"], 1)
+            self.assertEqual(failed["partial"]["account"], "fake_account_only")
+            self.assertNotIn("result", failed)
+
+    def test_timeout_preserves_completed_partial(self):
+        with patch("bridge.JOB_TIMEOUT", 2):
+            job_id, token = self.start_partial(5)
+            failed = self.wait_job(job_id, token, lambda job: job["status"] == "failed")
+        self.assertEqual(failed["error"]["code"], "CAPTURE_TIMEOUT")
+        self.assertEqual(failed["partialRevision"], 1)
+        self.assertIn("partial", failed)
 
 
 if __name__ == "__main__":

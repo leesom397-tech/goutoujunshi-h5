@@ -7,6 +7,7 @@
     <text class="title">{{result.reportId ? '聊天分析报告' : '看懂互动，'}}<text wx:if="{{!result.reportId}}" class="title-line">再决定下一步</text></text>
     <text class="sub">{{result.reportId ? '核对材料，理解可能性，再选择适合自己的回应。' : '聊天里的信号、彼此的适配，分别说清楚。'}}</text>
   </view>
+  <button wx:if="{{!result.reportId && !busy && !backgroundPending}}" class="cloud-library-entry" bindtap="openLibrary"><image src="/assets/ui-chat.png"/><view><text>从已导入的聊天中选取</text><text>电脑同步过的原话和语音文字，手机直接用</text></view><text>→</text></button>
   <view wx:if="{{phase === 'loading'}}" class="panel center"><busy-indicator label="接入微信身份"/></view>
   <view wx:elif="{{phase === 'error'}}" class="panel">
     <text class="panel-title">暂时没有连接上</text><text class="helper">{{error}}</text>
@@ -50,7 +51,7 @@
         </view>
         <view class="upload-section">
           <view class="step">02 · 确认本人</view>
-          <view class="field"><text class="field-label">我在截图哪侧？</text><picker range="{{sideChoices}}" value="{{sideIndex}}" disabled="{{busy}}" bindchange="sideChange"><view class="select">{{sideChoices[sideIndex]}}<text class="select-action">选择</text></view></picker></view>
+          <view class="field"><text class="field-label">我在截图哪侧？</text><view class="side-options"><button class="side-option {{side === 'left' ? 'selected' : ''}}" data-side="left" disabled="{{busy}}" bindtap="chooseSide" aria-pressed="{{side === 'left'}}"><view class="side-bubble left-bubble"/><text>我是左侧</text><text class="side-check">{{side === 'left' ? '✓ 已选择' : '点击选择'}}</text></button><button class="side-option {{side === 'right' ? 'selected' : ''}}" data-side="right" disabled="{{busy}}" bindtap="chooseSide" aria-pressed="{{side === 'right'}}"><view class="side-bubble right-bubble"/><text>我是右侧</text><text class="side-check">{{side === 'right' ? '✓ 已选择' : '点击选择'}}</text></button></view><text class="helper">{{side === 'ask' ? '请点选自己的气泡位置，避免把双方判断反。' : '已选好本人位置，接着确认分析即可。'}}</text></view>
           <view class="field archive-choice">
             <text class="archive-choice-title">这是谁的聊天？ <text class="archive-choice-optional">可选</text></text>
             <text wx:if="{{archivePrompt && !newPersonOpen}}" class="archive-choice-hint">需要持续跟进时再选人物，不保存就保持默认。</text>
@@ -110,7 +111,7 @@
         <button class="affection-highlight-link" data-section="metrics" bindtap="jumpReport">查看好感依据与互动详情 →</button>
       </view>
       <view id="report-judgment" class="panel result">
-        <avatar-picker sources="{{avatarSources}}" candidates="{{result.avatarCandidates}}" subject-id="{{result.subjectId || people[personIndex].id}}" current="{{people[personIndex].avatar}}"/>
+        <avatar-picker sources="{{avatarSources || []}}" candidates="{{result.avatarCandidates || []}}" subject-id="{{result.subjectId || people[personIndex].id || ''}}" current="{{people[personIndex].avatar || ''}}"/>
         <view class="step">01 · 本轮判断</view><text class="panel-title">本轮判断</text>
         <view class="verdict">
       <view wx:if="{{result.interactionInsight}}" class="verdict-block intent-highlight">
@@ -146,11 +147,12 @@
             <text wx:if="{{item.personalizedText}}" class="reply-original">原推荐：{{item.text}}</text>
             <button class="disclosure-button" data-index="{{replyIndex}}" bindtap="toggleReply" aria-expanded="{{item.expanded}}"><text>{{item.expanded ? '收起注意事项' : '查看注意事项'}}</text><view class="disclosure-chevron {{item.expanded ? 'expanded' : ''}}"/></button>
             <view wx:if="{{item.expanded}}" class="reply-details"><text>可能的代价：{{item.cost || '这份旧报告没有评估代价；发送前请结合对方的边界判断。'}}</text></view>
-            <button wx:if="{{item.originalIndex !== null}}" class="reply-more reply-personalize" data-index="{{replyIndex}}" disabled="{{!result.canPersonalize || rewriteBusy >= 0 || !pricesReady}}" bindtap="personalize">{{rewriteBusy === replyIndex ? '正在调整语气…' : '更像我一点 · ' + (pricesReady ? prices.text + ' 积分' : '价格读取中')}}</button>
+            <button wx:if="{{item.rewriteIndex >= 0}}" class="reply-more reply-personalize" data-index="{{replyIndex}}" disabled="{{!result.canPersonalize || rewriteBusy >= 0}}" bindtap="personalize">{{rewriteBusy === replyIndex ? '正在调整语气…' : '改得更像我'}}</button>
             <text wx:if="{{item.originalIndex === null && item.adjusted}}" class="reply-note">这是依据当前风险给出的边界回复，可直接复制；未另收分析费用。</text>
             <text wx:if="{{!result.canPersonalize}}" class="reply-note">需要本批至少 3 句、合计 30 字的你的原话，才可参考你的语气。</text>
             <text wx:else class="reply-note">仅参考本轮确认是你说过的话。</text>
             <text wx:if="{{item.note}}" class="reply-note">{{item.note}}</text><text wx:if="{{item.rewriteError}}" class="reply-note reply-error">{{item.rewriteError}}</text>
+            <view wx:for="{{item.experienceEvidence}}" wx:for-item="experience" wx:key="id" class="experience-evidence"><text class="reply-note">用到的共同经历 · 已确认原话</text><text selectable>{{experience.quote}}</text></view>
           </view>
           <text wx:if="{{copyError}}" class="error">{{copyError}}</text>
         </block>

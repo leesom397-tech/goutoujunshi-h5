@@ -89,6 +89,19 @@
 
 }
 
+/* Keep the secondary archive tools available while the main timeline grows. */
+@media (min-width: 761px) {
+  .layout > aside.column {
+    position: sticky;
+    top: 96px;
+    align-self: start;
+    max-height: calc(100dvh - 120px);
+    overflow: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: thin;
+  }
+}
+
 
 /* Aurora surfaces also cover the profile forms that reuse this module. */
 .page {
@@ -274,3 +287,44 @@
 /* Align the archive and its detail pages with the shared page grid. */
 .wrap { width: min(1180px, calc(100% - 48px)); max-width: none; margin: 24px auto 0; padding: 0 0 64px; }
 @media (max-width: 700px) { .wrap { width: calc(100% - 36px); margin-top: 14px; padding: 0 0 45px; } }
+
+/* The overview answers the current question; complete reports have their own section. */
+.personHeading { padding: 4px 0 6px; }
+.personHeadingRow { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin: 18px 0 12px; }
+.personHeadingRow h1 { margin: 0; color: #272421; font-size: 30px; line-height: 1.4; overflow-wrap: anywhere; }
+.personHeadingRow p { color: #786d64; margin: 5px 0 0; font-size: 15px; }
+.personHeading .heroIdentity { flex: 1; }
+.personHeading .heroIdentity > div { min-width: 0; }
+.overview { display: grid; gap: 18px; }
+.overviewLead { border-top: 3px solid #b66c53; }
+.overviewLead .overviewJudgement { font-size: 22px; font-weight: 650; line-height: 1.75; margin: 12px 0 20px; }
+.overviewNext { display: flex; align-items: flex-start; gap: 12px; padding: 16px 18px; border-radius: 13px; background: #faeee3; }
+.overviewNext > svg { color: #ad6754; flex: none; margin-top: 3px; }
+.overviewNext strong { color: #945e48; font-size: 15px; }
+.overviewNext p { margin: 5px 0 0; font-size: 17px; }
+.overviewFoot { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 18px; }
+.overviewFoot small { font-size: 13px; }
+.overviewGrid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 18px; align-items: start; }
+.overviewBrief { display: grid; align-content: start; gap: 7px; }
+.overviewBrief h2 { margin-bottom: 5px; font-size: 19px; }
+.overviewBrief > p { margin: 0 0 5px; font-size: 16px; }
+.overviewBrief > small { line-height: 1.8; }
+.overviewBrief > .link { margin-top: 6px; }
+.overviewList { display: grid; gap: 13px; list-style: none; padding: 0; margin: 0; }
+.overviewList strong { color: #7f634d; font-size: 16px; }
+.overviewList p { font-size: 15px; margin: 4px 0 0; }
+.overviewRisk { background: #fff7ec; border-color: #e7c9a3; }
+.overviewRisk h2 > svg { color: #ab793b; }
+.detailTabs { margin-top: 18px; }
+@media (max-width: 700px) {
+  .detailTabs { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 3px; margin-top: 12px; }
+  .detailTabs button { justify-content: center; padding: 10px 3px; font-size: 13px; white-space: nowrap; }
+  .personHeadingRow { align-items: flex-start; flex-direction: column; gap: 16px; }
+  .personHeadingRow h1 { font-size: 26px; }
+  .personHeadingRow .actions { width: 100%; }
+  .overviewLead .overviewJudgement { font-size: 19px; line-height: 1.8; }
+  .overviewNext { padding: 14px; }
+  .overviewNext p { font-size: 16px; }
+  .overviewGrid { grid-template-columns: minmax(0,1fr); }
+}
+.importedActivity{margin-top:21px}.importedActivity .muted{display:flex;align-items:center;gap:8px}.importedActivity .sectionHead{align-items:flex-start}.importedActivity :global([data-chat-activity=true]){margin:18px 0 0;border:0;box-shadow:none;padding:0;background:transparent}.spin{animation:archiveSpin 1s linear infinite}@keyframes archiveSpin{to{transform:rotate(360deg)}}

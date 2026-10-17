@@ -25,6 +25,10 @@ const repeat=dashboard({lines:[line('1:a','other','周六见？',{sourceLineId:'
 const risk=dashboard({lines:[line('1','other','先给我转两千元。'),...report.lines.map(row=>({...row,id:'more-'+row.id}))]});assert.match(risk.priority.title,/资金/);assert.match(risk.priority.evidence,/转两千/);
 assert.equal(risk.summary,risk.priority.title,'risk overrides a positive count-based headline');
 assert.match(dashboard({lines:[line('1','other','你今天怎么样？')]}).summary,/话题在延伸，暂未见具体安排/);
+const concrete=dashboard({lines:[line('a','other','周六三点可以，我来订票。'),line('b','other','我刚确认了周六三点的票，还按这个时间吗？')]});
+assert.equal(value(concrete,'investment').count,2,'a real fixed time plus booking and a completed confirmation are retained');
+assert.deepEqual(value(concrete,'investment').cues.map(cue=>cue.kind),['具体安排','已做自述']);
+for(const text of ['我刚确认了周六三点的票吗？','你确认了周六三点的票吗？','我还没确认周六三点的票，还按这个时间吗？','如果我确认了周六三点的票，你愿意去吗？','他说我刚确认了周六三点的票。','不是说我刚确认了周六三点的票。'])assert.equal(value(dashboard({lines:[line('x','other',text)]}),'investment').count,0,text);
 assert.equal(dashboard({lines:[line('1','self','先给我转两千元。')]}).priority,null,'self text does not warn against the other person');
 const point=(id,date,score,extra={})=>({reportId:id,subjectId:'person-a',eventStart:date,eventEnd:date,score,sourceReportIds:[id],...extra});
 const history=[point('first','2026-01-01',0),point('second','2026-01-05',40,{connectPrevious:true,previousReportId:'first'}),point('third','2026-02-01',80,{connectPrevious:true,previousReportId:'second'}),point('foreign','2026-01-03',90,{subjectId:'person-b'})];

@@ -20,6 +20,7 @@ export async function GET(request: Request) {
   try {
     const saved=await readAnalysisReport(getD1(),identity.ownerId,id);
     if(saved){
+      if(saved.report.importAnalysis || saved.report.riskAnalysis) return json(saved);
       if(saved.kind==='chat'){
         saved.entries=saved.entries?.map((entry:CrushResult)=>readableReport(entry));
         saved.report=readableReport(saved.report as CrushResult);

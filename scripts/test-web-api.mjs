@@ -10,6 +10,9 @@ import * as guard from '../lib/voice-turn-guard.mjs';
 import * as memory from '../lib/miniapp-voice-memory.mjs';
 import { nativeRegister } from '../lib/web-native-auth.mjs';
 import * as savedReports from '../lib/saved-reports.mjs';
+import * as recognitionReview from '../lib/screenshot-recognition-review.mjs';
+import * as nativeAuth from '../lib/web-native-auth.mjs';
+import * as identityState from '../lib/web-identity-state.mjs';
 
 const origin = 'https://coach.example.test';
 const token = 'alice_session_token_123456789';
@@ -43,7 +46,7 @@ assert.equal(await identity.webOwner(request('/api/web/profile', undefined, { Co
 assert.equal(identity.browserRequestAllowed(request('/api/web/voice-live', undefined, { Upgrade: 'websocket', Origin: '' })), false);
 assert.equal(identity.browserRequestAllowed(request('/api/web/voice-live', undefined, { Upgrade: 'websocket' })), true);
 authUnavailable = true;
-assert.equal(await identity.webOwner(request('/api/web/profile')), null);
+await assert.rejects(identity.webOwner(request('/api/web/profile')), error => error.code === 'AUTH_IDENTITY_UNAVAILABLE' && error.status === 503);
 authUnavailable = false;
 const tokenDb = { prepare() { return { bind(hash) { assert.match(hash, /^[a-f0-9]{64}$/); return this; }, async first() { return { owner_id: 'original-wechat-owner', open_id: 'openid-original' }; } }; } };
 const miniEnv = { DB: tokenDb, MINIAPP_APPID: 'configured', MINIAPP_APPSECRET: 'configured' };
@@ -61,10 +64,12 @@ await credits.adjustCredits(db, { id: crypto.randomUUID(), ownerId: owner, actor
 await credits.setCreditPermissions(db, { id: crypto.randomUUID(), ownerId: owner, actorId: 'admin', features: ['analysis', 'chat', 'voice'], enabledUntil: Date.now() + 86400000, reason: '测试权限' });
 class DurableObject { constructor(ctx, env) { this.ctx = ctx; this.env = env; } }
 const calls = [];
+let positioningRoute;
 const app = { async fetch(req, appEnv) {
   const verified = await identity.webOwner(req, appEnv);
   assert.equal(verified?.ownerId, expectedOwner);
   calls.push({ path: new URL(req.url).pathname, headers: req.headers });
+  if (new URL(req.url).pathname === '/api/positioning' && positioningRoute) return positioningRoute[req.method](req);
   if (new URL(req.url).pathname === '/api/voice') return new Response('v=0\nm=audio', { headers: { 'Content-Type': 'application/sdp' } });
   return Response.json({ ok: true, report: 'owner-scoped report' });
 } };
@@ -76,6 +81,8 @@ const mocks = {
   './request-identity.mjs': identity, './lib/request-identity.mjs': identity,
   './lib/web-credit-policy.mjs': billing, './lib/credit-response.mjs': creditResponse,
   './lib/miniapp-voice-memory.mjs': memory, './lib/voice-turn-guard.mjs': guard,
+  './screenshot-recognition-review.mjs': recognitionReview,
+  './lib/web-native-auth.mjs': nativeAuth, './lib/web-identity-state.mjs': identityState,
 };
 function load(path) {
   const output = ts.transpileModule(readFileSync(new URL(path, import.meta.url), 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
@@ -106,6 +113,12 @@ const env = { DB: db, SOCIAL_PROFILE_JOBS: {
   },
 } };
 const ctx = { waitUntil() {} };
+authUnavailable = true;
+assert.equal((await worker.fetch(request('/api/web/profile'), env, ctx)).status, 503, 'temporary account lookup failure is not logout');
+assert.equal((await worker.fetch(request('/api/web/screenshot', { confirmed: true, requestId: crypto.randomUUID() }), env, ctx)).status, 503);
+assert.equal((await credits.readCreditAccount(db, owner)).balance, 300, 'failed authentication never reaches billing');
+assert.equal(calls.length, 0);
+authUnavailable = false;
 assert.equal((await worker.fetch(request('/api/web/screenshot', { confirmed: true }, { Origin: 'https://attacker.test' }), env, ctx)).status, 403);
 assert.equal((await worker.fetch(request('/api/web/screenshot', { confirmed: true }, { Cookie: '' }), env, ctx)).status, 401);
 assert.equal(calls.length, 0);
@@ -120,7 +133,8 @@ for (let i = 0; i < 2; i++) assert.equal((await worker.fetch(request('/api/chat'
 assert.equal(calls.length, 2, 'legacy retry uses the same ledger and never invokes the model twice');
 assert.equal((await credits.readCreditAccount(db, owner)).balance, 275);
 assert.equal((await worker.fetch(request('/api/chat', { turns: [] }, { Cookie: 'lt_next_session=bob_session_token_1234567890' }), env, ctx)).status, 403);
-for (const path of ['/api/chat', '/api/crush/quick', '/api/crush/rewrite', '/api/crush/screenshot', '/api/crush/card', '/api/import/analyze', '/api/import/transcribe', '/api/history/check', '/api/positioning', '/api/risk', '/api/profile/suggest', '/api/voice', '/api/voice/delegate', '/api/voice/summary']) assert.ok(billing.legacyCreditPolicy(path, 'POST'), path + ' must meter its provider work');
+for (const path of ['/api/chat', '/api/crush/quick', '/api/crush/rewrite', '/api/crush/screenshot', '/api/crush/card', '/api/import/analyze', '/api/import/transcribe', '/api/history/check', '/api/risk', '/api/profile/suggest', '/api/voice', '/api/voice/delegate', '/api/voice/summary']) assert.ok(billing.legacyCreditPolicy(path, 'POST'), path + ' must meter its provider work');
+for (const action of ['generate', 'save', 'invalid']) assert.equal(billing.legacyCreditPolicy('/api/positioning', 'POST', { action }), null, 'local positioning never reserves provider credits');
 for (const action of ['analyze', 'advice', 'enrichDistribution', 'refreshAffinity']) assert.ok(billing.legacyCreditPolicy('/api/crush', 'POST', { action }));
 for (const action of ['settings', 'imageMapping', 'quickJev', 'fullJev', 'affinity', 'enableAll']) assert.equal(billing.legacyCreditPolicy('/api/crush', 'POST', { action }), null);
 assert.equal(billing.legacyCreditPolicy('/api/chat', 'GET'), null);
@@ -185,6 +199,27 @@ sql.exec('CREATE TABLE IF NOT EXISTS coach_crush_budget (id TEXT PRIMARY KEY,use
 const voiceStatus=await worker.fetch(request('/api/web/voice-live/status',undefined,{Cookie:nativeCookie}),env,ctx);
 assert.equal(voiceStatus.status,200);assert.equal((await voiceStatus.json()).configured,false);
 assert.equal((await worker.fetch(request('/api/web/voice-live?requestId='+crypto.randomUUID(),undefined,{Cookie:nativeCookie,Upgrade:'websocket'}),env,ctx)).status,503,'native voice authenticates before configuration check');
+// Exercise real positioning handlers behind the real worker credit gate. Only
+// the account/database environment is synthetic; no model or network is used.
+sql.exec('CREATE TABLE IF NOT EXISTS coach_positionings (owner_id TEXT PRIMARY KEY,input_json TEXT NOT NULL,report_json TEXT NOT NULL,updated_at INTEGER NOT NULL)');
+mocks['@/lib/positioning'] = load('../lib/positioning.ts');
+mocks['@/app/chatgpt-auth'] = { getChatGPTUser: async () => ({ userId: expectedOwner }) };
+mocks['@/db'] = { getD1: () => db };
+positioningRoute = load('../app/api/positioning/route.ts');
+const positioningInput = { goal: 'long-term', priorities: ['communication', 'safety'], selfPicture: '合成验收资料：工作日忙，周末有时间交流。', constraints: '', boundaries: '尊重拒绝', pattern: '' };
+const freeBalance = (await credits.readCreditAccount(db, expectedOwner)).balance;
+const taskCount = sql.prepare('SELECT COUNT(*) AS n FROM coach_credit_tasks').get().n;
+let positioningReport;
+for (let i=0;i<2;i++) {
+  const response=await worker.fetch(request('/api/positioning',{action:'generate',input:positioningInput},{Cookie:nativeCookie}),env,ctx);
+  assert.equal(response.status,200);positioningReport=(await response.json()).report;
+}
+assert.equal(sql.prepare('SELECT COUNT(*) AS n FROM coach_positionings').get().n,0,'generation does not save');
+for (let i=0;i<2;i++) assert.equal((await worker.fetch(request('/api/positioning',{action:'save',input:positioningInput,report:positioningReport},{Cookie:nativeCookie}),env,ctx)).status,200);
+assert.equal(sql.prepare('SELECT COUNT(*) AS n FROM coach_positionings').get().n,1,'repeat save updates the same owner row');
+assert.equal((await worker.fetch(request('/api/positioning',{action:'invalid',input:positioningInput},{Cookie:nativeCookie}),env,ctx)).status,400);
+assert.equal((await credits.readCreditAccount(db,expectedOwner)).balance,freeBalance,'generate/save and their retries are free');
+assert.equal(sql.prepare('SELECT COUNT(*) AS n FROM coach_credit_tasks').get().n,taskCount,'free positioning creates no credit tasks');
 sql.close();
 globalThis.fetch = originalFetch;
 console.log('PASS: verified cookie identities; CSRF and WebSocket origin checks; no forged owner/token channel crossover; web and legacy exact-once billing; async batch ownership, receipt replay, callback credentials and cleanup; social-profile parity.');

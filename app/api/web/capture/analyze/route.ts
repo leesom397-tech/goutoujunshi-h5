@@ -1,6 +1,6 @@
 import { getD1 } from "@/db";
 import { miniappOwner } from "@/lib/miniapp-auth";
-import { captureAnalysisInput, captureReadableText, type CaptureAnalysisInput } from "@/lib/capture-analysis-input";
+import { captureAnalysisInput, captureReadableText, type CaptureAnalysisInput, type CaptureMemoryRow } from "@/lib/capture-analysis-input";
 import { CREDIT_PRICES } from "@/lib/account-credits.mjs";
 import { creditResponse } from "@/lib/credit-response.mjs";
 import { analyzeLines, requireSettings, reserveBudget } from "@/lib/crush/service";
@@ -15,6 +15,13 @@ import { relationshipRiskReview, RELATIONSHIP_RISK_GUIDANCE } from "@/lib/relati
 import { selectKnowledge } from "@/lib/knowledge";
 import { publicKnowledgeSources } from "@/lib/knowledge-public";
 import { cleanSocialPhotoClues, SOCIAL_PHOTO_GUIDANCE } from "@/lib/social-photo-clues";
+import { conversationMemoryLines } from "@/lib/conversation-profile-memory";
+import { conversationMemoryScope, emptyConversationMemory, saveConversationProfileMemory } from "@/lib/conversation-profile-memory-server";
+import { computeChatActivity } from "@/lib/chat-activity";
+import { buildRelationshipDiagnosis } from "@/lib/relationship-diagnosis";
+import { analyzeCaptureSemanticHistory, unavailableCaptureSemanticHistory } from "@/lib/capture-semantic-history";
+import { CaptureFullHistoryError, checkFullCaptureHistory, readFullCaptureHistory } from "@/lib/capture-full-history-server";
+import { riskAwarePresentation } from "@/lib/risk-aware-presentation";
 
 export const runtime = "edge";
 const json = (data: unknown, status = 200) => Response.json(data, { status, headers: { "Cache-Control": "no-store" } });
@@ -52,10 +59,67 @@ async function momentsAnalysis(owner: string, input: CaptureAnalysisInput) {
   return {...final,personalConnection:await personalizeReport(owner,input.subjectId,final)};
 }
 
+async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, db: ReturnType<typeof getD1>) {
+  await requireSettings(owner);
+  await reserveBudget(owner, "deep");
+  const history = await readFullCaptureHistory(db, owner, input);
+  if (!history.readable.length) throw new CaptureFullHistoryError("已读取全部聊天，但没有可用的文字或语音转写；请先补齐文字再生成完整报告。", 422);
+  const chatActivity = computeChatActivity(history.records);
+  // Unlike a selected-line report, every readable row in this verified cloud
+  // snapshot is chunked for the model. A failed semantic pass is an error with
+  // credit release, never a paid report quietly based on a recent 40-row slice.
+  const semanticHistory = await analyzeCaptureSemanticHistory({
+    historyRecords: history.readable,
+    totalImported: history.records.length,
+    selectedLineCount: 0,
+    question: input.question,
+    activity: chatActivity,
+    fullHistory: true,
+  }, qwenChat);
+  if (semanticHistory.status !== "complete" || semanticHistory.coverage.analyzedText !== history.readable.length)
+    throw new CaptureFullHistoryError("完整历史分析尚未完成，本次不会保存部分报告。请稍后沿原任务重试。", 503);
+  const relationshipDiagnosis = buildRelationshipDiagnosis(chatActivity, input.question, []);
+  Object.assign(relationshipDiagnosis, { semanticHistory });
+  if (semanticHistory.summary && semanticHistory.summaryEvidenceIds.length) {
+    relationshipDiagnosis.relationship.currentState = semanticHistory.summary;
+    relationshipDiagnosis.relationship.trend = semanticHistory.trend;
+    if (semanticHistory.reciprocity) relationshipDiagnosis.relationship.reciprocity = semanticHistory.reciprocity;
+  }
+  if (semanticHistory.action && semanticHistory.actionEvidenceIds.length)
+    relationshipDiagnosis.decision.recommendation = semanticHistory.action;
+  const anchorIds = new Set([...semanticHistory.summaryEvidenceIds, ...semanticHistory.actionEvidenceIds]);
+  const anchor = semanticHistory.findings.filter(item => anchorIds.has(item.id)).flatMap(item => item.evidence)[0];
+  const judgment = semanticHistory.summary && anchor
+    ? semanticHistory.summary
+    : `已统计全部 ${history.records.length} 条聊天，并检查 ${history.readable.length} 条可读文字；目前缺少足够的原话证据概括对方的关系意向。`;
+  const sourceIds = [...new Set([...semanticHistory.findings.filter(item => anchorIds.has(item.id)).flatMap(item => item.evidence.map(e => e.sourceId)),
+    ...semanticHistory.findings.flatMap(item => item.evidence.map(e => e.sourceId)), history.readable[0].localId])].slice(0, 128);
+  const report: Record<string, any> = {
+    id: input.requestId, reportId: input.requestId, kind: "chat", subjectId: input.subjectId,
+    captureOrigin: true, captureFormat: "full-history", analysisScope: "fullHistory",
+    summary: judgment, lines: [], annotations: [], chatActivity, relationshipDiagnosis, semanticHistory,
+    decision: {
+      judgment, evidence: anchor?.quote || "", nextStep: semanticHistory.action || relationshipDiagnosis.decision.recommendation,
+      replyOptions: [],
+    },
+    captureMediaNote: chatActivity.unreadVoices
+      ? `${chatActivity.unreadVoices} 条语音没有可读转写，其内容未纳入语义判断；完整统计仍包含这些消息。`
+      : undefined,
+  };
+  report.personalConnection = await personalizeReport(owner, input.subjectId, report);
+  relationshipDiagnosis.personalConnection = {
+    commonPoints: Array.isArray(report.personalConnection?.commonPoints) ? report.personalConnection.commonPoints.slice(0, 4) : [],
+    fit: typeof report.personalConnection?.summary === "string" ? report.personalConnection.summary : "",
+    friction: Array.isArray(report.personalConnection?.differences) ? report.personalConnection.differences.slice(0, 3) : [],
+  };
+  return { report, sourceIds, totalCount: history.records.length };
+}
+
 export async function POST(request: Request) {
   const identity = await miniappOwner(request);
   if (!identity) return json({ error: "请先登录后分析采集材料。" }, 401);
-  if (request.headers.get("origin") !== new URL(request.url).origin) return json({ error: "请求来源无效。" }, 403);
+  // Web cookies require same-origin CSRF validation; native paths require a Bearer session.
+  if (new URL(request.url).pathname.startsWith("/api/web/") && request.headers.get("origin") !== new URL(request.url).origin) return json({ error: "请求来源无效。" }, 403);
   if (!request.headers.get("content-type")?.includes("application/json")) return json({ error: "请求格式不正确。" }, 415);
   let input: CaptureAnalysisInput, raw: string;
   try {
@@ -66,15 +130,54 @@ export async function POST(request: Request) {
   } catch (error) { return json({ error: error instanceof SyntaxError ? "材料格式不正确。" : error instanceof Error ? error.message : "材料无效。" }, 400); }
   const db = getD1();
   if (input.subjectId && !await db.prepare("SELECT id FROM coach_subjects WHERE id=? AND owner_id=? AND status='active'").bind(input.subjectId, identity.ownerId).first()) return json({ error: "所选人物不存在，请重新选择。" }, 404);
+  if (input.analysisScope === "fullHistory") {
+    try { await checkFullCaptureHistory(db, identity.ownerId, input); }
+    catch (error) { return json({ error: error instanceof Error ? error.message : "完整聊天尚未同步完成。" }, error instanceof CaptureFullHistoryError ? error.status : 503); }
+  }
   const replay = new Request(request.url, { method: "POST", headers: request.headers, body: raw });
   return creditResponse(db, identity.ownerId, replay, "analysis", input.kind === "chat" ? CREDIT_PRICES.analysisSmall : CREDIT_PRICES.profile, async () => {
     try {
       let result: Record<string, any>;
-      if (input.kind === "chat") {
+      let totalCount = input.records.length, sourceIds = input.records.map(r => r.localId);
+      if (input.analysisScope === "fullHistory") {
+        const full = await fullHistoryAnalysis(identity.ownerId, input, db);
+        result = full.report; totalCount = full.totalCount; sourceIds = full.sourceIds;
+      } else if (input.kind === "chat") {
         await requireSettings(identity.ownerId);
-        const context = input.subjectId ? await loadProfileContext(identity.ownerId, input.subjectId) : "";
+        const context = await loadProfileContext(identity.ownerId, input.subjectId);
+        let memoryScope: Awaited<ReturnType<typeof conversationMemoryScope>> = null, memoryUnavailable = false;
+        try { memoryScope = await conversationMemoryScope(identity.ownerId, input.subjectId, db); }
+        catch { memoryUnavailable = true; }
+        const memoryLines = memoryScope ? conversationMemoryLines([...(input.historyRecords || []), ...input.records]) : [];
+        const activityRecords = input.activityRecords;
+        const chatActivity = activityRecords.length ? computeChatActivity(activityRecords) : null;
+        const semanticRows: CaptureMemoryRow[] = [...input.historyRecords];
+        const semanticIds = new Set(semanticRows.map(row => row.localId));
+        for (const row of input.records) {
+          if (row.kind !== "text" || row.senderRole === "unknown" || !row.text.trim() || semanticIds.has(row.localId)) continue;
+          semanticRows.push({ localId: row.localId, kind: "text", senderRole: row.senderRole, at: row.at, text: row.text });
+          semanticIds.add(row.localId);
+        }
+        // History is a separate, cited whole-conversation judgment. The selected
+        // rows below still drive per-line interpretation and reply suggestions.
+        const semanticTotal = activityRecords.length || null;
+        let semanticHistory;
+        try {
+          semanticHistory = await analyzeCaptureSemanticHistory({
+            historyRecords: semanticRows,
+            totalImported: semanticTotal,
+            selectedLineCount: input.records.length,
+            question: input.question,
+            activity: chatActivity,
+          }, qwenChat);
+        } catch {
+          // Whole-history synthesis is an enhancement over the selected-line
+          // report. Preserve the report and make the missing stage explicit if
+          // a model call times out, instead of leaving the user in a stuck job.
+          semanticHistory = unavailableCaptureSemanticHistory(semanticRows, semanticTotal, input.records.length);
+        }
         const quick = { layout: "wechat-one-to-one", chatTitle: input.friend, lines: input.records.map(r => [r.senderRole === "self" ? "right" : r.senderRole === "other" ? "left" : "unknown", r.kind === "other" ? "unread" : r.kind, captureReadableText(r)]) };
-        const prepared = await readScreenshotFromQuick(quick, "right", [], context, 30000, undefined, 4);
+        const prepared = await readScreenshotFromQuick(quick, "right", [], context, 30000, undefined, 4, undefined, false, memoryLines);
         prepared.prepared.model = "qwen-capture-text";
         const report = await analyzeLines(identity.ownerId, prepared.text, { sourceKey: `capture:${input.requestId}`, channelKey: `capture:${input.requestId}`, subjectId: input.subjectId, providerOverride: "qwen", prepared: prepared.prepared, decision: prepared.decision, skipAffinity: true });
         // Resolve each returned line to a distinct original row, preserving repeated replies.
@@ -86,15 +189,49 @@ export async function POST(request: Request) {
         }
         const unreadMediaCount = input.records.filter(row => row.kind !== "text" && !captureReadableText(row)).length;
         Object.assign(report, { captureOrigin: true, captureFormat: "records", captureUnreadMediaCount: unreadMediaCount, ...(unreadMediaCount ? { captureMediaNote: `其中 ${unreadMediaCount} 条图片、表情或附件仅保留为原始记录，未解读图片内容；本次结论基于可读文字。` } : {}) });
+        const priorityMode = riskAwarePresentation(report).mode;
+        if (priorityMode === "normal" && semanticHistory.summary && semanticHistory.summaryEvidenceIds.length && report.decision) {
+          const cited = semanticHistory.findings.find(item => semanticHistory.summaryEvidenceIds.includes(item.id))?.evidence[0];
+          const localJudgment = report.decision.judgment || "", localNextStep = report.decision.nextStep || "";
+          Object.assign(report.decision, {
+            localJudgment, localNextStep,
+            judgment: `结合 ${semanticHistory.coverage.analyzedText} 条已读历史文字：${semanticHistory.summary}`,
+            ...(cited ? { evidence: `已导入历史原话：「${cited.quote}」` } : {}),
+            nextStep: semanticHistory.action && semanticHistory.actionEvidenceIds.length
+              ? [localNextStep, `历史线索还提示：${semanticHistory.action}`].filter(Boolean).join(" ") : localNextStep,
+          });
+        }
+        if (chatActivity) {
+          const relationshipDiagnosis = buildRelationshipDiagnosis(chatActivity, input.question, report.lines || []);
+          Object.assign(relationshipDiagnosis, { semanticHistory });
+          if (priorityMode === "normal" && semanticHistory.summary && semanticHistory.summaryEvidenceIds.length) {
+            relationshipDiagnosis.relationship.currentState = semanticHistory.summary;
+            relationshipDiagnosis.relationship.trend = semanticHistory.trend;
+            if (semanticHistory.reciprocity) relationshipDiagnosis.relationship.reciprocity = semanticHistory.reciprocity;
+          }
+          Object.assign(report, { chatActivity, relationshipDiagnosis });
+        } else {
+          Object.assign(report, { semanticHistory });
+        }
+        try {
+          report.profileMemory = memoryUnavailable ? emptyConversationMemory("unavailable") : await saveConversationProfileMemory(identity.ownerId, input.requestId, prepared.decision.memoryCandidates, memoryLines, memoryScope, db);
+        } catch { report.profileMemory = emptyConversationMemory("unavailable", memoryLines.length); }
         report.personalConnection=personalConnection(report,{evidence:report.personalConnection?.sources||[],rebuild:true});
+        if ((report as any).relationshipDiagnosis && report.personalConnection) {
+          (report as any).relationshipDiagnosis.personalConnection = {
+            commonPoints: Array.isArray(report.personalConnection.commonPoints) ? report.personalConnection.commonPoints.slice(0, 4) : [],
+            fit: typeof report.personalConnection.summary === "string" ? report.personalConnection.summary : "",
+            friction: Array.isArray(report.personalConnection.differences) ? report.personalConnection.differences.slice(0, 3) : [],
+          };
+        }
         await db.prepare("UPDATE coach_crush_reports SET result=? WHERE owner_id=? AND id=? AND status='done'").bind(JSON.stringify(report), identity.ownerId, report.id).run();
         result = { ...report, entries: [report], captureOrigin: true };
       } else result = await momentsAnalysis(identity.ownerId, input);
-      const saved = await saveAnalysisReport(db, { ownerId: identity.ownerId, id: input.requestId, kind: input.kind, subjectId: input.subjectId, totalCount: input.records.length, imageCount: 1, result });
-      return json({ ...saved, sourceIds: input.records.map(r => r.localId) });
+      const saved = await saveAnalysisReport(db, { ownerId: identity.ownerId, id: input.requestId, kind: input.kind, subjectId: input.subjectId, totalCount, imageCount: 1, result });
+      return json({ ...saved, sourceIds });
     } catch (error) {
-      const status = error instanceof Error && error.name === "CrushError" && "status" in error ? Number(error.status) : 503;
-      return json({ error: qwenPublicError(error, "本次分析未完成，采集原文仍在本机，可继续重试。") }, status);
+      const status = error instanceof CaptureFullHistoryError ? error.status : error instanceof Error && error.name === "CrushError" && "status" in error ? Number(error.status) : 503;
+      return json({ error: error instanceof CaptureFullHistoryError ? error.message : qwenPublicError(error, "本次分析未完成，采集原文仍在本机，可继续重试。") }, status);
     }
   });
 }

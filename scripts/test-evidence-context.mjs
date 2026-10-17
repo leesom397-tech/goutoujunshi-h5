@@ -164,7 +164,7 @@ await test('real web text route preserves complete source blocks and existing ca
     const before = prompts.length;
     const response = await route.POST(new Request('https://example.test/api/web/text', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ confirmed: true, subjectId: person, mode, other: '电影票那次安排怎样了？', self: '我想知道电影票取消之后怎么继续。' }) }));
     assert.equal(response.status, 200); assert.equal(prompts.length - before, 1);
-    assert.equal(profileCalls.at(-1)[3], mode === 'conversation' ? 1800 : 1100);
+    assert.equal(profileCalls.at(-1)[3], mode === 'conversation' ? 3600 : 2600);
     assert.match(profileCalls.at(-1)[2], /电影票/);
     const prompt = prompts.at(-1).messages[0].content;
     assert.match(prompt, /电影票我退了/); assert.match(prompt, /电影票已经退掉/);

@@ -47,6 +47,7 @@ export function VideoImport({ disabled = false, sessionKey = "", onReady }: { di
   return <section className={styles.panel} aria-label="手机录屏导入" data-video-import>
     <header className={styles.heading}><span><Film size={24}/></span><div><h2>导入手机录屏</h2><p>iPhone / Android · 本机提取截图</p></div></header>
     <p className={styles.intro}>打开聊天或朋友圈录屏，慢慢滑动，在每屏停顿 1–2 秒。选择录屏后，在这里提取清晰截图。</p>
+    <p className={styles.hint}>有语音消息时，请先在微信里转成文字并展开后再录屏。这里读取画面文字，暂不转写录屏里的声音；完整历史可先从电脑版导入，再在手机打开「已导入聊天」。</p>
     <input ref={fileInput} type="file" accept="video/*,.mp4,.mov,.m4v,.webm" className={styles.fileInput} aria-label="选择手机录屏文件" disabled={locked} onChange={event=>{const next=event.currentTarget.files?.[0];if(next)void choose(next);event.currentTarget.value="";}}/>
     <button className={styles.upload} disabled={locked} onClick={()=>fileInput.current?.click()}><UploadCloud size={31}/><strong>{file ? "重新选择录屏" : "选择手机录屏"}</strong><span>最大 200 MB · 5 分钟以内 · 每次处理最多 90 秒</span></button>
     <p className={styles.privacy}><ShieldCheck size={18}/>原视频不上传，也不读取音频。确认截图后才进入分析。</p>

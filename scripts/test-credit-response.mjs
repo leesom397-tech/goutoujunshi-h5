@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import { creditResponse } from '../lib/credit-response.mjs';
-import { ensureCreditAccount,adjustCredits,setCreditPermissions,readCreditAccount } from '../lib/account-credits.mjs';
+import { ensureCreditAccount,adjustCredits,setCreditPermissions,readCreditAccount,finishCreditTask } from '../lib/account-credits.mjs';
 import { createVoiceTurnGuard } from '../lib/voice-turn-guard.mjs';
+import { legacyCreditPolicy, legacyCreditResponse } from '../lib/web-credit-policy.mjs';
 const sql=new DatabaseSync(':memory:');
 for(const name of ['0015_account_credits','0016_credit_receipts'])sql.exec(readFileSync(new URL('../drizzle/'+name+'.sql',import.meta.url),'utf8'));
 const db={prepare(query){let values=[];return {bind(...v){values=v;return this;},async first(){return sql.prepare(query).get(...values)||null;},async all(){return {results:sql.prepare(query).all(...values)};},async run(){return {meta:{changes:Number(sql.prepare(query).run(...values).changes)}};}};},async batch(statements){sql.exec('BEGIN');try{const result=[];for(const s of statements)result.push(await s.run());sql.exec('COMMIT');return result;}catch(e){sql.exec('ROLLBACK');throw e;}}};
@@ -18,7 +19,28 @@ assert.equal((await creditResponse(db,owner,request(id),'chat',5,()=>{assert.fai
 release();assert.equal((await pending).status,200);
 assert.deepEqual(await (await creditResponse(db,owner,request(id),'chat',5,()=>assert.fail('replayed model'))).json(),{answer:'测试回答'});
 assert.equal(count,1);assert.equal((await readCreditAccount(db,owner)).balance,95);
-for(const status of [400,422,429,503]){const failed=crypto.randomUUID();assert.equal((await creditResponse(db,owner,request(failed),'chat',5,async()=>Response.json({error:'failed'},{status}))).status,status);assert.equal((await creditResponse(db,owner,request(failed),'chat',5,()=>assert.fail('refunded task reran'))).status,409);}
+for(const status of [400,422,429,503]){
+  const failed=crypto.randomUUID();
+  const response=await creditResponse(db,owner,request(failed),'chat',5,async()=>Response.json({error:'failed',code:'SOURCE_FAILURE'},{status,headers:{'Retry-After':'3'}}));
+  assert.equal(response.status,status);assert.equal(response.headers.get('Retry-After'),'3');
+  assert.deepEqual(await response.json(),{error:'failed',code:'SOURCE_FAILURE',creditTaskStatus:'released'},'confirmed refund signal must preserve the original error and status');
+  const retry=await creditResponse(db,owner,request(failed),'chat',5,()=>assert.fail('refunded task reran'));
+  assert.equal(retry.status,409);assert.equal((await retry.json()).creditTaskStatus,'released');
+}
+assert.equal((await readCreditAccount(db,owner)).balance,95);
+const uncertainId=crypto.randomUUID();
+const uncertainDb={...db,prepare(query){const statement=db.prepare(query);if(!query.startsWith('UPDATE coach_credit_tasks SET status=?,updated_at=?'))return statement;
+  const bind=statement.bind;statement.bind=(...values)=>{bind(...values);if(values[0]==='released')statement.run=async()=>{throw Error('SYNTHETIC_REFUND_STORAGE_FAILURE');};return statement;};return statement;}};
+const uncertain=await creditResponse(uncertainDb,owner,request(uncertainId),'chat',5,async()=>Response.json({error:'provider unavailable'},{status:503}));
+assert.equal(uncertain.status,503);assert.equal((await uncertain.json()).creditTaskStatus,undefined,'unconfirmed settlement must never tell clients to start another charge');
+assert.equal((await readCreditAccount(db,owner)).balance,90);
+const pendingRetry=await creditResponse(db,owner,request(uncertainId),'chat',5,()=>assert.fail('unknown task must not execute again'));
+const pendingData=await pendingRetry.json();assert.equal(pendingData.code,'CREDIT_PROCESSING');assert.equal(pendingData.creditTaskStatus,undefined);
+await finishCreditTask(db,owner,uncertainId,false);
+const thrown=await creditResponse(db,owner,request(crypto.randomUUID()),'chat',5,async()=>{throw Error('SYNTHETIC_EXECUTION_FAILURE');});
+assert.equal((await thrown.json()).creditTaskStatus,'released','thrown execution errors expose release only after refund succeeds');
+const nonJson=await creditResponse(db,owner,request(crypto.randomUUID()),'chat',5,async()=>new Response('plain failure',{status:502,headers:{'Content-Type':'text/plain'}}));
+assert.equal(nonJson.status,502);assert.equal(await nonJson.text(),'plain failure');assert.equal(nonJson.headers.get('X-Credit-Task-Status'),'released');
 assert.equal((await readCreditAccount(db,owner)).balance,95);
 const guard=createVoiceTurnGuard();guard.output('你可以先问问她这周末有没有空见面',1000);
 assert.equal(guard.accept('echo','先问问她这周末有没有空见面',1800),false);
@@ -26,4 +48,39 @@ assert.equal(guard.accept('user','不对我说的是工作上那个朋友',1800)
 assert.equal(guard.accept('user','不对我说的是工作上那个朋友',1900),false);
 assert.equal(guard.accept('later','你可以先问问她这周末有没有空见面',9000),true);
 assert.equal(guard.accept('empty','',2000),false);
-sql.close();console.log('PASS: concurrent exclusion, saved-result replay, all failed responses refunded, no execution after refund; echo/real speech/delayed repetition.');
+// Multipart content is identical even when browsers choose a new boundary or
+// send distinct field names in a different order on a network retry.
+const audioPath='/api/import/transcribe',audioPolicy=legacyCreditPolicy(audioPath,'POST');
+assert.equal(audioPolicy.amount,5);
+const audioRequest=(requestId,contents='synthetic audio bytes',rights='true',reverse=false)=>{
+  const form=new FormData(),file=new File([contents],'synthetic.wav',{type:'audio/wav'});
+  if(reverse){form.set('rightsConfirmed',rights);form.set('audio',file);}else{form.set('audio',file);form.set('rightsConfirmed',rights);}
+  return new Request('https://test.invalid'+audioPath,{method:'POST',headers:{'X-Request-Id':requestId},body:form});
+};
+const audioId=crypto.randomUUID(),firstAudio=audioRequest(audioId),sameAudio=audioRequest(audioId,'synthetic audio bytes','true',true);
+assert.notEqual(firstAudio.headers.get('content-type'),sameAudio.headers.get('content-type'),'test uses genuinely different multipart boundaries');
+const balanceBeforeAudio=(await readCreditAccount(db,owner)).balance;let transcriptionCalls=0;
+const transcribe=async()=>{transcriptionCalls++;return Response.json({text:'虚构转写文字',segments:[]});};
+const firstAudioResponse=await legacyCreditResponse(db,owner,firstAudio,audioPolicy,{},transcribe);
+assert.equal(firstAudioResponse.status,200);assert.equal(firstAudioResponse.headers.get('X-Request-Id'),audioId);
+const retryAudioResponse=await legacyCreditResponse(db,owner,sameAudio,audioPolicy,{},transcribe);
+assert.equal(retryAudioResponse.status,200);assert.deepEqual(await retryAudioResponse.json(),{text:'虚构转写文字',segments:[]});
+assert.equal(transcriptionCalls,1);assert.equal((await readCreditAccount(db,owner)).balance,balanceBeforeAudio-5,'same audio retry charges exactly 5 once');
+const changedAudio=await legacyCreditResponse(db,owner,audioRequest(audioId,'changed audio bytes'),audioPolicy,{},transcribe);
+assert.equal(changedAudio.status,409,'changed file cannot reuse a settled request key');assert.equal(transcriptionCalls,1);
+assert.equal((await legacyCreditResponse(db,owner,audioRequest(audioId,'synthetic audio bytes','false'),audioPolicy,{},transcribe)).status,409,'changed consent is a changed request');
+const releasedAudioId=crypto.randomUUID();let failedAudioCalls=0;
+const failedAudio=await legacyCreditResponse(db,owner,audioRequest(releasedAudioId),audioPolicy,{},async()=>{failedAudioCalls++;return Response.json({error:'synthetic ASR failure'},{status:503});});
+assert.equal((await failedAudio.json()).creditTaskStatus,'released');
+assert.equal((await readCreditAccount(db,owner)).balance,balanceBeforeAudio-5);
+const releasedRetry=await legacyCreditResponse(db,owner,audioRequest(releasedAudioId),audioPolicy,{},()=>assert.fail('released audio cannot execute with old key'));
+assert.equal(releasedRetry.status,409);assert.equal((await releasedRetry.json()).creditTaskStatus,'released');assert.equal(failedAudioCalls,1);
+// No Content-Length is present: enforce actual streamed bytes before a ledger task.
+const oversizedId=crypto.randomUUID(),oversized=audioRequest(oversizedId,new Uint8Array(7_500_001));
+assert.equal(oversized.headers.get('content-length'),null);
+assert.equal((await legacyCreditResponse(db,owner,oversized,audioPolicy,{},()=>assert.fail('oversized audio cannot invoke provider'))).status,413);
+assert.equal(sql.prepare('SELECT count(*) AS n FROM coach_credit_tasks WHERE owner_id=? AND request_id=?').get(owner,oversizedId).n,0);
+const tooLargeFile=audioRequest(crypto.randomUUID(),new Uint8Array(7_000_001));
+assert.equal((await legacyCreditResponse(db,owner,tooLargeFile,audioPolicy,{},()=>assert.fail('7MB file limit'))).status,413);
+assert.equal((await readCreditAccount(db,owner)).balance,balanceBeforeAudio-5);
+sql.close();console.log('PASS: concurrency/replay; verified refund; unknown settlement; JSON/plain errors; voice guard; multipart audio boundary/order replay executes once and charges 5, changed contents/consent conflict, refunded retry, streamed/file limits before billing.');

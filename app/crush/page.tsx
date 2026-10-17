@@ -1,7 +1,6 @@
 "use client";
 import { BrandMark } from "@/components/BrandMark";
 import {useEffect,useRef,useState} from "react";
-import Link from "next/link";
 import {useRouter} from "next/navigation";
 import {ArrowLeft,ArrowRight,Check,Copy,Download,ImagePlus,MessageCircle,Plus,ScanText,ShieldCheck,Sparkles,Trash2} from "lucide-react";
 import {CrushBubbles} from "@/components/crush-bubbles";
@@ -214,7 +213,7 @@ export default function CrushPage(){
     try{const r=await fetch("/api/crush?id="+encodeURIComponent(id),{cache:"no-store"});const d=await r.json() as CrushResult & {error?:string};if(!r.ok)throw Error(d.error);setResult(d);setSubject(d.subjectId||"");setSelfLabel(d.selfLabel||"");setThreadId(d.threadId);setReply("");setImageUrl("");requestId.current=null;setNotice("已打开原会话。追加内容会结合这份记录，或点「新聊天」从头开始。");if(status?.fullJevEnabled)void enrichDistribution(d);}catch(e){setError((e as Error).message);}finally{setBusy("");}
   }
   return <main className="crush-page">
-    <header className="crush-header"><Link href="/" className="crush-brand"><span className="brand-mark"><BrandMark/></span><span>成子<small>聊天副驾</small></span></Link><Link href="/"><ArrowLeft size={15}/> 返回工作台</Link></header>
+    <header className="crush-header"><a href="/" className="crush-brand"><span className="brand-mark"><BrandMark/></span><span>成子<small>聊天副驾</small></span></a><a href="/"><ArrowLeft size={15}/> 返回工作台</a></header>
     <section className="crush-intro"><div className="crush-eyebrow"><ScanText size={15}/> 不用猜，先看这句话怎么说</div><h1>把聊天贴过来，<br/><em>一句一句看清楚。</em></h1><p>语气、互动好感信号、下一步。帮你少误读、回得更自然；互动评分不代表对方真实喜欢你的概率。</p><div className="crush-promises"><span><Check size={14}/> 消息下直接标注</span><span><Check size={14}/> 记住同一对象的上下文</span><span><Check size={14}/> 接着帮你回</span></div></section>
     <div className={"crush-workspace"+(result?"":" demo-first")}><section className="crush-input-panel">
       <div className="crush-panel-title"><span className="crush-step">01</span><h2>发截图或粘贴聊天</h2><button className="crush-quiet" disabled={!!busy} onClick={()=>{setScreenshot("");setScreenshotName("");setText(sample);setSelfLabel("");requestId.current=null;setError("");}}>填入示例</button>{auth==="in"&&<button className="crush-quiet" disabled={!!busy} onClick={newChat}>新聊天</button>}</div>
@@ -225,13 +224,13 @@ export default function CrushPage(){
       <label className="crush-chat-label" htmlFor="chat-input">聊天原文 <span>支持逐条粘贴或多段记录</span></label>
       <textarea id="chat-input" value={text} maxLength={12000} readOnly={auth!=="in"} disabled={!!busy||!!screenshot} onChange={e=>{setText(e.target.value);setQuickResult("");requestId.current=null;}} placeholder={"我：周六一起去看展吗？\n对方：周六要加班，周日倒是有空。\n\n只粘贴一句也可以；不带昵称时，选择是谁说的。"} />
       <div className="crush-input-meta"><label>无昵称的文字来自 <select value={speaker} disabled={!!busy||auth!=="in"} onChange={e=>{setSpeaker(e.target.value);requestId.current=null;}}><option value="other">对方</option><option value="self">我</option></select></label><span>{text.length.toLocaleString()} / 12,000</span></div>
-      {auth==="in"&&<details className="crush-settings"><summary>如何分析 · 自动处理</summary><p>截图由千问一次识别完整可见气泡；微信先回逐句短判断，再自动发送彩色逐句图。网页可直接上传截图并在同一对象会话里接续，截断气泡会单独标记。六维互动图按需计算。<Link href="/wechat">查看微信设置</Link>。句子百分比是模型的相对解释权重，不是好感概率。</p></details>}
+      {auth==="in"&&<details className="crush-settings"><summary>如何分析 · 自动处理</summary><p>截图由千问一次识别完整可见气泡；微信先回逐句短判断，再自动发送彩色逐句图。网页可直接上传截图并在同一对象会话里接续，截断气泡会单独标记。六维互动图按需计算。<a href="/wechat">查看微信设置</a>。句子百分比是模型的相对解释权重，不是好感概率。</p></details>}
       {auth==="in"&&(!status?.enabled||status.provider!=="qwen")&&<label className="crush-consent"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/><span>我有权提供这些聊天，已去除不必要的身份信息，同意发送给阿里云千问处理，并在本站保存聊天文字及分析报告 7 天。可随时关闭并删除。</span></label>}
       {auth==="in"&&status?.jev&&!status.quickJevEnabled&&!screenshot&&<label className="crush-consent"><input type="checkbox" checked={jevConsent} onChange={e=>setJevConsent(e.target.checked)}/><span>单独同意最多 6 条聊天文字发送给第三方快判服务；不发送长期关系档案，本站不保存快判原文。可在设置中关闭。</span></label>}
       {auth==="in"&&!screenshot&&<button type="button" className="crush-quick-button" disabled={!!busy||!status?.jev} onClick={quickLook}><ScanText size={17}/>{status?.jev?"先看最新一句 · 快判断":"快判断暂未接通"}</button>}
       {quickResult&&<div className="crush-quick-result" role="status"><strong>最新一句 · 快判断</strong><p>{quickResult}</p><small>只参考最多 6 条近期文字；不会读取语音或推测真实好感。下方可继续生成完整逐句报告。</small></div>}
       <button className="crush-primary" disabled={!!busy||auth==="loading"} onClick={analyze}>{busy?<><span className="crush-spinner"/>{busy}</>:<><Sparkles size={17}/>{auth==="out"?"登录后解读我的聊天":screenshot?"解读这张截图":result&&result.id!=="demo"?"追加并分析":"开始逐句解读"}<ArrowRight size={17}/></>}</button>
-      {auth==="out"&&<p className="crush-small">先看示例效果，登录后再粘贴私密聊天。<Link href={loginHref}>用 成子 账号登录</Link>。</p>}
+      {auth==="out"&&<p className="crush-small">先看示例效果，登录后再粘贴私密聊天。<a href={loginHref}>用 成子 账号登录</a>。</p>}
       {error&&<p className="crush-error" role="alert">{error}</p>}
       {notice&&<p className="crush-small" role="status">{notice}</p>}
       <div className="crush-privacy"><ShieldCheck size={16}/><span>只对你本人可见 · 原文短期保留 · 不替对方读心</span></div>
@@ -244,7 +243,7 @@ export default function CrushPage(){
       {!result?.affinity&&result?.decision?.affinityPreview&&<section className="crush-affinity" aria-label="截图片段互动参考"><div className="crush-affinity-top"><span>综合互动参考</span><strong>{interactionScore(result).value+"/100"}{interactionScore(result).estimated?"（这轮暂估）":""}</strong></div><p>只依据本次可见文字{interactionScore(result).estimated?"做粗估；文字越少误差越大；":"，已覆盖 "+result.decision.affinityPreview.coverageWeight+"% 维度权重；"}缺失场景不计零分，也不是喜欢概率。后续可在同一对象中补充聊天，得到更稳的综合判断。</p><div className="crush-affinity-grid">{result.decision.affinityPreview.dimensions.map(d=><div className="crush-affinity-row" key={d.key}><span>{d.label}</span><div className="crush-affinity-track"><i style={{width:(d.value??0)+"%"}}/></div><b>{d.value===null?"未见场景":d.value}</b></div>)}</div></section>}
       {result?.decision?.replyReview&&<section className="crush-affinity"><strong>你已发回复的评价{result.decision.replyGrade?" · "+result.decision.replyGrade+" 级":""}</strong><p>{result.decision.replyReview}</p></section>}
       {!result?.affinity&&result?.affinityStatus==="unavailable"&&<p className="crush-error" role="status">好感评分服务本次未成功，不是聊天证据不足。逐句报告已保留，可稍后追加新消息重试。</p>}
-      {result?.affinityStatus==="unread_media"&&<p className="crush-error" role="status">这份记录包含未读取的语音或附件正文，不能用占位文字判断关系，相关评分已停止展示。请复制微信的语音转写文字，或上传有权提供的录音；不要再次只转发语音占位。<Link href="/import">导入录音</Link></p>}
+      {result?.affinityStatus==="unread_media"&&<p className="crush-error" role="status">这份记录包含未读取的语音或附件正文，不能用占位文字判断关系，相关评分已停止展示。请复制微信的语音转写文字，或上传有权提供的录音；不要再次只转发语音占位。<a href="/import">导入录音</a></p>}
       {!!result?.unreadMediaCount&&<p className="crush-small">已读正文 {result.readableLineCount} 条；另有 {result.unreadMediaCount} 条未读取的语音或附件，占位符不参与分析。</p>}
       {!result?.affinity&&result?.affinityStatus==="insufficient"&&<p className="crush-small">当前可读的双方互动尚不足，暂不出六维总分；下面展示已读消息的逐句线索。</p>}
       {result?.coverage&&<p className="crush-small">导入 {result.coverage.total} 条，其中语音 {result.coverage.voice} 条，成功转写 {result.coverage.transcribed} 条。{result.coverage.noMedia?"微信未提供 "+result.coverage.noMedia+" 条语音的可下载音频。":""}{result.coverage.failedVoice?result.coverage.failedVoice+" 条语音转写未成功。":""}{result.coverage.multiSpeaker?result.coverage.multiSpeaker+" 条多说话人录音尚未确认身份。":""}{result.coverage.overLimit?result.coverage.overLimit+" 条语音请分段导入。":""}只依据已读文字分析，未读附件不视为关系负面信号。</p>}
@@ -255,7 +254,7 @@ export default function CrushPage(){
       {reply&&<div className="crush-advice"><div><Sparkles size={15}/><strong>结合知识库的下一步</strong><button className="crush-quiet" onClick={()=>{void navigator.clipboard.writeText(reply).then(()=>setNotice("回复建议已复制。")).catch(()=>setNotice("浏览器未允许复制，请长按文字复制。"));}}><Copy size={14}/> 复制</button></div><p>{reply}</p></div>}
       {!result&&<button className="crush-demo-action" onClick={()=>{setText(sample);requestId.current=null;document.getElementById("chat-input")?.focus();}}><Plus size={16}/> 用这段示例试一遍</button>}
     </section></div>
-    <section className="crush-bottom"><Link href="/wechat"><MessageCircle size={19}/><span><strong>微信随手聊 · 查看接入状态</strong><small>{status?.wechatConfigured?"连接后可发文字、截图和语音消息。":"微信客服暂未接通，当前请先在网页使用。"}</small></span><ArrowRight size={16}/></Link>{auth==="in"&&<button disabled={!!busy} onClick={remove}><Trash2 size={15}/> 关闭并删除逐句记录</button>}</section>
+    <section className="crush-bottom"><a href="/wechat"><MessageCircle size={19}/><span><strong>微信随手聊 · 查看接入状态</strong><small>{status?.wechatConfigured?"连接后可发文字、截图和语音消息。":"微信客服暂未接通，当前请先在网页使用。"}</small></span><ArrowRight size={16}/></a>{auth==="in"&&<button disabled={!!busy} onClick={remove}><Trash2 size={15}/> 关闭并删除逐句记录</button>}</section>
     {!!status?.reports?.length&&<section className="crush-history"><h2>最近的分析 <small>7 天内</small></h2><div>{status.reports.map(r=><button disabled={!!busy} key={r.id} onClick={()=>void openReport(r.id)}>{r.subject_label||"临时对象"} · {new Date(r.created_at).toLocaleString("zh-CN")} <ArrowRight size={13}/></button>)}</div></section>}
   </main>;
 }

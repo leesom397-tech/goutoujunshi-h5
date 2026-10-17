@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 
-VERSION = "1.0.1"
+VERSION = "1.2.4"
 UPSTREAM_COMMIT = "8589baa049bb91d3a500602c167f07b2f8397a13"
 
 
@@ -49,3 +49,5 @@ def normalized_capture(kind, friend, account, rows, warnings=None):
     return {"version": 1, "kind": kind, "friend": friend, "account": account.strip(),
             "capturedAt": datetime.now(timezone.utc).isoformat(), "records": records,
             "warnings": list(dict.fromkeys(warnings or []))}
+
+

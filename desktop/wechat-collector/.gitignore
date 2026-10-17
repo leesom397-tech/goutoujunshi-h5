@@ -3,5 +3,6 @@ build/
 dist/
 __pycache__/
 *.spec
+!ChengziWeChatCollector.spec
 *.zip
 build-log.txt
