@@ -5,6 +5,7 @@ import { riskAwarePresentation } from "@/lib/risk-aware-presentation";
 import { ArrowRight, ChartNoAxesCombined, Check, CircleHelp, Compass, Copy, Heart, Lightbulb, MessageCircle, Quote, ScanEye, Sparkles } from "lucide-react";
 import type { Json } from "./client";
 import { validScore, visibleSignalProfile } from "./report-data";
+import { activityChart } from "@/lib/chat-activity";
 import styles from "./ReportCard.module.css";
 import readerStyles from "./ReportReader.module.css";
 import {KeyEvidenceList} from "./ReportReadingTools";
@@ -33,8 +34,10 @@ export function ChatReportBrief({ report }: { report: Json }) {
   const lines: Json[] = Array.isArray(report.lines) ? report.lines : [];
   const annotations: Json[] = Array.isArray(report.annotations) ? report.annotations : [];
   const signals = visibleSignalProfile(lines);
-  const seen = signals.filter(row => row.count > 0);
-  const maxSignalCount = Math.max(1, ...signals.map(row => row.count));
+  const activityBars = report.chatActivity ? activityChart(report.chatActivity).bars : [];
+  const chartRows = activityBars.some(row => row.count > 0) ? activityBars : signals;
+  const seen = chartRows.filter(row => row.count > 0);
+  const maxSignalCount = Math.max(1, ...chartRows.map(row => row.count));
   const affinity = report.affinity || decision.affinityPreview;
   const score = validScore(affinity?.value) ? Math.round(affinity.value) : null;
   const quote = typeof decision.evidence === "string" ? decision.evidence.match(/“([^”]+)”/)?.[1] || "" : "";
@@ -50,8 +53,8 @@ export function ChatReportBrief({ report }: { report: Json }) {
       <article className="report-brief-action"><span className="report-brief-number"><ArrowRight size={19} aria-hidden="true"/>03 / 下一步</span><p>{firstSentence(decision.nextStep) || "先观察对方真实回应，再决定下一步。"}</p></article>
     </div>
     <div className="report-brief-chart">
-      <div className="report-brief-score"><Heart size={20} aria-hidden="true"/><span>好感与互动信号</span><strong>{score === null ? `${seen.length}/6` : `${score}/100`}<span>{score === null ? " 类线索" : " 参考指数"}</span></strong><small>{score === null ? "可见线索覆盖，非好感概率" : "互动参考，非喜欢你的概率"}</small></div>
-      <div className="report-brief-bars" role="img" aria-label={signals.map(row => `${row.label} ${row.count} 句`).join("；")}>{signals.map(row => <div key={row.key}><span>{row.label}</span><i><b style={{ width: `${row.count / maxSignalCount * 100}%` }}/></i><em>{row.count} 句</em></div>)}</div>
+      <div className="report-brief-score"><Heart size={20} aria-hidden="true"/><span>好感与互动信号</span><strong>{score === null ? (report.chatActivity ? report.chatActivity.messages : `${seen.length}/6`) : `${score}/100`}<span>{score === null ? (report.chatActivity ? " 条已统计" : " 类线索") : " 参考指数"}</span></strong><small>{score === null ? "按已导入消息计数，不是喜欢你的概率" : "互动参考，非喜欢你的概率"}</small></div>
+      <div className="report-brief-bars" role="img" aria-label={chartRows.map(row => `${row.label} ${row.count}`).join("；")}>{chartRows.map(row => <div key={row.key}><span>{row.label}</span><i><b style={{ width: `${row.count / maxSignalCount * 100}%` }}/></i><em>{row.count}</em></div>)}</div>
     </div>
     <p className="report-brief-hint"><ScanEye size={17} aria-hidden="true"/>点下方标签，查看对应图表与依据。</p>
   </section>;

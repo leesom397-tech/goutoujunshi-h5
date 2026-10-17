@@ -6,6 +6,7 @@ import { api, type Json } from "./client";
 import { CaptureEvidence } from "./CaptureEvidence";
 import { profileLabels, reportAffinity, validScore } from "./report-data";
 import { interactionDashboard, interactionTrend, type InteractionCue } from './interaction-dashboard';
+import { activityChart } from "@/lib/chat-activity";
 import styles from "./ReportEvidence.module.css";
 
 export function AffinityRadar({ dimensions }: { dimensions: Json[] }) {
@@ -57,7 +58,8 @@ function InteractionHistory({ points }: { points: Json[] }) {
 
 export function InteractionEvidence({ report, owner }: { report: Json; owner?: string }) {
   const dashboard=interactionDashboard(report), affinity=reportAffinity(report);
-  const dimensions:Json[]=Array.isArray(affinity?.dimensions)?affinity.dimensions.filter((row:Json)=>row&&typeof row.label==='string').slice(0,6):[];
+  const activity=report.chatActivity?activityChart(report.chatActivity):null;
+  const dimensions:Json[]=Array.isArray(affinity?.dimensions)&&affinity.dimensions.some((row:Json)=>row&&row.status!=="insufficient"&&validScore(row.value))?affinity.dimensions.filter((row:Json)=>row&&typeof row.label==='string').slice(0,6):activity?.dimensions||[];
   const scope=[owner,report.subjectId,report.id].join('|');
   const initial={title:'暂不能比较趋势',note:'还没有两段日期明确、去重且可比的独立互动。',delta:null,points:[] as Json[]};
   const [historical,setHistorical]=useState<{scope:string;loading:boolean;trend:ReturnType<typeof interactionTrend>}|null>(null);
@@ -78,6 +80,7 @@ export function InteractionEvidence({ report, owner }: { report: Json; owner?: s
     return ()=>controller.abort();
   },[owner,report.id,report.subjectId,scope]);
   const icons=[ArrowUpRight,MessageCircle,CalendarCheck,ShieldCheck];
+  const plotted=dashboard.total>0||!activity?dashboard:{...dashboard,total:activity.bars.reduce((sum,row)=>sum+row.count,0),otherCount:Math.max(dashboard.otherCount,1),readableCount:Math.max(dashboard.readableCount,report.chatActivity.messages||0),dimensions:activity.bars.slice(0,4).map((row,index)=>({...dashboard.dimensions[index],key:row.key,label:row.label,count:row.count,conclusion:`已统计 ${row.count}`,basis:"按全部已导入消息计数，不是模型打分。",cues:[],color:dashboard.dimensions[index]?.color||"#568774"}))};
   let offset=0;
   return <section className={`wa-card ${styles.section}`} id="signals">
     <h2><HeartHandshake size={23}/>互动仪表</h2>
@@ -85,17 +88,18 @@ export function InteractionEvidence({ report, owner }: { report: Json; owner?: s
     {dashboard.priority&&<div className={styles.priority} role="note" aria-label="优先处理的边界或风险"><ShieldAlert size={22}/><div><strong>{dashboard.priority.title}</strong><p>{dashboard.priority.text}</p>{dashboard.priority.evidence&&<blockquote>{dashboard.priority.evidence}</blockquote>}</div></div>}
     <div className={styles.composition}>
       <div className={styles.donut}>
-        <svg viewBox="0 0 200 200" role="img" aria-label={dashboard.total?`四类线索构成，共 ${dashboard.total} 次匹配；同一句可匹配多类，不是好感概率`:'本段尚未匹配到可核对的四类线索'}>
+        <svg viewBox="0 0 200 200" role="img" aria-label={plotted.total?`四类计数，共 ${plotted.total}`:'本段尚未匹配到可核对的四类线索'}>
           <circle cx="100" cy="100" r="82" className={styles.donutTrack}/>
-          {dashboard.dimensions.filter(row=>row.count>0).map(row=>{const share=row.count/dashboard.total*100,start=offset;offset+=share;return <circle key={row.key} cx="100" cy="100" r="82" pathLength="100" stroke={row.color} strokeDasharray={`${share} ${100-share}`} strokeDashoffset={-start} className={styles.donutSegment}/>;})}
-        </svg><div><strong>{dashboard.total||'—'}</strong><span>{dashboard.total?'次线索匹配':'暂缺明确线索'}</span></div>
+          {plotted.dimensions.filter(row=>row.count>0).map(row=>{const share=row.count/plotted.total*100,start=offset;offset+=share;return <circle key={row.key} cx="100" cy="100" r="82" pathLength="100" stroke={row.color} strokeDasharray={`${share} ${100-share}`} strokeDashoffset={-start} className={styles.donutSegment}/>;})}
+        </svg><div><strong>{plotted.total||0}</strong><span>{plotted.total?'次计数':'0'}</span></div>
       </div>
-      <div className={styles.compositionBody}><h3>{dashboard.summary}</h3><div className={styles.legend}>{dashboard.dimensions.map((row,index)=>{const Icon=icons[index];return <div key={row.key}><span><i style={{background:row.color}}/><Icon size={17}/>{row.label}</span><strong>{dashboard.otherCount?row.count:'—'}<small>{dashboard.otherCount?' 次':''}</small></strong>{dashboard.total>0&&<small>{Math.round(row.count/dashboard.total*100)}%</small>}</div>;})}</div><p>占比按四类线索的总匹配次数计算；同一句可归入多类。包含边界提醒，不能把扇区大小理解为好感程度。</p></div>
+      <div className={styles.compositionBody}><h3>{dashboard.total?dashboard.summary:"按全部已导入消息计数"}</h3><div className={styles.legend}>{plotted.dimensions.map((row,index)=>{const Icon=icons[index];return <div key={row.key}><span><i style={{background:row.color}}/><Icon size={17}/>{row.label}</span><strong>{row.count}<small> 次</small></strong>{plotted.total>0&&<small>{Math.round(row.count/plotted.total*100)}%</small>}</div>;})}</div><p>占比按图上这几项的合计计算，不是喜欢程度。</p></div>
     </div>
-    <div className={styles.sampleBar} aria-label="本次样本与依据"><span>可读原话 <strong>{dashboard.readableCount}</strong> 句</span><span>其中对方 <strong>{dashboard.otherCount}</strong> 句</span><span>依据把握：<strong>{dashboard.basis}</strong></span></div>
-    <div className={styles.fourDimensions}>{dashboard.dimensions.map((row,index)=>{const Icon=icons[index];return <article key={row.key} className={styles.cueCard} data-interaction-dimension={row.key} style={{borderTopColor:row.color}}><header><Icon size={22} style={{color:row.color}}/><h3>{row.label}</h3><strong>{dashboard.otherCount?row.count:'—'}<small>{dashboard.otherCount?' 处':''}</small></strong></header><h4>{row.conclusion}</h4>{row.cues[0]&&<CueQuote cue={row.key==='investment'?(row.cues.find(cue=>cue.kind==='已做自述')||row.cues[0]):row.cues[0]}/>}<p className={styles.cueBasis}>{row.basis}</p></article>;})}</div>
-    <details className={styles.referenceDetails}><summary>核对全部匹配原话与原模型参考</summary><div className={styles.allCues}>{dashboard.dimensions.map(row=><section key={row.key}><h3>{row.label} · {row.count} 处</h3>{row.cues.length?row.cues.map((cue,index)=><CueQuote key={cue.id+'-'+index} cue={cue}/>):<p className={styles.chartNote}>本段未见对应场景；不代表对方长期如此。</p>}</section>)}</div>{dimensions.length>0&&<><h3 className={styles.referenceTitle}>原模型六维参考</h3><p className={styles.chartNote}>与上方原话计数分别展示。没有依据的维度保留为空。</p><AffinityRadar dimensions={dimensions}/></>}</details>
-    {owner&&report.subjectId&&<div className={styles.history}><History size={20}/><div><strong>{current?.loading?'正在核对历史日期与重复材料…':trend.points.length>=2?trend.title:'暂不能比较趋势'}</strong>{trend.points.length>=2?<><p>{trend.note}</p><InteractionHistory points={trend.points}/></>:<p>{trend.note}</p>}</div></div>}
+    <div className={styles.sampleBar} aria-label="本次样本与依据"><span>已统计 <strong>{report.chatActivity?.messages || dashboard.readableCount}</strong> 条</span><span>对方 <strong>{report.chatActivity?.other ?? dashboard.otherCount}</strong> 条</span><span>我 <strong>{report.chatActivity?.self ?? dashboard.selfCount}</strong> 条</span></div>
+    <div className={styles.fourDimensions}>{plotted.dimensions.map((row,index)=>{const Icon=icons[index];return <article key={row.key} className={styles.cueCard} style={{borderTopColor:row.color}}><header><Icon size={22} style={{color:row.color}}/><h3>{row.label}</h3><strong>{row.count}<small> 处</small></strong></header><h4>{row.conclusion}</h4><p className={styles.cueBasis}>{row.basis}</p></article>;})}</div>
+    {dimensions.length>0&&<AffinityRadar dimensions={dimensions}/>}
+    <details className={styles.referenceDetails}><summary>核对全部匹配原话</summary><div className={styles.allCues}>{dashboard.dimensions.map(row=><section key={row.key}><h3>{row.label} · {row.count} 处</h3>{row.cues.length?row.cues.map((cue,index)=><CueQuote key={cue.id+'-'+index} cue={cue}/>):<p className={styles.chartNote}>本段未见对应场景；上方数字来自全部已导入消息。</p>}</section>)}</div></details>
+    {owner&&report.subjectId&&<div className={styles.history}><History size={20}/><div><strong>{current?.loading?'正在核对历史日期与重复材料…':trend.points.length>=2?trend.title:'前后两段消息量'}</strong>{trend.points.length>=2?<><p>{trend.note}</p><InteractionHistory points={trend.points}/></>:Array.isArray(report.relationshipDiagnosis?.periods)&&report.relationshipDiagnosis.periods.length>=2?<div className={styles.trendDates}>{report.relationshipDiagnosis.periods.map((period:Json)=><span key={period.label}>{period.label} {period.range}<span>{period.sample} 条 · 我 {period.self} · TA {period.other}</span></span>)}</div>:<p>{trend.note}</p>}</div></div>}
   </section>;
 }
 

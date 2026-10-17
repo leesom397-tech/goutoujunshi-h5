@@ -46,10 +46,10 @@ export function ChatActivity({ records = [], summary: supplied, account, friend 
       <div className={styles.card}>
         <h3><MoveUpRight size={20}/>谁先重新开启聊天</h3>
         <div className={styles.initiation}>
-          <svg className={styles.ring} viewBox="0 0 120 120" role="img" aria-label={totalStarts ? `可判断${totalStarts}轮：我先发起${summary.starts.self}次，TA先发起${summary.starts.other}次` : "暂不能判断发起比例"}>
+          <svg className={styles.ring} viewBox="0 0 120 120" role="img" aria-label={totalStarts ? `可判断${totalStarts}轮：我先发起${summary.starts.self}次，TA先发起${summary.starts.other}次` : `按消息条数：我 ${summary.self} 条，TA ${summary.other} 条`}>
             <circle cx="60" cy="60" r="46" fill="none" stroke="#eae4dd" strokeWidth="13"/>
-            {totalStarts > 0 && <><circle cx="60" cy="60" r="46" fill="none" stroke="#608b7b" strokeWidth="13"/><circle cx="60" cy="60" r="46" fill="none" stroke="#b66c55" strokeWidth="13" pathLength="100" strokeDasharray={`${selfRatio} ${100 - selfRatio}`} transform="rotate(-90 60 60)"/></>}
-            <text x="60" y="58" textAnchor="middle" className={styles.ringNumber}>{totalStarts || "—"}</text><text x="60" y="77" textAnchor="middle" className={styles.ringLabel}>{totalStarts ? "可判断轮次" : "材料不足"}</text>
+            {(totalStarts > 0 || summary.self + summary.other > 0) && <><circle cx="60" cy="60" r="46" fill="none" stroke="#608b7b" strokeWidth="13"/><circle cx="60" cy="60" r="46" fill="none" stroke="#b66c55" strokeWidth="13" pathLength="100" strokeDasharray={`${totalStarts ? selfRatio : Math.round(summary.self / Math.max(1, summary.self + summary.other) * 100)} ${100 - (totalStarts ? selfRatio : Math.round(summary.self / Math.max(1, summary.self + summary.other) * 100))}`} transform="rotate(-90 60 60)"/></>}
+            <text x="60" y="58" textAnchor="middle" className={styles.ringNumber}>{totalStarts || summary.self + summary.other}</text><text x="60" y="77" textAnchor="middle" className={styles.ringLabel}>{totalStarts ? "可判断轮次" : "消息条数"}</text>
           </svg>
           <div className={styles.legend}>
             <div><i className={styles.selfDot}/><span>我先发起</span><strong>{summary.starts.self}<small> 次{summary.starts.selfPercent === null ? "" : ` · ${summary.starts.selfPercent}%`}</small></strong></div>
@@ -81,7 +81,7 @@ export function ChatActivity({ records = [], summary: supplied, account, friend 
           <div className={styles.axis}><span>{shortDate(timeline[0].date)}</span><span>{timeline.some(day => day.date !== day.endDate) ? "按日期分组汇总" : "每天消息量"}</span><span>{shortDate(timeline.at(-1)!.endDate)}</span></div>
           <p className={styles.selection} id={detailId} aria-live="polite">{selected && <><strong>{shortDate(selected.date)}{selected.endDate !== selected.date ? `—${shortDate(selected.endDate)}` : ""}</strong>我 {selected.self} 条 · TA {selected.other} 条{selected.unknown ? ` · 身份待确认 ${selected.unknown} 条` : ""}<span>共 {selected.total} 条</span></>}</p>
           <p className={styles.note}>空白日期表示本次没有收录记录，不能直接视为没联系。</p>
-        </> : <p className={styles.empty}>消息时间不完整，暂不画趋势。补入带日期的聊天后会自动更新。</p>}
+        </> : <div className={styles.timeline} role="group" aria-label="双方消息数量">{[{ label: "我", total: summary.self }, { label: otherName, total: summary.other }].map(row => <div key={row.label} className={styles.barButton}><span className={styles.bar} style={{ height: `${Math.max(row.total ? 8 : 4, row.total / Math.max(1, summary.self, summary.other) * 100)}%` }} aria-hidden="true"><i className={row.label === "我" ? styles.selfBar : styles.otherBar} style={{ flex: Math.max(row.total, 1) }}/></span><small>{row.label} {row.total}</small></div>)}</div>}
       </div>
     </div>
     <div className={styles.messageSplit} aria-label="双方消息与语音数量">

@@ -179,7 +179,24 @@ export function computeChatActivity(records: readonly ChatActivityRecord[], opti
   return summary;
 }
 
-/** At most 30 bins, preserving every date and summing rather than sampling long ranges. */
+/** Counts the report charts can draw without a model score. Zero is a real count, not a missing chart. */
+export function activityChart(summary: ChatActivitySummary) {
+  const sided = Math.max(1, summary.self + summary.other);
+  const share = (count: number) => Math.max(0, Math.min(100, Math.round(count / sided * 100)));
+  const bars = [
+    { key: "self", label: "我的消息", count: summary.self },
+    { key: "other", label: "TA 的消息", count: summary.other },
+    { key: "selfStart", label: "我先开口", count: summary.starts.self },
+    { key: "otherStart", label: "TA 先开口", count: summary.starts.other },
+    { key: "otherReply", label: "TA 接住", count: summary.responses.selfToOther },
+    { key: "selfReply", label: "我接住", count: summary.responses.otherToSelf },
+  ];
+  const max = Math.max(1, ...bars.map(row => row.count));
+  return {
+    bars: bars.map(row => ({ ...row, value: Math.round(row.count / max * 100) })),
+    dimensions: bars.map(row => ({ key: row.key, label: row.label, value: share(row.count), status: "ready" as const })),
+  };
+}
 export function chatActivityTimeline(summary: ChatActivitySummary, maxBins = 30): Array<ChatActivityDay & { endDate: string }> {
   if (!summary.startDate || !summary.endDate || !summary.spanDays) return [];
   const width = Math.max(1, Math.ceil(summary.spanDays / Math.max(1, Math.min(60, Math.floor(maxBins) || 30))));
