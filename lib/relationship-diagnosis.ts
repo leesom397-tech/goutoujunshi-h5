@@ -115,20 +115,52 @@ export function buildRelationshipDiagnosis(summary: ChatActivitySummary, request
     summary.unreadVoices ? `${summary.unreadVoices} 条语音还没有转成文字，相关判断需要保留。` : "",
   ].filter(Boolean);
   const currentState = summary.messages < 3 ? "材料太少，先补充完整对话" : trend === "升温" ? "互动量近期增加，关系有升温线索" : trend === "降温" ? "互动量近期减少，出现降温线索" : "已有持续互动，当前状态需要结合回应和行动判断";
-  const recommendation = risks.length >= 2 ? "先补齐关键材料，再决定是否增加投入。" : otherLeads || responseBalanced ? "保持一次具体、低压力的推进，观察对方是否把回应落实成行动。" : "先降低主动频率，给对方一次自然发起和推进的空间。";
+  const recommendation = risks.length >= 2 ? "先停止追加投入，补齐关键材料后再决定是否继续。" : otherLeads || responseBalanced ? "可以继续一次具体、可退出的推进，并看对方是否把回应落到行动上。" : selfLeads ? "先降低主动频率，把下一次发起留给对方。" : "先确认双方对联系和关系的期待，再决定投入。";
   const options = [
-    { label: "继续观察", action: "保持自然联系，提出一个具体但可退出的小话题或安排。", observeWindow: "观察接下来 1–2 轮互动", stopCondition: "连续两轮都只有你推进，且对方不回应或不提供替代安排。" },
-    { label: "直接确认", action: "用一句具体问题确认对方对联系频率或关系方向的期待。", observeWindow: "看对方是否正面回答并给出自己的安排", stopCondition: "回避关键问题、反复含糊或明确表示不想继续。" },
-    { label: "降低投入", action: "暂停连续追问，把时间留给自己的生活和其他关系。", observeWindow: "观察 7–14 天内是否出现自然回联", stopCondition: "长期没有主动联系或行动兑现。" },
+    { label: "继续推进", action: "提出一个具体、可退出的话题或安排，看对方是否接住并给出自己的时间。", observeWindow: "接下来 1–2 轮互动", stopCondition: "连续两轮都只有你推进，对方不回应，也不给替代安排。" },
+    { label: "先确认关系期待", action: "用一句具体问题确认对方对联系频率或关系方向的期待。", observeWindow: "看对方是否正面回答", stopCondition: "回避关键问题、反复含糊，或明确表示不想继续。" },
+    { label: "降低投入观察", action: "暂停连续追问，把时间留给自己的生活，只保留自然回应。", observeWindow: "7–14 天", stopCondition: "期间没有主动联系，也没有把说过的安排兑现。" },
+    { label: "暂停或退出", action: "不再追加投入。需要说边界时只说一次，之后不再追问。", observeWindow: "说清之后即停止", stopCondition: "对方已经明确拒绝，或多次回避且没有替代安排。" },
   ];
+  const primary = risks.length >= 2 ? options[3] : otherLeads || responseBalanced ? options[0] : selfLeads ? options[2] : options[1];
   return {
     version: 1, question: selected, questionLabel: questionLabels[selected],
     coverage: { total: summary.messages, dated: summary.datedMessages, startDate: summary.startDate, endDate: summary.endDate, activeDays: summary.activeDays, voiceCount: summary.voices, voiceTranscribed: Math.max(0, summary.voices - summary.unreadVoices), identityNote: summary.unknown ? `${summary.unknown} 条身份待确认` : "双方身份已用于统计" },
     facts, hypotheses, claimActions: buildClaimActions(lines),
     unknowns: [summary.undatedMessages ? "部分消息没有可靠日期，无法判断完整时间线。" : "", summary.unreadVoices ? "部分语音没有文字，无法纳入语义判断。" : "", "聊天记录无法替代线下见面、通话和真实兑现情况；补充后会更新判断。"].filter(Boolean),
     relationship: { currentState, trend, reciprocity, risks },
-    decision: { recommendation, options, observeWindow: options[0].observeWindow, stopCondition: options[0].stopCondition },
+    decision: { recommendation, options, observeWindow: primary.observeWindow, stopCondition: primary.stopCondition },
     personalConnection: { commonPoints: [], fit: "共同点需要结合你的个人资料与对方的聊天、朋友圈内容后生成。", friction: [] },
+  };
+}
+
+export function relationshipReportDocument(diagnosis: RelationshipDiagnosis, semantic?: { status?: string; coverage?: { analyzedText?: number; limitation?: string } } | null) {
+  const voices = diagnosis.coverage.voiceCount;
+  return {
+    question: diagnosis.questionLabel,
+    coverage: {
+      messageCount: diagnosis.coverage.total,
+      dateRange: [diagnosis.coverage.startDate, diagnosis.coverage.endDate],
+      voiceCoverage: voices ? Number((diagnosis.coverage.voiceTranscribed / voices).toFixed(2)) : null,
+      analyzedText: semantic?.coverage?.analyzedText ?? null,
+      limitation: semantic?.status === "complete" ? "" : semantic?.coverage?.limitation || "",
+    },
+    facts: diagnosis.facts.map(fact => ({
+      id: fact.id,
+      claim: fact.claim,
+      value: fact.value || "",
+      range: fact.metric || (diagnosis.coverage.startDate && diagnosis.coverage.endDate ? `${diagnosis.coverage.startDate} 至 ${diagnosis.coverage.endDate}` : ""),
+      sample: diagnosis.coverage.total,
+    })),
+    hypotheses: diagnosis.hypotheses,
+    unknowns: diagnosis.unknowns,
+    timeline: [{ trend: diagnosis.relationship.trend, note: diagnosis.relationship.currentState }],
+    decision: {
+      action: diagnosis.decision.recommendation,
+      observeFor: diagnosis.decision.observeWindow,
+      stopCondition: diagnosis.decision.stopCondition,
+      options: diagnosis.decision.options,
+    },
   };
 }
 

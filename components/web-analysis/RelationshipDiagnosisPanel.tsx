@@ -17,7 +17,7 @@ type SemanticHistory = {
   findings: SemanticFinding[];
 };
 
-export function RelationshipDiagnosisPanel({ diagnosis, semanticHistory: standaloneSemanticHistory }: { diagnosis?: Json | null; semanticHistory?: Json | null }) {
+export function RelationshipDiagnosisPanel({ diagnosis, semanticHistory: standaloneSemanticHistory, folded = false }: { diagnosis?: Json | null; semanticHistory?: Json | null; folded?: boolean }) {
   if (standaloneSemanticHistory && !diagnosis?.semanticHistory) diagnosis = { ...diagnosis, semanticHistory: standaloneSemanticHistory };
   if (!diagnosis) return null;
   const coverage = diagnosis.coverage || {}, relationship = diagnosis.relationship || {}, decision = diagnosis.decision || {};
@@ -43,7 +43,7 @@ export function RelationshipDiagnosisPanel({ diagnosis, semanticHistory: standal
       <article><span className={styles.label}><Gauge size={16}/>互动互惠</span><p>{relationship.reciprocity || "材料不足，暂不判断。"}</p></article>
       <article><span className={styles.label}><ArrowRight size={16}/>首选下一步</span><strong>{decision.recommendation || "先补齐材料"}</strong><p>{decision.observeWindow || "观察后再更新判断。"}</p></article>
     </div></>}
-    {semanticHistory && semanticCoverage && <section className={styles.semanticHistory} aria-label="历史文字整体分析">
+    {semanticHistory && semanticCoverage && <details open={!folded}><summary>展开历史文字依据</summary><section className={styles.semanticHistory} aria-label="历史文字整体分析">
       <div className={styles.semanticHeading}><h3><History size={19}/>历史文字整体分析</h3><span>{semanticHistory.status === "complete" ? "已分析收到的可读文字" : semanticHistory.status === "unavailable" ? "整体分析暂未完成" : "缺少可读历史文字"}</span></div>
       <dl className={styles.semanticCoverage}>
         <div><dt>收到统计元数据</dt><dd>{semanticCoverage.totalImported === null ? "未知" : `${semanticCoverage.totalImported} 条`}</dd></div>
@@ -64,8 +64,8 @@ export function RelationshipDiagnosisPanel({ diagnosis, semanticHistory: standal
         {Array.isArray(finding.evidence) && finding.evidence.length > 0 && <ul>{finding.evidence.map((item, evidenceIndex) => <li key={`${item.sourceId}-${evidenceIndex}`}><blockquote>“{item.quote}”</blockquote><small>{item.senderRole === "self" ? "我" : "TA"} · {item.at || "时间待确认"} · 来源 ID：<code>{item.sourceId}</code></small><CaptureEvidence quote={item.quote} sourceIds={[item.sourceId]} label="回看这条历史原文"/></li>)}</ul>}
         {finding.alternative && <p className={styles.semanticAlternative}>其他可能的解释：{finding.alternative}</p>}
       </article>)}</div>}
-    </section>}
-    {hasActivity && <><div className={styles.bodyGrid}>
+    </section></details>}
+    {hasActivity && <details open={!folded}><summary>展开事实、说法与行动、其他解释和还不知道什么</summary><div className={styles.bodyGrid}>
       <div className={styles.column}>
         <section className={styles.block}><h3><CheckCircle2 size={18}/>客观事实</h3><div className={styles.factList}>{facts.map((fact, index) => <article key={fact.id || index}><strong>{fact.claim}</strong>{fact.value && <span>{fact.value}</span>}{fact.metric && <small>{fact.metric}</small>}</article>)}</div></section>
         <section className={styles.block}><h3><Sparkles size={18}/>可能的关系线索</h3>{hypotheses.length ? hypotheses.map((item, index) => <article className={styles.hypothesis} key={item.id || index}><strong>{item.claim}</strong><span className={styles.confidence}>把握度：{item.confidence || "低"}</span>{item.alternatives?.length ? <p>其他解释：{item.alternatives.join("；")}</p> : null}<small>接下来观察：{item.whatToObserve || "结合下一轮真实互动核对。"}</small></article>) : <p className={styles.empty}>当前材料还不足以提出稳定推测，先看事实。</p>}</section>
@@ -73,11 +73,11 @@ export function RelationshipDiagnosisPanel({ diagnosis, semanticHistory: standal
       </div>
       <aside className={styles.column}>
         {relationship.risks?.length ? <section className={`${styles.block} ${styles.risk}`}><h3><ShieldAlert size={18}/>需要留意</h3><ul>{relationship.risks.map((risk: string, index: number) => <li key={index}>{risk}</li>)}</ul></section> : null}
-        <section className={styles.block}><h3><ArrowRight size={18}/>可选行动</h3><div className={styles.optionList}>{options.slice(0, 3).map((option, index) => <details key={index} open={index === 0}><summary><span>{option.label}</span><small>{index === 0 ? "首选" : "备选"}</small></summary><p>{option.action}</p><small>观察：{option.observeWindow}</small><small>停止条件：{option.stopCondition}</small></details>)}</div><p className={styles.stop}><CircleHelp size={15}/> {decision.stopCondition || "当事实发生变化时，再更新这份判断。"}</p></section>
+        <section className={styles.block}><h3><ArrowRight size={18}/>可选行动</h3><div className={styles.optionList}>{options.slice(0, 4).map((option, index) => <details key={option.label || index}><summary><span>{option.label}</span></summary><p>{option.action}</p><small>观察：{option.observeWindow}</small><small>停止条件：{option.stopCondition}</small></details>)}</div><p className={styles.stop}><CircleHelp size={15}/> {decision.stopCondition || "当事实发生变化时，再更新这份判断。"}</p></section>
         <section className={styles.block}><h3><History size={18}/>还不知道什么</h3>{unknowns.length ? <ul className={styles.unknowns}>{unknowns.map((item, index) => <li key={index}>{item}</li>)}</ul> : <p className={styles.empty}>目前没有额外缺口。</p>}</section>
         {commonPoints.length ? <section className={styles.block}><h3><CheckCircle2 size={18}/>你们的共同点</h3><p className={styles.blockIntro}>{personalConnection.fit || "只展示双方都有原话或资料依据的交集。"}</p><div className={styles.commonList}>{commonPoints.slice(0, 4).map((item, index) => <article key={item.id || index}><strong>{typeof item === "string" ? item : item.title || item.label || "共同点"}</strong>{typeof item !== "string" && (item.reading || item.meaning) && <p>{item.reading || item.meaning}</p>}</article>)}</div></section> : null}
       </aside>
     </div>
-    <footer className={styles.footer}>统计来源：已导入聊天 · 语音 {coverage.voiceTranscribed ?? 0} / {coverage.voiceCount ?? 0} 条已有文字 · {coverage.identityNote || "身份信息待确认"}。新增聊天后会生成前后变化。</footer></>}
+    <footer className={styles.footer}>统计来源：已导入聊天 · 语音 {coverage.voiceTranscribed ?? 0} / {coverage.voiceCount ?? 0} 条已有文字 · {coverage.identityNote || "身份信息待确认"}。新增聊天后会生成前后变化。</footer></details>}
   </section>;
 }

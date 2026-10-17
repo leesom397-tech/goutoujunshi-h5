@@ -18,7 +18,7 @@ import { cleanSocialPhotoClues, SOCIAL_PHOTO_GUIDANCE } from "@/lib/social-photo
 import { conversationMemoryLines } from "@/lib/conversation-profile-memory";
 import { conversationMemoryScope, emptyConversationMemory, saveConversationProfileMemory } from "@/lib/conversation-profile-memory-server";
 import { computeChatActivity } from "@/lib/chat-activity";
-import { buildRelationshipDiagnosis } from "@/lib/relationship-diagnosis";
+import { buildRelationshipDiagnosis, relationshipReportDocument } from "@/lib/relationship-diagnosis";
 import { analyzeCaptureSemanticHistory, unavailableCaptureSemanticHistory } from "@/lib/capture-semantic-history";
 import { CaptureFullHistoryError, checkFullCaptureHistory, readFullCaptureHistory } from "@/lib/capture-full-history-server";
 import { riskAwarePresentation } from "@/lib/risk-aware-presentation";
@@ -131,6 +131,7 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
     fit: typeof report.personalConnection?.summary === "string" ? report.personalConnection.summary : "",
     friction: Array.isArray(report.personalConnection?.differences) ? report.personalConnection.differences.slice(0, 3) : [],
   };
+  report.relationshipReport = relationshipReportDocument(relationshipDiagnosis, semanticHistory);
   return { report, sourceIds, totalCount: history.records.length };
 }
 
@@ -228,7 +229,7 @@ export async function POST(request: Request) {
             relationshipDiagnosis.relationship.trend = semanticHistory.trend;
             if (semanticHistory.reciprocity) relationshipDiagnosis.relationship.reciprocity = semanticHistory.reciprocity;
           }
-          Object.assign(report, { chatActivity, relationshipDiagnosis });
+          Object.assign(report, { chatActivity, relationshipDiagnosis, relationshipReport: relationshipReportDocument(relationshipDiagnosis, semanticHistory) });
         } else {
           Object.assign(report, { semanticHistory });
         }
