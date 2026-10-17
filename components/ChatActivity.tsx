@@ -67,7 +67,7 @@ export function ChatActivity({ records = [], summary: supplied, account, friend 
           <div><span>你接住 TA 的消息</span><strong>{responses.otherToSelf}<small> 次</small></strong><em>{responses.selfCoverage === null ? "覆盖待了解" : `约 ${responses.selfCoverage}%`}</em></div>
           <div><span>可比较回应</span><strong>{responses.comparableTurns}<small> 次</small></strong><em>{responses.averageSelfReplyMinutes === null ? "间隔待了解" : `TA 平均约 ${responses.averageSelfReplyMinutes} 分钟`}</em></div>
         </div>
-        <p className={styles.note}><Clock3 size={14}/>回应覆盖受导入范围、缺失消息和时间精度影响；它描述互动质量的一部分，不是关系结论。</p>
+        <p className={styles.note}><Clock3 size={14}/>看的是这段时间里的平均间隔，不是某一条回得慢。间隔受导入范围和时间精度影响，也不能单独当成关系结论。</p>
       </div>
       <div className={styles.card}>
         <h3><ChartNoAxesCombined size={20}/>聊天量怎样变化</h3>
