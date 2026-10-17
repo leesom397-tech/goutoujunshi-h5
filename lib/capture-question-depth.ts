@@ -11,11 +11,11 @@ export function captureArchiveExcerpts(profileContext: string): string[] {
   } catch { return []; }
 }
 
-/** Keep a simple answer simple, even if this person has a large archive. */
+/** A person with saved chat excerpts gets the longer, archive-based answer unless the user asked for one sentence or a reply draft. */
 export function needsCaptureHistoryAnswer(question: string, excerpts: string[], hasImages: boolean): boolean {
   if (hasImages || excerpts.length < 2) return false;
   if (/一句话|只要一句|简短|简洁|不要展开|别分析|怎么回|如何回复|回复什么|发什么|润色|改写|帮我回/.test(question)) return false;
-  return /完整|全部|历史|聊天|长期|关系|互动|态度|投入|主动|互惠|变化|趋势|阶段|模式|喜欢|在意|继续|值得|矛盾|忽冷忽热|复盘|怎么看|怎么判断|怎么办|对我.*(?:想法|感觉)|分析/.test(question);
+  return true;
 }
 
 export const CAPTURE_HISTORY_ANSWER_GUIDANCE = [

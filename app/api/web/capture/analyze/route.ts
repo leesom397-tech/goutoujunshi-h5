@@ -66,6 +66,8 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
   const history = await readFullCaptureHistory(db, owner, input);
   if (!history.readable.length) throw new CaptureFullHistoryError("已读取全部聊天，但没有可用的文字或语音转写；请先补齐文字再生成完整报告。", 422);
   const chatActivity = computeChatActivity(history.records);
+  let personContext = "";
+  try { if (input.subjectId) personContext = await loadProfileContext(owner, input.subjectId, input.question || "关系状态 投入 变化 朋友圈", 1800); } catch { personContext = ""; }
   // A model segment can fail without discarding the statistics already computed
   // from every imported message. The report says which text was actually read.
   let semanticHistory;
@@ -77,6 +79,7 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
       question: input.question,
       activity: chatActivity,
       fullHistory: true,
+      personContext,
     }, qwenChat);
   } catch {
     semanticHistory = unavailableCaptureSemanticHistory(history.readable, history.records.length, 0);
@@ -131,7 +134,7 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
       judgment, evidence: anchor?.quote || "", nextStep: semanticHistory.action || relationshipDiagnosis.decision.recommendation,
       replyOptions: [],
     },
-    captureMediaNote: [sentenceLines.length ? `逐句意图看的是最近 ${sentenceLines.length} 句，不是全部 ${history.records.length} 条都逐句打分。横条是解释权重，不是喜欢你的概率。` : "", chatActivity.unreadVoices
+    captureMediaNote: [`判断用的是这次导入的全部可读聊天，加上这个人已经保存的档案摘录。朋友圈原文、没转写的语音、没存进档案的内容，不会自动写进这句判断。`, sentenceLines.length ? `逐句意图仍只解读最近 ${sentenceLines.length} 句，不是全部 ${history.records.length} 条都逐句打分。横条是解释权重，不是喜欢你的概率。` : "", chatActivity.unreadVoices
       ? `${chatActivity.unreadVoices} 条语音没有可读转写，其内容未纳入语义判断；完整统计仍包含这些消息。`
       : "", !modelComplete ? semanticHistory.coverage.limitation : ""].filter(Boolean).join(" ") || undefined,
   };
