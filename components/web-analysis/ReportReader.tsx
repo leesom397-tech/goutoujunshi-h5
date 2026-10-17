@@ -5,7 +5,7 @@ import styles from "./ReportReader.module.css";
 import {readReportPosition,saveReportPosition,type ReportPanelPosition} from "@/lib/report-reading-position";
 
 export type ReadingSection={id:string;label:string;caption:string;tone:"coral"|"amber"|"teal"|"slate"};
-const iconFor=(id:string)=>id==="tone"?MessageCircle:id==="signals"||id==="content"?ChartNoAxesCombined:id==="replies"||id==="next"?Send:id==="evidence"?Quote:id==="overview"?UserRound:Compass;
+const iconFor=(id:string)=>id==="tone"||id==="status"?MessageCircle:id==="signals"||id==="content"||id==="change"?ChartNoAxesCombined:id==="replies"||id==="next"?Send:id==="evidence"?Quote:id==="overview"?UserRound:Compass;
 
 export function ReportReader({items,children,storageKey}:{items:ReadingSection[];children:(active:string)=>ReactNode;storageKey?:string}){
  const id=useId(),root=useRef<HTMLDivElement>(null),[active,setActive]=useState(items[0].id),[seen,setSeen]=useState<string[]>([items[0].id]);
@@ -76,7 +76,7 @@ export function ReportReader({items,children,storageKey}:{items:ReadingSection[]
   <div className={styles.navigation}>
    <div className={styles.position}><span>第 <b>{index+1}</b> / {items.length} 部分 · {item.label}</span><span>已查看 {seen.length} / {items.length}</span></div>
    <div className={styles.progress} aria-label={`已查看 ${seen.length} 个部分，共 ${items.length} 个`}>{items.map(part=><i key={part.id} data-seen={seen.includes(part.id)} data-active={active===part.id}/>)}</div>
-   <div role="tablist" aria-label="报告阅读顺序" className={styles.tabs}>{items.map((part,n)=>{const Icon=iconFor(part.id);return <button type="button" role="tab" key={part.id} id={`${id}-tab-${part.id}`} aria-controls={`${id}-panel-${part.id}`} aria-selected={active===part.id} tabIndex={active===part.id?0:-1} data-tone={part.tone} onClick={()=>choose(n)} onKeyDown={event=>{if(!["ArrowRight","ArrowLeft","Home","End"].includes(event.key))return;event.preventDefault();choose(event.key==="Home"?0:event.key==="End"?items.length-1:(n+(event.key==="ArrowRight"?1:-1)+items.length)%items.length,true);}}><Icon size={20}/><span>{part.label}</span><small>{seen.includes(part.id)&&active!==part.id?<Check size={13}/>:String(n+1).padStart(2,"0")}</small></button>})}</div>
+   <div role="tablist" aria-label="报告阅读顺序" className={styles.tabs} style={{gridTemplateColumns:`repeat(${items.length},minmax(0,1fr))`}}>{items.map((part,n)=>{const Icon=iconFor(part.id);return <button type="button" role="tab" key={part.id} id={`${id}-tab-${part.id}`} aria-controls={`${id}-panel-${part.id}`} aria-selected={active===part.id} tabIndex={active===part.id?0:-1} data-tone={part.tone} onClick={()=>choose(n)} onKeyDown={event=>{if(!["ArrowRight","ArrowLeft","Home","End"].includes(event.key))return;event.preventDefault();choose(event.key==="Home"?0:event.key==="End"?items.length-1:(n+(event.key==="ArrowRight"?1:-1)+items.length)%items.length,true);}}><Icon size={20}/><span>{part.label}</span><small>{seen.includes(part.id)&&active!==part.id?<Check size={13}/>:String(n+1).padStart(2,"0")}</small></button>})}</div>
   </div>
   {items.map((part,n)=>seen.includes(part.id)&&<section key={part.id} hidden={part.id!==active} role="tabpanel" id={`${id}-panel-${part.id}`} aria-labelledby={`${id}-tab-${part.id}`} tabIndex={0} className={styles.panel} data-reading-section={part.id}>
    <div className={styles.panelCaption}><span>{String(n+1).padStart(2,"0")}</span>{part.caption}</div>
