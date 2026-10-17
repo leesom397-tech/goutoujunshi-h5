@@ -1,13 +1,18 @@
+import { existsSync, readFileSync } from "node:fs";
 import vinext from "vinext";
 import { defineConfig } from "vite";
-import hostingConfig from "./.openai/hosting.json";
 import { readExecutionProfile } from "./scripts/execution-profile.mjs";
-import { sites } from "./build/sites-vite-plugin";
 
 const SITE_CREATOR_PLACEHOLDER_DATABASE_ID =
   "00000000-0000-4000-8000-000000000000";
 
-const { d1, r2 } = hostingConfig;
+function readHostingConfig() {
+  const path = new URL("./.openai/hosting.json", import.meta.url);
+  if (!existsSync(path)) return {};
+  return JSON.parse(readFileSync(path, "utf8"));
+}
+
+const { d1, r2 } = readHostingConfig();
 
 // macOS Seatbelt blocks FSEvents, so Codex previews need polling for HMR.
 const isCodexSeatbeltSandbox = process.env.CODEX_SANDBOX === "seatbelt";
@@ -35,6 +40,20 @@ const localBindingConfig = {
     : [],
 };
 
+async function loadSitesPlugin() {
+  for (const name of ["./build/sites-vite-plugin.ts", "./build/sites-vite-plugin.js", "./build/sites-vite-plugin.mjs"]) {
+    const url = new URL(name, import.meta.url);
+    if (!existsSync(url)) continue;
+    try {
+      const imported = await import(/* @vite-ignore */ url.href);
+      if (typeof imported.sites === "function") return imported.sites;
+    } catch {
+      // Local Sites tooling is optional. Production builds do not need it.
+    }
+  }
+  return () => ({ name: "sites-not-installed" });
+}
+
 export default defineConfig(async () => {
   // Use Miniflare's local Request.cf placeholder unless fetching is requested.
   process.env.CLOUDFLARE_CF_FETCH_ENABLED ??= "false";
@@ -49,6 +68,7 @@ export default defineConfig(async () => {
 
   // Wrangler snapshots its log path while the Cloudflare plugin is imported.
   const { cloudflare } = await import("@cloudflare/vite-plugin");
+  const sites = await loadSitesPlugin();
 
   return {
     server: {
