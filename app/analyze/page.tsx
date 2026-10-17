@@ -369,7 +369,7 @@ export default function AnalyzePage() {
       {!visibleResult && !restoringReport && !task && <>
         {owner && !targetSelf && selectedPerson && <section className={intake.remembered} aria-label="当前分析人物"><UserRound size={22}/><div><strong>继续了解 {selectedPerson.label}</strong><small>{mode === 'chat' && side ? `已沿用：${side==='left'?'左侧':'右侧'}是我 · ` : ''}新增材料会结合这个人物已有的资料；选错可以直接更换。</small></div>{editPerson?<PersonSelect people={account.people} value={subject} disabled={disabled} onChange={choosePerson} empty="本次不关联人物"/>:<button type="button" disabled={disabled} onClick={()=>setEditPerson(true)}>换个人</button>}{mode==='chat'&&side&&<button type="button" disabled={disabled} onClick={()=>chooseSide(side==='left'?'right':'left')}>改为{side==='left'?'右侧':'左侧'}是我</button>}</section>}
         {captureSource && <p className="wa-status"><CheckCheck size={18}/>已带入采集截图。请核对顺序与身份，分析完成后可回看这些原图。</p>}
-        <div className="ax-mode-heading"><h2>选择分析类型</h2><a href="#analysis-example">先看分析案例 ↓</a></div>
+        <div className="ax-mode-heading"><h2>选择分析类型</h2></div>
         <div className={`ax-modes ${styles.entryModes}`} role="tablist" aria-label="分析材料" onKeyDown={event => {
           if (disabled || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
           event.preventDefault(); const keys = ["chat", "moments", "social"]; const index = keys.indexOf(mode);
@@ -417,7 +417,7 @@ export default function AnalyzePage() {
                 <small className="ax-paste-hint"><Clipboard size={14}/>电脑上可直接粘贴截图 · Ctrl / ⌘ + V</small>
               </button>
               <input ref={fileInputRef} className="ax-file-input" aria-label="选择分析截图" type="file" accept="image/jpeg,image/png" multiple tabIndex={-1} disabled={disabled || !owner} onChange={event => { void selectFiles(event.target.files); event.target.value = ""; }}/>
-              {!owner && <p className="wa-muted">免费案例不用登录。分析自己的截图需要账号，并按页面上的积分计费。</p>}
+              {!owner && <p className="wa-muted">分析自己的截图需要账号，并按页面上的积分计费。</p>}
               <p className="ax-upload-limits" id="analysis-upload-limits">JPG / PNG · 每组最多 9 张 · {mode === "chat" ? "每张不超过 5 MB" : "原图每张不超过 12 MB，大图在本机自动优化"}</p>
               {preparing && <p className="ax-preparing" role="status"><LoaderCircle size={17} className="ax-spin"/>正在本机整理图片，请稍等…</p>}
               {materialNote && <p className={intake.notice} role="status"><CheckCheck size={17}/>{materialNote}</p>}

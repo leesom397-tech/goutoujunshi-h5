@@ -37,7 +37,7 @@ export function ProductHome({ onStart, loading = false, error = "", onRetry, aft
     {afterHero}
     <section className={styles.materials} id="materials" aria-label="添加分析材料"><div><strong>先带一段聊天</strong><p>粘贴或截图就能出结果。电脑微信、录屏和文件收在「其他方式」里，不必先选。</p></div><AddMaterials/><a href="/capture?method=library">已导入材料<ArrowUpRight size={15}/></a></section>
     <section className={styles.tools} id="tools" aria-labelledby="home-tools-title"><header><div><span className={styles.eyebrow}>已经在用时</span><h2 id="home-tools-title">这些是后一步，不是开头。</h2></div></header><div className={styles.grid} data-feature-grid>{features.map(({href,icon:Icon,title,text})=><a className={styles.tool} data-feature-entry href={href} key={href}><span className={styles.icon}><Icon size={23} strokeWidth={1.6}/></span><span className={styles.toolCopy}><strong>{title}</strong><span>{text}</span></span><ArrowUpRight className={styles.toolArrow} size={18}/></a>)}</div></section>
-    <nav className={styles.utilities} aria-label="更多信息"><a href="/archive?tab=self">我的资料<ArrowUpRight size={14}/></a><a href="/library">资料与依据<ArrowUpRight size={14}/></a><a href="/examples">分析案例<ArrowUpRight size={14}/></a><span>分析前确认积分费用 · <a href="/privacy">数据与隐私</a></span></nav>
+    <nav className={styles.utilities} aria-label="更多信息"><a href="/archive?tab=self">我的资料<ArrowUpRight size={14}/></a><a href="/library">资料与依据<ArrowUpRight size={14}/></a><a href="/login?return_to=%2Fworkspace">登录</a><span>分析前确认积分费用 · <a href="/privacy">数据与隐私</a></span></nav>
   </div>;
 }
 export function KnowledgeEvidence() {

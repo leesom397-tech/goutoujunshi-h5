@@ -20,9 +20,9 @@ export default function AccountPage() {
     setLoading(true); setError(""); setState(null); setNotice(""); setSignedOut(false);
     try {
       const response = await fetch("/api/account/credits", { cache: "no-store" });
-      const data = await response.json() as State & { error?: string };
+      const data = await response.json() as State & { error?: string; code?: string };
       if (generation !== loadGeneration.current) return;
-      if (response.status === 401) { setSignedOut(true); setState(null); return; }
+      if (response.status === 401 || data.code === "AUTH_IDENTITY_UNAVAILABLE") { setSignedOut(true); setState(null); return; }
       if (!response.ok) throw Error(data.error || "暂时无法读取账户。");
       setState(data); setSignedOut(false);
     } catch (cause) { if (generation === loadGeneration.current) setError(cause instanceof Error ? cause.message : "网络异常，请重试。"); }
@@ -36,7 +36,7 @@ export default function AccountPage() {
   const account = state?.account;
   return <main className={ui.page}><WebNav /><section className={`${ui.wrap} ${styles.content}`}><AuroraPageHero eyebrow="我的账户" title="账户与积分" description={state ? `当前登录：${state.user.name}` : "你的分析权限、余额和使用记录"}><div className={styles.headingActions}>{state?.admin && <a className={ui.primary} href="/admin/credits">管理后台 <ArrowRight size={16}/></a>}<button className={ui.secondary} disabled={loading} onClick={() => void load()}><RefreshCw size={16} />刷新</button></div></AuroraPageHero>
     {loading && !state && <p role="status">正在读取账户…</p>}
-    {signedOut && <div className={styles.panel}><p>登录后查看自己的用户编号、积分与开通状态。</p><a className={ui.primary} href="/login?return_to=%2Faccount%23balance">登录账户 <ArrowRight size={16} /></a><div className={styles.guestContact}><p>开通前也可以加微信 <b>lxlikex</b>，扫码和销售页是同一个。</p><a href="/contact-wechat.jpg" target="_blank" rel="noreferrer"><img src="/contact-wechat.jpg" width="160" height="128" alt="成子 客服微信二维码" /></a></div></div>}
+    {signedOut && <div className={styles.panel}><p>登录后查看自己的用户编号、积分与开通状态。如果刚才提示账号校验连不上，直接重新登录即可，已保存的资料还在。</p><a className={ui.primary} href="/login?return_to=%2Faccount%23balance">登录账户 <ArrowRight size={16} /></a><div className={styles.guestContact}><p>开通前也可以加微信 <b>lxlikex</b>，扫码和销售页是同一个。</p><a href="/contact-wechat.jpg" target="_blank" rel="noreferrer"><img src="/contact-wechat.jpg" width="160" height="128" alt="成子 客服微信二维码" /></a></div></div>}
     {error && <p className={styles.error} role="alert">{error}</p>}
     {notice && <p className={styles.notice} role="status">{notice}</p>}
     {account && <><section className={styles.balance} id="balance"><div><small>可用积分</small><strong>{account.balance}</strong><span>处理中暂留 {account.reserved} · 累计使用 {account.spent}</span></div><div className={styles.status}><b>{account.active && account.features.length ? "已开通" : account.enabledUntil ? "已到期 / 未启用功能" : "等待开通"}</b><span>有效期：{dateLabel(account.enabledUntil)}</span><span>{account.features.map(key => featureLabels[key] || key).join("、") || "暂未开通功能"}</span><a className={ui.secondary} href="#contact">联系开通 / 补充积分</a></div></section>

@@ -29,7 +29,7 @@ export default function ReportsPage() {
   return <div className={ui.page}><WebNav/><main className={`${ui.wrap} ${styles.content}`}>
     <AuroraPageHero eyebrow="每一次分析，都可以接着看" title="分析记录" description="聊天、朋友圈和社交主页的分析统一保存在这里，随时回来继续查看。"><a className={ui.primary} href="/analyze?mode=chat"><ScanLine size={18}/>开始新分析</a></AuroraPageHero>
     {account.loading && !owner && <p role="status">正在确认登录状态…</p>}
-    {account.unauthorized && <section className={styles.empty}><div className={styles.emptyMark} aria-hidden="true"><FileText size={32}/></div><h2>登录后查看分析记录</h2><p>完成一次分析后，判断会留在这里。免费案例不用登录。</p><a href={`/login?return_to=${encodeURIComponent("/reports")}`}>登录并继续 <ArrowRight size={16}/></a></section>}
+    {account.unauthorized && <section className={styles.empty}><div className={styles.emptyMark} aria-hidden="true"><FileText size={32}/></div><h2>登录后查看分析记录</h2><p>完成一次分析后，判断会留在这里。</p><a href={`/login?return_to=${encodeURIComponent("/reports")}`}>登录并继续 <ArrowRight size={16}/></a></section>}
     {!account.loading && !account.unauthorized && <AccountNotice state={account}/>}{owner && <>
       <div className={styles.retention}><BookmarkCheck size={20}/><span><strong>报告长期保存</strong>完成后自动保存到当前账号，由你决定何时删除。原截图不归档。</span></div>
       <div className={styles.toolbar}><label><Search size={19}/><span className={styles.srOnly}>搜索人物或报告内容</span><input type="search" maxLength={80} value={query} onChange={event => { setQuery(event.target.value); setPage(1); }} placeholder="搜索人物称呼或分析内容"/></label><span>{currentData ? <><b>{currentData.total}</b> 份{query.trim() ? "相关报告" : "已保存报告"}</> : loading ? "正在读取…" : "分析记录"}</span></div>

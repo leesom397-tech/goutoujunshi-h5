@@ -239,7 +239,7 @@ export default function ChatPage() {
   return <><WebNav/><main className={styles.page}>
     <QuestionImagePreview image={previewImage} onClose={()=>setPreviewImage(null)}/>
     <header className="chat-question-heading"><div><span>成子智能体 · 有疑问，直接问</span><h1>问成子</h1><p>先给你一个直接的判断，想聊细一点，再接着问。</p></div><a className={styles.fullAnalysis} href={"/analyze" + (subject ? "?subjectId=" + encodeURIComponent(subject) : "")}><ScanLine size={18}/>完整分析<ArrowUpRight size={16}/></a></header>
-    {account.unauthorized ? <div className={styles.guestNotice}><span>可以先了解怎么问，添加私人截图或发送问题时再登录。</span><a href="/examples">看分析案例<ArrowUpRight size={14}/></a></div> : <AccountNotice state={account}/>}
+    {account.unauthorized ? <div className={styles.guestNotice}><span>可以先了解怎么问，添加私人截图或发送问题时再登录。</span><a href="/login?return_to=%2Fchat">登录后继续<ArrowUpRight size={14}/></a></div> : <AccountNotice state={account}/>}
     {accessIssue && <div className="chat-access-notice" role="status"><span>{accessIssue}</span><a href="/account#contact">查看积分与开通 <ArrowUpRight size={15}/></a></div>}
     <div className={"chat-experience-grid" + (settingsOpen ? " has-context" : "")}>
       <section className={"chat-main" + (isEmpty ? " is-empty" : "")} aria-label="军师对话">

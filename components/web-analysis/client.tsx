@@ -40,7 +40,10 @@ export function useAccount() {
 export function ErrorNotice({ error }: { error: string }) { return error ? <p className="wa-error" role="alert">{error}</p> : null; }
 export function AccountNotice({ state }: { state: ReturnType<typeof useAccount> }) {
   if (state.unauthorized) return <section className={`${ui.panel} ${ui.notice}`}><h2>登录后开始</h2><p>使用你的网页账号查看积分与人物档案。</p><a className={ui.primary} href={`/login?return_to=${encodeURIComponent(typeof window !== "undefined" ? window.location.pathname + window.location.search : "/analyze")}`}>登录账号</a></section>;
-  if (state.error) return <section className={`${ui.panel} ${ui.notice}`}><ErrorNotice error={state.error}/><button className={ui.secondary} onClick={() => void state.refresh()}>重新连接</button></section>;
+  if (state.error) {
+    const identityDown = state.error.includes("账号校验");
+    return <section className={`${ui.panel} ${ui.notice}`}><ErrorNotice error={identityDown ? "登录状态暂时对不上，已保存的资料还在。请重新登录。" : state.error}/>{identityDown ? <a className={ui.primary} href={`/login?return_to=${encodeURIComponent(typeof window !== "undefined" ? window.location.pathname + window.location.search : "/analyze")}`}>重新登录</a> : null}<button className={ui.secondary} onClick={() => void state.refresh()}>重新连接</button></section>;
+  }
   return null;
 }
 export function PersonSelect({ people, value, onChange, disabled = false, empty = "本次不使用人物档案" }: { people: Json[]; value: string; onChange: (value: string) => void; disabled?: boolean; empty?: string }) {
