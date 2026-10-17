@@ -40,7 +40,7 @@ export function AddMaterials({ subjectId = "", onScreenshot, screenshotHref = "/
   const scoped = (href: string) => subjectId ? href + (href.includes("?") ? "&" : "?") + "subjectId=" + encodeURIComponent(subjectId) : href;
   const options = [
     { key: "screenshots", title: screenshotLabel, hint: "选几张，或直接粘贴", icon: ImagePlus, href: screenshotHref },
-    { key: "computer", title: "电脑导入", hint: "可选 · Windows 全部聊天", icon: Monitor, href: "/capture?method=computer" },
+    { key: "computer", title: "电脑导入", hint: "截图或窗口，不装软件", icon: Monitor, href: "/capture?method=window" },
     { key: "video", title: "聊天录屏", hint: "上传一段聊天录屏", icon: Video, href: "/capture?method=video" },
     { key: "file", title: "聊天文件", hint: "导入导出的聊天记录", icon: FileUp, href: "/import" },
     { key: "library", title: "已导入材料", hint: "接着使用之前的聊天", icon: Library, href: "/capture?method=library" },
@@ -48,7 +48,7 @@ export function AddMaterials({ subjectId = "", onScreenshot, screenshotHref = "/
   return <details className={styles.entry} ref={panel} data-add-materials data-side={openAbove ? "above" : "below"} onToggle={() => { if (disabled && panel.current) panel.current.open = false; if (panel.current?.open) positionOptions(); }}>
     <summary aria-disabled={disabled} onClick={event => { if (disabled) event.preventDefault(); else positionOptions(); }}><Plus size={18}/><span>{label}</span><ChevronDown size={15}/></summary>
     <div className={styles.options} style={{maxHeight: menuHeight, left:menuOffset, right:"auto"}}>
-      <p>先粘贴或截几张，就能拿到一句判断、三条原话和一个下一步。电脑导入全部聊天只在 Windows 上，被系统拦住时点「更多信息」再点「仍要运行」。</p>
+      <p>先粘贴或截几张，就能拿到一句判断、三条原话和一个下一步。不需要下载安装包，也不会出现 Windows 的安全提示。</p>
       {options.map(({ key, title, hint, icon: Icon, href }) => {
         const content = <><Icon size={19}/><span><strong>{title}{key === "screenshots" && <small>推荐</small>}</strong><em>{hint}</em></span><ArrowUpRight size={15}/></>;
         return key === "screenshots" && onScreenshot ? <button type="button" key={key} disabled={disabled || screenshotDisabled} onClick={() => { if (panel.current) panel.current.open = false; onScreenshot(); }}>{content}</button> : <a key={key} href={scoped(href)} onClick={event => { if (disabled) { event.preventDefault(); return; } if (panel.current) panel.current.open = false; if (onNavigate) { event.preventDefault(); onNavigate(scoped(href)); } }}>{content}</a>;
