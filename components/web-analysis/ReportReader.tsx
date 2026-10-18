@@ -7,7 +7,7 @@ import {readReportPosition,saveReportPosition,type ReportPanelPosition} from "@/
 export type ReadingSection={id:string;label:string;caption:string;tone:"coral"|"amber"|"teal"|"slate"};
 const iconFor=(id:string)=>id==="tone"||id==="status"?MessageCircle:id==="signals"||id==="content"||id==="change"?ChartNoAxesCombined:id==="replies"||id==="next"?Send:id==="evidence"?Quote:id==="overview"?UserRound:Compass;
 
-export function ReportReader({items,children,storageKey}:{items:ReadingSection[];children:(active:string)=>ReactNode;storageKey?:string}){
+export function ReportReader({items,children,storageKey,initialSection}:{items:ReadingSection[];children:(active:string)=>ReactNode;storageKey?:string;initialSection?:string}){
  const id=useId(),root=useRef<HTMLDivElement>(null),[active,setActive]=useState(items[0].id),[seen,setSeen]=useState<string[]>([items[0].id]);
  const activeRef=useRef(active),seenRef=useRef(seen),canSave=useRef(false);
  const [restore,setRestore]=useState<{section:string;position:ReportPanelPosition;focus:boolean}|null>(null);
@@ -26,12 +26,12 @@ export function ReportReader({items,children,storageKey}:{items:ReadingSection[]
  }
  useEffect(()=>{
   canSave.current=false;
-  const saved=readReportPosition(storage(),storageKey),valid=saved&&items.some(part=>part.id===saved.active),next=valid?saved.active:items[0].id;
-  const nextSeen=valid?[...new Set([items[0].id,...saved.seen.filter(value=>items.some(part=>part.id===value)),next])]:[items[0].id];
+  const saved=readReportPosition(storage(),storageKey),explicit=items.some(part=>part.id===initialSection),valid=!explicit&&saved&&items.some(part=>part.id===saved.active),next=explicit?initialSection!:valid?saved.active:items[0].id;
+  const nextSeen=valid?[...new Set([items[0].id,...saved.seen.filter(value=>items.some(part=>part.id===value)),next])]:[...new Set([items[0].id,next])];
   activeRef.current=next;seenRef.current=nextSeen;setActive(next);setSeen(nextSeen);
   if(valid&&saved.panels[next])setRestore({section:next,position:saved.panels[next],focus:false});
   else {setRestore(null);canSave.current=true;}
- },[storageKey]);
+ },[storageKey,initialSection]);
  useEffect(()=>{
   if(!restore)return;
   canSave.current=false;let cancelled=false,frame=0;const timers:ReturnType<typeof setTimeout>[]=[];

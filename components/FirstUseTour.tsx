@@ -8,7 +8,7 @@ type Page="capture"|"analyze";
 type Step={id:string;selector:string;title:string;text:string};
 type Run={key:string;steps:Step[];index:number};
 type Box={top:number;left:number;width:number;height:number};
-const VERSION="2026-10-15-v1";
+const VERSION="2026-10-18-v2";
 export const TOUR_EVENT="chengzi:show-operation-guide";
 const memory=new Set<string>();
 const storageKey=(owner:string,page:Page)=>"chengzi-first-use:"+JSON.stringify([VERSION,owner,page]);
@@ -24,12 +24,11 @@ function stepsFor(page:Page,method:string):Step[]{
    {id:"person",selector:'[data-tour="analysis-person"]',title:"认清双方，选好人物",text:"聊天先确认哪侧是你；关联人物后，新材料会接着已有档案分析。不选人物也能继续。"},
    {id:"confirm",selector:".ax-submit-row",title:"核对费用后，再开始",text:"检查上方实际张数与积分，勾选授权后再点“开始分析”。引导不会替你提交。"}
   ];
-  if(!visible(available[1].selector)&&!visible(available[2].selector))available.unshift({id:"kind",selector:'[aria-label="分析材料"]',title:"选与材料对应的类型",text:"聊天看互动与回复，朋友圈看动态，社交主页看公开资料。添加图片后会出现身份与费用确认。"});
   return available;
  }
  if(visible("#capture-preview"))return[
-  {id:"records",selector:'[aria-label="采集原文列表"]',title:"先核对实际读到的内容",text:"只有列表中看得见的消息或画面会进入分析。重复条目会标记，点图片可放大检查。"},
-  {id:"selection",selector:'[data-tour="capture-selection"]',title:"选这次需要分析的材料",text:"默认先选最近的新聊天，跳过已分析的内容。其余原文仍在本机，较长记录可以分批处理。"},
+  {id:"records",selector:'[aria-label="采集原文列表"]',title:"核对导入范围",text:"这里可以分页回看原文。完整关系报告使用已保存的全部可读聊天；尚未转写的语音会单独标明。"},
+  {id:"selection",selector:'[data-tour="capture-selection"]',title:"确认本次分析范围",text:"完整聊天分析使用全部已保存的可读聊天，分页不会缩小范围。截图逐句解读只看本次上传。"},
   {id:"analysis",selector:'[data-tour="capture-analysis"]',title:"关联人物，确认后分析",text:"选好人物并核对材料；文字材料确认费用后分析，截图会进入左右身份与顺序确认。"}
  ];
  const common:Step={id:"method",selector:'[data-tour="capture-method"]',title:"先选适合你的采集方式",text:"Windows 可用本机助手；Mac / Windows 可共享窗口；手机可导入微信录屏。"};
@@ -43,7 +42,7 @@ function stepsFor(page:Page,method:string):Step[]{
  ];
  return[
   {id:"connect",selector:'[data-tour="capture-connect"]',title:"下载网页上的助手",text:"点「下载 Windows 助手」，安装后回到这一页选择好友。截图和手机录屏也可以，不必先装助手。"},
-  {id:"friend",selector:'[data-tour="capture-friend"]',title:"填好好友，再导入",text:"填写好友的完整备注，点击下方导入按钮。聊天和语音会陆续保存，核对并确认后才分析。"}
+  {id:"friend",selector:'[data-tour="capture-friend"]',title:"搜索名字，选中具体好友",text:"输入名字的一部分即可搜索。按头像、备注和微信号选中要导入的那位，再点击导入全部资料。"}
  ];
 }
 

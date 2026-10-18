@@ -15,6 +15,7 @@ import { conversationEventMetadata, correctConversationEventDate, FeedbackError 
 import { projectPersonSavedAnalysis, savedFullHistorySignal } from "@/lib/person-saved-insights";
 import { loadSubjectRelationshipContext } from "@/lib/relationship-context-server";
 import { loadSelfArchiveMemory, correctSelfArchiveMemory, backfillSelfArchiveMemory } from "@/lib/self-archive-memory";
+import { withCaptureHistoryPurge, CAPTURE_PURGE_UNAVAILABLE } from "@/lib/capture-history-purge";
 
 export const runtime = "edge";
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
@@ -333,15 +334,19 @@ export async function POST(request: Request) {
   } else if (body.action === "delete") {
     if (typeof body.id !== "string" || !idPattern.test(body.id)) return json({ error: "对象无效。" }, 400);
     const row = await db.prepare("SELECT id FROM coach_subjects WHERE id=? AND owner_id=?").bind(body.id,owner).first();
-    if (!row) return json({ error: "没有找到这个对象。" }, 404);
-    await deleteCrush(owner,body.id);
+    const deleted = !row && await db.prepare("SELECT id FROM coach_saved_reports WHERE owner_id=? AND subject_id=? AND status='deleted' LIMIT 1").bind(owner,body.id).first();
+    if (!row && !deleted) return json({ error: "没有找到这个对象。" }, 404);
+    try { await withCaptureHistoryPurge(owner,async()=>{
+    await deleteCrush(owner,body.id as string);
     await db.batch([
       db.prepare("UPDATE coach_wechat_links SET subject_id=NULL WHERE subject_id=? AND owner_id=?").bind(body.id,owner),
       db.prepare("DELETE FROM coach_facts WHERE subject_id=? AND owner_id=?").bind(body.id,owner),
       db.prepare("DELETE FROM coach_subjects WHERE id=? AND owner_id=?").bind(body.id,owner),
     ]);
+    }); } catch(error) { if(error instanceof Error&&error.message===CAPTURE_PURGE_UNAVAILABLE)return json({error:CAPTURE_PURGE_UNAVAILABLE},503);throw error; }
   } else if (body.action === "wipe") {
     if (body.confirm !== "DELETE_MY_ARCHIVE") return json({ error: "请确认删除范围。" }, 400);
+    try { await withCaptureHistoryPurge(owner,async()=>{
     await deleteCrush(owner);
     await db.batch([
       db.prepare("UPDATE coach_wechat_links SET subject_id=NULL WHERE owner_id=?").bind(owner),
@@ -349,6 +354,7 @@ export async function POST(request: Request) {
       db.prepare("DELETE FROM coach_subjects WHERE owner_id=?").bind(owner),
       db.prepare("DELETE FROM coach_profiles WHERE owner_id=?").bind(owner),
     ]);
+    }); } catch(error) { if(error instanceof Error&&error.message===CAPTURE_PURGE_UNAVAILABLE)return json({error:CAPTURE_PURGE_UNAVAILABLE},503);throw error; }
   } else return json({ error: "不支持的操作。" }, 400);
   return json(await state(owner));
 }

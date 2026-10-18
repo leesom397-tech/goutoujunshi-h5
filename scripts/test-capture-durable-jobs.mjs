@@ -1,0 +1,472 @@
+// Real production route + Durable Object + SQLite credit/report schema.
+// Only Cloudflare storage, provider, auth and unrelated enrichment are synthetic.
+import assert from 'node:assert/strict';
+import { readFileSync, readdirSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { DatabaseSync } from 'node:sqlite';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { build } from 'esbuild';
+import * as credits from '../lib/account-credits.mjs';
+
+const require = createRequire(import.meta.url), sql = new DatabaseSync(':memory:');
+for (const file of readdirSync('drizzle').filter(name => name.endsWith('.sql')).sort()) sql.exec(readFileSync('drizzle/' + file, 'utf8'));
+let failSettlementOnce = false, failSettlementsRemaining = 0, failSettlementRequest = '';
+const db = { prepare(query) { return { args: [], bind(...args) { this.args = args; return this; },
+  async first() { return sql.prepare(query).get(...this.args) || null; },
+  async all() { return { results: sql.prepare(query).all(...this.args) }; },
+  async run() {
+    if (failSettlementOnce && query.startsWith('UPDATE coach_credit_tasks SET status=') && this.args[0] === 'settled') { failSettlementOnce = false; throw Error('SYNTHETIC_SETTLEMENT_CRASH'); }
+    if (failSettlementsRemaining && query.startsWith('UPDATE coach_credit_tasks SET status=') && this.args[0] === 'settled' && (!failSettlementRequest || this.args[3] === failSettlementRequest)) { failSettlementsRemaining--; throw Error('SYNTHETIC_LEDGER_OUTAGE'); }
+    return { meta: { changes: Number(sql.prepare(query).run(...this.args).changes) } };
+  },
+}; }, async batch(statements) { sql.exec('BEGIN'); try { const result = []; for (const item of statements) result.push(await item.run()); sql.exec('COMMIT'); return result; } catch (error) { sql.exec('ROLLBACK'); throw error; } } };
+
+const calls = [], failures = [], states = new Map(), instances = new Map(), alarmOwner = new AsyncLocalStorage();
+let providerFailure = null, reserveBudgets = 0;
+const env = { DB: db, WECHAT_CALLBACK_TOKEN: 'synthetic-internal-token' };
+const fixture = {
+  env, db,
+  async model(messages, options) {
+    const detail = JSON.parse(typeof messages.at(-1).content === 'string' ? messages.at(-1).content : messages.at(-1).content[0].text);
+    const phase = options?.vision ? 'images' : Array.isArray(detail.rows) ? 'segments' : 'synthesis';
+    calls.push({ phase, detail, owner: alarmOwner.getStore() });
+    if (providerFailure) return providerFailure(messages, options);
+    if (phase === 'images') return JSON.stringify({ readable: true, observation: '合成预览中可见海边步道。' });
+    if (phase === 'segments') return JSON.stringify({ findings: detail.rows.slice(0, 2).map(row => ({ claim: '这段原文涉及安排。', confidence: '低', alternative: '日常交流不能证明关系意图。', evidence: [{ sourceId: row.sourceId, quote: row.text.slice(0, 30) }] })) });
+    return JSON.stringify({ summary: '根据这些合成聊天，可以进一步确认实际安排。', explanation: '原话出现了对安排的讨论，但尚没有明确确认赴约的证据，所以可以核实时间，不能把讨论直接当作承诺。', summaryEvidenceIds: detail.findings?.length ? [detail.findings[0].id] : [], action: '确认双方方便的时间。', actionEvidenceIds: detail.findings?.length ? [detail.findings[0].id] : [], observeWindow: '下一次约定', stopCondition: '明确拒绝就停止' });
+  },
+  budget() { reserveBudgets++; },
+};
+globalThis.__captureDurableFixture = fixture;
+const mockSources = new Map([
+  ['cloudflare:workers', 'export const env=globalThis.__captureDurableFixture.env; export class DurableObject{constructor(ctx,env){this.ctx=ctx;this.env=env;}}'],
+  ['app', 'export default {fetch:(...args)=>globalThis.__captureDurableFixture.dispatch(...args)}'],
+  ['@/db', 'export const getD1=()=>globalThis.__captureDurableFixture.db'],
+  ['@/lib/miniapp-auth', 'export const miniappOwner=async request=>request.headers.get("x-test-owner")?{ownerId:request.headers.get("x-test-owner")}:null'],
+  ['@/lib/qwen', 'export const qwenChat=(...args)=>globalThis.__captureDurableFixture.model(...args); export const parseQwenJson=JSON.parse; export const qwenPublicError=(_error,fallback)=>fallback'],
+  ['@/lib/crush/service', 'export const requireSettings=async()=>({}); export const reserveBudget=async()=>globalThis.__captureDurableFixture.budget(); export const analyzeLines=()=>{throw Error("Unexpected selected-line analysis")}'],
+  ['@/lib/crush/screenshot', 'export const readScreenshotFromQuick=()=>{throw Error("Unexpected screenshot analysis")}'],
+  ['@/lib/profile-context', 'export const loadProfileContext=async()=>""'],
+  ['@/lib/personal-context-server', 'export const personalizeReport=async()=>({commonPoints:[],summary:"",differences:[]})'],
+  ['@/lib/self-archive-memory', 'export const updateSelfArchiveMemory=async()=>"disabled"'],
+  ['@/lib/conversation-profile-memory-server', 'export const conversationMemoryScope=async()=>null; export const emptyConversationMemory=()=>({}); export const saveConversationProfileMemory=async()=>{}'],
+  ['@/lib/knowledge', 'export const selectKnowledge=()=>[]'],
+  ['@/lib/knowledge-public', 'export const publicKnowledgeSources=()=>[]'],
+  ['./lib/social-profile-jobs.mjs', 'export class SocialProfileJobs{}; export const routeSocialProfileJob=()=>{throw Error("Unexpected profile job")}'],
+  ['./lib/miniapp-voice-memory.mjs', 'export const loadVoiceMemory=async()=>null;export const validVoiceSubjectId=()=>false'],
+  ['./lib/request-identity.mjs', 'export const requestOwner=async request=>request.headers.get("x-test-owner")?{ownerId:request.headers.get("x-test-owner")}:null; export const webOwner=requestOwner;export const isWebApi=()=>true;export const browserRequestAllowed=request=>request.headers.get("origin")===new URL(request.url).origin'],
+  ['./lib/web-native-auth.mjs', 'export const authCookie=()=>"synthetic-session"'],
+  ['./lib/web-identity-state.mjs', 'export const withWebIdentityScope=(_cookie,run)=>run()'],
+]);
+const built = await build({ stdin: { contents: `export {CaptureHistoryJobs} from './lib/capture-history-jobs.mjs';export * as route from './app/api/web/capture/analyze/route.ts';export * as cloud from './lib/capture-cloud-server.ts';export {default as worker} from './worker-entry.mjs';export * from './lib/capture-job-control.ts';`, resolveDir: process.cwd(), sourcefile: 'capture-durable-test.ts' },
+  bundle: true, write: false, format: 'cjs', platform: 'node', logLevel: 'silent', plugins: [{ name: 'synthetic-only', setup(build) {
+    build.onResolve({ filter: /.*/ }, args => {
+      const key = /dist\/server\/index\.js$/.test(args.path) ? 'app' : args.path;
+      if (mockSources.has(key)) return { path: key, namespace: 'synthetic' };
+    });
+    build.onLoad({ filter: /.*/, namespace: 'synthetic' }, args => ({ contents: mockSources.get(args.path), loader: 'js' }));
+  } }] });
+const module = { exports: {} };
+new Function('module', 'exports', 'require', 'fetch', built.outputFiles[0].text)(module, module.exports, require, () => assert.fail('No external network permitted'));
+const { CaptureHistoryJobs, route, cloud, worker, checkpointedCaptureModel, allCaptureSteps, CaptureJobYield, CaptureJobRetry } = module.exports;
+fixture.dispatch = request => route.POST(request);
+
+function makeStorage() {
+  const values = new Map(); let alarm = null, tail = Promise.resolve();
+  const storage = {
+    async get(key) { return structuredClone(values.get(key)); },
+    async put(key, value) { values.set(key, structuredClone(value)); },
+    async delete(key) { return values.delete(key); },
+    async list({ prefix = '' } = {}) { return new Map([...values].filter(([key]) => key.startsWith(prefix)).sort(([a], [b]) => a.localeCompare(b)).map(([key, value]) => [key, structuredClone(value)])); },
+    async getAlarm() { return alarm; }, async setAlarm(value) { alarm = value; }, async deleteAlarm() { alarm = null; },
+    async transaction(run) { const work = tail.then(() => run(storage)); tail = work.catch(() => {}); return work; },
+    takeAlarm() { const previous = alarm; alarm = null; return previous; },
+  };
+  return storage;
+}
+function instance(owner, restart = false) {
+  if (!states.has(owner)) states.set(owner, { storage: makeStorage(), waitUntil() {} });
+  if (restart || !instances.has(owner)) instances.set(owner, new CaptureHistoryJobs(states.get(owner), env));
+  return instances.get(owner);
+}
+env.CAPTURE_HISTORY_JOBS = { idFromName: owner => owner, get: owner => instance(owner) };
+const price = credits.CREDIT_PRICES.analysisSmall;
+const creditTask = (owner, id) => sql.prepare('SELECT * FROM coach_credit_tasks WHERE owner_id=? AND request_id=?').get(owner, id);
+const balance = owner => sql.prepare('SELECT balance FROM coach_credit_accounts WHERE owner_id=?').get(owner).balance;
+const taskCount = owner => sql.prepare('SELECT COUNT(*) AS n FROM coach_credit_tasks WHERE owner_id=?').get(owner).n;
+const request = (owner, body, headers = {}) => new Request('https://fixture.invalid/api/web/capture/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: 'https://fixture.invalid', ...(owner ? { 'x-test-owner': owner } : {}), ...headers }, body: JSON.stringify(body) });
+async function start(owner, body, expected = 202) { const response = await route.POST(request(owner, body)); const result = await response.json(); assert.equal(response.status, expected, JSON.stringify(result)); return result; }
+async function alarm(owner, restart = true) {
+  const object = instance(owner, restart), before = calls.filter(call => call.owner === owner).length;
+  states.get(owner).storage.takeAlarm(); await alarmOwner.run(owner, () => object.alarm());
+  assert.ok(calls.filter(call => call.owner === owner).length - before <= 2, 'one alarm must make at most two provider calls');
+  return object.status(owner);
+}
+async function finish(owner, limit = 12) {
+  let status;
+  for (let step = 0; step < limit; step++) { status = await alarm(owner); if (['done', 'error', 'removed'].includes(status.status)) return status; }
+  assert.fail('Task did not reach a terminal status: ' + JSON.stringify(status));
+}
+async function setup(total = 675) {
+  const owner = 'synthetic-' + crypto.randomUUID(), subject = crypto.randomUUID(), library = 'cl_' + crypto.randomUUID().replaceAll('-', '').repeat(2), friend = '合成人物';
+  await credits.ensureCreditAccount(db, owner);
+  await credits.adjustCredits(db, { id: crypto.randomUUID(), ownerId: owner, actorId: 'fixture', delta: 1000, reason: '合成测试' });
+  await credits.setCreditPermissions(db, { id: crypto.randomUUID(), ownerId: owner, actorId: 'fixture', features: ['analysis'], enabledUntil: Date.now() + 86400000, reason: '合成测试' });
+  sql.prepare("INSERT INTO coach_subjects(id,owner_id,label,status,data,created_at,updated_at) VALUES(?,?,'合成人物','active','{}',1,1)").run(subject, owner);
+  sql.prepare("INSERT INTO coach_capture_libraries(id,owner_id,account,friend,kind,subject_id,created_at,updated_at) VALUES(?,?,'synthetic-wechat',?,'chat',?,'2026-01-01','2026-01-01')").run(library, owner, friend, subject);
+  const insert = sql.prepare('INSERT INTO coach_capture_records(library_id,owner_id,epoch,local_id,digest,record_json,sort_known,sort_time,updated_at) VALUES(?,?,1,?,?,?,1,?,1)');
+  for (let i = 0; i < total; i++) {
+    const row = { localId: 'synthetic-row-' + i, kind: 'text', senderRole: i % 2 ? 'other' : 'self', sender: i % 2 ? friend : '我', at: new Date(Date.UTC(2026, 0, 1, 0, i)).toISOString(), text: '这是合成聊天第' + i + '条，讨论周末的安排。', imageCount: 0, source: { label: 'synthetic', method: 'wechat-local-db' } };
+    insert.run(library, owner, row.localId, row.localId, JSON.stringify(row), Date.parse(row.at));
+  }
+  return { owner, subject, library, body: { requestId: crypto.randomUUID(), confirmed: true, kind: 'chat', analysisScope: 'fullHistory', friend, subjectId: subject, libraryId: library, expectedEpoch: 1, expectedTotal: total, records: [], relatedSnapshots: [] } };
+}
+async function addRelated(fixture, imageCount = 3) {
+  const library = 'cl_' + crypto.randomUUID().replaceAll('-', '').repeat(2), { owner, subject, body } = fixture;
+  sql.prepare("INSERT INTO coach_capture_libraries(id,owner_id,account,friend,kind,subject_id,created_at,updated_at) VALUES(?,?,'synthetic-wechat',?,'moments',?,'2026-01-01','2026-01-01')").run(library, owner, body.friend, subject);
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jF4cAAAAASUVORK5CYII=', 'base64');
+  for (let i = 0; i < imageCount; i++) {
+    const row = { localId: 'synthetic-post-' + i, kind: 'post', senderRole: 'other', sender: body.friend, at: '2026-01-02', text: '合成动态：今天去海边散步。' + i, imageCount: 1, source: { label: 'synthetic', imageType: 'visible-ui-preview' } };
+    sql.prepare('INSERT INTO coach_capture_records(library_id,owner_id,epoch,local_id,digest,record_json,sort_known,sort_time,updated_at) VALUES(?,?,1,?,?,?,1,1,1)').run(library, owner, row.localId, row.localId, JSON.stringify(row));
+    const bytes = Buffer.concat([png, Buffer.from(library + i)]), sha = Buffer.from(await crypto.subtle.digest('SHA-256', bytes)).toString('hex'), id = 'cm_' + sha;
+    sql.prepare("INSERT INTO coach_capture_media(id,owner_id,library_id,epoch,local_id,image_index,mime,name,sha256,bytes,chunk_count,status,created_at) VALUES(?,?,?,1,?,0,'image/png','synthetic',?,?,1,'ready',1)").run(id, owner, library, row.localId, sha, bytes.length);
+    sql.prepare('INSERT INTO coach_capture_media_chunks VALUES(?,0,?)').run(id, bytes.toString('base64'));
+  }
+  body.relatedSnapshots = [{ libraryId: library, kind: 'moments', expectedEpoch: 1, expectedTotal: imageCount }];
+  return library;
+}
+let groups = 0;
+async function test(label, run) {
+  providerFailure = null; failSettlementOnce = false; failSettlementsRemaining = 0; failSettlementRequest = '';
+  try { await run(); groups++; console.log('PASS ' + label); }
+  catch (error) { failures.push({ label, error }); console.error('FAIL ' + label + '\n' + error.stack); }
+  finally { providerFailure = null; failSettlementOnce = false; failSettlementsRemaining = 0; failSettlementRequest = ''; }
+}
+
+await test('auth, ownership, internal header gate and unchanged admission cost', async () => {
+  const { owner, body } = await setup();
+  assert.equal((await route.POST(request(null, body))).status, 401);
+  assert.equal((await route.POST(request('foreign-owner', body))).status, 404);
+  for (const headers of [{ 'x-capture-job-key': env.WECHAT_CALLBACK_TOKEN }, { 'x-capture-job-owner': owner }]) assert.equal((await worker.fetch(request(owner, body, headers), env, {})).status, 403);
+  assert.equal(taskCount(owner), 0); assert.equal(balance(owner), 1000);
+  await assert.rejects(instance(owner).start(owner, { requestId: 'bad', analysisScope: 'fullHistory' }, {}), /参数无效/);
+});
+
+await test('real queued route yields after two calls, restarts, completes all 675 rows and charges once', async () => {
+  const { owner, body } = await setup(), before = calls.length, budgetsBefore = reserveBudgets;
+  const queued = await start(owner, body); assert.equal(queued.status, 'queued'); assert.equal(calls.length, before); assert.equal(balance(owner), 1000 - price);
+  const first = await alarm(owner); assert.equal(first.status, 'queued', first.error); assert.equal(first.completedText, 500); assert.equal(calls.length - before, 2); assert.equal(creditTask(owner, body.requestId).status, 'reserved');
+  assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM coach_saved_reports WHERE id=? AND status='done'").get(body.requestId).n, 0, 'yield cannot publish a partial report');
+  const done = await finish(owner); assert.equal(done.status, 'done', done.error); assert.equal(done.completedText, 675); assert.equal(done.result.semanticHistory.status, 'complete'); assert.equal(done.result.semanticHistory.coverage.analyzedText, 675); assert.equal(calls.length - before, 4); assert.equal(reserveBudgets - budgetsBefore, 1, 'daily budget is reserved once across alarms');
+  assert.equal(creditTask(owner, body.requestId).status, 'settled'); assert.equal(taskCount(owner), 1); assert.equal(balance(owner), 1000 - price);
+  assert.equal((await start(owner, body, 200)).taskId, body.requestId); assert.equal(calls.length - before, 4);
+});
+
+await test('identical snapshot reuses a saved result for free; changed snapshot creates a new task', async () => {
+  const { owner, body, library } = await setup(12); await start(owner, body); const done = await finish(owner); assert.equal(done.status, 'done', done.error);
+  const before = calls.length, reused = await start(owner, { ...body, requestId: crypto.randomUUID() }, 200);
+  assert.equal(reused.reused, true); assert.equal(reused.taskId, body.requestId); assert.equal(taskCount(owner), 1); assert.equal(balance(owner), 1000 - price); assert.equal(calls.length, before);
+  await states.get(owner).storage.delete('job:' + body.requestId);
+  instances.delete(owner);
+  const permanentReuse = await start(owner, {...body, requestId:crypto.randomUUID()}, 200);
+  assert.equal(permanentReuse.taskId, body.requestId, 'saved report fingerprint survives temporary task cleanup');
+  assert.equal(taskCount(owner), 1); assert.equal(calls.length, before);
+  sql.prepare('UPDATE coach_capture_libraries SET revision=revision+1 WHERE id=?').run(library);
+  const fresh = { ...body, requestId: crypto.randomUUID() }; assert.equal((await start(owner, fresh)).taskId, fresh.requestId); assert.equal(taskCount(owner), 2); assert.equal(balance(owner), 1000 - 2 * price);
+  assert.equal((await finish(owner)).status, 'done');
+});
+
+await test('syncing identical materials before another analysis preserves free saved-report reuse', async () => {
+  const fixture = await setup(0), at = '2026-01-01T00:00:00.000Z';
+  const library = { account: 'synthetic-resync', friend: fixture.body.friend, kind: 'chat', subjectId: fixture.subject, createdAt: at, updatedAt: at };
+  const rows = Array.from({ length: 12 }, (_, i) => ({ localId: 'sync-' + i, kind: 'text', senderRole: i % 2 ? 'other' : 'self', sender: i % 2 ? '对方' : '我', at: new Date(Date.UTC(2026, 0, 1, 0, i)).toISOString(), text: '合成同步聊天，讨论周末安排。' + i, imageCount: 0, source: { label: 'synthetic' }, firstCapturedAt: at, lastCapturedAt: at }));
+  const first = await cloud.syncCloudCaptureLibrary(fixture.owner, { requestId: crypto.randomUUID(), confirmed: true, library, records: rows }, db);
+  fixture.body = { ...fixture.body, libraryId: first.library.id, expectedTotal: 12 }; await start(fixture.owner, fixture.body); assert.equal((await finish(fixture.owner)).status, 'done');
+  const before = calls.length;
+  const synced = await cloud.syncCloudCaptureLibrary(fixture.owner, { requestId: crypto.randomUUID(), confirmed: true, libraryId: first.library.id, expectedEpoch: 1, library: { ...library, updatedAt: '2026-01-02T00:00:00.000Z' }, records: rows }, db);
+  assert.equal(synced.library.revision, first.library.revision);
+  const reused = await start(fixture.owner, { ...fixture.body, requestId: crypto.randomUUID() }, 200); assert.equal(reused.reused, true); assert.equal(reused.taskId, fixture.body.requestId); assert.equal(calls.length, before); assert.equal(balance(fixture.owner), 1000 - price); assert.equal(taskCount(fixture.owner), 1);
+});
+
+await test('same-owner concurrent submissions converge while different owners remain independent', async () => {
+  const a = await setup(12), b = await setup(12), bodies = [a.body, { ...a.body, requestId: crypto.randomUUID() }, { ...a.body, requestId: crypto.randomUUID(), question: 'risk' }];
+  const results = await Promise.all(bodies.map(body => start(a.owner, body))); assert.equal(new Set(results.map(result => result.taskId)).size, 1); assert.equal(taskCount(a.owner), 1); assert.equal(results.filter(result => result.active).length, 2); assert.ok(results.some(result => result.active && result.sameMaterials === false));
+  await start(b.owner, b.body); const completed = await Promise.all([finish(a.owner), finish(b.owner)]); assert.ok(completed.every(item => item.status === 'done'), JSON.stringify(completed.map(item => item.error)));
+  assert.equal(await instance(a.owner).status(b.owner, a.body.requestId), null);
+  const get = await route.GET(new Request('https://fixture.invalid/api/web/capture/analyze?taskId=' + a.body.requestId, { headers: { 'x-test-owner': b.owner } })); assert.equal((await get.json()).status, 'none');
+  assert.equal(balance(a.owner), 1000 - price); assert.equal(balance(b.owner), 1000 - price);
+});
+
+await test('changed input cannot reuse a request ID and checkpoint RPC enforces owner/token', async () => {
+  const { owner, body } = await setup(); await start(owner, body);
+  const job = await states.get(owner).storage.get('job:' + body.requestId);
+  await assert.rejects(instance(owner).start(owner, { ...job.input, question: 'risk' }, job.manifest), /不一致/);
+  await assert.rejects(instance(owner).checkpoint(owner, body.requestId, 'wrong-token', 'context'), /验证失败/);
+  await assert.rejects(instance(owner).checkpoint('foreign-owner', body.requestId, env.WECHAT_CALLBACK_TOKEN, 'context'), /任务已结束/);
+  await assert.rejects(instance(owner).checkpoint(owner, body.requestId, env.WECHAT_CALLBACK_TOKEN, 'not-a-hash'), /检查点无效/);
+  assert.equal(taskCount(owner), 1);
+});
+
+await test('snapshot updates before execution refund without a model call', async () => {
+  const { owner, body, library } = await setup(); const before = calls.length; await start(owner, body);
+  sql.prepare('UPDATE coach_capture_libraries SET revision=revision+1 WHERE id=?').run(library);
+  const stopped = await alarm(owner); assert.equal(stopped.status, 'error'); assert.match(stopped.error, /更新|变化/); assert.equal(calls.length, before); assert.equal(balance(owner), 1000); assert.equal(creditTask(owner, body.requestId).status, 'released');
+});
+
+await test('changed related snapshots stop before any vision provider call', async () => {
+  const fixture = await setup(12), related = await addRelated(fixture); await start(fixture.owner, fixture.body);
+  sql.prepare('UPDATE coach_capture_libraries SET revision=revision+1 WHERE id=?').run(related);
+  const before = calls.length, result = await alarm(fixture.owner);
+  assert.equal(result.status, 'error', result.error); assert.match(result.error, /更新|变化/); assert.equal(calls.length, before, 'stale related materials cannot consume image model calls'); assert.equal(balance(fixture.owner), 1000);
+});
+
+await test('image and text work share the two-call alarm budget and preserve complete source coverage', async () => {
+  const fixture = await setup(); await addRelated(fixture); const before = calls.length; await start(fixture.owner, fixture.body);
+  const first = await alarm(fixture.owner); assert.equal(first.status, 'queued', first.error); assert.equal(first.completedImages, 2); assert.equal(first.completedText, 0);
+  const done = await finish(fixture.owner); assert.equal(done.status, 'done', done.error); assert.equal(done.completedImages, 3); assert.equal(done.completedText, 675); assert.equal(calls.length - before, 8);
+  const segments=calls.slice(before).filter(call=>Array.isArray(call.detail.rows));
+  assert.equal(segments.length,4,'three chat segments and one independent Moments evidence pass');
+  const momentsSegment=segments.filter(call=>call.detail.rows.every(row=>row.sourceKind==='moments'));
+  assert.equal(momentsSegment.length,1,'Moments must not compete with the last chat segment for observation slots');
+  assert.equal(momentsSegment[0].detail.rows.filter(row=>row.basis==='caption').length,3);
+  assert.equal(momentsSegment[0].detail.rows.filter(row=>row.basis==='visual').length,3);
+  assert.equal(segments.flatMap(call=>call.detail.rows).filter(row=>row.basis==='chat-original').length,675);
+  const moments = done.result.sourceCoverage.find(source => source.kind === 'moments'); assert.equal(moments.imagesAnalyzed, 3); assert.equal(moments.textRead, 3); assert.equal(done.result.semanticHistory.coverage.analyzedText, 675); assert.equal(balance(fixture.owner), 1000 - price);
+});
+
+await test('snapshot update after a yield refunds; a new request reuses unchanged finished segments', async () => {
+  const { owner, body, library } = await setup(); await start(owner, body); const before = calls.length; assert.equal((await alarm(owner)).completedText, 500);
+  sql.prepare('UPDATE coach_capture_libraries SET revision=revision+1 WHERE id=?').run(library);
+  const stopped = await alarm(owner); assert.equal(stopped.status, 'error'); assert.equal(balance(owner), 1000); assert.equal(calls.length - before, 2);
+  const retry = { ...body, requestId: crypto.randomUUID() }; await start(owner, retry); const result = await finish(owner); assert.equal(result.status, 'done', result.error); assert.equal(result.reusedSteps, 2); assert.equal(calls.length - before, 4); assert.equal(balance(owner), 1000 - price); assert.equal(creditTask(owner, body.requestId).status, 'released'); assert.equal(creditTask(owner, retry.requestId).status, 'settled');
+});
+
+await test('provider failures retain checkpoints, refund exactly once and retry only unfinished work', async () => {
+  const { owner, body } = await setup(); await start(owner, body); await alarm(owner); const cached = (await instance(owner).status(owner)).completedText; assert.equal(cached, 500);
+  providerFailure = () => { throw Error('SYNTHETIC_PROVIDER_FAILURE'); };
+  let last; for (let i = 0; i < 4; i++) { last = await alarm(owner); assert.equal(last.completedText, 500); assert.equal(last.status, i < 3 ? 'retrying' : 'error', last.error); }
+  assert.equal(balance(owner), 1000); assert.equal(creditTask(owner, body.requestId).status, 'released'); await alarm(owner); assert.equal(balance(owner), 1000, 'repeat alarm cannot refund twice');
+  providerFailure = null; const before = calls.length, retry = { ...body, requestId: crypto.randomUUID() }; await start(owner, retry); const done = await finish(owner);
+  assert.equal(done.status, 'done', done.error); assert.equal(done.reusedSteps, 2); assert.equal(calls.length - before, 2); assert.equal(balance(owner), 1000 - price);
+});
+
+await test('reimport epoch and changed question invalidate checkpoint reuse', async () => {
+  const { owner, body, library } = await setup(12); await start(owner, body); assert.equal((await finish(owner)).status, 'done');
+  sql.prepare('UPDATE coach_capture_libraries SET epoch=2,revision=revision+1 WHERE id=?').run(library); sql.prepare('UPDATE coach_capture_records SET epoch=2 WHERE library_id=?').run(library);
+  const reimport = { ...body, requestId: crypto.randomUUID(), expectedEpoch: 2 }, before = calls.length; await start(owner, reimport); const reimported = await finish(owner);
+  assert.equal(reimported.status, 'done', reimported.error); assert.equal(reimported.reusedSteps, 0); assert.equal(calls.length - before, 2);
+  const changed = { ...reimport, requestId: crypto.randomUUID(), question: 'risk' }, questionBefore = calls.length; await start(owner, changed); const result = await finish(owner);
+  assert.equal(result.status, 'done', result.error); assert.equal(result.reusedSteps, 0); assert.equal(calls.length - questionBefore, 2); assert.equal(balance(owner), 1000 - 3 * price);
+});
+
+await test('failed durable admission refunds the reservation and cannot execute the abandoned ID', async () => {
+  const { owner, body } = await setup(12), object = instance(owner), storage = states.get(owner).storage, transaction = storage.transaction;
+  storage.transaction = async () => { throw Error('SYNTHETIC_STORAGE_FAILURE'); };
+  const response = await route.POST(request(owner, body)); assert.equal(response.status, 503); assert.equal(balance(owner), 1000); assert.equal(creditTask(owner, body.requestId).status, 'released'); assert.equal(await object.status(owner, body.requestId), null);
+  storage.transaction = transaction;
+  const again = await route.POST(request(owner, body)); assert.ok(!again.ok); assert.equal(balance(owner), 1000);
+  await start(owner, { ...body, requestId: crypto.randomUUID() }); assert.equal((await finish(owner)).status, 'done'); assert.equal(balance(owner), 1000 - price);
+});
+
+await test('malformed model outputs never become checkpoints or charged partial reports', async () => {
+  const { owner, body } = await setup(12); providerFailure = () => '{malformed-json'; await start(owner, body); const result = await finish(owner);
+  assert.equal(result.status, 'error', result.error); assert.equal((await states.get(owner).storage.list({ prefix: 'step:' })).size, 0); assert.equal(balance(owner), 1000); assert.equal(creditTask(owner, body.requestId).status, 'released');
+  assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM coach_saved_reports WHERE id=? AND status='done'").get(body.requestId).n, 0);
+});
+
+await test('summary-only synthesis retries without losing completed evidence or charging a partial report', async()=>{
+  const {owner,body}=await setup(),before=calls.length;await start(owner,body);await alarm(owner);
+  providerFailure=messages=>{
+    const detail=JSON.parse(messages.at(-1).content);
+    if(detail.rows)return JSON.stringify({findings:[{claim:'后段讨论具体安排',evidence:[{sourceId:detail.rows[0].sourceId,quote:detail.rows[0].text.slice(0,30)}]}]});
+    return JSON.stringify({summary:'尚需确认安排。',summaryEvidenceIds:[detail.findings[0].id]});
+  };
+  const retrying=await alarm(owner);assert.equal(retrying.status,'retrying');assert.equal(retrying.completedText,675);assert.equal(retrying.phase,'synthesis');assert.match(retrying.error,/重试/);
+  const checkpoints=await states.get(owner).storage.list({prefix:'step:'});assert.equal(checkpoints.size,3);assert.ok([...checkpoints.values()].every(step=>step.phase==='segments'));
+  assert.equal(creditTask(owner,body.requestId).status,'reserved');assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM coach_saved_reports WHERE id=? AND status='done'").get(body.requestId).n,0);
+  providerFailure=null;const done=await finish(owner);assert.equal(done.status,'done',done.error);assert.ok(done.result.semanticHistory.explanation);
+  assert.equal(calls.slice(before).filter(call=>call.phase==='segments').length,3,'verified segments must not run again after sparse synthesis');
+  assert.equal(calls.slice(before).filter(call=>call.phase==='synthesis').length,2);assert.equal(balance(owner),1000-price);assert.equal(creditTask(owner,body.requestId).status,'settled');
+});
+
+await test('persistent ungrounded synthesis refunds and never caches or saves a complete report',async()=>{
+  const {owner,body}=await setup(),before=calls.length;await start(owner,body);await alarm(owner);
+  providerFailure=messages=>{
+    const detail=JSON.parse(messages.at(-1).content);
+    return JSON.stringify(detail.rows?{findings:[{claim:'后段讨论安排',evidence:[{sourceId:detail.rows[0].sourceId,quote:detail.rows[0].text.slice(0,30)}]}]}:{summary:'没有可核对的概括',explanation:'虽然文字齐全，但引用是伪造的。',summaryEvidenceIds:['fake-evidence']});
+  };
+  const failed=await finish(owner);assert.equal(failed.status,'error');assert.equal(failed.completedText,675);assert.equal(balance(owner),1000);assert.equal(creditTask(owner,body.requestId).status,'released');
+  assert.equal(calls.slice(before).filter(call=>call.phase==='segments').length,3);assert.equal(calls.slice(before).filter(call=>call.phase==='synthesis').length,4);
+  const checkpoints=await states.get(owner).storage.list({prefix:'step:'});assert.equal(checkpoints.size,3);assert.ok([...checkpoints.values()].every(step=>step.phase==='segments'));
+  assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM coach_saved_reports WHERE id=? AND status='done'").get(body.requestId).n,0);
+  const count=calls.length;await alarm(owner);assert.equal(calls.length,count);assert.equal(balance(owner),1000,'refund and terminal retry stay idempotent');
+});
+
+await test('crash after durable completion but before settlement settles without repeating model work', async () => {
+  const { owner, body } = await setup(12); await start(owner, body); failSettlementOnce = true;
+  assert.equal((await alarm(owner)).status, 'done');
+  const job = await states.get(owner).storage.get('job:' + body.requestId); assert.equal(job.status, 'done'); assert.ok(!job.creditFinished); assert.equal(creditTask(owner, body.requestId).status, 'reserved');
+  assert.ok(job.nextSettlementAt > Date.now()); assert.ok(await states.get(owner).storage.getAlarm());
+  job.nextSettlementAt=Date.now()-1;await states.get(owner).storage.put('job:'+body.requestId,job);
+  const before = calls.length; assert.equal((await alarm(owner)).status, 'done'); assert.equal(calls.length, before); assert.equal(creditTask(owner, body.requestId).status, 'settled'); assert.equal(balance(owner), 1000 - price);
+});
+
+await test('ledger outage beyond platform retry budget remains scheduled and GET repairs an exhausted alarm', async () => {
+  const {owner,body}=await setup(12);await start(owner,body);failSettlementsRemaining=8;
+  const storage=states.get(owner).storage;let providerCount;
+  for(let attempt=0;attempt<8;attempt++){
+    if(attempt){const job=await storage.get('job:'+body.requestId);job.nextSettlementAt=Date.now()-1;await storage.put('job:'+body.requestId,job);}
+    const result=await alarm(owner);assert.equal(result.status,'done');assert.equal(result.creditTaskStatus,'reserved');assert.equal(result.creditSettlementPending,true);
+    const job=await storage.get('job:'+body.requestId);assert.equal(job.creditFinished,false);assert.equal(job.settlementAttempts,attempt+1);assert.ok(job.nextSettlementAt>Date.now());assert.ok(job.nextSettlementAt<=Date.now()+300000);assert.ok(await storage.getAlarm(),'each failed ledger attempt durably schedules another alarm');
+    providerCount ??=calls.length;assert.equal(calls.length,providerCount,'ledger retry never calls a model');
+  }
+  const job=await storage.get('job:'+body.requestId);job.nextSettlementAt=Date.now()-1;await storage.put('job:'+body.requestId,job);storage.takeAlarm();assert.equal(await storage.getAlarm(),null);
+  const response=await route.GET(new Request('https://fixture.invalid/api/web/capture/analyze?taskId='+body.requestId,{headers:{'x-test-owner':owner}}));
+  assert.equal(response.status,200);assert.equal((await response.json()).creditTaskStatus,'reserved');assert.ok(await storage.getAlarm(),'GET restores terminal unsettled task after missing/exhausted alarm');
+  const done=await alarm(owner);assert.equal(done.creditTaskStatus,'settled');assert.equal(done.creditSettlementPending,false);assert.equal(calls.length,providerCount);assert.equal(balance(owner),1000-price);assert.equal(taskCount(owner),1);
+});
+
+await test('cron-released completion records the real ledger outcome and does not block the same owner next task', async () => {
+  const {owner,body}=await setup(12);body.requestId='00000000-0000-4000-8000-000000000001';await start(owner,body);failSettlementOnce=true;await alarm(owner);
+  const storage=states.get(owner).storage,old=await storage.get('job:'+body.requestId);assert.equal(old.creditFinished,false);
+  await credits.finishCreditTask(db,owner,body.requestId,false);assert.equal(balance(owner),1000,'same terminal transition used by expiration cron refunds once');
+  old.nextSettlementAt=Date.now()-1;await storage.put('job:'+body.requestId,old);
+  const next={...body,requestId:'ffffffff-ffff-4fff-8fff-ffffffffffff',question:'next'};await start(owner,next);
+  await alarm(owner);const prior=await instance(owner).status(owner,body.requestId),done=await instance(owner).status(owner,next.requestId);
+  assert.equal(prior.status,'done');assert.equal(prior.creditTaskStatus,'released');assert.equal(prior.creditSettlementPending,false);assert.match(prior.creditSettlementIssue,/已退回/);assert.ok(prior.result,'delivered report remains available');
+  assert.equal(done.status,'done');assert.equal(done.creditTaskStatus,'settled');assert.equal(creditTask(owner,body.requestId).status,'released');assert.equal(creditTask(owner,next.requestId).status,'settled');assert.equal(balance(owner),1000-price);assert.equal(taskCount(owner),2,'no replacement charge for the cron-released task');
+});
+
+await test('one unavailable settlement does not prevent another task for the same owner from completing', async () => {
+  const {owner,body}=await setup(12);body.requestId='00000000-0000-4000-8000-000000000002';await start(owner,body);failSettlementsRemaining=10;failSettlementRequest=body.requestId;await alarm(owner);
+  const storage=states.get(owner).storage,old=await storage.get('job:'+body.requestId);old.nextSettlementAt=Date.now()-1;await storage.put('job:'+body.requestId,old);
+  const next={...body,requestId:'ffffffff-ffff-4fff-8fff-fffffffffffe',question:'next'};await start(owner,next);await alarm(owner);
+  const prior=await instance(owner).status(owner,body.requestId),done=await instance(owner).status(owner,next.requestId);
+  assert.equal(prior.creditTaskStatus,'reserved');assert.equal(prior.creditSettlementPending,true);assert.equal(done.status,'done');assert.equal(done.creditTaskStatus,'settled');assert.ok(await storage.getAlarm());
+});
+
+await test('deleting an in-progress or completed report cannot resurrect it on alarms or replay', async () => {
+  const { owner, body } = await setup(); await start(owner, body); await alarm(owner);
+  sql.prepare("UPDATE coach_saved_reports SET status='deleted',result='{}' WHERE id=? AND owner_id=?").run(body.requestId, owner);
+  const result = await finish(owner); assert.equal(result.status, 'error', result.error); assert.equal(balance(owner), 1000); assert.equal(sql.prepare('SELECT status FROM coach_saved_reports WHERE id=?').get(body.requestId).status, 'deleted');
+  await alarm(owner); assert.equal(sql.prepare('SELECT status FROM coach_saved_reports WHERE id=?').get(body.requestId).status, 'deleted');
+  const completed = await setup(12); await start(completed.owner, completed.body); assert.equal((await finish(completed.owner)).status, 'done');
+  sql.prepare("UPDATE coach_saved_reports SET status='deleted',result='{}' WHERE id=?").run(completed.body.requestId);
+  const before = calls.length; assert.equal((await instance(completed.owner, true).status(completed.owner, completed.body.requestId)).status, 'removed'); await alarm(completed.owner);
+  assert.equal(calls.length, before); assert.equal(sql.prepare('SELECT status FROM coach_saved_reports WHERE id=?').get(completed.body.requestId).status, 'deleted');
+  const replay = await start(completed.owner, completed.body); assert.equal(replay.status, 'removed'); assert.equal(taskCount(completed.owner), 1); assert.equal(balance(completed.owner), 1000 - price);
+});
+
+await test('expired jobs release the reservation and status repairs a missing alarm', async () => {
+  const { owner, body } = await setup(); await start(owner, body); const storage = states.get(owner).storage; storage.takeAlarm(); assert.equal(await storage.getAlarm(), null);
+  await instance(owner, true).status(owner, body.requestId); assert.ok(await storage.getAlarm());
+  const job = await storage.get('job:' + body.requestId); job.expiresAt = Date.now() - 1; await storage.put('job:' + body.requestId, job);
+  const before = calls.length, result = await alarm(owner); assert.equal(result.status, 'error'); assert.match(result.error, /到期/); assert.equal(calls.length, before); assert.equal(balance(owner), 1000);
+});
+
+await test('purging during a model call rejects late checkpoints, clears private job context and refunds once', async () => {
+  const current = await setup(), other = await setup(12); await start(current.owner, current.body); await alarm(current.owner); await start(other.owner, other.body);
+  const storage = states.get(current.owner).storage;
+  assert.equal((await storage.list({ prefix: 'step:' })).size, 2);
+  assert.ok((await storage.get('job:' + current.body.requestId)).context);
+  const otherBefore = await states.get(other.owner).storage.list();
+  let arrived, release;
+  const entered = new Promise(resolve => { arrived = resolve; }), gate = new Promise(resolve => { release = resolve; });
+  providerFailure = async messages => { arrived(); await gate; const detail = JSON.parse(messages.at(-1).content); return JSON.stringify({ findings: detail.rows.slice(0, 1).map(row => ({ claim: '迟到的合成结果', confidence: '低', alternative: '仍需核实', evidence: [{ sourceId: row.sourceId, quote: row.text.slice(0, 20) }] })) }); };
+  const pending = alarm(current.owner);
+  try {
+    await entered;
+    await instance(current.owner).purge(current.owner);
+    const clean = await storage.get('job:' + current.body.requestId);
+    assert.equal(clean.purged, true); assert.equal(clean.status, 'error'); assert.equal(clean.creditFinished, true); assert.equal(clean.input.friend, ''); assert.equal(clean.input.subjectId, null); assert.equal(clean.input.libraryId, null); assert.equal(clean.context, undefined); assert.deepEqual(clean.manifest, {}); assert.equal(clean.fingerprint, ''); assert.deepEqual(clean.used, []);
+    assert.equal((await storage.list({ prefix: 'step:' })).size, 0); assert.equal(balance(current.owner), 1000); assert.equal(creditTask(current.owner, current.body.requestId).status, 'released');
+    await assert.rejects(instance(current.owner).checkpoint(current.owner, current.body.requestId, env.WECHAT_CALLBACK_TOKEN, 'a'.repeat(64), { text: 'late secret', phase: 'segments', count: 1 }), /任务已结束/);
+    await instance(current.owner).purge(current.owner); assert.equal(balance(current.owner), 1000, 'repeated purge refunds only once');
+    assert.deepEqual(await states.get(other.owner).storage.list(), otherBefore); assert.equal(balance(other.owner), 1000 - price); assert.equal(creditTask(other.owner, other.body.requestId).status, 'reserved');
+  } finally { release(); await pending; providerFailure = null; }
+  assert.equal((await storage.list()).size, 0, 'alarm removes sanitized tombstones after settlement'); assert.equal(await storage.getAlarm(), null);
+  assert.equal(sql.prepare('SELECT status FROM coach_saved_reports WHERE id=?').get(current.body.requestId).status, 'deleted');
+  const before = calls.length; await alarm(current.owner); assert.equal(calls.length, before); assert.equal(balance(current.owner), 1000); assert.equal((await storage.list()).size, 0);
+  assert.equal((await finish(other.owner)).status, 'done', 'another owner continues normally');
+});
+
+await test('purging after the final checkpoint but before the report write cannot resurrect a result', async () => {
+  const { owner, body } = await setup(12); await start(owner, body);
+  let arrived, release;
+  const entered = new Promise(resolve => { arrived = resolve; }), gate = new Promise(resolve => { release = resolve; }), originalPrepare = db.prepare;
+  db.prepare = function(query) {
+    const statement = originalPrepare(query), run = statement.run;
+    if (query.startsWith('UPDATE coach_saved_reports SET result=')) statement.run = async function() { if (this.args[5] === owner) { arrived(); await gate; } return run.call(this); };
+    return statement;
+  };
+  const pending = alarm(owner);
+  try {
+    await entered; await instance(owner).purge(owner);
+    assert.equal(sql.prepare('SELECT status FROM coach_saved_reports WHERE id=?').get(body.requestId).status, 'deleted'); assert.equal(balance(owner), 1000);
+  } finally { release(); await pending; db.prepare = originalPrepare; }
+  const row = sql.prepare('SELECT status,result FROM coach_saved_reports WHERE id=?').get(body.requestId); assert.equal(row.status, 'deleted'); assert.equal(row.result, '{}'); assert.equal(creditTask(owner, body.requestId).status, 'released');
+  assert.equal((await states.get(owner).storage.list()).size, 0); const before = calls.length; await alarm(owner); assert.equal(calls.length, before); assert.equal(balance(owner), 1000);
+});
+
+await test('terminal purge removes all job and step data; deleting the report forces fresh model steps', async () => {
+  const { owner, body } = await setup(), other = await setup(12); await start(owner, body); assert.equal((await finish(owner)).status, 'done'); await start(other.owner, other.body);
+  const storage = states.get(owner).storage, otherBefore = await states.get(other.owner).storage.list(); assert.ok((await storage.list({ prefix: 'step:' })).size > 0);
+  await assert.rejects(instance(owner).purge(other.owner), /账号不一致/); assert.ok((await storage.list({ prefix: 'step:' })).size > 0);
+  sql.prepare("UPDATE coach_saved_reports SET status='deleted',result='{}',summary='' WHERE id=? AND owner_id=?").run(body.requestId, owner);
+  await instance(owner).purge(owner); assert.equal((await storage.list()).size, 0, 'finished job friend, manifest and cached model text are removed'); assert.deepEqual(await states.get(other.owner).storage.list(), otherBefore); assert.equal(balance(owner), 1000 - price, 'already delivered reports are not refunded again');
+  await alarm(owner); assert.equal(await storage.getAlarm(), null); await instance(owner).purge(owner); await alarm(owner); assert.equal((await storage.list()).size, 0);
+  assert.equal(sql.prepare('SELECT COUNT(*) AS n FROM coach_capture_records WHERE owner_id=? AND library_id=?').get(owner, body.libraryId).n, 675, 'original source remains for explicit re-analysis');
+  const before = calls.length, fresh = { ...body, requestId: crypto.randomUUID() }; const queued = await start(owner, fresh); assert.equal(queued.reused, undefined); assert.equal(queued.taskId, fresh.requestId);
+  const done = await finish(owner); assert.equal(done.status, 'done', done.error); assert.equal(done.reusedSteps, 0); assert.equal(calls.length - before, 4, 'deleted cached steps cannot be reused even with the same source epoch'); assert.equal(balance(owner), 1000 - 2 * price); assert.equal(sql.prepare('SELECT status FROM coach_saved_reports WHERE id=?').get(body.requestId).status, 'deleted');
+});
+
+await test('concurrent checkpoint calls finish in-flight work before yielding and validate phase outputs', async () => {
+  const cache = new Map(), releases = []; let providerCalls = 0, finished = false;
+  const checkpoint = async (key, update) => { if (update && key !== 'progress') cache.set(key, update); return cache.get(key); };
+  const model = checkpointedCaptureModel(async () => { providerCalls++; await new Promise(resolve => releases.push(resolve)); return JSON.stringify({ findings: [] }); }, checkpoint);
+  const messages = i => [{ role: 'user', content: JSON.stringify({ rows: [{ basis: 'chat-original', text: '合成' + i }] }) }];
+  const all = allCaptureSteps([model(messages(1)), model(messages(2)), model(messages(3))]).finally(() => { finished = true; });
+  while (releases.length < 2) await new Promise(resolve => setTimeout(resolve, 1));
+  assert.equal(providerCalls, 2); assert.equal(finished, false); releases.forEach(resolve => resolve()); await assert.rejects(all, error => error instanceof CaptureJobYield); assert.equal(cache.size, 2);
+  const malformed = checkpointedCaptureModel(async () => JSON.stringify({ wrong: true }), async () => null);
+  await assert.rejects(malformed(messages(4)), error => error instanceof CaptureJobRetry);
+});
+
+await test('sparse legacy synthesis cache is replaced while concise grounded reasoning is accepted',async()=>{
+  const messages=[{role:'user',content:JSON.stringify({findings:[{id:'verified-one'}]})}],options={fast:true,json:true,maxTokens:7000};
+  const oldKey=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify({version:1,messages,options})))),byte=>byte.toString(16).padStart(2,'0')).join('');
+  const cache=new Map([[oldKey,{text:JSON.stringify({summary:'旧的一句话',summaryEvidenceIds:['verified-one']})}]]);let providerCalls=0;
+  const model=checkpointedCaptureModel(async()=>{providerCalls++;return JSON.stringify({summary:'可继续核实安排。',explanation:'有提议，尚无兑现证据。',summaryEvidenceIds:['verified-one']});},async(key,update)=>{if(update&&key!=='progress')cache.set(key,update);return cache.get(key);});
+  assert.match(await model(messages,options),/尚无兑现证据/);assert.equal(providerCalls,1);assert.equal(cache.size,2);
+  assert.match(await model(messages,options),/尚无兑现证据/);assert.equal(providerCalls,1,'validated new synthesis is reused');
+  const noFindings=checkpointedCaptureModel(async()=>JSON.stringify({summary:'目前没有可靠观察。'}),async()=>null);
+  assert.match(await noFindings([{role:'user',content:JSON.stringify({findings:[]})}],options),/没有可靠观察/);
+});
+
+await test('edited person context between alarms stops the frozen analysis and releases credits once', async()=>{
+  const {owner,subject,body}=await setup();
+  sql.prepare("INSERT INTO coach_profiles(owner_id,consent_at,paused,data,updated_at) VALUES(?,1,0,'{}',1)").run(owner);
+  await start(owner,body);await alarm(owner);const before=calls.length;
+  sql.prepare("UPDATE coach_subjects SET data=json_set(data,'$.concerns','用户补充：关系期待已明确改变') WHERE id=?").run(subject);
+  const result=await alarm(owner);assert.equal(result.status,'error');assert.match(result.error,/资料或档案授权已改变/);assert.equal(calls.length,before);
+  assert.equal(balance(owner),1000);assert.equal(creditTask(owner,body.requestId).status,'released');assert.equal((await states.get(owner).storage.get('job:'+body.requestId)).context,undefined);
+  await alarm(owner);assert.equal(balance(owner),1000);
+});
+
+await test('pausing or revoking profile consent during a model call prevents further calls and saving', async()=>{
+  for(const change of ['paused=1','consent_at=NULL']){
+    const {owner,body}=await setup(12);
+    sql.prepare("INSERT INTO coach_profiles(owner_id,consent_at,paused,data,updated_at) VALUES(?,1,0,'{}',1)").run(owner);
+    await start(owner,body);const before=calls.length;
+    providerFailure=async messages=>{sql.prepare('UPDATE coach_profiles SET '+change+' WHERE owner_id=?').run(owner);const detail=JSON.parse(messages.at(-1).content);return JSON.stringify({findings:detail.rows.slice(0,1).map(row=>({claim:'合成判断',confidence:'低',alternative:'需核实',evidence:[{sourceId:row.sourceId,quote:row.text}]}))});};
+    const result=await alarm(owner);providerFailure=null;
+    assert.equal(result.status,'error');assert.match(result.error,/资料或档案授权已改变/);assert.equal(calls.length-before,1,'no second provider receives the revoked context');
+    assert.equal(balance(owner),1000);assert.notEqual(sql.prepare('SELECT status FROM coach_saved_reports WHERE id=?').get(body.requestId).status,'done');
+    assert.equal((await states.get(owner).storage.get('job:'+body.requestId)).context,undefined);
+  }
+});
+
+delete globalThis.__captureDurableFixture;
+sql.close();
+assert.equal(failures.length, 0, failures.map(item => item.label + ': ' + item.error.message).join('\n'));
+console.log(`PASS ${groups} durable-capture groups; real SQLite billing/report triggers, synthetic Cloudflare/provider only.`);

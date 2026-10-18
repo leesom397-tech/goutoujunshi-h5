@@ -22,3 +22,8 @@
 .readingCoverage { display:flex; gap:24px; flex-wrap:wrap; margin:0; }
 .readingCoverage dt { color:#68594e; font-size:14px; }
 .readingCoverage dd { margin:5px 0 0; font-size:18px; font-weight:600; }
+.evidenceLink { display:flex; align-items:center; flex-wrap:wrap; gap:8px 16px; margin:8px 0; }
+.evidenceLink > small { color:#68594e; font-size:14px; }
+.evidencePager { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:20px; font-size:14px; color:#68594e; }
+.evidencePager button { display:flex; align-items:center; gap:4px; min-height:44px; padding:8px 12px; border:1px solid #dec6b7; border-radius:10px; background:#fffaf5; color:#88513d; font:inherit; cursor:pointer; }
+.evidencePager button:disabled { opacity:.4; cursor:default; }

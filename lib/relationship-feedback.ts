@@ -1,4 +1,4 @@
-export const feedbackOutcomes = ["not_done", "waiting", "positive", "alternative", "declined", "uncomfortable"] as const;
+export const feedbackOutcomes = ["not_done", "waiting", "positive", "alternative", "declined", "uncomfortable", "changed"] as const;
 export type FeedbackOutcome = typeof feedbackOutcomes[number];
 export type ActionFeedback = {
   id: string; reportId: string; action: string; outcome: FeedbackOutcome;
@@ -7,9 +7,10 @@ export type ActionFeedback = {
 };
 const labels: Record<FeedbackOutcome, string> = {
   not_done: "尚未执行", waiting: "已执行，等待反馈", positive: "有积极反馈",
-  alternative: "对方提出其他安排", declined: "对方明确拒绝", uncomfortable: "这次相处让我不舒服"
+  alternative: "对方提出其他安排", declined: "对方明确拒绝", uncomfortable: "这次相处让我不舒服", changed: "情况有变化"
 };
 const reviews: Record<FeedbackOutcome, string> = {
+  changed: "你补充了情况变化；先结合这次实际经过重新核对，不假定已经执行建议，也不把变化归因于建议。",
   not_done: "这次建议尚未执行，不能据此判断对方态度或建议是否有效。可以先调整成你愿意做的一小步。",
   waiting: "你已执行建议，目前还没有结果。先保留原判断，不把暂未回应自动解释成拒绝。",
   positive: "你反馈了积极结果，这是值得保留的新进展。下一步观察是否持续互惠与兑现，不据此认定关系已经升级。",

@@ -46,10 +46,36 @@ sql.prepare("INSERT INTO coach_subjects(id,owner_id,label,status,data,created_at
 const textRow={...primary[0],sender:'我',source:{label:'synthetic'},imageCount:0};sql.prepare("INSERT INTO coach_capture_records(library_id,owner_id,epoch,local_id,digest,record_json,sort_known,sort_time,updated_at) VALUES(?,?,1,?,?,?,0,1,1)").run(chatId,owner,textRow.localId,textRow.localId,JSON.stringify(textRow));
 const credits=load('lib/account-credits.mjs');await credits.ensureCreditAccount(db,owner);await credits.adjustCredits(db,{id:crypto.randomUUID(),ownerId:owner,actorId:'fixture',delta:100,reason:'合成测试'});await credits.setCreditPermissions(db,{id:crypto.randomUUID(),ownerId:owner,actorId:'fixture',features:['analysis'],enabledUntil:Date.now()+86400000,reason:'合成测试'});
 let routeCalls=0;
+const durableEnv={DB:db,WECHAT_CALLBACK_TOKEN:'synthetic-internal-capture-token'},durableInstances=new Map();
+overrides.set('cloudflare:workers',{env:durableEnv,DurableObject:class{constructor(ctx,env){this.ctx=ctx;this.env=env;}}});
+overrides.set('../dist/server/index.js',{default:{fetch:request=>route.POST(request)}});
+const {CaptureHistoryJobs}=load('lib/capture-history-jobs.mjs');
+durableEnv.CAPTURE_HISTORY_JOBS={idFromName:value=>value,get(value){
+ if(!durableInstances.has(value)){
+  const values=new Map();let alarm=null;
+  const storage={async get(key){return structuredClone(values.get(key));},async put(key,value){values.set(key,structuredClone(value));},async list({prefix=''}){return new Map([...values].filter(([key])=>key.startsWith(prefix)).map(([key,value])=>[key,structuredClone(value)]));},async delete(key){values.delete(key);},async getAlarm(){return alarm;},async setAlarm(value){alarm=value;},async transaction(run){return run(storage);}};
+  durableInstances.set(value,new CaptureHistoryJobs({storage},durableEnv));
+ }
+ return durableInstances.get(value);
+}};
 overrides.set('@/lib/miniapp-auth',{miniappOwner:async()=>({ownerId:owner})});overrides.set('@/lib/crush/service',{requireSettings:async()=>({}),reserveBudget:async()=>{},analyzeLines:()=>assert.fail('full history must not run recent-line analysis')});overrides.set('@/lib/crush/screenshot',{});overrides.set('@/lib/profile-context',{loadProfileContext:async()=>''});overrides.set('@/lib/personal-context-server',{personalizeReport:async()=>({commonPoints:[],summary:'',differences:[]})});overrides.set('@/lib/conversation-profile-memory-server',{});overrides.set('@/lib/self-archive-memory',{updateSelfArchiveMemory:async()=> 'disabled'});overrides.set('@/lib/knowledge',{selectKnowledge:()=>[]});overrides.set('@/lib/knowledge-public',{publicKnowledgeSources:()=>[]});
 overrides.set('@/lib/qwen',{parseQwenJson:JSON.parse,qwenPublicError:(_error,message)=>message,qwenChat:async(messages,options)=>{routeCalls++;if(options.vision)return vision(messages,options);const body=JSON.parse(messages[1].content);if(body.rows)return JSON.stringify({findings:body.rows.filter(row=>row.basis==='chat-original'||row.basis==='caption'||row.basis==='visual').slice(-8).map(row=>({claim:'从这份资料看到活动线索'+row.sourceId,confidence:'低',alternative:'不能代替相处意图',evidence:[{sourceId:row.sourceId,quote:row.text.slice(0,25)}]}))});return JSON.stringify({summary:'已综合聊天和动态里的实际材料。',summaryEvidenceIds:[body.findings[0].id],action:'确认下一次见面安排',actionEvidenceIds:[body.findings[0].id],observeWindow:'下一次约定时',stopCondition:'明确拒绝就停止推进'});}});
 const route=load('app/api/web/capture/analyze/route.ts'),body={requestId:crypto.randomUUID(),confirmed:true,kind:'chat',analysisScope:'fullHistory',friend:input.friend,subjectId:subject,libraryId:chatId,expectedEpoch:1,expectedTotal:7,relatedSnapshots:input.relatedSnapshots,records:[]},request=()=>new Request('https://fixture.invalid/api/web/capture/analyze',{method:'POST',headers:{'content-type':'application/json',origin:'https://fixture.invalid'},body:JSON.stringify(body)});
-const response=await route.POST(request());assert.equal(response.status,200,await response.clone().text());const report=await response.json();assert.equal(report.sourceCoverage.find(source=>source.kind==='moments').textRead,30);assert.equal(report.relatedSnapshots[0].total,30);assert.equal(report.mediaEvidence.length,10);assert.equal(report.semanticHistory.coverage.analyzedText,1);assert.equal(report.relationshipContext.coverage.archiveMessages,7);assert.equal(report.lines.length,0);assert.equal((await credits.readCreditAccount(db,owner)).balance,100-credits.CREDIT_PRICES.analysisSmall,'joint sources use the existing one analysis price');const completedCalls=routeCalls;assert.deepEqual(await(await route.POST(request())).json(),report);assert.equal(routeCalls,completedCalls,'replay returns the same paid receipt without another model call');assert.ok(sql.prepare("SELECT result FROM coach_saved_reports WHERE id=? AND owner_id=? AND status='done'").get(body.requestId,owner));
+async function completeDurable(request){
+ const before=routeCalls,response=await route.POST(request),task=await response.clone().json();
+ assert.equal(routeCalls,before,'external admission and replay never call the provider');
+ if(response.status===200&&task.status==='done')return Response.json(task.result);
+ assert.equal(response.status,202,JSON.stringify(task));
+ const jobs=durableEnv.CAPTURE_HISTORY_JOBS.get(owner);
+ for(let round=0;round<20;round++){
+  const callsBefore=routeCalls;await jobs.alarm();assert.ok(routeCalls-callsBefore<=2,'each alarm is bounded to two model calls');
+  const status=await jobs.status(owner,task.taskId);
+  assert.notEqual(status.status,'error',status.error);
+  if(status.status==='done')return Response.json(status.result);
+ }
+ assert.fail('Durable synthetic task failed to finish');
+}
+const response=await completeDurable(request());assert.equal(response.status,200,await response.clone().text());const report=await response.json();assert.equal(report.sourceCoverage.find(source=>source.kind==='moments').textRead,30);assert.equal(report.relatedSnapshots[0].total,30);assert.equal(report.mediaEvidence.length,10);assert.equal(report.semanticHistory.coverage.analyzedText,1);assert.equal(report.relationshipContext.coverage.archiveMessages,7);assert.equal(report.lines.length,0);assert.equal((await credits.readCreditAccount(db,owner)).balance,100-credits.CREDIT_PRICES.analysisSmall,'joint sources use the existing one analysis price');const completedCalls=routeCalls;assert.deepEqual(await(await completeDurable(request())).json(),report);assert.equal(routeCalls,completedCalls,'replay returns the same paid receipt without another model call');assert.ok(sql.prepare("SELECT result FROM coach_saved_reports WHERE id=? AND owner_id=? AND status='done'").get(body.requestId,owner));
 // The earliest risk is intentionally omitted by the synthetic chunk model's
 // last-eight findings. Full-archive deterministic review must still retain it.
 const riskLibrary='cl_'+'c'.repeat(64);
@@ -60,7 +86,7 @@ for(let i=0;i<675;i++){
 }
 const riskBody={...body,requestId:crypto.randomUUID(),friend:'risk fixture',libraryId:riskLibrary,expectedTotal:675,relatedSnapshots:[],question:'risk'};
 const callsBeforeRisk=routeCalls;
-const riskResponse=await route.POST(new Request('https://fixture.invalid/api/web/capture/analyze',{method:'POST',headers:{'content-type':'application/json',origin:'https://fixture.invalid'},body:JSON.stringify(riskBody)}));assert.equal(riskResponse.status,200,await riskResponse.clone().text());
+const riskResponse=await completeDurable(new Request('https://fixture.invalid/api/web/capture/analyze',{method:'POST',headers:{'content-type':'application/json',origin:'https://fixture.invalid'},body:JSON.stringify(riskBody)}));assert.equal(riskResponse.status,200,await riskResponse.clone().text());
 const riskReport=await riskResponse.json();assert.equal(riskReport.relationshipDiagnosis.question,'risk');assert.equal(riskReport.riskReview.coverage.readable,675);assert.equal(riskReport.riskReview.signals[0].sources[0].sourceId,'risk-0');assert.equal(riskReport.riskReview.signals[0].sources[0].response.sourceId,'risk-1');assert.equal(riskReport.lines.length,0);assert.equal(riskReport.riskReview.signals[0].occurrences,1);
 assert.equal(routeCalls-callsBeforeRisk,4,'risk review adds zero provider calls: three existing text chunks and one synthesis');
 const savedRisk=JSON.parse(sql.prepare("SELECT result FROM coach_saved_reports WHERE id=?").get(riskBody.requestId).result);assert.deepEqual(savedRisk.riskReview,riskReport.riskReview);

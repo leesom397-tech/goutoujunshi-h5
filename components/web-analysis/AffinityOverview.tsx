@@ -1,16 +1,18 @@
-import { Heart, MessageCircle, Send } from "lucide-react";
+import { Heart, MessageCircle, Send, ShieldCheck } from "lucide-react";
 import { reportAffinity, validScore } from "./report-data";
+import { riskAwarePresentation } from "@/lib/risk-aware-presentation";
 import type { Json } from "./client";
 import styles from "./AffinityOverview.module.css";
-
 export function AffinityOverview({ report }: { report: Json }) {
-  const signal = reportAffinity(report), value = signal?.value;
-  const dimensions: Json[] = (signal?.dimensions || []).filter((row: Json) => row.status !== "insufficient" && validScore(row.value));
-  const known = validScore(value);
-  function selectTab(button: HTMLButtonElement, tab: string) { button.closest("[data-report-reader]")?.querySelector<HTMLButtonElement>(`[role="tab"][aria-controls$="-panel-${tab}"]`)?.click(); }
-  return <section className={styles.panel} aria-label="好感探测器" data-affinity-overview>
-    <div className={styles.score}><span><Heart size={19}/>好感探测器</span><strong>{known ? Math.round(value) : "待判断"}{known && <small>/ 100</small>}</strong><p>{known ? "好感参考值 · 基于本次聊天线索" : "本次材料还不足以给出好感参考值"}</p></div>
-    <div className={styles.details}>{dimensions.length > 0 ? <div className={styles.dimensions}>{dimensions.map(row => <div key={row.key || row.label}><span>{row.label}</span><i><b style={{width: `${row.value}%`}}/></i><strong>{Math.round(row.value)}</strong></div>)}</div> : <p>先看具体原话与回应，补充上下文后再核对。</p>}<small>{signal?.valueScope === "partial" ? "部分维度可判断，参考值仍有不确定性。" : "分数概括可见互动线索，不代表对方喜欢你的概率。"}</small></div>
-    <nav aria-label="继续解读本次聊天"><button type="button" onClick={event => selectTab(event.currentTarget, "change")}><MessageCircle size={18}/>逐句意图</button><button type="button" onClick={event => selectTab(event.currentTarget, "next")}><Send size={18}/>怎么回</button></nav>
-  </section>;
+ const signal=reportAffinity(report),value=signal?.value,all:Json[]=Array.isArray(signal?.dimensions)?signal.dimensions:[];
+ const dimensions=all.filter(row=>row.status!=="insufficient"&&validScore(row.value)),missing=all.filter(row=>row.status==="insufficient"||!validScore(row.value));
+ const count=signal&&Number.isInteger(signal.contextCount)&&signal.contextCount>=0?signal.contextCount:null;
+ const input=signal&&Number.isInteger(signal.inputCount)?signal.inputCount:(Array.isArray(report.lines)?report.lines.filter((row:Json)=>["self","other"].includes(row.speaker)&&typeof row.text==="string"&&row.text.trim()&&!/^\s*[\[【](?:图片|语音|视频|表情)/.test(row.text)).length:null);
+ const partial=count!==null&&input!==null&&count<input,risk=riskAwarePresentation(report),boundary=signal?.boundaryApplied||risk.mode!=="normal";
+ const reason=risk.priority?.evidence||report.decision?.evidence||report.decision?.observation,known=validScore(value);
+ function selectTab(button:HTMLButtonElement,tab:string){button.closest("[data-report-reader]")?.querySelector<HTMLButtonElement>('[role="tab"][aria-controls$="-panel-'+tab+'"]')?.click();}
+ return <section className={styles.panel} aria-label="好感探测器" data-affinity-overview>
+ <div className={styles.reading}><span className={styles.eyebrow}><Heart size={19}/>好感探测器</span><h2>{boundary?risk.title||"先尊重已表达的边界":"先看互动依据，再看参考值"}</h2>{reason&&<p>{reason}</p>}{boundary&&<p className={styles.boundary}><ShieldCheck size={18}/>{risk.mode!=="normal"?risk.nextStep:"参考值不能抵消明确拒绝；先尊重对方当前表达的边界。"}</p>}<p className={styles.scope} data-affinity-scope>{count===null?"这份旧报告未记录信号评估条数，范围暂不能核对。":count===0?"本次未计算信号参考值。":"信号评估实际读取 "+count+" 条"+(partial?"，本次可读原文共 "+input+" 条；这份旧结果仅覆盖局部。":"本次上传的可读原文。")}</p>{signal?.unavailableReason&&<p>{signal.unavailableReason}</p>}</div>
+ <div className={styles.details}><div className={styles.score}><span>互动信号参考</span><strong>{known?Math.round(value):"待判断"}{known&&<small>/ 100</small>}</strong><p>不代表喜欢你的概率</p></div>{dimensions.length>0&&<details><summary>可判断 {dimensions.length} 项{all.length?" / "+all.length+" 项":""}</summary><div className={styles.dimensions}>{dimensions.map(row=><div key={row.key||row.label}><span>{row.label}</span><i><b style={{width:row.value+"%"}}/></i><strong>{Math.round(row.value)}</strong></div>)}</div></details>}{missing.length>0&&<p className={styles.unknowns}>还不能判断：{missing.map(row=>row.label).join("、")}。缺少互动机会不计为负面。</p>}{signal?.valueScope==="partial"&&<p className={styles.unknowns}>只汇总有依据的维度，不能与完整维度的旧分数直接比较。</p>}</div>
+ <nav aria-label="继续解读本次聊天"><button type="button" onClick={event=>selectTab(event.currentTarget,"change")}><MessageCircle size={18}/>逐句意图</button><button type="button" onClick={event=>selectTab(event.currentTarget,"next")}><Send size={18}/>怎么回</button></nav></section>;
 }

@@ -12,7 +12,7 @@ import readerStyles from "./ReportReader.module.css";
 import reportStyles from "./ReportCard.module.css";
 import { ReportActions } from "./ReportActions";
 import { InsightExplorer } from "./InsightExplorer";
-import { ReportFollowUp } from "./ReportFollowUp";
+import { ReportFollowUp, ReportActionFeedback } from "./ReportFollowUp";
 import { RelationshipEvidenceCards } from "./RelationshipEvidenceCards";
 import { RiskReview } from "./RiskReview";
 import { riskAwarePresentation, riskReplyAllowed } from "@/lib/risk-aware-presentation";
@@ -27,6 +27,7 @@ import { ConversationMemoryReview } from "@/components/ConversationMemoryReview"
 import { ChatReportBrief, ReportChapterArt } from "./ReportBrief";
 import { ReportDetails } from "./ReportDetails";
 import { AffinityOverview } from "./AffinityOverview";
+import { HistoryReportReading } from "./HistoryReportInsights";
 import {ReplyDifference} from "./ReportReadingTools";
 import {reportReadingScope,reportLineKey,readReportPosition,saveReportPosition} from "@/lib/report-reading-position";
 export function Replies({ options, report, account, styleReportIds, publicExample = false }: { options: Json[]; report?: Json; account: Json | null; styleReportIds?: string[]; publicExample?: boolean }) {
@@ -113,7 +114,7 @@ function RelationshipChanges({diagnosis,semantic}:{diagnosis:Json|null;semantic?
   {claims.length>0&&<section className={reportStyles.reportSection}><h2><Quote size={21}/>说法与行动</h2><div className={reportStyles.claimActions}>{claims.map((item,index)=><article key={item.id||index}><header><h3>{item.claim}</h3><small>{item.status}</small></header><p>{item.action}</p>{item.claimEvidence&&<blockquote>{item.claimEvidence}<CaptureEvidence quote={item.claimEvidence} label="回看说法"/></blockquote>}{item.actionEvidence&&<blockquote>{item.actionEvidence}<CaptureEvidence quote={item.actionEvidence} label="回看后续行动"/></blockquote>}{item.note&&<small>{item.note}</small>}</article>)}</div></section>}
  </>;
 }
-export function ChatReport({report,account,styleReportIds,preview=false,publicExample=false}:{report:Json;account:Json|null;styleReportIds?:string[];preview?:boolean;publicExample?:boolean}){
+export function ChatReport({report,account,styleReportIds,preview=false,publicExample=false,initialFocus}:{report:Json;account:Json|null;styleReportIds?:string[];preview?:boolean;publicExample?:boolean;initialFocus?:'affinity'|'intent'|'reply'}){
  const [followupError,setFollowupError]=useState('');
  const decision=report.decision||{},fit=Object.prototype.hasOwnProperty.call(report,'latestCompatibility')?report.latestCompatibility:report.compatibility;
  const presentation=riskAwarePresentation(report), options=presentation.replyOptions, actionReport=presentation.viewReport;
@@ -128,14 +129,16 @@ export function ChatReport({report,account,styleReportIds,preview=false,publicEx
  const stop=semantic?.stopCondition||diagnosis?.decision?.stopCondition;
  const alternatives=reportRows(diagnosis?.decision?.options).filter(option=>option.action!==action);
  return <CaptureEvidenceProvider ownerId={publicExample?undefined:account?.account?.userId} reportId={report.reportId||report.id} captureOrigin={report.captureOrigin===true} fullHistory={fullHistory} historyCount={semantic?.coverage?.totalImported??diagnosis?.coverage?.total??report.chatActivity?.messages}><div className={reportStyles.document}>
-  <ReportReader key={readingScope||report.reportId||report.id||"chat-report"} storageKey={readingScope} items={hasCurrentLines ? screenshotSections : chatSections}>{active=><>
+  <ReportReader key={readingScope||report.reportId||report.id||"chat-report"} storageKey={readingScope} initialSection={initialFocus==='reply'?'next':initialFocus==='intent'?'change':initialFocus==='affinity'?'status':undefined} items={hasCurrentLines ? screenshotSections : chatSections}>{active=><>
    {active==='status'&&<>
+    {!preview&&!publicExample&&<ReportFollowUp report={actionReport} owner={account?.account?.userId}/>}
     {hasCurrentLines&&<AffinityOverview report={report}/>}
     <ChatReportBrief report={report} diagnosis={diagnosis}/>
     {decision.partial&&<p className="wa-status">部分材料未识别；下方依据只覆盖可读内容。</p>}
     <RiskReview report={report}/>
+    {fullHistory&&<HistoryReportReading report={report} diagnosis={diagnosis}/>}
     <div className={reportStyles.detailLinks}><h2><BookOpen size={19}/>深入读这份报告</h2><ReportCoverage report={report}/>
-     {(diagnosis||semantic)&&<ReportDetails title="为什么这样判断" description="详细解读、相反证据与其他可能"><RelationshipDiagnosisPanel diagnosis={diagnosis} semanticHistory={semantic} hideCoverage={!!report.sourceCoverage?.length}/></ReportDetails>}
+     {!fullHistory&&(diagnosis||semantic)&&<ReportDetails title="为什么这样判断" description="详细解读、相反证据与其他可能"><RelationshipDiagnosisPanel diagnosis={diagnosis} semanticHistory={semantic} hideCoverage={!!report.sourceCoverage?.length}/></ReportDetails>}
      <ReportDetails title="我们之间：共同点与相处差异" description="双方的共同点、期待与需要磨合的地方"><PersonalConnection report={report} publicExample={publicExample}/>{fit&&<FitReport fit={fit} current={Object.prototype.hasOwnProperty.call(report,'latestCompatibility')}/>}</ReportDetails>
      {!preview&&!publicExample&&report.profileMemory&&<ReportDetails title="这次对我的新了解" description="查看从你的表达中整理的信息，也可以纠正"><ConversationMemoryReview memory={report.profileMemory} ownerId={account?.account?.userId} subjectId={report.subjectId}/></ReportDetails>}
      {!diagnosis&&!semantic&&<ReportDetails title="查看完整分析" description="这份报告保留的详细线索与解释"><InsightExplorer compact publicExample={publicExample} report={report} kind="chat" owner={publicExample?undefined:account?.account?.userId}/></ReportDetails>}
@@ -146,14 +149,14 @@ export function ChatReport({report,account,styleReportIds,preview=false,publicEx
     <ReportChapterArt kind="change"/>
     <RelationshipJourney embedded context={journey} currentReportId={report.reportId||report.id}/>
     <RelationshipChanges diagnosis={diagnosis} semantic={semantic}/>
-    {!preview&&!publicExample&&<ReportFollowUp report={actionReport} owner={account?.account?.userId}/>}
     {publicExample&&report.demo===true&&report.publicEvidenceReview&&<section className="wa-card"><RelationshipEvidenceCards review={report.publicEvidenceReview} publicExample/></section>}
-    {report.chatActivity&&<ReportDetails title="回应、频率与统计口径" description="查看回复覆盖、间隔及完整统计说明"><ChatActivity summary={report.chatActivity}/></ReportDetails>}
+    {report.chatActivity&&<ChatActivity summary={report.chatActivity}/>}
     </>}
    </>}
    {active==='next'&&<>
     <ReportChapterArt kind="next"/>
     <section className={reportStyles.nextAction}><header><span>把判断变成行动</span><h2>接下来先做这一件<ArrowRight size={23}/></h2></header><p>{action}</p><dl>{observe&&<div><dt><CalendarDays size={17}/>观察窗口</dt><dd>{observe}</dd></div>}{stop&&<div><dt><Flag size={17}/>何时重新判断</dt><dd>{stop}</dd></div>}</dl></section>
+    {!preview&&!publicExample&&<ReportActionFeedback report={actionReport} owner={account?.account?.userId}/>}
     {options.length>0&&<section className="wa-card" id="replies"><h2><Send size={21}/>需要回复时，可以这样说</h2><Replies key={`${account?.account?.userId}:${report.id}`} options={options} report={report} account={account} styleReportIds={styleReportIds} publicExample={publicExample}/>{decision.replyReview&&<div className={readerStyles.interpretation}><strong>对原回复的回顾</strong><p>{decision.replyReview}</p></div>}</section>}
     {presentation.mode==='normal'&&alternatives.length>0&&<ReportDetails title="如果情况变化，还有哪些选择" description="比较其他做法及适用条件"><div className={reportStyles.actionOptions}>{alternatives.slice(0,4).map((option,index)=><article key={option.label||index}><h3>{option.label}</h3><p>{option.action}</p><dl><div><dt>观察</dt><dd>{option.observeWindow}</dd></div><div><dt>停止条件</dt><dd>{option.stopCondition}</dd></div></dl></article>)}</div></ReportDetails>}
     {!publicExample&&<div className="wa-actions"><button disabled={!account?.account?.userId} onClick={()=>{try{followup(actionReport,account!.account.userId);}catch(e){setFollowupError(message(e));}}}><MessageCircle size={16}/>{fullHistory?'基于全部聊天继续问成子':'带着报告问成子'}</button>{report.subjectId&&<a className="wa-button" href={`/archive?subjectId=${report.subjectId}`}>人物档案</a>}</div>}

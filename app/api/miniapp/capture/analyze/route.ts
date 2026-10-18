@@ -1,6 +1,7 @@
 import { POST as analyze } from "@/app/api/web/capture/analyze/route";
 import { miniappOwner } from "@/lib/miniapp-auth";
 import { captureCloudPublicOwner } from "@/lib/capture-cloud-server";
+export { GET } from "@/app/api/web/capture/analyze/route";
 
 export const runtime = "edge";
 export async function POST(request: Request) {

@@ -6,6 +6,22 @@ export class QuickQuestionInputError extends Error {
   constructor(message: string, public status = 400) { super(message); }
 }
 
+export type QuestionHistory = { role: "user" | "assistant"; content: string; source: "user-input" | "assistant" | "report-summary" | "report-quote" | "imported-material" };
+/** Keep provenance through truncation. Legacy report handoffs split one summary
+ * into two user messages; the continuation must not become quoteable evidence. */
+export function normalizeQuestionHistory(value: unknown): QuestionHistory[] {
+  if (!Array.isArray(value)) return [];
+  let legacyContinuation = false;
+  return value.filter(row => row && ["user", "assistant"].includes(row.role) && typeof row.content === "string").map(row => {
+    const legacy = /^【用户主动带入的分析摘要/.test(row.content);
+    const continuation = legacyContinuation && row.role === "user" && !row.source;
+    legacyContinuation = legacy && row.content.length >= 600;
+    const report = legacy || continuation || row.source === "report-summary" || /^【报告推测/.test(row.content);
+    const source: QuestionHistory["source"] = report ? "report-summary" : row.role === "assistant" ? "assistant" : row.source === "report-quote" ? "report-quote" : row.source === "imported-material" || /^【本次导入原文/.test(row.content) ? "imported-material" : "user-input";
+    return { role: report || row.role === "assistant" ? "assistant" as const : "user" as const, source, content: row.content.trim().slice(0, 600) };
+  }).slice(-6);
+}
+
 export async function readQuickQuestionBody(request: Request): Promise<{ raw: string; body: Record<string, unknown> }> {
   if (!request.headers.get("content-type")?.includes("application/json")) throw new QuickQuestionInputError("请求格式不正确。", 415);
   if (Number(request.headers.get("content-length") || 0) > QUICK_QUESTION_MAX_BYTES) throw new QuickQuestionInputError("材料太大，请减少截图后重试。", 413);
@@ -64,14 +80,14 @@ export function quickQuestionImages(body: Record<string, unknown>): { images: st
 /** Verify conversational quotes against what the user supplied, never a prior
  * model answer. Missing evidence must not be replaced with the current question.
  * Keep the explicit-role legacy modes' existing field-based fallback. */
-export function quickQuestionTextEvidence(value: unknown, mode: "conversation" | "chat" | "positioning", self: string, other: string, history: Array<{ role: string; content: string }>, archiveLines: string[] = []) {
+export function quickQuestionTextEvidence(value: unknown, mode: "conversation" | "chat" | "positioning", self: string, other: string, history: Array<{ role: string; content: string; source?: string }>, archiveLines: string[] = []) {
   const raw = typeof value === "string" ? value.replace(/[\r\n]+/g, " ").trim().slice(0, archiveLines.length ? 750 : 220) : "";
   const quoted = raw.slice(0, 100).replace(/^[「“\"]|[」”\"]$/g, "");
   if (mode !== "conversation") {
     const source = mode === "chat" ? other : self;
     return quoted && source.includes(quoted) ? "「" + quoted + "」" : "「" + source.slice(0, 80) + (source.length > 80 ? "…" : "") + "」";
   }
-  const sources = [self, ...history.filter(item => item.role === "user").map(item => item.content)];
+  const sources = [self, ...normalizeQuestionHistory(history).filter(item => item.role === "user" && item.source !== "report-summary").map(item => item.content)];
   const candidates = [raw.replace(/^[「“‘\"']|[」”’\"']$/g, ""), ...Array.from(raw.matchAll(/[「“‘\"']([^「」“”‘’\"']{2,180})[」”’\"']/g), match => match[1])];
   if (archiveLines.length) {
     const labelPattern = /^(?:\[[^\]]{1,40}\]\s*)?(?:我|对方|未确认一方|用户补充|对方朋友圈|对方主页)：/;
@@ -93,6 +109,7 @@ export function quickQuestionTextEvidence(value: unknown, mode: "conversation" |
 }
 
 export const QUICK_QUESTION_REPLY_GUIDANCE = [
+  "给出多条拟回复时，每条应有不同的沟通动作或适用条件，不能只换同义词。weight只表示本轮建议顺序，不是成功率；最推荐的一条排最前。reason解释为什么适合当前原话，cost说明使用前要满足什么条件、什么情况下不宜这样说；不编造风险或用空泛的‘可能有风险’填充。",
   "回答只围绕用户这一次的疑问。用户要求一句、简短、只给回复或限制字数时，按要求控制可发送回复的字数与数量；只要一句就只给一个replies选项，possibleIntent和nextStep保持必要的短句，不额外展开长篇分析。",
   "严格区分提出日期、确认具体时刻、双方已达成约定这三件事：已有替代日期就不能说没有替代安排；只有日期而没有几点，说明时刻仍待确认。一方的提议不等于双方接受，笼统说以后再说也不等于确认某天。",
   "不擅自把下周、周一、改天等说法改成今天或今晚；当前日期、聊天日期和双方可用时间没有明确依据时，沿用材料里的说法，不编造时间。",

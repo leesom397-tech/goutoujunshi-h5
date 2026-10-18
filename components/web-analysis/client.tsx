@@ -66,7 +66,8 @@ export function followup(report: Json, accountId: string, source = "聊天分析
   if (value.nextStep) parts.push("下一步：" + short(value.nextStep, 100));
   for (const row of (value.hypotheses || []).slice(0, 2)) parts.push("待验证推测：" + short(row.possibility, 70), "依据：" + short(row.evidence, 55), "另一种可能：" + short(row.alternative, 45), "可观察：" + short(row.verify, 35));
   if (value.approach) for (const [key, label] of [["attitude", "相处态度"], ["emotion", "情绪承接"], ["pace", "节奏"], ["avoid", "避免"], ["evidence", "建议依据"], ["adjustWhen", "何时调整"]]) if (value.approach[key]) parts.push(label + "：" + short(value.approach[key], 35));
-  for (const row of (report.lines || []).slice(-4)) parts.push((row.speaker === "self" ? "我" : row.speaker === "other" ? "对方" : "待确认") + "：" + short(row.text, 70));
+  // Keep recognizable source text separate from generated interpretations.
+  const originalQuotes = (Array.isArray(report.lines) ? report.lines : []).filter((row: Json) => ["self", "other"].includes(row?.speaker) && typeof row.text === "string" && row.text.trim() && !/^\s*[\[【](?:图片|语音|视频|表情|附件)/.test(row.text)).slice(-4).map((row: Json) => ({ speaker: row.speaker, text: row.text.slice(0, 300) }));
   for (const row of (report.moments ? value.behaviorClues || [] : report.visibleFacts || []).slice(0, 2)) parts.push("可见材料：" + short(row.quote || row.title, 25) + "；" + short(row.evidence, 40));
   // A focused question must carry the selected evidence before the general
   // summary; otherwise long reports can crowd the requested detail out.
@@ -74,7 +75,7 @@ export function followup(report: Json, accountId: string, source = "聊天分析
     ? ["这是用户选中的待验证分析，不是已确认事实。", focus.summary.trim().slice(0, 900), "本轮总评：" + short(value.summary || value.judgment || value.possibleIntent, 120)].join("\n").slice(0, 1100)
     : parts.filter(Boolean).join("\n").slice(0, 1100);
   const key = crypto.randomUUID();
-  try { sessionStorage.setItem(`web-followup:${key}`, JSON.stringify({ accountId, reportId: report.id || "", title: focus ? short(focus.title, 80) : source, subjectId: report.subjectId || "", summary, ...(focus ? { question: focus.question.trim().slice(0, 1500) } : {}), expiresAt: Date.now() + 30 * 60_000 })); }
+  try { sessionStorage.setItem(`web-followup:${key}`, JSON.stringify({ accountId, reportId: report.reportId || report.id || "", title: focus ? short(focus.title, 80) : source, subjectId: report.subjectId || "", summary, originalQuotes, ...(focus ? { question: focus.question.trim().slice(0, 1500) } : {}), expiresAt: Date.now() + 30 * 60_000 })); }
   catch { throw new Error("浏览器未能保存追问上下文，请允许此站点使用存储后重试。"); }
   window.location.href = `/chat?context=${key}`;
 }

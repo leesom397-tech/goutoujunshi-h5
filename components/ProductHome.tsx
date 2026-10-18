@@ -1,6 +1,7 @@
 "use client";
 import type { ReactNode } from "react";
-import { ArrowUpRight, ArrowRight, MessageCircle, BookOpen, ScanLine, Images, ScanFace, AudioLines, Users } from "lucide-react";
+import { ArrowUpRight, ArrowRight, MessageCircle, BookOpen, ScanLine, Images, ScanFace, AudioLines, Users, Heart, MessageCircleQuestion, Send } from "lucide-react";
+import { analysisPurposes } from "@/lib/person-analysis-navigation";
 import { knowledgeManifest, knowledgeVolume } from "@/lib/knowledge-public";
 import { knowledgeOrigin } from "@/lib/knowledge-origins";
 import { GlassStudy } from "./GlassStudy";
@@ -24,7 +25,7 @@ export function ProductHome({ onStart, loading = false, error = "", onRetry, aft
         <div className={styles.actions} data-feature-grid>
           <button type="button" data-feature-entry onClick={() => onStart("/relationship")}><span>分析一个人的全部资料</span><ArrowUpRight size={18}/></button>
         </div>
-        <div className={styles.nearbyLinks}><a href="/analyze?mode=chat&focus=affinity"><ScanLine size={16}/>好感探测器<ArrowRight size={15}/></a><a href="/chat"><MessageCircle size={16}/>问成子<ArrowRight size={15}/></a></div>
+        <nav className={styles.nearbyLinks} aria-label="先解决眼前的问题">{analysisPurposes.map((purpose,index) => { const Icon=[Heart,MessageCircleQuestion,Send][index]; return <a href={"/analyze?mode=chat&focus="+purpose.key} key={purpose.key}><Icon size={17}/>{purpose.title}<ArrowRight size={14}/></a>; })}</nav>
       </div>
       <div className={styles.art}><GlassStudy/></div>
     </section>

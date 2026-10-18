@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import {build} from 'esbuild';
+import {createHash} from 'node:crypto';
+const bundled=await build({entryPoints:['lib/capture-subject-client.ts'],bundle:true,write:false,platform:'node',format:'esm'});
+const {contactFromCaptureLibrary,captureContactKey}=await import('data:text/javascript;base64,'+Buffer.from(bundled.outputFiles[0].text).toString('base64'));
+const library={ownerId:'synthetic-owner',account:'synthetic-account',friend:'同名联系人',records:[{source:{method:'wechat-local-db',accountId:'synthetic-account',sessionId:'wxid-a'}},{source:{method:'wechat-local-db',accountId:'synthetic-account',sessionId:'wxid-a'}}]};
+const contact=await contactFromCaptureLibrary(library);
+assert.equal(contact.accountKey,createHash('sha256').update(library.account).digest('hex'));assert.equal(contact.contactId,'wxid-a');
+assert.notEqual(captureContactKey('owner-a',contact),captureContactKey('owner-b',contact));
+assert.notEqual(captureContactKey('owner-a',contact),captureContactKey('owner-a',{...contact,contactId:'wxid-b'}),'same display name is not identity');
+assert.notEqual(captureContactKey('owner-a',contact),captureContactKey('owner-a',{...contact,accountKey:'b'.repeat(64)}));
+assert.equal(await contactFromCaptureLibrary({...library,records:[{source:{method:'uia',label:'同名联系人'}}]}),null,'UI labels do not fabricate a contact id');
+const repaired=await contactFromCaptureLibrary({...library,records:[{source:{method:'uia',databaseIdentity:{accountId:library.account,sessionId:'wxid-a'}}}]});
+assert.equal(repaired.contactId,'wxid-a','verified repair metadata retains exact identity');
+await assert.rejects(contactFromCaptureLibrary({...library,account:'different-account'}),/微信账号/);
+await assert.rejects(contactFromCaptureLibrary({...library,records:[...library.records,{source:{method:'wechat-local-db',accountId:library.account,sessionId:'wxid-b'}}]}),/不同的微信联系人/);
+console.log('PASS capture subject client: exact original provenance and repair identity, owner/account/contact isolation, no name matching, mixed-account/contact rejection');

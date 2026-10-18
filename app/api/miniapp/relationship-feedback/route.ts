@@ -3,6 +3,7 @@ import { getD1 } from "@/db";
 import { appendActionFeedback, actionFeedbackCards, relationshipProgressEvents, FeedbackError } from "@/lib/relationship-feedback";
 import { automaticRelationshipUpdate } from "@/lib/relationship-updates";
 import { loadRelationshipEvidence } from "@/lib/relationship-evidence-server";
+import { reportVersionChanges } from "@/lib/report-version-changes";
 
 export const runtime = "edge";
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
@@ -31,7 +32,10 @@ export async function GET(request: Request) {
     const effectiveData: Record<string, unknown> = { ...snapshot.data, relationshipHistory: history };
     const scopedData = reportId ? { ...effectiveData, actionFeedback: Array.isArray(effectiveData.actionFeedback) ? effectiveData.actionFeedback.filter((item: any) => availableIds.has(item?.reportId) && Number.isFinite(item.recordedAt) && item.recordedAt <= snapshot.cutoff) : [] } : effectiveData;
     const scopedFacts = reportId ? (facts.results || []).filter(fact => fact.created_at <= snapshot.cutoff) : facts.results;
-    return json({ subjectId, cards: actionFeedbackCards(scopedData), events: relationshipProgressEvents(scopedData,scopedFacts), automatic: automaticRelationshipUpdate(scopedData, subjectId, reportId, snapshot.reports) });
+    // New feedback belongs to this report even when recorded after it. Keep
+    // historical comparisons at their original cutoff; expose latest edits separately.
+    const currentFeedback = reportId ? actionFeedbackCards(snapshot.data).find(card => card.reportId === reportId) || null : null;
+    return json({ subjectId, currentFeedback, versionChanges: reportId ? reportVersionChanges(snapshot.reports,reportId) : null, cards: actionFeedbackCards(scopedData), events: relationshipProgressEvents(scopedData,scopedFacts), automatic: automaticRelationshipUpdate(scopedData, subjectId, reportId, snapshot.reports) });
   } catch { return json({ error: "行动记录暂时无法读取。" }, 503); }
 }
 

@@ -153,6 +153,7 @@ await test('complex question keeps explanation paragraphs without a 220/300 char
   assert.doesNotMatch(sent.messages[0].content, /最多220字|最多300字|固定开场：/);
   assert.match(sent.messages[0].content, /知识库用于解释已经出现的互动/);
 });
+const { normalizeQuestionHistory, quickQuestionTextEvidence } = load('lib/quick-question.ts');
 await test('repair keeps the requested explanation depth and valid complete draft JSON', async () => {
   let attempt = 0;
   const repairedAnswer = '先区分联系习惯和实际投入。\n\n主动落实安排是积极行为，但单凭这件事还不能确定关系意愿；文字回应少的原因仍需结合她此前的习惯来看。';
@@ -238,5 +239,42 @@ await test('receipt replay survives changed memory and keeps owner and fingerpri
   identityOwner = 'synthetic-other-owner';
   try { assert.equal((await route.POST(request(original))).status, 404, 'another owner cannot retrieve this receipt'); } finally { identityOwner = owner; }
   archiveContext = { status: 'missing' };
+});
+await test('report interpretations never validate as original quotes, including legacy split continuations', async () => {
+  const invented = '他已经认真考虑与你交往。';
+  const legacy = '【用户主动带入的分析摘要，含待验证推测，不是已确认事实】\n' + '分析文字。'.repeat(140) + invented;
+  const oldHistory = [{ role: 'user', content: legacy.slice(0, 600) }, { role: 'user', content: legacy.slice(600, 1200) }];
+  const modern = [{ role: 'assistant', source: 'report-summary', content: invented }, { role: 'user', source: 'report-quote', content: '对方：周六下午可以见面。' }];
+  for (const history of [oldHistory, modern]) {
+    assert.doesNotMatch(quickQuestionTextEvidence(invented, 'conversation', '为什么这样判断？', '', history), /认真考虑/);
+    assert.ok(normalizeQuestionHistory(history).filter(row => row.content.includes(invented)).every(row => row.role === 'assistant'));
+  }
+  assert.equal(quickQuestionTextEvidence('周六下午可以见面。', 'conversation', '为什么这样判断？', '', modern), '「周六下午可以见面。」');
+  const before = modelCalls;
+  const result = await route.POST(request(textPayload({ self: '他喜欢我吗？', history: oldHistory })));
+  assert.equal((await result.json()).clarification?.kind, 'background'); assert.equal(modelCalls, before, 'a report hypothesis does not replace missing facts');
+});
+await test('intake asks only the missing interaction when the relationship is already described', async () => {
+  const response = await route.POST(request(textPayload({ self: '我们是同事，认识两个月。他喜欢我吗？' })));
+  const result = await response.json(); assert.equal(result.charged, false); assert.equal(result.clarification.questions.length, 1); assert.match(result.clarification.questions[0], /具体互动/);
+});
+await test('durable opening and corrected background reach a late followup without another intake', async () => {
+  const opening = '我们认识两年。' + '这是用户原始情况。'.repeat(85) + '他已经退了电影票。';
+  const background = '更新：昨天我们已重新约好周六见面。';
+  output = { possibleIntent: '可以先确认新的安排。', evidence: '他已经退了电影票。', nextStep: '确认周六的地点。', replies: [] };
+  const body = textPayload({ self: '那他现在怎么看我们？', opening, background, history: Array.from({ length: 6 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', content: '最近的一次短追问。' })) });
+  const response = await route.POST(request(body)); assert.equal(response.status, 200); assert.equal((await response.json()).evidence, '「他已经退了电影票。」');
+  const input = JSON.parse(sent.messages.at(-1).content); assert.equal(input['本次话题的起始描述'], opening); assert.equal(input['我补充的双方背景'], background);
+  const before = modelCalls; assert.equal((await route.POST(request(body))).status, 200); assert.equal(modelCalls, before);
+  assert.equal((await route.POST(request({ ...body, background: '再次修改的情况' }))).status, 409, 'correction cannot reuse a paid request ID');
+});
+await test('reply options keep reasons and conditions and remove duplicate phrasing', async () => {
+  output = { possibleIntent: '可以确认时间。', evidence: '', nextStep: '选择符合你安排的表达。', replies: [
+    { style: '直接', text: '周六两点可以吗？', reason: '对方提出周六', cost: '先确认自己有空', weight: 90 },
+    { style: '重复', text: '周六两点可以吗', reason: '重复版本', cost: '同一条件', weight: 30 },
+    { style: '留余地', text: '周六我再确认一下时间，好吗？', reason: '自己时间未定', cost: '需要随后主动确认', weight: 70 },
+  ] };
+  const response = await route.POST(request(textPayload({ self: '对方说“周六有空吗”，我怎么回？' })));
+  assert.equal(response.status, 200); const result = await response.json(); assert.equal(result.replies.length, 2); assert.equal(result.replies[0].weight, 90); assert.equal(result.replies[0].cost, '先确认自己有空');
 });
 sql.close(); console.log(`PASS ${groups} quick-question integration groups; no external calls or real user data.`);

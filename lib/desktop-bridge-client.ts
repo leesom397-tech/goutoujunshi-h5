@@ -1,4 +1,5 @@
-// Credentials stay in this tab. Nothing is sent to the website's server.
+// Credentials stay in browser sessions (same-account tabs can reconnect).
+// Nothing is sent to the website's server or persisted in localStorage.
 export const DESKTOP_BRIDGE = "http://127.0.0.1:17863";
 export type BridgeHealth = { version: string; ready: boolean; message?: string; backgroundMessage?: string; backgroundStatus?: string; backgroundModelReady?: boolean; backgroundMaxRows?: number; backgroundPageSize?: number; momentsMaxRows?: number; capabilities: { chat: boolean; moments: boolean; momentsAllVisible?: boolean; momentsContacts?: boolean; personBundle?: boolean; deferredVoice?: boolean; backgroundChat?: boolean; backgroundVoice?: boolean; backgroundHistory?: boolean } };
 export class BridgeError extends Error { constructor(message: string, public status=0, public code="") { super(message); } }

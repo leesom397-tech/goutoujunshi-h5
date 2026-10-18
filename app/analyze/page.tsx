@@ -27,6 +27,7 @@ import { useIntakeDraft } from "@/components/web-analysis/useIntakeDraft";
 import { useAnalyzedIntake } from "@/components/web-analysis/useAnalyzedIntake";
 import { recordSuccessfulImages } from "@/components/web-analysis/intake-history";
 import { LiveAnalysis, type Recognition } from "@/components/web-analysis/LiveAnalysis";
+import { analysisFocus, analysisPurposes, withAnalysisFocus, type AnalysisFocus } from "@/lib/person-analysis-navigation";
 
 const analysisModes = [
   { key: "chat", label: "聊天截图", intent: "读懂这轮互动", description: "看情绪与回应，找到适合你的下一句。", upload: "上传双方聊天截图", tip: "截取完整对话，保留前后语境；按聊天的阅读顺序排列。", Icon: MessageSquare },
@@ -36,8 +37,11 @@ const analysisModes = [
 
 export default function AnalyzePage() {
   const [sameCity,setSameCity]=useState(false);
-  const [affinityFocus,setAffinityFocus]=useState(false);
-  useEffect(()=>setAffinityFocus(new URLSearchParams(window.location.search).get("focus")==="affinity"),[]);
+  const [purpose,setPurpose]=useState<AnalysisFocus | undefined>();
+  const [purposeOptionsOpen,setPurposeOptionsOpen]=useState(false), [exampleOpen,setExampleOpen]=useState(false);
+  const exampleDialog=useRef<HTMLDialogElement>(null);
+  useEffect(()=>setPurpose(analysisFocus(new URLSearchParams(window.location.search).get("focus"))),[]);
+  useEffect(()=>{if(!exampleOpen)return;exampleDialog.current?.showModal();const before=document.body.style.overflow;document.body.style.overflow="hidden";return()=>{document.body.style.overflow=before;};},[exampleOpen]);
   const [confirmStage,setConfirmStage]=useState(false);
   const account = useAccount(), [mode, setMode] = useState("chat"), [files, setFiles] = useState<File[]>([]), [previews, setPreviews] = useState<string[]>([]), [side, setSide] = useState(""), [subject, setSubject] = useState(""), [targetSelf, setTargetSelf] = useState(false), [compare, setCompare] = useState(true), [consent, setConsent] = useState(false), [linkConsent, setLinkConsent] = useState(false), [busy, setBusy] = useState(false), [preparing, setPreparing] = useState(false), [task, setTask] = useState<UploadTask | null>(null), [status, setStatus] = useState<Json | null>(null), [result, setResult] = useState<Json | null>(null), [error, setError] = useState(""), [url, setUrl] = useState(""), [linkResult, setLinkResult] = useState<Json | null>(null), [previous, setPrevious] = useState<Json | null>(null), [previousCount, setPreviousCount] = useState(0), [resultSources, setResultSources] = useState<File[]>([]), [restoredOwner, setRestoredOwner] = useState<string | null>(null);
   const controller = useRef<AbortController | null>(null), generation = useRef(0), preparingRef = useRef(false), owner = account.account?.account?.userId, linkId = useRef<string | null>(null), resultRef = useRef<HTMLDivElement>(null), fileInputRef = useRef<HTMLInputElement>(null), dragDepth = useRef(0);
@@ -140,6 +144,13 @@ export default function AnalyzePage() {
   }
   const costKey = mode === "chat" ? (task?.files.length || effectiveFiles.length) <= 3 ? "analysisSmall" : (task?.files.length || effectiveFiles.length) <= 6 ? "analysisMedium" : "analysisLarge" : "profile";
   const disabled = busy || preparing || !!task;
+  function choosePurpose(next: AnalysisFocus) {
+    if (disabled) return;
+    setPurpose(next); setPurposeOptionsOpen(false);
+    const nextUrl = new URL(window.location.href); nextUrl.searchParams.set("focus", next);
+    window.history.replaceState(null, "", nextUrl.pathname + nextUrl.search + nextUrl.hash);
+    if (mode !== "chat") void changeMode("chat");
+  }
   async function changeMode(next: string) {
     if (disabled || preparingRef.current || next === mode) return;
     const current = generation.current;
@@ -178,7 +189,7 @@ export default function AnalyzePage() {
     const href = source === "computer" ? "/capture?method=computer" : source === "video" ? "/capture?method=video" : source === "library" ? "/capture?method=library" : "/import";
     const next = new URL(href, window.location.origin);
     if (next.pathname === "/capture") {
-      window.location.assign(intakeHref("/capture", { kind: mode === "moments" ? "moments" : "chat", method: next.searchParams.get("method") || undefined, subjectId: targetSelf ? "" : subject, returnTo }));
+      window.location.assign(withAnalysisFocus(intakeHref("/capture", { kind: mode === "moments" ? "moments" : "chat", method: next.searchParams.get("method") || undefined, subjectId: targetSelf ? "" : subject, returnTo }),purpose));
     } else {
       if (!targetSelf && subject) next.searchParams.set("subjectId", subject);
       window.location.assign(next.pathname + next.search);
@@ -333,6 +344,7 @@ export default function AnalyzePage() {
   const visibleResult = owner && owner === restoredOwner ? result : null; const reports: Json[] = visibleResult?.entries || [], combined = mergeChatReports(reports);
 
   const selectedMode = analysisModes.find(item => item.key === mode) || analysisModes[0];
+  const selectedPurpose = analysisPurposes.find(item => item.key === purpose);
   const hasMaterials = files.length > 0 || !!task || !!visibleResult;
   const currentStep = visibleResult || task || busy ? 3 : confirmStage ? 2 : 1;
   const balance = account.account?.account?.balance;
@@ -351,7 +363,17 @@ export default function AnalyzePage() {
     <WebNav guideReady={!!owner && !account.loading}/>
     <FirstUseTour owner={owner} page="analyze" ready={!account.loading && owner === restoredOwner}/>
     <main className={`wa-shell ax-shell ${styles.page}`}>
-      <AuroraPageHero eyebrow="从材料到判断" title={mode === "chat" ? affinityFocus ? "好感探测器" : "聊天分析" : mode === "moments" ? "朋友圈分析" : "社交主页分析"} description={confirmStage ? undefined : mode === "chat" && affinityFocus ? "看好感参考值，也看支撑它的每一句话。" : selectedMode.description}/>
+      <AuroraPageHero eyebrow="从材料到判断" title={mode === "chat" ? selectedPurpose?.title || "聊天分析" : mode === "moments" ? "朋友圈分析" : "社交主页分析"} description={confirmStage || visibleResult ? undefined : mode === "chat" ? selectedPurpose?.description || selectedMode.description : selectedMode.description}/>
+      {!task && !restoringReport && (!visibleResult || mode==="chat") && <div className={styles.purposeBar}>
+        <button type="button" disabled={disabled} aria-expanded={purposeOptionsOpen} aria-controls="analysis-purpose-options" onClick={()=>setPurposeOptionsOpen(value=>!value)}><SlidersHorizontal size={16}/>更换分析目标</button>
+        {!hasMaterials && <button type="button" onClick={()=>setExampleOpen(true)}><FileCheck2 size={16}/>先看一份示例<ArrowRight size={15}/></button>}
+      </div>}
+      {purposeOptionsOpen && !task && (!visibleResult || mode==="chat") && <section id="analysis-purpose-options" className={styles.purposeOptions} aria-label="更换分析目标">
+        <nav aria-label="聊天解读重点">{analysisPurposes.map(item=><button type="button" key={item.key} disabled={disabled || !!visibleResult && mode!=="chat"} aria-pressed={mode==="chat" && purpose===item.key} onClick={()=>choosePurpose(item.key)}>{item.title}{mode==="chat" && purpose===item.key && <Check size={16}/>}</button>)}</nav>
+        {!visibleResult && <details><summary>其他材料类型</summary><div aria-label="分析材料">{analysisModes.map(({key,label,Icon})=><button type="button" key={key} disabled={disabled} aria-pressed={mode===key} onClick={()=>{void changeMode(key);setPurposeOptionsOpen(false);}}><Icon size={16}/>{label}</button>)}</div></details>}
+        {files.length>0 && <p>已选择的 {files.length} 张截图会保留。</p>}
+        {visibleResult && mode==="chat" && <p>切换查看同一份报告的不同部分。</p>}
+      </section>}
       {returnTo && <a className={intake.returnLink} href={returnTo}><History size={16}/>{returnTo.startsWith('/archive') ? '返回人物档案与对照' : '返回刚才的报告'}</a>}
       {restoringReport && <p className={styles.resumeBar} role="status"><LoaderCircle size={19} className="ax-spin"/>正在取回已保存的完整报告…</p>}
       {owner && !hasMaterials && !visibleResult && lastReport && !restoringReport && <a className={styles.resumeBar} href={`/report?id=${lastReport.id}#report-detail-action`}><History size={21}/><span><strong>继续看上次的报告</strong><small>之前的分析都在分析记录中</small></span><ArrowRight size={19}/></a>}
@@ -374,22 +396,6 @@ export default function AnalyzePage() {
       {!visibleResult && !restoringReport && !task && <>
         {owner && !hasMaterials && !targetSelf && selectedPerson && <section className={intake.remembered} aria-label="当前分析人物"><UserRound size={22}/><div><strong>继续了解 {selectedPerson.label}</strong><small>{mode === 'chat' && side ? `已沿用：${side==='left'?'左侧':'右侧'}是我 · ` : ''}新增材料会结合这个人物已有的资料；选错可以直接更换。</small></div>{editPerson?<PersonSelect people={account.people} value={subject} disabled={disabled} onChange={choosePerson} empty="本次不关联人物"/>:<button type="button" disabled={disabled} onClick={()=>setEditPerson(true)}>换个人</button>}{mode==='chat'&&side&&<button type="button" disabled={disabled} onClick={()=>chooseSide(side==='left'?'right':'left')}>改为{side==='left'?'右侧':'左侧'}是我</button>}</section>}
         {captureSource && !confirmStage && <p className="wa-status"><CheckCheck size={18}/>已带入采集截图。请核对顺序与身份，分析完成后可回看这些原图。</p>}
-        <nav className={styles.focusModes} aria-label="聊天解读重点" hidden={mode!=="chat" || !!result || !!task}><button type="button" aria-pressed={affinityFocus} onClick={()=>{setAffinityFocus(true);const url=new URL(location.href);url.searchParams.set("focus","affinity");window.history.replaceState(null,"",url.pathname+url.search);}}>好感探测器</button><button type="button" aria-pressed={!affinityFocus} onClick={()=>{setAffinityFocus(false);const url=new URL(location.href);url.searchParams.delete("focus");window.history.replaceState(null,"",url.pathname+url.search);}}>聊天分析 · 逐句与回复</button></nav>
-        <div className="ax-mode-heading" hidden={hasMaterials}><h2>这次想了解什么？</h2></div>
-        <div className={`ax-modes ${styles.entryModes}`} hidden={hasMaterials} role="tablist" aria-label="分析材料" onKeyDown={event => {
-          if (disabled || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
-          event.preventDefault(); const keys = ["chat", "moments", "social"]; const index = keys.indexOf(mode);
-          const next = event.key === "Home" ? 0 : event.key === "End" ? 2 : (index + (event.key === "ArrowRight" ? 1 : -1) + 3) % 3;
-          document.getElementById("analysis-mode-" + keys[next])?.focus(); void changeMode(keys[next]);
-        }}>
-          {analysisModes.map(({ key, label, intent, description, Icon }) => <button
-            role="tab" tabIndex={mode === key ? 0 : -1} aria-selected={mode === key} aria-controls="analysis-workspace" id={"analysis-mode-" + key}
-            key={key} disabled={disabled} onClick={() => void changeMode(key)} className="ax-mode">
-            <span className="ax-mode-top"><span className="ax-mode-symbol"><Icon size={22}/></span><span className="ax-mode-choice" aria-hidden="true">{mode === key && <Check size={13}/>}</span></span>
-            <strong>{label}<span>{intent}</span></strong>
-            <small>{description}</small>
-          </button>)}
-        </div>
 
 
         {owner && !priceReady && !task && <section className="wa-card ax-price-warning" role="status">
@@ -397,7 +403,7 @@ export default function AnalyzePage() {
           <div className="wa-actions"><button onClick={() => void account.refresh()}><RotateCcw size={16}/>重新读取价格</button><a href="/account">到账户核对</a></div>
         </section>}
 
-        <div className="ax-workspace" data-ready={hasMaterials} id="analysis-workspace" role="tabpanel" aria-labelledby={"analysis-mode-" + mode}>
+        <div className="ax-workspace" data-ready={hasMaterials} id="analysis-workspace" aria-label={selectedMode.label}>
           <div className="ax-main-column">
             <section className="wa-card ax-materials" hidden={confirmStage} id="materials" aria-labelledby="analysis-material-title">
               <div className="ax-section-heading">
@@ -447,7 +453,7 @@ export default function AnalyzePage() {
 
                 {history.checking && <p className={intake.hint} role="status">正在核对是否有已分析过的截图…</p>}
                 {history.unavailable && <p className={intake.hint}>暂时无法核对历史记录，本次保留全部截图，请核对费用。</p>}
-                {history.repeated.length>0 && <section className={intake.partial} aria-label="重复材料"><h3><CheckCheck size={19}/>{files.length-history.repeated.length} 张新材料，{history.repeated.length} 张已分析</h3><p>{forceReanalyze ? "本次会重新分析全部截图，并按全部张数计费。" : "已分析过的截图默认跳过，费用按本次实际提交数量计算。"}</p><div className={intake.quickActions}>{[...new Set(history.repeated.map(row=>row.reportId))].map(id=><a key={id} href={"/report?id="+encodeURIComponent(id)} target="_blank" rel="noopener noreferrer">回看已有报告<ArrowRight size={14}/></a>)}</div><label className="wa-check"><input type="checkbox" checked={forceReanalyze} onChange={e=>{setForceReanalyze(e.target.checked);setConsent(false);}}/><span>仍要重新分析这些图（按全部张数重新计费）</span></label></section>}
+                {history.repeated.length>0 && <section className={intake.partial} aria-label="重复材料"><h3><CheckCheck size={19}/>{files.length-history.repeated.length} 张新材料，{history.repeated.length} 张已分析</h3><p>{forceReanalyze ? "本次会重新分析全部截图，并按全部张数计费。" : "已分析过的截图默认跳过，费用按本次实际提交数量计算。"}</p><div className={intake.quickActions}>{[...new Set(history.repeated.map(row=>row.reportId))].map(id=><a key={id} href={withAnalysisFocus("/report?id="+encodeURIComponent(id),purpose)} target="_blank" rel="noopener noreferrer">回看已有报告<ArrowRight size={14}/></a>)}</div><label className="wa-check"><input type="checkbox" checked={forceReanalyze} onChange={e=>{setForceReanalyze(e.target.checked);setConsent(false);}}/><span>仍要重新分析这些图（按全部张数重新计费）</span></label></section>}
                 <button type="button" className="wa-primary ax-next-link" disabled={disabled} onClick={()=>{setConfirmStage(true);requestAnimationFrame(()=>document.getElementById("analysis-confirm")?.scrollIntoView({block:"start",behavior:"smooth"}));}}>下一步 · 确认分析<ArrowRight size={16}/></button>
               </>}
             </section>
@@ -510,7 +516,6 @@ export default function AnalyzePage() {
 
 
         </div>
-        {!hasMaterials && <div id="analysis-example"><AnalysisExample mode={mode as "chat" | "moments" | "social"} onUpload={requestUpload}/></div>}
       </>}
 
       <div ref={resultRef} id="analysis-result" className="ax-result" tabIndex={-1}>
@@ -520,14 +525,14 @@ export default function AnalyzePage() {
             <div><span className="ax-section-number">{visibleResult.incomplete ? "已生成部分结果" : "本次分析已完成"}</span><h2>{visibleResult.incomplete ? "先查看已完成的内容" : "线索已理清，看看下一步。"}</h2><p>{resultCount ? resultCount + " 张材料 · " : ""}{selectedMode.label}{resultSubject ? " · 已关联人物" : " · 结合实际情况选择行动"}</p></div>
             <button disabled={disabled} onClick={()=>newAnalysis(!!subject)}><Plus size={17}/>{subject?'补充新材料':'开始新分析'}</button>
           </section>
-          <div className={styles.savedReportBar}><BookmarkCheck size={21}/><div><strong>{visibleResult.incomplete ? '已完成的内容可在分析记录回看' : visibleResult.reportId || reports[0]?.id ? '完整报告已保存' : '本次分析结果'}</strong><p>{reports.length>1 ? `已将 ${reports.length} 张截图整理为一份报告。` : visibleResult.reportId || reports[0]?.id ? '离开或刷新后，可以从分析记录继续查看。' : '这是更新前的临时结果，可下载摘要留存。'}</p></div><a href="/reports"><History size={17}/>分析记录<ArrowRight size={15}/></a>{(visibleResult.reportId || reports[0]?.id) && <a href={`/report?id=${visibleResult.reportId || reports[0]?.id}#report-detail-action`}>打开已保存报告<ArrowRight size={15}/></a>}</div>
+          <div className={styles.savedReportBar}><BookmarkCheck size={21}/><div><strong>{visibleResult.incomplete ? '已完成的内容可在分析记录回看' : visibleResult.reportId || reports[0]?.id ? '完整报告已保存' : '本次分析结果'}</strong><p>{reports.length>1 ? `已将 ${reports.length} 张截图整理为一份报告。` : visibleResult.reportId || reports[0]?.id ? '离开或刷新后，可以从分析记录继续查看。' : '这是更新前的临时结果，可下载摘要留存。'}</p></div><a href="/reports"><History size={17}/>分析记录<ArrowRight size={15}/></a>{(visibleResult.reportId || reports[0]?.id) && <a href={withAnalysisFocus(`/report?id=${visibleResult.reportId || reports[0]?.id}`,purpose)}>打开已保存报告<ArrowRight size={15}/></a>}</div>
           <ErrorNotice error={error}/>
           {(resultSubject || visibleResult.targetSelf) && <section className={styles.resultPerson}><div><UserRound size={21}/><span><strong>{visibleResult.targetSelf ? '我的档案' : account.people.find(person=>person.id===resultSubject)?.label || '已关联人物'}</strong><small>这份分析已关联此人物</small></span></div><div><button type="button" onClick={()=>avatarDialog.current?.showModal()}><ImagePlus size={17}/>设置人物头像</button><a href={visibleResult.targetSelf ? '/archive?tab=self' : '/archive?subjectId='+resultSubject}>查看人物档案<ArrowRight size={15}/></a></div></section>}
           <dialog ref={avatarDialog} className={styles.avatarDialog}><header><div><h2>设置人物头像</h2><p>头像用于区分人物，不影响分析结果。</p></div><button type="button" aria-label="关闭头像设置" onClick={()=>avatarDialog.current?.close()}><X size={20}/></button></header><ArchiveAvatar expanded key={visibleResult.targetSelf ? 'self' : resultSubject} name={visibleResult.targetSelf ? '我的档案' : account.people.find(person=>person.id===resultSubject)?.label || '所选人物'} subjectId={visibleResult.targetSelf ? undefined : resultSubject} disabled={busy} onSaved={async()=>{await account.refresh();avatarDialog.current?.close();}} sources={resultSources} candidates={combined ? reports.flatMap((entry,imageIndex)=>(entry.decision?.avatarCandidates||[]).filter((candidate:Json)=>candidate.side!==side && ['left','right'].includes(candidate.side)).map((candidate:Json)=>({...candidate,imageIndex}))) : visibleResult.avatarCandidates||[]}/></dialog>
           <div id="analysis-report">
             {combined && <>
               {visibleResult.incomplete && <p className="wa-status">本组只完成 {reports.length}/{visibleResult.totalCount} 张，以下不是整组结论。本组预留积分将退回；未完成图片可单独重试。</p>}
-              <ChatReport key={owner + ":" + combined.id} report={{...combined,reportId:visibleResult.reportId || combined.id}} account={account.account} styleReportIds={reports.map(entry => entry.id).slice(-9)}/>
+              <ChatReport key={owner + ":" + combined.id} initialFocus={purpose} report={{...combined,reportId:visibleResult.reportId || combined.id}} account={account.account} styleReportIds={reports.map(entry => entry.id).slice(-9)}/>
             </>}
             {!combined && <SocialReport key={visibleResult.summary} report={visibleResult} avatarSources={resultSources} account={account.account} subjectId={visibleResult.subjectId || ""} targetSelf={!!visibleResult.targetSelf} onSubjectChange={id => { setResult(value => value ? { ...value, subjectId: id } : value); void account.refresh(); }}/>}
           </div>
@@ -553,6 +558,7 @@ export default function AnalyzePage() {
         </section>
       </div>}
     </main>
-    <AnalysisAuthGate open={showAuth} onClose={() => setShowAuth(false)} returnTo={intakeHref('/analyze',{mode,subjectId:subject,returnTo,targetSelf})} contextLabel={selectedMode.label} onSuccess={authenticated}/>
+    {exampleOpen && <dialog ref={exampleDialog} className={styles.exampleDialog} aria-labelledby="analysis-example-title" onClose={()=>setExampleOpen(false)} onClick={event=>{if(event.target===event.currentTarget)exampleDialog.current?.close();}}><header><h2 id="analysis-example-title">{selectedMode.label} · 示例报告</h2><button type="button" aria-label="关闭示例" onClick={()=>exampleDialog.current?.close()}><X size={20}/></button></header><AnalysisExample mode={mode as "chat" | "moments" | "social"} onUpload={()=>{exampleDialog.current?.close();requestUpload();}}/></dialog>}
+    <AnalysisAuthGate open={showAuth} onClose={() => setShowAuth(false)} returnTo={withAnalysisFocus(intakeHref('/analyze',{mode,subjectId:subject,returnTo,targetSelf}), purpose)} contextLabel={selectedPurpose?.title || selectedMode.label} onSuccess={authenticated}/>
   </>;
 }

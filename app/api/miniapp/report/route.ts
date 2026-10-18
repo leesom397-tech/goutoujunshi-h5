@@ -8,6 +8,7 @@ import { readableReport } from "@/lib/crush/evidence";
 import type { CrushResult } from "@/lib/crush/types";
 import {personalizeReport} from "@/lib/personal-context-server";
 import { reportFreshness } from "@/lib/report-freshness";
+import { withCaptureHistoryPurge, CAPTURE_PURGE_UNAVAILABLE } from "@/lib/capture-history-purge";
 
 export const runtime = "edge";
 const json = (data: unknown, status = 200) => Response.json(data, { status, headers: { "Cache-Control": "no-store" } });
@@ -54,5 +55,10 @@ export async function DELETE(request:Request){
   if(new URL(request.url).pathname.startsWith('/api/web/') && request.headers.get('origin')!==new URL(request.url).origin)return json({error:'请求来源无效。'},403);
   const id=new URL(request.url).searchParams.get('id')||'';
   if(!idPattern.test(id))return json({error:'报告编号不正确。'},400);
-  return await deleteAnalysisReport(getD1(),identity.ownerId,id)?json({ok:true}):json({error:'报告不存在或已删除。'},404);
+  const db=getD1(),owner=identity.ownerId;
+  // Saved report tombstones still establish ownership on deletion retries.
+  const owned=await db.prepare("SELECT id FROM coach_saved_reports WHERE owner_id=? AND (id=? OR EXISTS(SELECT 1 FROM json_each(report_ids) WHERE value=?)) UNION ALL SELECT id FROM coach_crush_reports WHERE owner_id=? AND id=? LIMIT 1").bind(owner,id,id,owner,id).first();
+  if(!owned)return json({error:'报告不存在或已删除。'},404);
+  try{return await withCaptureHistoryPurge(owner,()=>deleteAnalysisReport(db,owner,id))?json({ok:true}):json({error:'报告不存在或已删除。'},404);}
+  catch(error){if(error instanceof Error&&error.message===CAPTURE_PURGE_UNAVAILABLE)return json({error:CAPTURE_PURGE_UNAVAILABLE},503);throw error;}
 }

@@ -1,44 +1,43 @@
 "use client";
 import {useEffect,useRef,useState} from "react";
-import {ArrowRight,History,Sparkles} from "lucide-react";
-import type {AutomaticRelationshipUpdate} from "@/lib/relationship-updates";
-import {riskAwarePresentation} from "@/lib/risk-aware-presentation";
-import {reportUpdateHighlights} from "@/lib/report-update-highlights";
+import {ArrowRight,History} from "lucide-react";
+import type {ReportVersionChanges} from "@/lib/report-version-changes";
 import {api,message,WebError,type Json} from "./client";
-import "./report-follow-up.css";
-import {RelationshipEvidenceCards} from "./RelationshipEvidenceCards";
-export function ReportFollowUp({report,owner}:{report:Json;owner?:string}){
- return <Progress key={[owner,report.reportId||report.id,report.subjectId].join(":")} report={report} owner={owner||""}/>;
-}
-function Progress({report,owner}:{report:Json;owner:string}){
+import {CaptureEvidence} from "./CaptureEvidence";
+import styles from "./ReportChanges.module.css";
+function useProgress(report:Json,owner:string){
  const subjectId=String(report.subjectId||""),reportId=String(report.reportId||report.id||"");
- const [update,setUpdate]=useState<AutomaticRelationshipUpdate|null>(null),[error,setError]=useState(""),[accessible,setAccessible]=useState(true);
- const generation=useRef(0);
- useEffect(()=>{
-  const current=++generation.current,controller=new AbortController();
-  setUpdate(null);setError("");setAccessible(true);
-  if(!owner||!subjectId||report.targetSelf)return()=>controller.abort();
-  void(async()=>{try{
-   const identity=await api("/api/account/credits",undefined,controller.signal);
-   if(current!==generation.current||controller.signal.aborted)return;
-   if(identity.account?.userId!==owner){setAccessible(false);return;}
-   const result=await api("/api/web/relationship-feedback?subjectId="+encodeURIComponent(subjectId)+"&reportId="+encodeURIComponent(reportId),undefined,controller.signal);
-   if(current!==generation.current||controller.signal.aborted)return;
-   if(result.subjectId!==subjectId)throw new Error("人物信息已变化，请重新打开报告。");
-   setUpdate(result.automatic||null);
-  }catch(cause){if(controller.signal.aborted||current!==generation.current)return;if(cause instanceof WebError&&cause.status===401)setAccessible(false);else if(!(cause instanceof WebError&&[403,404].includes(cause.status)))setError(message(cause));}})();
-  return()=>{controller.abort();generation.current++;};
- },[owner,subjectId,reportId]);
- if(!accessible||report.targetSelf||!owner||!subjectId)return null;
- const highlights=reportUpdateHighlights(update,reportId),risk=riskAwarePresentation(report);
- const displayedCards=risk.mode==="safety"?highlights.cards.map(card=>({...card,question:"",observe:risk.nextStep})):highlights.cards;
- if(!highlights.cards.length&&!highlights.changes.length){
-  return highlights.compact?<p className="rf-compact" data-report-update="unchanged"><History size={16}/><span>{highlights.compact}</span>{update?.previous&&<a href={"/report?id="+encodeURIComponent(update.previous.reportId)}>前次依据<ArrowRight size={14}/></a>}</p>:error?<p className="wa-muted">前次材料暂未取回；不影响阅读本次报告。</p>:null;
+ const [state,setState]=useState<Json|null>(null),[error,setError]=useState(""),generation=useRef(0);
+ useEffect(()=>{const ticket=++generation.current,controller=new AbortController();setState(null);setError("");
+ if(!owner||!subjectId||report.targetSelf)return()=>controller.abort();
+ void(async()=>{try{const identity=await api("/api/account/credits",undefined,controller.signal);if(identity.account?.userId!==owner)return;
+ const data=await api("/api/web/relationship-feedback?subjectId="+encodeURIComponent(subjectId)+"&reportId="+encodeURIComponent(reportId),undefined,controller.signal);
+ if(ticket!==generation.current||controller.signal.aborted)return;if(data.subjectId!==subjectId)throw Error("人物信息已变化，请重新打开报告。");setState(data);
+ }catch(e){if(!controller.signal.aborted&&ticket===generation.current&&!(e instanceof WebError&&[401,403,404].includes(e.status)))setError(message(e));}})();
+ return()=>{controller.abort();generation.current++;};},[owner,subjectId,reportId,report.targetSelf]);
+ return {state,setState,error,subjectId,reportId};
+}
+export function ReportFollowUp({report,owner}:{report:Json;owner?:string}){
+ const {state,error}=useProgress(report,owner||""),change=state?.versionChanges as ReportVersionChanges|undefined;
+ if(!change?.previousId)return error?<p className="wa-muted">前次依据暂未取回，不影响阅读当前报告。</p>:null;
+ return <section className={styles.changes} data-report-update={change.items.length?"changed":"limited"} aria-label="本次新增与变化"><header><h2><History size={18}/>和前次相比</h2><a href={"/report?id="+encodeURIComponent(change.previousId)}>前次报告<ArrowRight size={14}/></a></header>
+ {change.items.length>0?<><ul>{change.items.map((item,index)=><li key={index}><span>{item.title}</span>{item.detail}</li>)}</ul><details><summary>{change.actionChange ? "下一步建议有调整 · 查看前后依据" : "查看依据与前后判断"}</summary>{change.items.flatMap(item=>item.sources).map((source,n)=><blockquote key={n}>{source.quote}{source.reportId !== (report.reportId || report.id) ? <a href={"/report?id="+encodeURIComponent(source.reportId)}>查看前次原话<ArrowRight size={14}/></a> : <CaptureEvidence sourceIds={source.sourceId?[source.sourceId]:undefined} libraryId={source.libraryId} quote={source.quote} label={source.basis==="visual"?"查看图片依据":"回看原话"}/>}</blockquote>)}<p>{change.note}</p>{change.actionChange && <div className={styles.summaries}><div><strong>本次建议</strong><p>{change.actionChange.after}</p></div><div><strong>前次建议</strong><p>{change.actionChange.before}</p></div>{change.actionChange.sources.filter(source=>!change.items.flatMap(item=>item.sources).some(shown=>shown.quote===source.quote)).map((source,n)=><blockquote key={"action-"+n}>{source.quote}<CaptureEvidence sourceIds={source.sourceId?[source.sourceId]:undefined} libraryId={source.libraryId} quote={source.quote} label="回看建议依据"/></blockquote>)}</div>}{change.currentSummary&&change.previousSummary&&change.items.some(item=>item.kind==="revised")&&<div className={styles.summaries}><div><strong>本次判断</strong><p>{change.currentSummary}</p></div><div><strong>前次判断</strong><p>{change.previousSummary}</p></div></div>}<p><a href={"/archive?subjectId="+encodeURIComponent(report.subjectId)+"&section=trend"}>查看完整关系历程<ArrowRight size={14}/></a></p></details></>:<p>{change.note}</p>}</section>;
+}
+export function ReportActionFeedback({report,owner}:{report:Json;owner?:string}){
+ const {state,setState,error,subjectId,reportId}=useProgress(report,owner||"");
+ const [outcome,setOutcome]=useState(""),[note,setNote]=useState(""),[editing,setEditing]=useState(false),[busy,setBusy]=useState(false),[notice,setNotice]=useState(""),[failure,setFailure]=useState("");
+ const pending=useRef<{key:string;id:string}|null>(null),scope=useRef(owner+":"+subjectId+":"+reportId);scope.current=owner+":"+subjectId+":"+reportId;
+ const card=state?.currentFeedback,latest=card?.latest;
+ useEffect(()=>{setOutcome(latest?.outcome||"");setNote(latest?.note||"");setEditing(false);setFailure("");pending.current=null;},[latest?.id,owner,subjectId,reportId]);
+ if(!owner||report.targetSelf||!subjectId||!state||!card)return null;
+ async function save(){
+ if(!outcome||busy)return;const current=scope.current;setBusy(true);setFailure("");setNotice("");
+ const body={subjectId,reportId,outcome,note:note.trim(),eventDate:"",confirmed:true},key=JSON.stringify(body);if(pending.current?.key!==key)pending.current={key,id:crypto.randomUUID()};
+ try{const identity=await api("/api/account/credits");if(scope.current!==current||identity.account?.userId!==owner)throw Error("登录账号已变化，请重新打开报告。");
+ const result=await api("/api/web/relationship-feedback",{...body,id:pending.current!.id});if(scope.current!==current)return;
+ setState({...state,currentFeedback:{...card,latest:result.feedback}});setNotice("已保存；下次分析会参考你这次补充。");setEditing(false);pending.current=null;
+ }catch(e){if(scope.current===current)setFailure(message(e));}finally{if(scope.current===current)setBusy(false);}
  }
- return <section className="wa-card report-follow-up rf-automatic" id="followup" data-report-update="changed" aria-label="本次新增与变化">
-  <div className="rf-heading"><h2><History size={21}/>{highlights.headline}</h2></div>
-  {highlights.cards.length>0&&<RelationshipEvidenceCards review={{cards:displayedCards,note:update?.evidenceReview?.note||"只对照已保存的具体材料，不推断建议已经执行。"}}/>}
-  {highlights.changes.length>0&&<><div className="rf-changes">{highlights.changes.map(change=><div key={change.label}><Sparkles size={17}/><span>{change.label}</span><strong>{change.before}<ArrowRight size={14}/>{change.after}</strong></div>)}</div><p className="rf-note">{update?.note}</p>{update?.current&&update.previous&&<details><summary>查看前后摘要依据</summary><div className="rf-observations"><article><span>本次 · {update.current.date}</span><p>{update.current.summary}</p></article><article><span>此前 · {update.previous.date}</span><p>{update.previous.summary}</p><a href={"/report?id="+encodeURIComponent(update.previous.reportId)}>回看依据<ArrowRight size={14}/></a></article></div></details>}</>}
-  <a className="rf-history-link" href={"/archive?subjectId="+encodeURIComponent(subjectId)+"&section=trend"}>查看这个人的完整进展<ArrowRight size={15}/></a>
- </section>;
+ const choices=[["waiting","试过了"],["not_done","还没做"],["changed","情况变了"]];
+ return <section className={styles.feedback} aria-label="行动反馈"><h2>后来怎么样了？</h2>{latest&&!editing?<><p>{choices.find(([value])=>value===latest.outcome)?.[1]||card.outcomeLabel||"已有反馈"}{latest.note?" · "+latest.note:""}</p><button type="button" onClick={()=>setEditing(true)}>补充或纠正</button></>:<><div className={styles.choices}>{choices.map(([value,label])=><button type="button" key={value} aria-pressed={outcome===value} disabled={busy} onClick={()=>{setOutcome(value);pending.current=null;}}>{label}</button>)}</div>{outcome&&<><label>补一句实际发生的事（可选）<textarea aria-label="行动反馈补充" maxLength={500} value={note} disabled={busy} onChange={event=>{setNote(event.target.value);pending.current=null;}} placeholder="例如：约了周末见面，具体时间还没定"/></label><button type="button" disabled={busy} onClick={()=>void save()}>{busy?"保存中…":latest?"保存纠正":"保存反馈"}</button><p><small>保存到当前人物；作为你的经历补充，下次判断优先参考最新纠正。</small></p></>}</>}{notice&&<p role="status">{notice}</p>}{(failure||error)&&<p role="alert">{failure||error}</p>}</section>;
 }

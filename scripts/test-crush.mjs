@@ -2609,6 +2609,7 @@ await test("native Mini Program archive requires explicit consent and owner-scop
   const owner="native-archive-owner",other="native-archive-other";
   const route=load("app/api/miniapp/profile/route.ts",{
     "@/db":{getD1:()=>db},
+    "@/lib/capture-history-purge":{withCaptureHistoryPurge:async(who,remove)=>{assert.equal(who,owner);return remove();}},
     "@/lib/miniapp-auth":{miniappOwner:async request=>({"Bearer archive-token":owner,"Bearer other-token":other})[request.headers.get("Authorization")||""]?{ownerId:({"Bearer archive-token":owner,"Bearer other-token":other})[request.headers.get("Authorization")||""]}:null},
     "@/lib/crush/service":service
   });

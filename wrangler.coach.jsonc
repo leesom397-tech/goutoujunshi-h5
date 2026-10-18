@@ -35,8 +35,8 @@
     ]
   },
   "browser": { "binding": "BROWSER" },
-  "durable_objects": { "bindings": [{ "name": "WECHAT_COORDINATOR", "class_name": "WechatCoordinator" }, { "name": "SOCIAL_PROFILE_JOBS", "class_name": "SocialProfileJobs" }] },
-  "migrations": [{ "tag": "coach-wechat-v1", "new_sqlite_classes": ["WechatCoordinator"] }, { "tag": "social-profile-jobs-v1", "new_sqlite_classes": ["SocialProfileJobs"] }],
+  "durable_objects": { "bindings": [{ "name": "WECHAT_COORDINATOR", "class_name": "WechatCoordinator" }, { "name": "SOCIAL_PROFILE_JOBS", "class_name": "SocialProfileJobs" }, { "name": "CAPTURE_HISTORY_JOBS", "class_name": "CaptureHistoryJobs" }] },
+  "migrations": [{ "tag": "coach-wechat-v1", "new_sqlite_classes": ["WechatCoordinator"] }, { "tag": "social-profile-jobs-v1", "new_sqlite_classes": ["SocialProfileJobs"] }, { "tag": "capture-history-jobs-v1", "new_sqlite_classes": ["CaptureHistoryJobs"] }],
   "triggers": { "crons": ["* * * * *"] },
   "observability": { "enabled": true }
 }

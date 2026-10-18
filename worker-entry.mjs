@@ -1,3 +1,5 @@
+import { CaptureHistoryJobs } from "./lib/capture-history-jobs.mjs";
+export { CaptureHistoryJobs };
 import app from "./dist/server/index.js";
 import {DurableObject} from "cloudflare:workers";
 import {loadVoiceMemory,validVoiceSubjectId} from "./lib/miniapp-voice-memory.mjs";
@@ -29,6 +31,7 @@ const worker = {
   },
   async handleFetch(request,env,ctx){
     const path = new URL(request.url).pathname;
+    if(request.headers.has("x-capture-job-key") || request.headers.has("x-capture-job-owner")) return Response.json({error:"请求无效。"},{status:403});
     // Vinext also matches encoded segments and trailing/repeated slashes. Reject
     // alternate API spellings before dispatch so none can skip the credit gate.
     let decodedPath;

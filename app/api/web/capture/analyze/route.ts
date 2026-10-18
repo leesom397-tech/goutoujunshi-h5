@@ -1,3 +1,6 @@
+import { env } from "cloudflare:workers";
+import { checkpointedCaptureModel, isCaptureJobControl, CaptureJobYield, type CaptureCheckpoint } from "@/lib/capture-job-control";
+import { reportContextSnapshot } from "@/lib/report-freshness";
 import { getD1 } from "@/db";
 import { miniappOwner } from "@/lib/miniapp-auth";
 import { captureAnalysisInput, captureReadableText, type CaptureAnalysisInput, type CaptureMemoryRow } from "@/lib/capture-analysis-input";
@@ -62,19 +65,25 @@ async function momentsAnalysis(owner: string, input: CaptureAnalysisInput) {
   return {...final,personalConnection:await personalizeReport(owner,input.subjectId,final)};
 }
 
-async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, db: ReturnType<typeof getD1>) {
+async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, db: ReturnType<typeof getD1>, job?: {checkpoint: CaptureCheckpoint; manifest: any}) {
   await requireSettings(owner);
-  await reserveBudget(owner, "deep");
+  const previousContext = job ? await job.checkpoint("context") : null;
+  if (!previousContext) await reserveBudget(owner, "deep");
+  const validateContext = job ? () => assertReportContextCurrent(db,owner,input.subjectId,job.manifest.contextSnapshot) : undefined;
+  const model = job ? checkpointedCaptureModel(qwenChat, job.checkpoint, validateContext) : qwenChat;
   const history = await readFullCaptureHistory(db, owner, input);
   if (!history.readable.length) throw new CaptureFullHistoryError("已读取全部聊天，但没有可用的文字或语音转写；请先补齐文字再生成完整报告。", 422);
   const chatActivity = computeChatActivity(history.records);
   const riskReview = fullHistoryRiskReview(history.readable, input.libraryId || undefined);
-  const related = await readRelatedCaptureEvidence(db, owner, input, history, qwenChat);
-  let selfMemoryStatus: string;
-  try { selfMemoryStatus=await updateSelfArchiveMemory(owner,input.libraryId!,input.expectedEpoch!,history.readable,db); } catch { selfMemoryStatus="unavailable"; console.warn("self_archive_memory_update_unavailable"); }
-  let personContext = "", selfContext = "";
-  try { if (input.subjectId) personContext = await loadProfileContext(owner, input.subjectId, input.question || "关系状态 投入 变化 朋友圈", 1800); } catch { personContext = ""; }
-  try { selfContext = await loadProfileContext(owner,null,input.question || "关系偏好 沟通 边界",1800,false); } catch { selfContext = ""; }
+  if (job && history.revision !== job.manifest.primary.revision) throw new CaptureFullHistoryError("分析期间聊天资料已更新，请重新生成；已完成且未变化的段落会复用。",409);
+  let selfMemoryStatus: string = previousContext?.selfMemoryStatus || "unavailable";
+  if (!previousContext) try { selfMemoryStatus=await updateSelfArchiveMemory(owner,input.libraryId!,input.expectedEpoch!,history.readable,db); } catch { selfMemoryStatus="unavailable"; console.warn("self_archive_memory_update_unavailable"); }
+  let personContext = previousContext?.personContext || "", selfContext = previousContext?.selfContext || "";
+  if (!previousContext) try { if (input.subjectId) personContext = await loadProfileContext(owner, input.subjectId, input.question || "关系状态 投入 变化 朋友圈", 1800); } catch { personContext = ""; }
+  if (!previousContext) try { selfContext = await loadProfileContext(owner,null,input.question || "关系偏好 沟通 边界",1800,false); } catch { selfContext = ""; }
+  if (job && !previousContext) await job.checkpoint("context", {personContext,selfContext,selfMemoryStatus});
+  const related = await readRelatedCaptureEvidence(db, owner, input, history, model);
+  if (job && JSON.stringify(related.snapshots.filter(s=>s.kind==="moments")) !== JSON.stringify(job.manifest.related)) throw new CaptureFullHistoryError("分析期间朋友圈资料已更新，请重新核对后生成。",409);
   // A model segment can fail without discarding the statistics already computed
   // from every imported message. The report says which text was actually read.
   let semanticHistory;
@@ -90,8 +99,9 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
       selfContext,
       supplementalRecords: related.supplementalRecords,
       riskReview,
-    }, qwenChat);
-  } catch {
+    }, model);
+  } catch (error) {
+    if (isCaptureJobControl(error)) throw error;
     semanticHistory = unavailableCaptureSemanticHistory(history.readable, history.records.length, 0);
   }
   const modelComplete = semanticHistory.status === "complete" && semanticHistory.coverage.analyzedText === history.readable.length;
@@ -103,6 +113,7 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
   }
   await assertCaptureSnapshotsCurrent(db, owner, related.snapshots);
   await checkRelatedCaptureSnapshots(db, owner, input);
+  await validateContext?.();
   Object.assign(relationshipDiagnosis, { semanticHistory });
   applySemanticDiagnosis(relationshipDiagnosis, semanticHistory);
   const anchorIds = new Set([...semanticHistory.summaryEvidenceIds, ...semanticHistory.actionEvidenceIds]);
@@ -116,9 +127,11 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
   const report: Record<string, any> = {
     id: input.requestId, reportId: input.requestId, kind: "chat", subjectId: input.subjectId,
     captureOrigin: true, captureFormat: "full-history", analysisScope: "fullHistory",
+    analysisFingerprint: job?.manifest.fingerprint,
     summary: judgment, lines: [], annotations: [], chatActivity, relationshipDiagnosis, semanticHistory, riskReview,
     sourceCoverage: related.sourceCoverage, mediaEvidence: related.mediaEvidence,
     relatedSnapshots: related.snapshots.filter(snapshot => snapshot.kind === "moments"),
+    contextSnapshot: job?.manifest.contextSnapshot || await reportContextSnapshot(db,owner,input.subjectId),
     profileEvidence: capturePersonalEvidence(history.readable, input.subjectId, input.requestId), selfMemoryStatus,
     archiveSnapshot: { libraryId: input.libraryId, epoch: input.expectedEpoch, revision: history.revision, total: history.records.length },
     decision: {
@@ -140,33 +153,60 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
   return { report, sourceIds, totalCount: history.records.length };
 }
 
+const jobBinding = () => (env as any).CAPTURE_HISTORY_JOBS;
+async function assertReportContextCurrent(db:ReturnType<typeof getD1>,owner:string,subject:string|null,before:unknown){
+  const current=await reportContextSnapshot(db,owner,subject);
+  if(JSON.stringify(current)!==JSON.stringify(before))throw new CaptureFullHistoryError("人物资料或档案授权已改变，本次分析已停止。请确认最新资料后重新生成。",409);
+}
+function jobStore(owner: string) { const binding=jobBinding(); if(!binding)throw new CaptureFullHistoryError("后台分析暂不可用，请稍后重试。",503);return binding.get(binding.idFromName(owner)); }
+export async function GET(request: Request) {
+  const identity=await miniappOwner(request);
+  if(!identity)return json({error:"请先登录。"},401);
+  try {const task=await jobStore(identity.ownerId).status(identity.ownerId,new URL(request.url).searchParams.get("taskId") || undefined);return json(task || {status:"none"});}
+  catch{return json({error:"暂时无法读取后台任务，请稍后重试。"},503);}
+}
 export async function POST(request: Request) {
-  const identity = await miniappOwner(request);
-  if (!identity) return json({ error: "请先登录后分析采集材料。" }, 401);
+  const internal = !!(env as any).WECHAT_CALLBACK_TOKEN && request.headers.get("x-capture-job-key") === (env as any).WECHAT_CALLBACK_TOKEN;
+  const identity = internal ? {ownerId:request.headers.get("x-capture-job-owner") || ""} : await miniappOwner(request);
+  if (!identity?.ownerId) return json({ error: "请先登录后分析采集材料。" }, 401);
   // Web cookies require same-origin CSRF validation; native paths require a Bearer session.
   if (new URL(request.url).pathname.startsWith("/api/web/") && request.headers.get("origin") !== new URL(request.url).origin) return json({ error: "请求来源无效。" }, 403);
   if (!request.headers.get("content-type")?.includes("application/json")) return json({ error: "请求格式不正确。" }, 415);
-  let input: CaptureAnalysisInput, raw: string;
+  let input: CaptureAnalysisInput, raw: string, manifest: any;
   try {
     if (Number(request.headers.get("content-length") || 0) > 10_000_000) return json({ error: "材料过大，请分批分析。" }, 413);
     raw = await request.text();
     if (raw.length > 10_000_000) return json({ error: "材料过大，请分批分析。" }, 413);
-    input = captureAnalysisInput(JSON.parse(raw));
+    const body=JSON.parse(raw);
+    const canonical = internal ? {...body.input,confirmed:true} : body;
+    if(internal){delete canonical.historyRecords;delete canonical.activityRecords;}
+    input = captureAnalysisInput(canonical);
+    manifest=internal ? {...body.manifest,fingerprint:body.fingerprint} : undefined;
   } catch (error) { return json({ error: error instanceof SyntaxError ? "材料格式不正确。" : error instanceof Error ? error.message : "材料无效。" }, 400); }
   const db = getD1();
   if (input.subjectId && !await db.prepare("SELECT id FROM coach_subjects WHERE id=? AND owner_id=? AND status='active'").bind(input.subjectId, identity.ownerId).first()) return json({ error: "所选人物不存在，请重新选择。" }, 404);
   if (input.analysisScope === "fullHistory") {
-    try { await checkFullCaptureHistory(db, identity.ownerId, input); await checkRelatedCaptureSnapshots(db, identity.ownerId, input); }
-    catch (error) { return json({ error: error instanceof Error ? error.message : "完整聊天尚未同步完成。" }, error instanceof CaptureFullHistoryError ? error.status : 503); }
+    try {
+      const primary=await checkFullCaptureHistory(db, identity.ownerId, input), related=await checkRelatedCaptureSnapshots(db, identity.ownerId, input);
+      if (!internal) {
+        await requireSettings(identity.ownerId);
+        const contextSnapshot=await reportContextSnapshot(db,identity.ownerId,input.subjectId);
+        const task=await jobStore(identity.ownerId).start(identity.ownerId,input,{primary,related,contextSnapshot});
+        return json(task,task.status==="done"?200:202);
+      }
+      if (!manifest?.primary || primary.revision!==manifest.primary.revision || JSON.stringify(related)!==JSON.stringify(manifest.related)) throw new CaptureFullHistoryError("资料已更新，请重新生成。",409);
+      await assertReportContextCurrent(db,identity.ownerId,input.subjectId,manifest.contextSnapshot);
+    }
+    catch (error) { return json({ error: error instanceof Error ? error.message : "完整聊天尚未同步完成。" }, error instanceof CaptureFullHistoryError ? error.status : Number.isInteger((error as any)?.status) && (error as any).status>=400 && (error as any).status<=599 ? (error as any).status : 503); }
   }
   const replay = new Request(request.url, { method: "POST", headers: request.headers, body: raw });
-  return creditResponse(db, identity.ownerId, replay, "analysis", input.kind === "chat" ? CREDIT_PRICES.analysisSmall : CREDIT_PRICES.profile, async () => {
+  const execute = async () => {
     try {
       let result: Record<string, any>;
       let totalCount = input.records.length, sourceIds = input.records.map(r => r.localId);
       if (input.analysisScope === "fullHistory") {
-        const full = await fullHistoryAnalysis(identity.ownerId, input, db);
-        result = full.report; totalCount = full.totalCount; sourceIds = full.sourceIds;
+        const full = await fullHistoryAnalysis(identity.ownerId, input, db, internal ? {manifest,checkpoint:(key,update)=>jobStore(identity.ownerId).checkpoint(identity.ownerId,input.requestId,(env as any).WECHAT_CALLBACK_TOKEN,key,update)} : undefined);
+        result = {...full.report,sourceIds:full.sourceIds}; totalCount = full.totalCount; sourceIds = full.sourceIds;
       } else if (input.kind === "chat") {
         await requireSettings(identity.ownerId);
         const context = await loadProfileContext(identity.ownerId, input.subjectId);
@@ -248,11 +288,14 @@ export async function POST(request: Request) {
         await db.prepare("UPDATE coach_crush_reports SET result=? WHERE owner_id=? AND id=? AND status='done'").bind(JSON.stringify(report), identity.ownerId, report.id).run();
         result = { ...report, entries: [report], captureOrigin: true };
       } else result = await momentsAnalysis(identity.ownerId, input);
+      if(internal){await assertReportContextCurrent(db,identity.ownerId,input.subjectId,manifest.contextSnapshot);await jobStore(identity.ownerId).checkpoint(identity.ownerId,input.requestId,(env as any).WECHAT_CALLBACK_TOKEN,"progress",{phase:"saving"});}
       const saved = await saveAnalysisReport(db, { ownerId: identity.ownerId, id: input.requestId, kind: input.kind, subjectId: input.subjectId, totalCount, imageCount: 1, result });
       return json({ ...saved, sourceIds });
     } catch (error) {
+      if (isCaptureJobControl(error)) return json({code:error instanceof CaptureJobYield?"CAPTURE_JOB_YIELD":"CAPTURE_JOB_RETRY",error:error instanceof Error?error.message:""},error instanceof CaptureJobYield?202:503);
       const status = error instanceof CaptureFullHistoryError ? error.status : error instanceof Error && error.name === "CrushError" && "status" in error ? Number(error.status) : 503;
       return json({ error: error instanceof CaptureFullHistoryError ? error.message : qwenPublicError(error, "本次分析未完成，采集原文仍在本机，可继续重试。") }, status);
     }
-  });
+  };
+  return internal ? execute() : creditResponse(db, identity.ownerId, replay, "analysis", input.kind === "chat" ? CREDIT_PRICES.analysisSmall : CREDIT_PRICES.profile, execute);
 }

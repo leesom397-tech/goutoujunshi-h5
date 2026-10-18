@@ -1,3 +1,4 @@
+import { isCaptureJobControl, allCaptureSteps } from "./capture-job-signals.mjs";
 import type { getD1 } from "@/db";
 import type { CaptureAnalysisInput, CaptureMemoryRow } from "./capture-analysis-input";
 import type { SemanticHistoryEvidence } from "./capture-semantic-history";
@@ -99,7 +100,7 @@ export async function readRelatedCaptureEvidence(db: Database, owner: string, in
       supplementalRecords.push({localId: `${snapshot.libraryId}:caption:${row.localId}`, sourceLocalId: row.localId, kind: "text", senderRole: "other", at: row.at, text: row.text, libraryId: snapshot.libraryId, sourceKind: "moments", basis: "caption"});
     }
     for (let offset = 0; offset < pictures.length; offset += 2) {
-      const observations = await Promise.all(pictures.slice(offset, offset + 2).map(async media => {
+      const observations = await allCaptureSteps(pictures.slice(offset, offset + 2).map(async media => {
         const source = byId.get(media.local_id)!;
         const cached = media.analysis_version === 1 ? parse(media.analysis_json) : {};
         if (typeof cached.observation === "string" && typeof cached.readable === "boolean") return {media, source, ...cached} as {media: Media; source: CloudCaptureRecord; observation: string; readable: boolean};
@@ -116,7 +117,7 @@ export async function readRelatedCaptureEvidence(db: Database, owner: string, in
           const saved = await db.prepare("UPDATE coach_capture_media SET analysis_json=?,analysis_version=1,analyzed_at=? WHERE owner_id=? AND id=? AND sha256=? AND EXISTS(SELECT 1 FROM coach_capture_libraries WHERE owner_id=? AND id=? AND epoch=? AND deleted_at IS NULL)").bind(JSON.stringify(value), Date.now(), owner, media.id, media.sha256, owner, snapshot.libraryId, snapshot.epoch).run();
           if (!saved.meta.changes) throw new CaptureFullHistoryError("图片来源已删除，停止生成。", 409);
           return {media, source, ...value};
-        } catch (error) { if (error instanceof CaptureFullHistoryError) throw error; return {media, source, failed: true as const}; }
+        } catch (error) { if (isCaptureJobControl(error) || error instanceof CaptureFullHistoryError) throw error; return {media, source, failed: true as const}; }
       }));
       for (const result of observations) {
         if ("failed" in result) { coverage.imagesFailed++; continue; }
