@@ -143,7 +143,7 @@ async function scenario(width,name){
    }
    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'no horizontal overflow');assert.deepEqual(errors,[]);
    await page.screenshot({path:`${output}/${name}-${width}.png`,fullPage:true});console.log(`PASS Moments ${width} ${name}: immediate feedback, explicit errors or all-source report.`);
- }catch(error){await writeFile(`${output}/failure-${name}-${width}.json`,JSON.stringify({error:error.message,errors,captures,paid,visible:await page.evaluate(()=>document.body.innerText)},null,2));throw error;}
+ }catch(error){await writeFile(`${output}/failure-${name}-${width}.json`,JSON.stringify({error:error.message,errors,captures,paid,visible:await page.evaluate(()=>document.body?.innerText || "[document body unavailable]").catch(()=>"[page unavailable]")},null,2));throw error;}
  finally{await context.close();}
 }
 try{for(const width of [1440,390])for(const name of ['success','residual-plan','duplicate','unready','legacy-components','no-moments','prepared-helper','old-helper','start-error','recover-missing','report-recover','report-reconnect','report-reload','report-wrong-contact','report-wrong-contact-reload','report-phone','empty','partial','stale','job-error','old-empty','report-old-empty','report-partial','report-stale','report-job-error'])if((name!=='report-phone'||width===390)&&(!process.env.CAPTURE_MOMENTS_SCENARIO||process.env.CAPTURE_MOMENTS_SCENARIO.split(',').includes(name)))await scenario(width,name);}finally{await browser.close();stop();}
