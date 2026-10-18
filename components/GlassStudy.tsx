@@ -44,7 +44,7 @@ void main(){
  gl_FragColor=vec4(clamp(col,0.,1.),1.);
 }`;
 
-export function GlassStudy() {
+export function GlassStudy({imageSrc="/images/aurora-fluted-light-v5.webp"}:{imageSrc?:string}={}) {
  const canvas = useRef<HTMLCanvasElement>(null);
  const [ready,setReady]=useState(false);
  const [paused,setPaused]=useState<boolean|null>(null);
@@ -74,7 +74,7 @@ export function GlassStudy() {
   gl.uniform1i(gl.getUniformLocation(program,'material'),0);
   const asset=new Image();let disposed=false,loaded=false;
   let visible=true,elapsed=0,previous=0,lastDraw=0,raf=0,dirty=true,lost=false;
-  const resize=()=>{const rect=node.getBoundingClientRect();const scale=Math.min(window.devicePixelRatio||1,2,1800/Math.max(rect.width,1));node.width=Math.max(1,Math.round(rect.width*scale));node.height=Math.max(1,Math.round(rect.height*scale));gl.viewport(0,0,node.width,node.height);dirty=true;};
+  const resize=()=>{const rect=node.getBoundingClientRect();const scale=Math.min(window.devicePixelRatio||1,2,1800/Math.max(rect.width,1));const width=Math.max(1,Math.round(rect.width*scale)),height=Math.max(1,Math.round(rect.height*scale));if(node.width!==width||node.height!==height){node.width=width;node.height=height;}gl.viewport(0,0,node.width,node.height);dirty=true;if(loaded&&!lost)draw();};
   const draw=()=>{gl.uniform2f(size,node.width,node.height);gl.uniform1f(time,elapsed);gl.drawArrays(gl.TRIANGLES,0,6);};
   const frame=(now:number)=>{raf=0;if(lost||!loaded||document.hidden||!visible)return;const dt=previous?Math.min(now-previous,100):0;previous=now;const animate=!(pauseRef.current??reduce);if(animate)elapsed+=dt/1000;if(dirty||animate&&now-lastDraw>1000/24){draw();lastDraw=now;dirty=false;}if(animate)raf=requestAnimationFrame(frame);};
   const wake=()=>{previous=0;if(!raf&&!lost)raf=requestAnimationFrame(frame);};
@@ -87,12 +87,12 @@ export function GlassStudy() {
   node.addEventListener('webglcontextlost',contextLost);node.addEventListener('glass-resume',resume);
   media.addEventListener('change',change);document.addEventListener('visibilitychange',visibility);
   asset.onload=()=>{if(disposed||lost)return;gl.bindTexture(gl.TEXTURE_2D,texture);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,gl.RGB,gl.UNSIGNED_BYTE,asset);gl.uniform1f(gl.getUniformLocation(program,'materialAspect'),asset.naturalWidth/asset.naturalHeight);gl.uniform1f(gl.getUniformLocation(program,'materialWidth'),asset.naturalWidth);loaded=true;resize();draw();setReady(true);wake();};
-  asset.src='/images/aurora-fluted-light-v5.webp';
+  asset.src=imageSrc;
   return()=>{disposed=true;asset.onload=null;gl.deleteTexture(texture);cancelAnimationFrame(raf);observer.disconnect();intersection.disconnect();media.removeEventListener('change',change);document.removeEventListener('visibilitychange',visibility);node.removeEventListener('webglcontextlost',contextLost);node.removeEventListener('glass-resume',resume);gl.deleteBuffer(buffer);gl.deleteProgram(program);gl.deleteShader(vs);gl.deleteShader(fs);};
- },[]);
+ },[imageSrc]);
  const toggle=()=>{pauseRef.current=!isPaused;setPaused(!isPaused);canvas.current?.dispatchEvent(new Event('glass-resume'));};
- return <div className={styles.study} data-glass-ready={ready} data-motion={isPaused?"paused":"playing"} data-motion-explicit={paused!==null}>
-  <img className={styles.fallback} src="/images/aurora-fluted-light-v5.webp" alt="" aria-hidden="true" fetchPriority="high"/>
+ return <div className={styles.study} style={{'--glass-material':`url("${imageSrc}")`} as CSSProperties} data-glass-ready={ready} data-motion={isPaused?"paused":"playing"} data-motion-explicit={paused!==null}>
+  <img className={styles.fallback} src={imageSrc} alt="" aria-hidden="true" fetchPriority="high"/>
   <canvas ref={canvas} className={`${styles.canvas} ${ready?styles.ready:''}`} aria-hidden="true"/>
   <div className={styles.fallbackRibs} aria-hidden="true">{Array.from({length:36},(_,index)=><i key={index} style={{'--rib':index} as CSSProperties}/>)}</div>
   <button type="button" className={styles.control} onClick={toggle} aria-label={isPaused?'播放光影':'暂停光影'} aria-pressed={isPaused}>{isPaused?<Play size={16} aria-hidden="true"/>:<Pause size={16} aria-hidden="true"/>}</button>

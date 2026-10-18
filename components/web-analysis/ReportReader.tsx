@@ -79,6 +79,6 @@ export function ReportReader({items,children,storageKey}:{items:ReadingSection[]
   {items.map((part,n)=>seen.includes(part.id)&&<section key={part.id} hidden={part.id!==active} role="tabpanel" id={`${id}-panel-${part.id}`} aria-labelledby={`${id}-tab-${part.id}`} tabIndex={0} className={styles.panel} data-reading-section={part.id}>
    {children(part.id)}
   </section>)}
-  <footer className={styles.pager}><button type="button" disabled={index===0} onClick={()=>choose(index-1,true)}><ArrowLeft size={17}/>上一部分</button><span>{index+1} / {items.length}</span>{index<items.length-1?<button type="button" onClick={()=>choose(index+1,true)}>下一部分 · {items[index+1].label}<ArrowRight size={17}/></button>:<span className={styles.finished}><Check size={17}/>{seen.length===items.length?"已查看全部部分":"已到最后一部分"}</span>}</footer>
+  <footer className={styles.pager}><button type="button" disabled={index===0} onClick={()=>choose(index-1,true)}><ArrowLeft size={16}/>上一部分</button><span className={styles.pageDots} aria-label={`第 ${index+1} 部分，共 ${items.length} 部分`}>{items.map((part,n)=><i key={part.id} data-current={n===index} aria-hidden="true"/>)}</span>{index<items.length-1?<button type="button" className={styles.nextPage} onClick={()=>choose(index+1,true)}>{items[index+1].label}<ArrowRight size={16}/></button>:<span className={styles.finished}><Check size={16}/>{seen.length===items.length?"已看完报告":"已到最后一部分"}</span>}</footer>
  </div>;
 }

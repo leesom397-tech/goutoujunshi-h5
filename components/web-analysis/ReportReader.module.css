@@ -24,3 +24,16 @@
 .tabs button { min-height:48px; padding:10px 14px; }
 .panel { min-height:0; padding:26px; border-top-width:1px; background:#fffdf9; box-shadow:none; }
 @media(max-width:700px) { .panel { padding:20px 16px; }.tabs button { min-height:48px; flex-direction:row; gap:5px; font-size:12px; padding:9px 4px; }.tabs button svg { width:16px; height:16px; } }
+
+/* One floating chapter control; the paper below has no enclosing form card. */
+.navigation{top:10px;margin:0 0 28px;padding:5px 0 10px;border:0;background:none;backdrop-filter:none;isolation:isolate}
+.navigation:before{content:"";position:absolute;inset:-10px -8px -6px;z-index:-1;pointer-events:none;background:linear-gradient(#fff9f3ed 72%,#fff9f300);backdrop-filter:blur(8px);mask-image:linear-gradient(#000 78%,transparent)}
+.tabs{width:min(100%,650px);margin:0 auto;gap:4px;padding:5px;border:1px solid #fffdfa;border-radius:50px;background:#f1ece3;box-shadow:0 7px 24px #6c513810}
+.tabs button{gap:8px;justify-content:center;min-height:48px;padding:10px 18px;border:0;border-radius:50px;background:transparent;color:#7a7165;box-shadow:none;font-size:14px;font-weight:500;transition:background .18s,color .18s,box-shadow .18s}
+.tabs button small{margin-left:3px;font-size:10px;color:inherit;opacity:.55}.tabs button svg{width:17px;height:17px}.tabs button small svg{width:11px;height:11px}
+.tabs button[aria-selected=true]{color:#fffdf6;background:#244c46;border:0;box-shadow:0 3px 9px #244c4620}.tabs button:not([aria-selected=true]):hover{background:#e5e3d7;color:#244c46}
+.panel{padding:0;border:0;border-radius:0;background:none;box-shadow:none;min-height:0;outline-offset:7px}
+.pager{border-top:1px solid #e7dbcd;padding-top:19px;margin-top:30px;gap:12px}.pager button{min-height:43px;padding:10px 14px;border:0;border-radius:30px;background:transparent;color:#83715f;font-size:12px}.pager button:not(:disabled):hover{background:#eee9df;border:0}.pager .nextPage{background:#244c46;color:#fffaf5;padding:11px 20px}.pager .nextPage:not(:disabled):hover{background:#193e38;color:#fffaf5}.pager button:disabled{opacity:.32}
+.pageDots{display:flex;gap:5px;align-items:center}.pageDots i{display:block;width:5px;height:5px;border-radius:50px;background:#d7cbbd;transition:width .2s}.pageDots i[data-current=true]{width:18px;background:#b66e55}.pager .finished{font-size:11px;color:#718375}
+@media(max-width:700px){.navigation{top:3px;margin-bottom:19px;padding:4px 0 7px}.tabs{padding:4px;gap:2px}.tabs button{padding:9px 3px;min-height:42px;font-size:11px;gap:5px}.tabs button svg{width:15px;height:15px}.tabs button small{display:none}.panel{padding:0}.pager{margin-top:24px;padding-top:16px;gap:8px}.pager button{font-size:11px;padding:10px 9px;gap:5px}.pager .nextPage{padding:10px 14px}.pageDots{gap:4px}.pager .finished{font-size:10px;gap:4px}}
+@media(prefers-reduced-motion:reduce){.tabs button,.pageDots i{transition:none}}

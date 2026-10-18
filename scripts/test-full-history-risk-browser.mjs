@@ -20,12 +20,26 @@ try{for(const width of [1440,390]){
   return r.respond({status:200,contentType:'application/json',body:JSON.stringify(value)});
  });
  await page.goto(origin+'/report?id='+reportId,{waitUntil:'networkidle0'});await page.waitForSelector('[aria-label="全历史风险核实"]');
+ await page.evaluate(async()=>{await document.fonts.ready;await Promise.all([...document.images].map(image=>image.decode().catch(()=>{})));});
+ const glass = await page.$('[data-glass-ready]');
+ if(glass){
+  assert.equal(await glass.$eval('img',image=>image.complete&&image.naturalWidth>0),true,'report illustration loads');
+  await glass.$eval('button',button=>button.click());assert.equal(await glass.evaluate(node=>node.dataset.motion),'paused','visible pause control stops motion');
+  await glass.$eval('button',button=>button.click());assert.equal(await glass.evaluate(node=>node.dataset.motion),'playing','visible play control resumes motion');
+ }
+ await page.screenshot({path:`outputs/full-history-risk/overview-${width}.png`,fullPage:false});
+ assert.equal(await page.$$eval('[data-risk-kind][open]',nodes=>nodes.length),0,'risk evidence is folded initially');
+ const counts=await page.$$eval('[data-risk-category]',nodes=>nodes.map(node=>node.innerText));assert.match(counts[0],/1/);assert.match(counts[1],/0/);assert.match(counts[2],/0/);
+ await page.$eval('[data-risk-category="expectation"]',node=>node.click());assert.match(await page.$eval('[data-risk-review]',node=>node.innerText),/未检出此类明确表达/);assert.equal(await page.$$eval('[data-risk-kind]',nodes=>nodes.length),0,'category with no verified source has no invented evidence');
+ await page.$eval('[data-risk-category="safety"]',node=>node.click());
  assert.equal(await page.$$eval('[data-key-evidence] li',nodes=>nodes.length),1,'checked risk quote fills absent semantic evidence');assert.match(await page.$eval('[data-key-evidence]',e=>e.innerText),/把验证码发给我/);assert.doesNotMatch(await page.$eval('[data-report-brief]',e=>e.innerText),/暂未保留可引用/);
  await page.$eval('[data-key-evidence] button',e=>e.click());await page.waitForSelector('[data-capture-evidence-dialog][open] [data-capture-record]');assert.match(await page.$eval('[data-capture-evidence-dialog]',e=>e.innerText),/把验证码发给我/);await page.keyboard.press('Escape');
  assert.match(await page.$eval('[data-risk-review]',e=>e.innerText),/675 条可读聊天/);assert.equal(await page.$$eval('[data-risk-kind]',nodes=>nodes.length),1);assert.equal(await page.$$eval('[data-risk-kind] details[open]',nodes=>nodes.length),0);
  await page.$eval('[data-risk-kind] summary',e=>e.click());assert.match(await page.$eval('[data-risk-review]',e=>e.innerText),/随后一条我方回应/);assert.match(await page.$eval('[data-risk-review]',e=>e.innerText),/1 条表达/);
  const riskCopy=await page.$eval('[data-risk-review]',e=>e.innerText);assert.doesNotMatch(riskCopy,/2026-01-01T|\.000Z/,'ISO storage values are not displayed');assert.match(riskCopy,/2026\/1\/1 08:00:00/,'existing Chinese/Shanghai formatter used for original');assert.match(riskCopy,/2026\/1\/1 08:01:00/,'response time localized independently');assert.equal(report.riskReview.signals[0].sources[0].at,'2026-01-01T00:00:00.000Z','source timestamp unchanged');
  await page.screenshot({path:`outputs/full-history-risk/report-${width}.png`,fullPage:true});
+ const riskSection=await page.$('[data-risk-review]');await riskSection.screenshot({path:`outputs/full-history-risk/evidence-${width}.png`});assert.equal(await page.$$eval('[data-risk-conversation]',nodes=>nodes.length),1,'one true dated exchange is retained');
+ const nonBlack = await page.evaluate(()=>{const glass=document.querySelector('[data-glass-ready="true"]');if(!glass)return true;const canvas=glass.querySelector('canvas'),gl=canvas?.getContext('webgl');if(!gl)return true;const rgba=new Uint8Array(4);gl.readPixels(Math.floor(canvas.width/2),Math.floor(canvas.height/2),1,1,gl.RGBA,gl.UNSIGNED_BYTE,rgba);return [...rgba.slice(0,3)].some(channel=>channel>15);});assert.equal(nonBlack,true,'offscreen report illustration preserves a painted frame');
  await page.evaluate(()=>[...document.querySelectorAll('[data-risk-review] button')].find(e=>e.textContent.includes('回看这条原话')).click());await page.waitForSelector('[data-capture-evidence-dialog][open] [data-capture-record]');
  assert.match(await page.$eval('[data-capture-evidence-dialog]',e=>e.innerText),/把验证码发给我/);assert.ok(sourceRequests.some(query=>new URLSearchParams(query).get('id')===libraryId),'exact library resolves early source');await page.keyboard.press('Escape');
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth+1),false);assert.deepEqual(errors,[]);assert.deepEqual(writes,[]);

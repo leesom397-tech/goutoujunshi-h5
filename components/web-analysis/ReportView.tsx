@@ -1,7 +1,7 @@
 "use client";
 import { ReportCoverage } from "./ReportCoverage";
 import { useEffect, useRef, useState } from "react";
-import { Sparkles, MessageCircle, ChartNoAxesCombined, Quote, HeartHandshake, Copy, Smile, CircleHelp, Heart, HandHeart, Meh, Frown, Angry, Eye, CircleCheck, Send, ArrowLeft, ArrowRight, Lightbulb, Image, Sticker } from "lucide-react";
+import { Sparkles, MessageCircle, ChartNoAxesCombined, Quote, HeartHandshake, Copy, Smile, CircleHelp, Heart, HandHeart, Meh, Frown, Angry, Eye, CircleCheck, Send, ArrowLeft, ArrowRight, Lightbulb, Image, Sticker, BookOpen, CalendarDays, Flag } from "lucide-react";
 import { api, ErrorNotice, followup, message, priceLabel, hasPrice, type Json } from "./client";
 import { personalizeReplyText, replyStyleSamples } from "@/lib/crush/reply-style";
 import { ArchiveRadar } from "@/components/ArchiveCharts";
@@ -127,9 +127,9 @@ export function ChatReport({report,account,styleReportIds,preview=false,publicEx
     <ChatReportBrief report={report} diagnosis={diagnosis}/>
     {decision.partial&&<p className="wa-status">部分材料未识别；下方依据只覆盖可读内容。</p>}
     <RiskReview report={report}/>
-    <div className={reportStyles.detailLinks}><ReportCoverage report={report}/>
-     {(diagnosis||semantic)&&<ReportDetails title="为什么这样判断" description="详细解读、支持与相反证据、其他解释和分析范围"><RelationshipDiagnosisPanel diagnosis={diagnosis} semanticHistory={semantic} hideCoverage={!!report.sourceCoverage?.length}/></ReportDetails>}
-     <ReportDetails title="我们之间：共同点与相处差异" description="对照双方已有资料，查看适配与需要磨合的地方"><PersonalConnection report={report} publicExample={publicExample}/>{fit&&<FitReport fit={fit} current={Object.prototype.hasOwnProperty.call(report,'latestCompatibility')}/>}</ReportDetails>
+    <div className={reportStyles.detailLinks}><h2><BookOpen size={19}/>深入读这份报告</h2><ReportCoverage report={report}/>
+     {(diagnosis||semantic)&&<ReportDetails title="为什么这样判断" description="详细解读、相反证据与其他可能"><RelationshipDiagnosisPanel diagnosis={diagnosis} semanticHistory={semantic} hideCoverage={!!report.sourceCoverage?.length}/></ReportDetails>}
+     <ReportDetails title="我们之间：共同点与相处差异" description="双方的共同点、期待与需要磨合的地方"><PersonalConnection report={report} publicExample={publicExample}/>{fit&&<FitReport fit={fit} current={Object.prototype.hasOwnProperty.call(report,'latestCompatibility')}/>}</ReportDetails>
      {hasCurrentLines&&<ReportDetails title="逐句看本次上传的聊天" description={`${report.lines.length} 句原话 · 点击查看语气与意图`}><ToneEvidence key={readingScope||"public-tone"} report={report} storageKey={readingScope}/></ReportDetails>}
      {!preview&&!publicExample&&report.profileMemory&&<ReportDetails title="这次对我的新了解" description="查看从你的表达中整理的信息，也可以纠正"><ConversationMemoryReview memory={report.profileMemory} ownerId={account?.account?.userId} subjectId={report.subjectId}/></ReportDetails>}
      {!diagnosis&&!semantic&&<ReportDetails title="查看完整分析" description="这份报告保留的详细线索与解释"><InsightExplorer compact publicExample={publicExample} report={report} kind="chat" owner={publicExample?undefined:account?.account?.userId}/></ReportDetails>}
@@ -144,7 +144,7 @@ export function ChatReport({report,account,styleReportIds,preview=false,publicEx
     {hasCurrentLines&&<ReportDetails title="本次上传中的回应与边界" description="只统计当前上传的行为线索"><InteractionEvidence report={report} owner={publicExample?undefined:account?.account?.userId}/></ReportDetails>}
    </>}
    {active==='next'&&<>
-    <section className={reportStyles.nextAction}><h2><ArrowRight size={21}/>接下来先做这一件</h2><p>{action}</p><dl>{observe&&<div><dt>观察窗口</dt><dd>{observe}</dd></div>}{stop&&<div><dt>何时停止或重新判断</dt><dd>{stop}</dd></div>}</dl></section>
+    <section className={reportStyles.nextAction}><header><span>把判断变成行动</span><h2>接下来先做这一件<ArrowRight size={23}/></h2></header><p>{action}</p><dl>{observe&&<div><dt><CalendarDays size={17}/>观察窗口</dt><dd>{observe}</dd></div>}{stop&&<div><dt><Flag size={17}/>何时重新判断</dt><dd>{stop}</dd></div>}</dl></section>
     {options.length>0&&<section className="wa-card" id="replies"><h2><Send size={21}/>需要回复时，可以这样说</h2><Replies key={`${account?.account?.userId}:${report.id}`} options={options} report={report} account={account} styleReportIds={styleReportIds} publicExample={publicExample}/>{decision.replyReview&&<div className={readerStyles.interpretation}><strong>对原回复的回顾</strong><p>{decision.replyReview}</p></div>}</section>}
     {presentation.mode==='normal'&&alternatives.length>0&&<ReportDetails title="如果情况变化，还有哪些选择" description="比较其他做法及适用条件"><div className={reportStyles.actionOptions}>{alternatives.slice(0,4).map((option,index)=><article key={option.label||index}><h3>{option.label}</h3><p>{option.action}</p><dl><div><dt>观察</dt><dd>{option.observeWindow}</dd></div><div><dt>停止条件</dt><dd>{option.stopCondition}</dd></div></dl></article>)}</div></ReportDetails>}
     {!publicExample&&<div className="wa-actions"><button disabled={!account?.account?.userId} onClick={()=>{try{followup(actionReport,account!.account.userId);}catch(e){setFollowupError(message(e));}}}><MessageCircle size={16}/>{fullHistory?'基于全部聊天继续问成子':'带着报告问成子'}</button>{report.subjectId&&<a className="wa-button" href={`/archive?subjectId=${report.subjectId}`}>人物档案</a>}</div>}

@@ -6,7 +6,9 @@ import { ArrowRight, ChartNoAxesCombined, Check, CircleHelp, Copy, Lightbulb, Me
 import type { Json } from "./client";
 import styles from "./ReportCard.module.css";
 import readerStyles from "./ReportReader.module.css";
-import { RelationshipSnapshot } from "@/components/RelationshipJourney";
+import { GlassStudy } from "@/components/GlassStudy";
+import { ReportVisualMetrics } from "./ReportVisualMetrics";
+import visual from "./RelationshipBriefVisual.module.css";
 import {KeyEvidenceList} from "./ReportReadingTools";
 
 /** A usable reply in the first reading surface, without another navigation step. */
@@ -36,18 +38,26 @@ export function ChatReportBrief({ report, diagnosis }: { report: Json; diagnosis
   const judgment = presentation.judgment || source.relationship?.currentState || "材料还不足以形成稳定判断。";
   const trend = semantic?.status === "complete" ? semantic.trend : source.relationship?.trend;
   const action = presentation.nextStep || source.decision?.recommendation || "结合下一次真实回应，再更新判断。";
-  return <section className={styles.relationshipBrief} aria-label="报告速读" data-report-brief data-risk-priority={presentation.mode}>
-    <header><span><Sparkles size={18}/>{fullHistory ? "完整关系报告" : "这次聊天，先看结论"}</span>{typeof coverage.total === "number" && <small>{coverage.total} 条消息{coverage.startDate && coverage.endDate ? ` · ${coverage.startDate} — ${coverage.endDate}` : ""}</small>}</header>
-    <div className={styles.briefTopline}><div className={styles.briefJudgment}>
-      <h2>{presentation.mode !== "normal" && presentation.title ? presentation.title : "当前判断"}</h2>
-      <p>{judgment}</p>
-    </div><RelationshipSnapshot activity={report.chatActivity || report.relationshipContext?.activity}/></div>
-    <div className={styles.briefEvidence}><h3><Quote size={17}/>关键依据</h3><KeyEvidenceList report={report} priorityEvidence={presentation.mode !== "normal" ? presentation.evidence : undefined}/></div>
-    <div className={styles.briefDirection}>
-      <article><h3><ChartNoAxesCombined size={17}/>关系趋势</h3><p>{trend || "材料不足，暂不判断变化。"}</p>{!semantic || semantic.status !== "complete" ? <small>已完成的统计可在「看见变化」查看；文字解读是否完成见分析范围。</small> : null}</article>
-      <article><h3><ArrowRight size={17}/>下一步</h3><p>{action}</p></article>
+  function nextSection(button: HTMLButtonElement) {
+    button.closest('[data-report-reader]')?.querySelector<HTMLButtonElement>('[role="tab"][aria-controls$="-panel-next"]')?.click();
+  }
+  return <section className={visual.brief} aria-label="报告速读" data-report-brief data-risk-priority={presentation.mode}>
+    <div className={visual.hero}>
+      <div className={visual.verdict}>
+        <div className={visual.kicker}><span className={visual.liveDot}/>{fullHistory ? "完整关系报告" : "这次聊天的观察"}<span className={visual.edition}>关系观察</span></div>
+        <span className={visual.verdictLabel}>{presentation.mode !== "normal" && presentation.title ? presentation.title : "当前判断"}</span>
+        <h2>{judgment}</h2>
+        <div className={visual.trend}><ChartNoAxesCombined size={17}/><span>关系趋势</span><strong>{trend || "待了解"}</strong></div>
+        {typeof coverage.total === "number" && <p className={visual.scope}>{coverage.total.toLocaleString("zh-CN")} 条消息{coverage.startDate && coverage.endDate ? ` · ${coverage.startDate} — ${coverage.endDate}` : ""}</p>}
+      </div>
+      <div className={visual.art} data-report-art><GlassStudy imageSrc="/images/relationship-glass-v1.webp"/><div className={visual.artCaption}><span/><p>从原话，看见关系的脉络。</p></div></div>
     </div>
-    {!report.sourceCoverage?.length && semantic?.coverage && <p className={styles.briefCoverage}>已解读 {semantic.coverage.analyzedText} / {semantic.coverage.receivedText} 条可读文字{typeof coverage.voiceCount === "number" && coverage.voiceCount > 0 ? ` · 语音转写 ${coverage.voiceTranscribed || 0} / ${coverage.voiceCount} 条` : ""}{semantic.status !== "complete" ? " · 文字分析尚未全部完成" : ""}</p>}
+    <ReportVisualMetrics report={report}/>
+    <div className={visual.readingGrid}>
+      <div className={visual.evidence} data-brief-evidence><header><span className={visual.chapter}>01</span><h3>判断从这里来</h3><Quote size={23}/></header><KeyEvidenceList report={report} priorityEvidence={presentation.mode !== "normal" ? presentation.evidence : undefined} showReferences={false}/></div>
+      <aside className={visual.action}><span className={visual.actionSymbol}><ArrowRight size={25}/></span><span className={visual.actionLabel}>给现在的你</span><h3>下一步，先做这一件事。</h3><p>{action}</p><button type="button" onClick={event=>nextSection(event.currentTarget)}>看看具体怎么做<ArrowRight size={17}/></button><div className={visual.actionContour} aria-hidden="true"/></aside>
+    </div>
+    {!report.sourceCoverage?.length && semantic?.coverage && <p className={visual.coverage}>已解读 {semantic.coverage.analyzedText} / {semantic.coverage.receivedText} 条可读文字{typeof coverage.voiceCount === "number" && coverage.voiceCount > 0 ? ` · 语音转写 ${coverage.voiceTranscribed || 0} / ${coverage.voiceCount} 条` : ""}{semantic.status !== "complete" ? " · 文字分析尚未全部完成" : ""}</p>}
   </section>;
 }
 

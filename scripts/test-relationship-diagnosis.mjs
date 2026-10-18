@@ -16,6 +16,12 @@ const sparse = buildRelationshipDiagnosis(computeChatActivity([row("voice", "", 
 assert.ok(sparse.relationship.risks.length >= 2);
 assert.doesNotMatch(sparse.decision.recommendation, /停止追加|退出|降低主动|把.*留给对方/);
 
+const timed = [["self", "10:00"], ["other", "10:07"], ["self", "10:09"], ["other", "10:16"]].map(([senderRole, time], index) => ({ id: `timed-${index}`, localId: `timed-${index}`, senderRole, kind: "text", text: "合成回应", at: `2026-10-01T${time}:00Z`, source: { method: "wechat-local-db", idStability: "stable", accountId: "synthetic", sessionId: "pair", messageShard: "shard", messageId: String(index), timestampOrigin: "wechat-create-time" } }));
+const timedActivity = computeChatActivity(timed);
+assert.equal(timedActivity.responses.averageSelfReplyMinutes, 7, "persisted field is the other's reply to self; keep stored contract unchanged");
+assert.equal(timedActivity.responses.averageOtherReplyMinutes, 2);
+assert.equal(buildRelationshipDiagnosis(timedActivity).facts.find(item => item.id === "activity:reply-gap").claim, "有时间的回应里，TA 平均 7 分钟后回复，你平均 2 分钟后回复。", "asymmetric reply gaps keep the real responder in the displayed claim");
+
 const findings = [{ id: "h1", claim: "对方提出替代安排", confidence: "中", alternative: "也可能是朋友见面", evidence: [{sourceId: "early", at: "2026-10-01", senderRole: "other", quote: "周六可以"}] }];
 const checked = validatedSynthesis({summary: "出现落实安排的线索", summaryEvidenceIds: ["h1"], counterEvidenceIds: ["fake"], trend: "升温", explanation: "对方回应的重点是具体日期，说明愿意参与安排。", action: "确认具体时间", actionEvidenceIds: ["h1"], observeWindow: "这次商量安排时", stopCondition: "对方明确拒绝时停止推进", unknowns: ["还不知道是否落实"], timeline: [{note: "给出替代日期", evidenceIds: ["h1"]}]}, findings);
 assert.equal(checked.trend, "待了解", "one date cannot establish a trend");
