@@ -39,18 +39,18 @@ export function ProductHome({ onStart, loading = false, error = "", onRetry, aft
 export function KnowledgeEvidence() {
   return <section className={styles.evidence} data-knowledge-evidence aria-label="资料依据与分析方法">
     <div className={styles.evidenceHeading}>
-      <span className={styles.evidenceKicker}><BookOpen size={17} strokeWidth={1.5}/>关系研究与书籍</span>
+      <span className={styles.evidenceKicker}><BookOpen size={17} strokeWidth={1.5}/>成子智能体的资料依据</span>
       <h2>每个判断，都能回到依据</h2>
-      <p>心理学 · 法学 · 社会学</p>
+      <p><strong>心理学、法学、社会学多学科资料</strong>，加上关系研究与书籍整理，约 {knowledgeVolume} 万字。成子智能体再结合你的聊天和相处经历，给出看得懂的判断。</p>
       <ul className={styles.theoryTags} aria-label="参考书目">{['《亲密关系》','《非暴力沟通》','《爱的艺术》','《成人依恋》','《Attachment and Loss》','《私人生活的变革》'].map(label=><li key={label}>{label}</li>)}</ul>
     </div>
     <div className={styles.stats} aria-label="方法资料规模">
-      <div className={styles.volumeHero}><span>已整理资料</span><b><small>约</small>{knowledgeVolume}<small>万字</small></b></div>
+      <div className={styles.volumeHero}><span>已整理可调用资料</span><b><small>约</small>{knowledgeVolume}<small>万字</small></b><span>不是空泛话术，每条结论都说明依据</span></div>
       <div><b>{knowledgeOrigin.referenceCount}<small> 条</small></b><span>参考来源</span></div><div><b>{knowledgeManifest.referenceDocuments}<small> 份</small></b><span>结构化专题</span></div>
     </div>
     <div className={styles.evidenceFooter}>
       <span className={styles.author}>成子 · 心理学硕士 · 全网百万粉丝</span>
-      <a href="/library#references">查看参考来源 <ArrowRight size={16}/></a>
+      <a href="/library#references">查看全部 {knowledgeOrigin.referenceCount} 条参考来源 <ArrowRight size={16}/></a>
     </div>
   </section>;
 }

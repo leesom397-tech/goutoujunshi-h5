@@ -20,10 +20,12 @@ void main(){
  float ratio=resolution.x/resolution.y;
  float crop=ratio<1.2?ratio/materialAspect:1.;
  vec2 framing=mix(vec2(crop,1.),vec2(min(1.,ratio/materialAspect),min(1.,materialAspect/ratio)),reportStyle);
- float strength=mix(1.,.3,reportStyle);
+ // Short report banners need a full-strength drift to make the refraction
+ // visible. Keep the homepage's existing tempo and displacement unchanged.
+ float strength=mix(1.,1.15,reportStyle);
  float field=uv.x;
  float depth=smoothstep(.08,.48,field);
- float motion=time*.5625;
+ float motion=time*mix(.5625,1.1,reportStyle);
  float glide=.012*sin(field*12.+motion*.62)+.006*sin(field*23.-motion*.41);
  float lift=.047*sin(field*11.-motion*.55)+.019*sin(field*22.+motion*.38);
  // Overscan keeps both ends filled as neighbouring ribs rise and settle.
@@ -58,6 +60,7 @@ export function GlassStudy({imageSrc="/images/aurora-fluted-light-v5.webp",varia
  useEffect(()=>{const media=window.matchMedia('(prefers-reduced-motion: reduce)');const update=()=>setReduced(media.matches);update();media.addEventListener('change',update);return()=>media.removeEventListener('change',update);},[]);
  useEffect(()=>{
   const node=canvas.current;if(!node)return;
+  setReady(false);
   const media=window.matchMedia('(prefers-reduced-motion: reduce)');
   let reduce=media.matches;setReduced(reduce);
   const gl=node.getContext('webgl',{alpha:false,antialias:false,powerPreference:'low-power',preserveDrawingBuffer:true});

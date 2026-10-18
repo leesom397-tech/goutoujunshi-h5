@@ -4,6 +4,8 @@
 .fallback{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;object-position:center}
 .study[data-glass-variant=report] .fallback{object-fit:cover}
 .study[data-glass-variant=report] .fallbackRibs{display:none}
+.study[data-glass-variant=report][data-glass-ready=false] .fallback{animation:glass-report-drift 7s ease-in-out infinite alternate;will-change:transform,filter}
+.study[data-glass-variant=report][data-glass-ready=false]::after{content:"";position:absolute;inset:-8%;pointer-events:none;background:linear-gradient(115deg,#fff8 0%,#fff0 45%,#b66e5524 80%,#fff0 100%);mix-blend-mode:soft-light;animation:glass-report-light 5s ease-in-out infinite alternate}
 .fallbackRibs{position:absolute;inset:0;display:flex;overflow:hidden;pointer-events:none}
 .fallbackRibs i{display:block;flex:1;min-width:0;height:116%;margin-top:-8cqh;background-image:var(--glass-material,url('/images/aurora-fluted-light-v5.webp'));background-size:3600% 100%;background-position:calc(var(--rib) * 100% / 35) center;animation:glass-rib-rise 9.7778s ease-in-out infinite alternate;animation-delay:calc(var(--rib) * -.65778s)}
 .study .control{position:absolute;z-index:3;bottom:18px;right:24px;display:grid;place-items:center;width:40px;min-width:40px;height:40px;padding:0;background:#fff9;border:1px solid #ffffffb0;border-radius:50%;color:#654639;cursor:pointer;transition:background .2s,border-color .2s;box-shadow:0 2px 8px #773d2420}
@@ -13,6 +15,10 @@
 @media(prefers-reduced-motion:reduce){.canvas{transition:none}}
 
 .study[data-motion=paused] .fallbackRibs i{animation-play-state:paused}
+.study[data-glass-variant=report][data-motion=paused] .fallback,.study[data-glass-variant=report][data-motion=paused]::after{animation-play-state:paused}
 .study[data-glass-ready=true] .fallbackRibs{display:none}
 @keyframes glass-rib-rise{from{transform:translateY(-3%);filter:brightness(.93)}to{transform:translateY(3%);filter:brightness(1.07)}}
+@keyframes glass-report-drift{from{transform:scale(1.1) translate(-1.7%,1.8%);filter:brightness(.96)}to{transform:scale(1.1) translate(1.7%,-1.8%);filter:brightness(1.06)}}
+@keyframes glass-report-light{from{transform:translateX(-4%);opacity:.35}to{transform:translateX(4%);opacity:.8}}
 @media(prefers-reduced-motion:reduce){.study:not([data-motion-explicit=true]) .fallbackRibs i{animation:none;transform:none;filter:none}}
+@media(prefers-reduced-motion:reduce){.study[data-glass-variant=report]:not([data-motion-explicit=true]) .fallback,.study[data-glass-variant=report]:not([data-motion-explicit=true])::after{animation:none;transform:none;filter:none}}
