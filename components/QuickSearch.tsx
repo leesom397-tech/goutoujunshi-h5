@@ -7,7 +7,7 @@ import {TOUR_EVENT} from "./FirstUseTour";
 import type { WorkspaceData } from "@/components/WorkspaceDashboard";
 
 const tools = [
-  { title: "完整分析", hint: "分析 / 材料 / 聊天 / 朋友圈 / 主页", href: "/analyze", icon: ScanLine },
+  { title: "分析一个人的全部资料", hint: "完整分析 / 全部聊天 / 朋友圈 / 关系报告 / 选人", href: "/relationship", icon: Users },
   { title: "添加材料", hint: "导入 / 电脑 / 录屏 / 截图 / 文件", href: "/analyze#materials", icon: Plus },
   { title: "人物对照", hint: "比较 / 对照 / 多人 / 选择 / 适合", href: "/archive?compare=1", icon: GitCompareArrows },
   { title: "分析聊天截图", hint: "截图 / 聊天 / 回复 / 好感", href: "/analyze?mode=chat", icon: ScanLine },
@@ -63,7 +63,7 @@ export function QuickSearch() {
     return () => { clearTimeout(timer); controller.abort(); };
   }, [open, loggedIn, query]);
   const term = query.trim().toLocaleLowerCase(), matches = (value: string) => value.toLocaleLowerCase().includes(term);
-  const features = [...(loggedIn && ["/capture","/analyze"].includes(pathname) ? [{title:"重看本页操作引导",hint:"帮助 / 使用 / 引导 / 怎么操作",href:"#operation-guide",icon:CircleHelp}] : []), ...tools, ...(admin ? [{ title: "会员管理后台", hint: "后台 / 管理员 / 会员 / 调整积分", href: "/admin/credits", icon: ShieldCheck }] : [])].filter(item => term ? matches(item.title + item.hint) : ["问成子", "完整分析", "人物档案与趋势", "人物对照", "分析记录", "添加材料"].includes(item.title));
+  const features = [...(loggedIn && ["/capture","/analyze"].includes(pathname) ? [{title:"重看本页操作引导",hint:"帮助 / 使用 / 引导 / 怎么操作",href:"#operation-guide",icon:CircleHelp}] : []), ...tools, ...(admin ? [{ title: "会员管理后台", hint: "后台 / 管理员 / 会员 / 调整积分", href: "/admin/credits", icon: ShieldCheck }] : [])].filter(item => term ? matches(item.title + item.hint) : ["问成子", "分析一个人的全部资料", "人物档案与趋势", "人物对照", "分析记录", "添加材料"].includes(item.title));
   const people = data?.people.filter(person => !term || matches(person.label + person.stage)).slice(0, 6) || [];
   const reports = data?.reports.slice(0, 5) || [];
   function close() { dialog.current?.close(); setOpen(false); }

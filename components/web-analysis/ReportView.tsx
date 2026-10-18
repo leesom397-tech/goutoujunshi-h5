@@ -26,6 +26,7 @@ import { buildRelationshipDiagnosis } from "@/lib/relationship-diagnosis";
 import { ConversationMemoryReview } from "@/components/ConversationMemoryReview";
 import { ChatReportBrief, ReportChapterArt } from "./ReportBrief";
 import { ReportDetails } from "./ReportDetails";
+import { AffinityOverview } from "./AffinityOverview";
 import {ReplyDifference} from "./ReportReadingTools";
 import {reportReadingScope,reportLineKey,readReportPosition,saveReportPosition} from "@/lib/report-reading-position";
 export function Replies({ options, report, account, styleReportIds, publicExample = false }: { options: Json[]; report?: Json; account: Json | null; styleReportIds?: string[]; publicExample?: boolean }) {
@@ -100,6 +101,11 @@ const chatSections:ReadingSection[]=[
  {id:'change',label:'看见变化',caption:'时间线、聊天节奏与说法和行动',tone:'teal'},
  {id:'next',label:'决定下一步',caption:'做什么、观察多久、何时停止',tone:'slate'},
 ];
+const screenshotSections:ReadingSection[]=[
+ {id:'status',label:'好感探测器',caption:'参考值与关键依据',tone:'coral'},
+ {id:'change',label:'逐句意图',caption:'点一句看语气和含义',tone:'teal'},
+ {id:'next',label:'怎么回',caption:'可复制的回复与下一步',tone:'slate'},
+];
 const reportRows=(value:unknown):Json[]=>Array.isArray(value)?value.filter(item=>item&&typeof item==='object'):[];
 function RelationshipChanges({diagnosis,semantic}:{diagnosis:Json|null;semantic?:Json}){
  const claims=reportRows(diagnosis?.claimActions);
@@ -122,27 +128,28 @@ export function ChatReport({report,account,styleReportIds,preview=false,publicEx
  const stop=semantic?.stopCondition||diagnosis?.decision?.stopCondition;
  const alternatives=reportRows(diagnosis?.decision?.options).filter(option=>option.action!==action);
  return <CaptureEvidenceProvider ownerId={publicExample?undefined:account?.account?.userId} reportId={report.reportId||report.id} captureOrigin={report.captureOrigin===true} fullHistory={fullHistory} historyCount={semantic?.coverage?.totalImported??diagnosis?.coverage?.total??report.chatActivity?.messages}><div className={reportStyles.document}>
-  <ReportReader key={readingScope||report.reportId||report.id||"chat-report"} storageKey={readingScope} items={chatSections}>{active=><>
+  <ReportReader key={readingScope||report.reportId||report.id||"chat-report"} storageKey={readingScope} items={hasCurrentLines ? screenshotSections : chatSections}>{active=><>
    {active==='status'&&<>
+    {hasCurrentLines&&<AffinityOverview report={report}/>}
     <ChatReportBrief report={report} diagnosis={diagnosis}/>
     {decision.partial&&<p className="wa-status">部分材料未识别；下方依据只覆盖可读内容。</p>}
     <RiskReview report={report}/>
     <div className={reportStyles.detailLinks}><h2><BookOpen size={19}/>深入读这份报告</h2><ReportCoverage report={report}/>
      {(diagnosis||semantic)&&<ReportDetails title="为什么这样判断" description="详细解读、相反证据与其他可能"><RelationshipDiagnosisPanel diagnosis={diagnosis} semanticHistory={semantic} hideCoverage={!!report.sourceCoverage?.length}/></ReportDetails>}
      <ReportDetails title="我们之间：共同点与相处差异" description="双方的共同点、期待与需要磨合的地方"><PersonalConnection report={report} publicExample={publicExample}/>{fit&&<FitReport fit={fit} current={Object.prototype.hasOwnProperty.call(report,'latestCompatibility')}/>}</ReportDetails>
-     {hasCurrentLines&&<ReportDetails title="逐句看本次上传的聊天" description={`${report.lines.length} 句原话 · 点击查看语气与意图`}><ToneEvidence key={readingScope||"public-tone"} report={report} storageKey={readingScope}/></ReportDetails>}
      {!preview&&!publicExample&&report.profileMemory&&<ReportDetails title="这次对我的新了解" description="查看从你的表达中整理的信息，也可以纠正"><ConversationMemoryReview memory={report.profileMemory} ownerId={account?.account?.userId} subjectId={report.subjectId}/></ReportDetails>}
      {!diagnosis&&!semantic&&<ReportDetails title="查看完整分析" description="这份报告保留的详细线索与解释"><InsightExplorer compact publicExample={publicExample} report={report} kind="chat" owner={publicExample?undefined:account?.account?.userId}/></ReportDetails>}
     </div>
    </>}
    {active==='change'&&<>
+    {hasCurrentLines ? <><ToneEvidence key={readingScope||"public-tone"} report={report} storageKey={readingScope}/><ReportDetails title="本次上传中的回应与边界" description="只统计当前上传的行为线索"><InteractionEvidence report={report} owner={publicExample?undefined:account?.account?.userId}/></ReportDetails></> : <>
     <ReportChapterArt kind="change"/>
     <RelationshipJourney embedded context={journey} currentReportId={report.reportId||report.id}/>
     <RelationshipChanges diagnosis={diagnosis} semantic={semantic}/>
     {!preview&&!publicExample&&<ReportFollowUp report={actionReport} owner={account?.account?.userId}/>}
     {publicExample&&report.demo===true&&report.publicEvidenceReview&&<section className="wa-card"><RelationshipEvidenceCards review={report.publicEvidenceReview} publicExample/></section>}
     {report.chatActivity&&<ReportDetails title="回应、频率与统计口径" description="查看回复覆盖、间隔及完整统计说明"><ChatActivity summary={report.chatActivity}/></ReportDetails>}
-    {hasCurrentLines&&<ReportDetails title="本次上传中的回应与边界" description="只统计当前上传的行为线索"><InteractionEvidence report={report} owner={publicExample?undefined:account?.account?.userId}/></ReportDetails>}
+    </>}
    </>}
    {active==='next'&&<>
     <ReportChapterArt kind="next"/>

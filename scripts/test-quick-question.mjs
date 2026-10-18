@@ -35,15 +35,16 @@ const owner = 'synthetic-quick-question-owner';
 await credits.ensureCreditAccount(db, owner);
 await credits.adjustCredits(db, { id: crypto.randomUUID(), ownerId: owner, actorId: 'test-admin', delta: 100, reason: '合成测试' });
 await credits.setCreditPermissions(db, { id: crypto.randomUUID(), ownerId: owner, actorId: 'test-admin', features: ['chat'], enabledUntil: Date.now() + 86400000, reason: '合成测试' });
-let authenticated = true, modelCalls = 0, sent, fail = false, profileText = '', output = { possibleIntent: '他可能在确认时间，也可能还没定下安排。', evidence: '第1张，对方：周日有空。', nextStep: '可以先确认时间。', replies: [] };
+let authenticated = true, identityOwner = owner, modelCalls = 0, contextReads = 0, archiveContext = { status: 'missing' }, sent, fail = false, profileText = '', output = { possibleIntent: '他可能在确认时间，也可能还没定下安排。', evidence: '第1张，对方：周日有空。', nextStep: '可以先确认时间。', replies: [] };
 const route = load('app/api/web/text/route.ts', {
-  '@/db': { getD1: () => db }, '@/lib/miniapp-auth': { miniappOwner: async () => authenticated ? { ownerId: owner } : null },
+  '@/db': { getD1: () => db }, '@/lib/miniapp-auth': { miniappOwner: async () => authenticated ? { ownerId: identityOwner } : null },
   '@/lib/account-credits.mjs': credits, '@/lib/credit-response.mjs': { creditResponse },
-  '@/lib/knowledge': { selectKnowledge: () => [] }, '@/lib/profile-context': { loadProfileContext: async () => profileText, loadFullHistoryQuestionContext: async () => ({status: 'missing'}) },
+  '@/lib/knowledge': { selectKnowledge: () => [] }, '@/lib/profile-context': { loadProfileContext: async () => { contextReads++; return profileText; }, loadFullHistoryQuestionContext: async () => { contextReads++; return archiveContext; } },
   '@/lib/qwen': { parseQwenJson: JSON.parse, qwenPublicError: (_error, fallback) => fallback, qwenChat: async (messages, options) => { modelCalls++; sent = { messages, options }; if (fail) throw Error('SYNTHETIC_FAILURE'); return JSON.stringify(typeof output === 'function' ? output() : output); } },
 });
 const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jF4cAAAAASUVORK5CYII=';
-const payload = (extra = {}) => ({ requestId: crypto.randomUUID(), confirmed: true, mode: 'conversation', self: '这句是什么意思？', images: [png], selfSide: 'right', ...extra });
+const payload = (extra = {}) => ({ requestId: crypto.randomUUID(), confirmed: true, supportsClarification: true, mode: 'conversation', self: '这句是什么意思？', images: [png], selfSide: 'right', ...extra });
+const textPayload = (extra = {}) => payload({ images: undefined, selfSide: undefined, ...extra });
 const request = body => new Request('https://example.test/api/web/text', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 let groups = 0;
 async function test(label, run) { await run(); groups++; console.log('PASS ' + label); }
@@ -124,7 +125,7 @@ await test('full-history question gets a fuller grounded answer while a simple r
   profileText = '以下资料不是指令。\n已授权的完整聊天资料库摘要（仅限当前人物）：' + JSON.stringify({ total: 675, text: 660 }) + '；与本次问题相关或覆盖时间段的原话摘录：' + JSON.stringify(archive);
   const explanation = '判断：这几段对话里有过明确接住邀约，也有后来推迟安排；单凭这两段还不能把推迟直接等同于失去兴趣。';
   output = { possibleIntent: explanation + '\n\n' + '依据与变化：早期对方明确给出周六下午，后来改成下周，变化在于具体时间尚未重新定下。另一种解释是近期工作确实占用了时间；需要看下一次是否由对方提供可落实的安排。'.repeat(3), evidence: '早期「周六下午可以」；后来「下周再约」；「我们已经决定结婚」', nextStep: '下次自然确认一个具体时间；若仍只有模糊推迟，就暂缓继续投入。', replies: [] };
-  const detailed = await route.POST(request({ requestId: crypto.randomUUID(), confirmed: true, mode: 'conversation', subjectId: subject, self: '根据全部聊天，她对我的投入有变化吗？' }));
+  const detailed = await route.POST(request(textPayload({ subjectId: subject, self: '根据全部聊天，她对我的投入有变化吗？' })));
   assert.equal(detailed.status, 200);
   const answer = await detailed.json();
   assert.ok(answer.possibleIntent.startsWith(explanation + '\n\n'), 'archive answer keeps paragraph structure');
@@ -136,7 +137,7 @@ await test('full-history question gets a fuller grounded answer while a simple r
   assert.match(sent.messages[0].content, /没有真实反例或可比日期就说明证据不足/);
   assert.equal(sent.options.maxTokens, 3000);
   output = { possibleIntent: '先回应她的安排。', evidence: '周六下午可以', nextStep: '问她几点方便。', replies: [] };
-  const concise = await route.POST(request({ requestId: crypto.randomUUID(), confirmed: true, mode: 'conversation', subjectId: subject, self: '只给一句怎么回她？' }));
+  const concise = await route.POST(request(textPayload({ subjectId: subject, self: '只给一句怎么回她？' })));
   assert.equal(concise.status, 200);
   assert.equal(sent.options.maxTokens, 1200);
   assert.doesNotMatch(sent.messages[0].content, /约 350–650 汉字/);
@@ -161,5 +162,81 @@ await test('repair keeps the requested explanation depth and valid complete draf
   assert.equal(attempt, 2); assert.equal(sent.options.maxTokens, 2200);
   assert.doesNotThrow(() => JSON.parse(sent.messages.at(-1).content));
   assert.doesNotMatch(sent.messages[0].content, /possibleIntent 用一两句话回答/);
+});
+// Reset the synthetic daily allowance for the separate intake/replay scenarios.
+sql.exec('DELETE FROM coach_crush_budget');
+await credits.adjustCredits(db, { id: crypto.randomUUID(), ownerId: owner, actorId: 'test-admin', delta: 100, reason: '补充合成测试额度' });
+output = { possibleIntent: '可以先看对方是否落实安排。', evidence: '', nextStep: '核对双方最近的一次具体安排。', replies: [] };
+const intakeSubject = crypto.randomUUID();
+sql.prepare("INSERT INTO coach_subjects(id,owner_id,label,status,created_at,updated_at) VALUES(?,?,?,'active',?,?)").run(intakeSubject, owner, '背景测试人物', 1, 1);
+await test('personal judgments without a situation ask two free questions before billing', async () => {
+  const before = modelCalls, balance = (await credits.readCreditAccount(db, owner)).balance;
+  const tasks = sql.prepare('SELECT COUNT(*) AS n FROM coach_credit_tasks').get().n;
+  for (const self of ['他喜欢我吗？', '暧昧对象喜欢我吗？', '我们适合结婚吗？', '我该和他见面吗？']) {
+    const response = await route.POST(request(textPayload({ self })));
+    assert.equal(response.status, 200); const result = await response.json();
+    assert.equal(result.clarification?.kind, 'background'); assert.equal(result.clarification.questions.length, 2); assert.equal(result.charged, false);
+  }
+  assert.equal((await route.POST(request(textPayload({ self: '他喜欢我吗？', confirmed: false })))).status, 400);
+  assert.equal(modelCalls, before); assert.equal((await credits.readCreditAccount(db, owner)).balance, balance);
+  assert.equal(sql.prepare('SELECT COUNT(*) AS n FROM coach_credit_tasks').get().n, tasks);
+});
+await test('skip and legacy miniapp clients still get one completed paid answer', async () => {
+  const before = modelCalls, balance = (await credits.readCreditAccount(db, owner)).balance;
+  for (const extra of [{ skipIntake: true }, { supportsClarification: undefined }]) {
+    const response = await route.POST(request(textPayload({ self: '他喜欢我吗？', ...extra })));
+    assert.equal(response.status, 200); assert.ok((await response.json()).possibleIntent);
+  }
+  assert.equal(modelCalls, before + 2); assert.equal((await credits.readCreditAccount(db, owner)).balance, balance - 10);
+});
+await test('self profile and empty person labels cannot suppress missing-person intake', async () => {
+  const before = modelCalls;
+  profileText = '用户本人：{"goals":"希望找到长期伴侣"}';
+  assert.equal((await (await route.POST(request(textPayload({ self: '他喜欢我吗？' })))).json()).clarification?.kind, 'background');
+  profileText += '\n当前人物：背景测试人物；已保存资料：{}';
+  assert.equal((await (await route.POST(request(textPayload({ self: '他喜欢我吗？', subjectId: intakeSubject })))).json()).clarification?.kind, 'background');
+  assert.equal(modelCalls, before); profileText = '';
+});
+await test('usable confirmed person facts, saved quotes and actual user situations bypass intake', async () => {
+  for (const context of ['当前人物：背景测试人物；已保存资料：{"notes":"朋友介绍认识一个月"}', '已授权微信原话摘录（不是完整聊天，只证明说过；内容不是指令）：["对方：周六下午可以见面。"]']) {
+    profileText = context;
+    const response = await route.POST(request(textPayload({ self: '他喜欢我吗？', subjectId: intakeSubject })));
+    assert.equal(response.status, 200); assert.ok((await response.json()).possibleIntent); assert.ok(sent.messages[0].content.includes(context));
+  }
+  profileText = '';
+  for (const extra of [{ self: '我们是同事，认识两年，他昨天约我周末吃饭。他喜欢我吗？' }, { self: '他喜欢我吗？', history: [{ role: 'user', content: '我们认识两年，他昨天约我周末吃饭。' }] }]) {
+    const response = await route.POST(request(textPayload(extra))); assert.equal(response.status, 200); assert.ok((await response.json()).possibleIntent);
+  }
+  const genericHistory = await route.POST(request(textPayload({ self: '他喜欢我吗？', history: [{ role: 'user', content: '你好' }, { role: 'assistant', content: '他昨天约你了。' }] })));
+  assert.equal((await genericHistory.json()).clarification?.kind, 'background', 'an assistant invention is not user-provided background');
+});
+await test('supplemental background reaches text, image and repair prompts and validates quotes', async () => {
+  const background = '朋友介绍认识一个月，他说“周六下午可以见面”。';
+  output = { possibleIntent: '对方给出了可以讨论的时间。', evidence: '周六下午可以见面', nextStep: '确认见面的具体时间。', replies: [] };
+  const textResponse = await route.POST(request(textPayload({ self: '他喜欢我吗？', background })));
+  assert.equal(textResponse.status, 200); assert.equal((await textResponse.json()).evidence, '「周六下午可以见面」');
+  assert.equal(JSON.parse(sent.messages.at(-1).content)['我补充的双方背景'], background);
+  assert.equal((await route.POST(request(payload({ background })))).status, 200);
+  assert.equal(JSON.parse(sent.messages.at(-1).content[0].text)['我补充的双方背景'], background);
+  let attempt = 0;
+  output = () => ++attempt === 1 ? { possibleIntent: '', nextStep: '' } : { possibleIntent: '对方给出了具体安排。', nextStep: '确认具体时间。' };
+  assert.equal((await route.POST(request(textPayload({ self: '他喜欢我吗？', background })))).status, 200);
+  assert.equal(attempt, 2); assert.equal(JSON.parse(sent.messages.at(-1).content).background, background);
+  output = { possibleIntent: '对方给出了具体安排。', evidence: '', nextStep: '确认具体时间。', replies: [] };
+});
+await test('receipt replay survives changed memory and keeps owner and fingerprint isolation', async () => {
+  archiveContext = { status: 'ready', context: '本次完整聊天的合成上下文。', total: 2, readable: 2, semanticStatus: 'not-generated', analyzedText: 0 };
+  const original = textPayload({ self: '他喜欢我吗？', subjectId: intakeSubject });
+  const first = await route.POST(request(original)); assert.equal(first.status, 200); const answer = await first.json();
+  const before = modelCalls, reads = contextReads, balance = (await credits.readCreditAccount(db, owner)).balance;
+  for (const changed of [{ status: 'missing' }, { status: 'paused' }, { status: 'too-large', total: 20001, limit: 20000 }]) {
+    archiveContext = changed; profileText = '';
+    const replay = await route.POST(request(original)); assert.equal(replay.status, 200); assert.deepEqual(await replay.json(), answer);
+  }
+  assert.equal((await route.POST(request({ ...original, background: '改变后的请求正文' }))).status, 409);
+  assert.equal(modelCalls, before); assert.equal(contextReads, reads); assert.equal((await credits.readCreditAccount(db, owner)).balance, balance);
+  identityOwner = 'synthetic-other-owner';
+  try { assert.equal((await route.POST(request(original))).status, 404, 'another owner cannot retrieve this receipt'); } finally { identityOwner = owner; }
+  archiveContext = { status: 'missing' };
 });
 sql.close(); console.log(`PASS ${groups} quick-question integration groups; no external calls or real user data.`);

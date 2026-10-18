@@ -7,6 +7,7 @@ import { readAnalysisReport, deleteAnalysisReport } from "@/lib/saved-reports.mj
 import { readableReport } from "@/lib/crush/evidence";
 import type { CrushResult } from "@/lib/crush/types";
 import {personalizeReport} from "@/lib/personal-context-server";
+import { reportFreshness } from "@/lib/report-freshness";
 
 export const runtime = "edge";
 const json = (data: unknown, status = 200) => Response.json(data, { status, headers: { "Cache-Control": "no-store" } });
@@ -31,7 +32,8 @@ export async function GET(request: Request) {
       const personalConnectionContext={basis:'current-confirmed-material',computedAt:Date.now()};
       saved.report={...saved.report,personalConnection:connection,personalConnectionContext};
       if(saved.entries)saved.entries=saved.entries.map((entry:CrushResult)=>({...entry,personalConnection:connection}));
-      return json(saved);
+      const freshness = await reportFreshness(getD1(), identity.ownerId, saved.subjectId || null, saved.report);
+      return json({...saved, ...(freshness ? {freshness} : {})});
     }
     const report = await ownedReport(identity.ownerId, id);
     const latestCompatibility = await loadRelationshipFit(identity.ownerId, report.subjectId);

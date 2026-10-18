@@ -137,7 +137,7 @@ function OwnedArchive({ownerId}:{ownerId:string}) {
     >
       {selected && tab === "people" && <><button type="button" className={styles.button} onClick={() => switchView("people")}><ArrowLeft size={16} /> 返回人物列表</button>{avatarPrompt===selected.id&&<PersonAvatarChoice subjectId={selected.id} name={selected.label} autoOpen onSaved={load}/>}</>}
       {!selected && tab === "people" && !signedOut && <a href="/person-new" className={styles.primary}><Plus size={17} /> 新建人物</a>}
-      {selected && <a href={`/chat?subjectId=${encodeURIComponent(selected.id)}`} className={styles.primary}>带着档案问军师 <ArrowUpRight size={17} /></a>}
+      {selected && <><a href={`/relationship?subjectId=${encodeURIComponent(selected.id)}`} className={styles.primary}>分析这个人的全部资料<ArrowUpRight size={17}/></a><a href={`/chat?subjectId=${encodeURIComponent(selected.id)}`} className={styles.button}>基于资料提问<ArrowUpRight size={17}/></a></>}
       {selected && tab === "people" && <a href={"/archive?compare=1&ids=" + encodeURIComponent(selected.id)} className={styles.button}><Columns3 size={17}/> 与其他人物对照</a>}
     </AuroraPageHero>
     <div className={styles.tabs} role="tablist" aria-label="档案类别"><button role="tab" aria-selected={tab === "people"} onClick={() => switchView("people")}><UsersRound size={16} />人物档案</button><button role="tab" aria-selected={tab === "self"} onClick={() => switchView("self")}><Fingerprint size={16} />我的资料</button><button role="tab" aria-selected={tab === "compare"} onClick={() => switchView("compare")}><Columns3 size={16} />人物对照</button></div>

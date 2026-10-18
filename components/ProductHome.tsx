@@ -6,7 +6,7 @@ import { knowledgeOrigin } from "@/lib/knowledge-origins";
 import { GlassStudy } from "./GlassStudy";
 import styles from "./ProductHome.module.css";
 const features = [
-  { href: "/analyze?mode=chat", icon: ScanLine, title: "聊天分析", text: "读懂话里的意思" },
+  { href: "/analyze?mode=chat", icon: ScanLine, title: "聊天分析", text: "逐句意图 · 怎么回" },
   { href: "/analyze?mode=moments", icon: Images, title: "朋友圈分析", text: "了解日常与兴趣" },
   { href: "/analyze?mode=social", icon: ScanFace, title: "社交主页", text: "看看共同话题" },
   { href: "/chat", icon: MessageCircle, title: "问成子", text: "聊聊眼前的疑问" },
@@ -22,9 +22,9 @@ export function ProductHome({ onStart, loading = false, error = "", onRetry, aft
         <h1>看懂关系。<br/><span>也照顾你的感受。</span></h1>
         <p className={styles.heroDescription}>从一句聊天，到一段关系。</p>
         <div className={styles.actions} data-feature-grid>
-          <button type="button" data-feature-entry onClick={() => onStart("/analyze?mode=chat")}><span>开启我的关系空间</span><ArrowUpRight size={18}/></button>
+          <button type="button" data-feature-entry onClick={() => onStart("/relationship")}><span>分析一个人的全部资料</span><ArrowUpRight size={18}/></button>
         </div>
-        <div className={styles.nearbyLinks}><a href="/chat"><MessageCircle size={16}/>问成子<ArrowRight size={15}/></a></div>
+        <div className={styles.nearbyLinks}><a href="/analyze?mode=chat&focus=affinity"><ScanLine size={16}/>好感探测器<ArrowRight size={15}/></a><a href="/chat"><MessageCircle size={16}/>问成子<ArrowRight size={15}/></a></div>
       </div>
       <div className={styles.art}><GlassStudy/></div>
     </section>

@@ -36,6 +36,8 @@ const analysisModes = [
 
 export default function AnalyzePage() {
   const [sameCity,setSameCity]=useState(false);
+  const [affinityFocus,setAffinityFocus]=useState(false);
+  useEffect(()=>setAffinityFocus(new URLSearchParams(window.location.search).get("focus")==="affinity"),[]);
   const [confirmStage,setConfirmStage]=useState(false);
   const account = useAccount(), [mode, setMode] = useState("chat"), [files, setFiles] = useState<File[]>([]), [previews, setPreviews] = useState<string[]>([]), [side, setSide] = useState(""), [subject, setSubject] = useState(""), [targetSelf, setTargetSelf] = useState(false), [compare, setCompare] = useState(true), [consent, setConsent] = useState(false), [linkConsent, setLinkConsent] = useState(false), [busy, setBusy] = useState(false), [preparing, setPreparing] = useState(false), [task, setTask] = useState<UploadTask | null>(null), [status, setStatus] = useState<Json | null>(null), [result, setResult] = useState<Json | null>(null), [error, setError] = useState(""), [url, setUrl] = useState(""), [linkResult, setLinkResult] = useState<Json | null>(null), [previous, setPrevious] = useState<Json | null>(null), [previousCount, setPreviousCount] = useState(0), [resultSources, setResultSources] = useState<File[]>([]), [restoredOwner, setRestoredOwner] = useState<string | null>(null);
   const controller = useRef<AbortController | null>(null), generation = useRef(0), preparingRef = useRef(false), owner = account.account?.account?.userId, linkId = useRef<string | null>(null), resultRef = useRef<HTMLDivElement>(null), fileInputRef = useRef<HTMLInputElement>(null), dragDepth = useRef(0);
@@ -349,7 +351,7 @@ export default function AnalyzePage() {
     <WebNav guideReady={!!owner && !account.loading}/>
     <FirstUseTour owner={owner} page="analyze" ready={!account.loading && owner === restoredOwner}/>
     <main className={`wa-shell ax-shell ${styles.page}`}>
-      <AuroraPageHero eyebrow="从材料到判断" title={mode === "chat" ? "聊天分析" : mode === "moments" ? "朋友圈分析" : "社交主页分析"} description={confirmStage ? undefined : selectedMode.description}/>
+      <AuroraPageHero eyebrow="从材料到判断" title={mode === "chat" ? affinityFocus ? "好感探测器" : "聊天分析" : mode === "moments" ? "朋友圈分析" : "社交主页分析"} description={confirmStage ? undefined : mode === "chat" && affinityFocus ? "看好感参考值，也看支撑它的每一句话。" : selectedMode.description}/>
       {returnTo && <a className={intake.returnLink} href={returnTo}><History size={16}/>{returnTo.startsWith('/archive') ? '返回人物档案与对照' : '返回刚才的报告'}</a>}
       {restoringReport && <p className={styles.resumeBar} role="status"><LoaderCircle size={19} className="ax-spin"/>正在取回已保存的完整报告…</p>}
       {owner && !hasMaterials && !visibleResult && lastReport && !restoringReport && <a className={styles.resumeBar} href={`/report?id=${lastReport.id}#report-detail-action`}><History size={21}/><span><strong>继续看上次的报告</strong><small>之前的分析都在分析记录中</small></span><ArrowRight size={19}/></a>}
@@ -372,6 +374,7 @@ export default function AnalyzePage() {
       {!visibleResult && !restoringReport && !task && <>
         {owner && !hasMaterials && !targetSelf && selectedPerson && <section className={intake.remembered} aria-label="当前分析人物"><UserRound size={22}/><div><strong>继续了解 {selectedPerson.label}</strong><small>{mode === 'chat' && side ? `已沿用：${side==='left'?'左侧':'右侧'}是我 · ` : ''}新增材料会结合这个人物已有的资料；选错可以直接更换。</small></div>{editPerson?<PersonSelect people={account.people} value={subject} disabled={disabled} onChange={choosePerson} empty="本次不关联人物"/>:<button type="button" disabled={disabled} onClick={()=>setEditPerson(true)}>换个人</button>}{mode==='chat'&&side&&<button type="button" disabled={disabled} onClick={()=>chooseSide(side==='left'?'right':'left')}>改为{side==='left'?'右侧':'左侧'}是我</button>}</section>}
         {captureSource && !confirmStage && <p className="wa-status"><CheckCheck size={18}/>已带入采集截图。请核对顺序与身份，分析完成后可回看这些原图。</p>}
+        <nav className={styles.focusModes} aria-label="聊天解读重点" hidden={mode!=="chat" || !!result || !!task}><button type="button" aria-pressed={affinityFocus} onClick={()=>{setAffinityFocus(true);const url=new URL(location.href);url.searchParams.set("focus","affinity");window.history.replaceState(null,"",url.pathname+url.search);}}>好感探测器</button><button type="button" aria-pressed={!affinityFocus} onClick={()=>{setAffinityFocus(false);const url=new URL(location.href);url.searchParams.delete("focus");window.history.replaceState(null,"",url.pathname+url.search);}}>聊天分析 · 逐句与回复</button></nav>
         <div className="ax-mode-heading" hidden={hasMaterials}><h2>这次想了解什么？</h2></div>
         <div className={`ax-modes ${styles.entryModes}`} hidden={hasMaterials} role="tablist" aria-label="分析材料" onKeyDown={event => {
           if (disabled || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;

@@ -151,7 +151,10 @@ const mocks = {
   '@/lib/miniapp-auth': { miniappOwner: async () => ({ ownerId: owner }) },
   '@/app/chatgpt-auth': { getChatGPTUser: async () => ({ userId: owner }) },
   '@/lib/knowledge': { selectKnowledge: () => [], buildKnowledgeContext: () => ({ instructions: '', sources: [] }) },
-  '@/lib/profile-context': { loadProfileContext: async (...args) => { profileCalls.push(args); return context.loadProfileContext(...args); } },
+  '@/lib/profile-context': {
+    loadProfileContext: async (...args) => { profileCalls.push(args); return context.loadProfileContext(...args); },
+    loadFullHistoryQuestionContext: (...args) => context.loadFullHistoryQuestionContext(...args),
+  },
   '@/lib/credit-response.mjs': { creditResponse: async (_db, who, _request, action, cost, run) => { charges.push({ who, action, cost }); return run(); } },
   '@/lib/account-credits.mjs': { CREDIT_PRICES: { text: 5 } },
   '@/lib/qwen': { qwenKey: () => true, parseQwenJson: JSON.parse, qwenPublicError: () => 'unexpected error', qwenChat: async (messages, options) => {
@@ -169,7 +172,7 @@ await test('real web text route preserves complete source blocks and existing ca
     const prompt = prompts.at(-1).messages[0].content;
     assert.match(prompt, /电影票我退了/); assert.match(prompt, /电影票已经退掉/);
     assert.match(prompt, /真正会改变当前建议/); assert.match(prompt, /同一人物、同一事项/);
-    assert.equal(prompts.at(-1).options.maxTokens, 1200); assert.equal(charges.at(-1).cost, 5);
+    assert.equal(prompts.at(-1).options.maxTokens, mode === 'conversation' ? 3000 : 1200); assert.equal(charges.at(-1).cost, 5);
     assert.equal(charges.at(-1).who, owner); assert.equal(charges.at(-1).action, 'chat');
   }
 });
