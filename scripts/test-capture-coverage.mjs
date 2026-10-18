@@ -14,7 +14,7 @@ for(const text of ["我等下发语音给你","刚才听了12秒语音","[语音
 const unknown=captureCoverage([row("text","周六一起看展吗？",{senderRole:"unknown"})]);
 assert.equal(unknown.readableText,1);assert.equal(unknown.unknownSpeaker,1,"unknown speaker must not erase extracted text");
 const media=[row("image","[图片]"),row("sticker","[动画表情]"),row("sticker","真的好开心",{ocrTextVerified:true}),row("sticker","[表情包]",{ocrTextVerified:true}),row("other","[视频]"),row("other","撤回了一条消息")];
-assert.deepEqual(captureCoverage(media),{total:6,readableText:1,unknownSpeaker:0,voiceTotal:0,transcribed:0,unreadVoice:0,voiceAvailable:0,voiceMissingLocal:0,voiceFailed:0,unreadImage:1,unreadSticker:2,other:2,frames:0,postImages:0});
+assert.deepEqual(captureCoverage(media),{total:6,readableText:1,unknownSpeaker:0,voiceTotal:0,transcribed:0,unreadVoice:0,voiceAvailable:0,voiceMissingLocal:0,voiceFailed:0,unreadImage:1,unreadSticker:2,other:2,frames:0,postImages:0,momentCount:0,profileMaterialCount:0,pinnedCount:0,coverCount:0,signatureCount:0});
 const transcribed=row("text","明天六点碰面。",{source:{mediaKind:"voice",transcriptionStatus:"visible-text"}});
 assert.equal(captureCoverage([transcribed]).transcribed,1);assert.equal(captureCoverage([transcribed]).unreadVoice,0);
 assert.match(captureMediaNotice(transcribed),/转写文字.*语调/);

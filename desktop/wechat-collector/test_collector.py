@@ -125,12 +125,13 @@ class AdapterTest(unittest.TestCase):
         other = SimpleNamespace(element_info=SimpleNamespace(automation_id="session_list"), is_visible=lambda: True)
         controls = [other, album]
         main = SimpleNamespace(descendants=lambda **kwargs: controls)
-        self.assertIs(_moments_window(main, old), old)
+        self.assertIs(_moments_window(main, old), main)
         self.assertIs(_moments_window(main, missing), main)
         controls.append(album)
         with self.assertRaises(CaptureError):
             _moments_window(main, missing)
         controls[:] = [other]
+        self.assertIs(_moments_window(main, old), old)
         with self.assertRaises(CaptureError):
             _moments_window(main, missing)
 
@@ -311,7 +312,10 @@ class CompatibilityTest(unittest.TestCase):
             "pythoncom": SimpleNamespace(CoInitialize=lambda: None, CoUninitialize=lambda: None),
             "pywinauto": SimpleNamespace(Desktop=lambda **kwargs: SimpleNamespace(window=lambda **kwargs: SimpleNamespace(element_info=SimpleNamespace(class_name=state["class"])))),
         }
-        with patch.dict("sys.modules", modules), patch.object(compatibility.sys, "platform", "win32"), patch.object(compatibility.importlib.metadata, "version", return_value="synthetic"):
+        with patch.dict("sys.modules", modules), patch.object(compatibility.sys, "platform", "win32"), \
+             patch.object(compatibility.importlib.metadata, "version", return_value="synthetic"), \
+             patch.object(compatibility, "wechat_windows", return_value=[(1,123,True)]), \
+             patch.object(compatibility, "ui_metadata", side_effect=lambda *args: [(1,state["class"])]):
             shell = compatibility.compatibility_probe()
             self.assertFalse(shell["ready"])
             self.assertIn("微信已打开", shell["message"])

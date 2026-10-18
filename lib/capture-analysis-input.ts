@@ -1,5 +1,5 @@
-export type CaptureAnalysisRow = { localId: string; kind: string; sender: string; senderRole: "self" | "other" | "unknown"; at: string; text: string; ocrTextVerified?: boolean; images: Array<{ mime: string; data: string; name: string }> };
-export type CaptureMemoryRow = { localId: string; kind: "text"; senderRole: "self" | "other"; at: string; text: string; sourceLocalId?: string; sourceKind?: "chat" | "moments"; libraryId?: string; mediaId?: string; basis?: "visual" | "caption" };
+export type CaptureAnalysisRow = { localId: string; kind: string; sender: string; senderRole: "self" | "other" | "unknown"; at: string; text: string; source?: import("./capture-material").CaptureMaterialMetadata; ocrTextVerified?: boolean; images: Array<{ mime: string; data: string; name: string }> };
+export type CaptureMemoryRow = { localId: string; kind: "text"; senderRole: "self" | "other"; at: string; text: string; sourceLocalId?: string; sourceKind?: "chat" | "moments"; libraryId?: string; mediaId?: string; basis?: "visual" | "caption"; materialRole?: import("./capture-material").CaptureMaterialRole; pinned?: boolean };
 export type RelatedCaptureSnapshot = { libraryId: string; kind: "moments"; expectedTotal: number; expectedEpoch: number };
 export type CaptureAnalysisInput = { kind: "chat" | "moments"; friend: string; subjectId: string | null; requestId: string; question?: "panorama" | "attitude" | "trend" | "worth" | "next" | "risk"; analysisScope: "selected" | "fullHistory"; libraryId: string | null; expectedTotal: number | null; expectedEpoch: number | null; relatedSnapshots: RelatedCaptureSnapshot[]; records: CaptureAnalysisRow[]; photoPreviews: CaptureAnalysisRow[]; historyRecords: CaptureMemoryRow[]; activityRecords: ChatActivityRecord[] };
 export const CAPTURE_ANALYSIS_LIMIT = { chat: 40, moments: 12 };
@@ -62,7 +62,10 @@ export function captureAnalysisInput(value: unknown): CaptureAnalysisInput {
     });
     textSize += text.length;
     for (const [key, max] of [["sender", 200], ["at", 120]] as const) if (r[key] !== undefined && (typeof r[key] !== "string" || (r[key] as string).length > max)) throw Error("说话人或时间格式不正确。");
-    return { localId, kind: String(r.kind), sender: typeof r.sender === "string" ? r.sender : "", senderRole, at: typeof r.at === "string" ? r.at : "", text, ocrTextVerified: r.ocrTextVerified === true, images };
+    const metadata = r.source && typeof r.source === "object" && !Array.isArray(r.source) ? r.source as Record<string,unknown> : {};
+    if(metadata.materialRole !== undefined && !["moment","moments-cover","profile-signature"].includes(String(metadata.materialRole))) throw Error("材料来源角色不正确。");
+    const source = v.kind === "moments" ? {materialRole:captureMaterialRole(metadata),pinned:captureMaterialRole(metadata)==="moment"&&metadata.pinned===true} : undefined;
+    return { localId, kind: String(r.kind), sender: typeof r.sender === "string" ? r.sender : "", senderRole, at: typeof r.at === "string" ? r.at : "", text, ...(source?{source}:{}), ocrTextVerified: r.ocrTextVerified === true, images };
   });
   if (new Set(records.map(r => r.localId)).size !== records.length) throw Error("材料存在重复来源编号。");
   if (textSize > 24000 || imageBytes > 9_000_000 || imageCount > 9) throw Error("这批材料过多，请减少条目或图片后再分析。");
@@ -99,3 +102,4 @@ export function captureAnalysisInput(value: unknown): CaptureAnalysisInput {
   return { kind: v.kind, requestId: v.requestId, friend, subjectId, question, analysisScope: fullHistory ? "fullHistory" : "selected", libraryId, expectedTotal: fullHistory ? Number(expectedTotal) : null, expectedEpoch: fullHistory ? Number(expectedEpoch) : null, relatedSnapshots, records, photoPreviews, historyRecords, activityRecords };
 }
 import { parseChatActivityRecords, type ChatActivityRecord } from "./chat-activity";
+import { captureMaterialRole } from "./capture-material";

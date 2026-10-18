@@ -6,6 +6,8 @@ export function CaptureCoverage({records,kind}:{records:readonly CaptureCoverage
  if(!info.total)return null;
  const missing=info.unreadVoice+info.unreadImage+info.unreadSticker+info.other;
  return <p className={styles.coverage} aria-label="采集内容覆盖" data-capture-coverage>
+  {kind==="moments"&&<span>朋友圈动态 <strong>{info.momentCount}</strong> 条{info.pinnedCount>0&&<small>（含 {info.pinnedCount} 条置顶）</small>}</span>}
+  {info.coverCount>0&&<span>封面 <strong>{info.coverCount}</strong> 份</span>}{info.signatureCount>0&&<span>个性签名 <strong>{info.signatureCount}</strong> 条</span>}
   <span><FileText size={17}/>{kind==="moments"?"已读文案":"已读文字"} <strong>{info.readableText}</strong> 条{info.unknownSpeaker>0&&<small>（{info.unknownSpeaker} 条身份待核对）</small>}</span>
   {info.voiceTotal>0&&<span><Mic size={17}/>语音已转文字 <strong>{info.transcribed} / {info.voiceTotal}</strong> 条</span>}
   {info.voiceAvailable>0&&<span><Mic size={17}/>本机可转写 <strong>{info.voiceAvailable}</strong> 条</span>}

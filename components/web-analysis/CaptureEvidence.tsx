@@ -1,5 +1,6 @@
 "use client";
 
+import {captureMaterialLabel,captureProfileMaterial} from "@/lib/capture-material";
 import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { ArrowUpRight, Clock3, FileSearch, MessageCircle, Search, UserRound, X } from "lucide-react";
 import { type StoredCaptureRecord } from "@/lib/desktop-capture-vault";
@@ -129,10 +130,11 @@ function CaptureRecord({ record, ordinal, isMoments }: { record: StoredCaptureRe
   const time = `${Math.floor(videoSeconds / 60).toString().padStart(2,"0")}:${Math.floor(videoSeconds % 60).toString().padStart(2,"0")}`;
   return <article className={styles.record} data-capture-record={record.localId}>
     <header><strong>{ordinal === 0 ? "已导入历史 · 资料依据" : frame ? `第 ${ordinal} 张采集画面` : isMoments ? `第 ${ordinal} 条动态` : `第 ${ordinal} 条消息`}</strong>{!frame && <span><UserRound size={15}/>{reportSenderLabel(record.senderRole, record.sender)}</span>}</header>
-    {record.source.method === "video-import" ? <p className={styles.time}><Clock3 size={15}/>录屏位置 {time} · 消息时间以画面原文为准</p> : !frame && <p className={styles.time}><Clock3 size={15}/>{record.at || "未识别时间"}</p>}
+    {record.source.method === "video-import" ? <p className={styles.time}><Clock3 size={15}/>录屏位置 {time} · 消息时间以画面原文为准</p> : !frame && <p className={styles.time}><Clock3 size={15}/>{captureProfileMaterial(record.source)?"采集时的个人展示资料":record.at || "未识别时间"}</p>}
     {(record.text || !frame) && <p className={styles.original}>{record.text || "这条记录没有识别出的文字。"}</p>}
     {images.length > 0 && <div className={styles.images}>{images.map((src, index) => <img key={index} src={src} alt={`第 ${ordinal} 条记录的第 ${index + 1} 张附图`} loading="lazy"/>)}</div>}
     {record.source.cloudMediaUnavailable===true&&<p className={styles.localNote}>这条记录的图片尚未同步完整，请在采集电脑继续同步。</p>}
+    {(captureProfileMaterial(record.source)||record.source.pinned===true)&&<p className={styles.sourceLabel}>{captureMaterialLabel(record.source)}</p>}
     {record.source?.label && <p className={styles.sourceLabel}>{reportPersonLabel(record.source.label)}</p>}
   </article>;
 }

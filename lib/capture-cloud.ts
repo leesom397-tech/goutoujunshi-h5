@@ -16,7 +16,7 @@ const text = (value: unknown, max: number, required = false): string => {
 const iso = (value: unknown) => { const result = text(value, 80, true); if (!/^\d{4}-\d{2}-\d{2}T/.test(result) || !Number.isFinite(Date.parse(result))) throw Error("采集时间不正确。"); return result; };
 // Explicit metadata only. A capture can carry local file paths and database access
 // material; neither is part of the synchronizable record contract.
-const sourceKeys = new Set(["label","method","accountId","sessionId","messageId","messageShard","idStability","timestampOrigin","mediaKind","transcriptionStatus","transcriptionSource","transcriptCapturedAt","voiceAvailability","durationSeconds","rawMediaLabel","atRaw","index","uiIndex","uiClass","order","capturedAt","videoTime","videoId","frameId","version","matchedBy","at","senderRole","id","recordId","localId","imageCount","imageType","previewUnavailable","cloudMediaUnavailable"]);
+const sourceKeys = new Set(["label","method","accountId","sessionId","messageId","messageShard","idStability","timestampOrigin","mediaKind","transcriptionStatus","transcriptionSource","transcriptCapturedAt","voiceAvailability","durationSeconds","rawMediaLabel","atRaw","index","uiIndex","uiClass","order","capturedAt","videoTime","videoId","frameId","version","matchedBy","at","senderRole","id","recordId","localId","imageCount","imageType","previewUnavailable","cloudMediaUnavailable","materialRole","pinned"]);
 function safeSource(input: unknown, depth = 0): CaptureSource {
   if (!object(input)) throw Error("聊天记录缺少来源。");
   const result: Record<string,unknown> = {};
@@ -30,6 +30,7 @@ function safeSource(input: unknown, depth = 0): CaptureSource {
       result[key] = value.slice(0, 8).filter(item => typeof item === "string").map(item => text(item, 500));
     }
   }
+  if(result.materialRole !== undefined && !["moment","moments-cover","profile-signature"].includes(String(result.materialRole)) || result.pinned !== undefined && typeof result.pinned !== "boolean" || result.pinned === true && result.materialRole !== undefined && result.materialRole !== "moment") throw Error("朋友圈材料来源类型不正确。");
   if (depth === 0) result.label = text(result.label, 500, true);
   return result as CaptureSource;
 }

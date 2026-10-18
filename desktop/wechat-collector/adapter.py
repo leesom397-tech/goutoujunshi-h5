@@ -242,13 +242,22 @@ def _chat(friend, limit, nickname, progress, modules, convert_voices=False):
 def _moments_window(main, window):
     # Weixin 4.1.15 embeds the selected friend's album directly in the main
     # window; upstream still returns an older, now absent nested WeChat pane.
-    if not window.exists(timeout=0.3):
+    deadline = time.monotonic() + 4
+    visible_lists = []
+    while time.monotonic() < deadline:
         visible_lists = [item for item in main.descendants(control_type="List")
                          if item.element_info.automation_id == "sns_list" and item.is_visible()]
-        if len(visible_lists) != 1:
-            raise CaptureError("MOMENTS_UNREADABLE", "指定好友的朋友圈界面无法唯一确认，已停止采集。")
+        if visible_lists:
+            break
+        time.sleep(.2)
+    if len(visible_lists) == 1:
+        # 4.1.15 may also expose an SNSWindow while embedding it in the main
+        # window. That nested native handle is recreated after some details;
+        # anchor queries to the stable verified main window instead.
         return main
-    return window
+    if not visible_lists and window.exists(timeout=0.3):
+        return window
+    raise CaptureError("MOMENTS_UNREADABLE", "指定好友的朋友圈界面无法唯一确认，已停止采集。")
 
 
 def _prepare_capture_ui():
@@ -271,13 +280,40 @@ def _moments_at_visible_end(listing):
         return False
 
 
-def _resolve_moments_contact(request):
-    """Resolve the selected local contact; never read any message bodies."""
-    from background_reader import _provider_module, _resolve_contact, _contact_display, _duplicate_displays, _contact_metadata_columns, _contact_text
+def _open_moments_source(request, visible_account):
+    """Keep one authorized account snapshot; verification must not navigate UI."""
+    from background_reader import _provider_module, _contact_metadata_columns
     provider = _provider_module()
     if provider is None:
         raise CaptureError("CONTACT_SEARCH_UNAVAILABLE", "联系人目录暂不可读，请重新连接助手后选择好友。")
     source = provider.open_authorized_source()
+    try:
+        source.assert_unchanged()
+        # Current clients bind the explicit contact to the account fingerprint.
+        # Legacy name-only requests also need to match the visible account ID.
+        if not request.get("contactId"):
+            identities = {source.account_id, source.self_username}
+            if "alias" in _contact_metadata_columns(source.contacts()):
+                row = source.contacts().execute("SELECT alias FROM contact WHERE username=?", (source.self_username,)).fetchone()
+                if row and row[0]:
+                    identities.add(str(row[0]))
+            if visible_account not in identities:
+                raise CaptureError("ACCOUNT_CHANGED", "当前微信账号无法与采集账号核对，请重新选择好友后导入。")
+        return source
+    except BaseException:
+        source.close()
+        raise
+
+
+def _resolve_moments_contact(request, source=None):
+    """Resolve the selected local contact; never read any message bodies."""
+    from background_reader import _provider_module, _resolve_contact, _contact_display, _duplicate_displays, _contact_metadata_columns, _contact_text
+    owned = source is None
+    if owned:
+        provider = _provider_module()
+        if provider is None:
+            raise CaptureError("CONTACT_SEARCH_UNAVAILABLE", "联系人目录暂不可读，请重新连接助手后选择好友。")
+        source = provider.open_authorized_source()
     try:
         username = _resolve_contact(source, request["friend"], request.get("contactId"), request.get("accountKey"))
         conn = source.contacts()
@@ -290,7 +326,8 @@ def _resolve_moments_contact(request):
         source.assert_unchanged()
         return display, (alias or username) if duplicate else display, source.account_id
     finally:
-        source.close()
+        if owned:
+            source.close()
 
 
 def _open_moments_from_chat(main, friend, modules):
@@ -317,45 +354,104 @@ def _open_moments_from_chat(main, friend, modules):
 def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=None, search_query=None):
     Navigator, Tools, ui = modules
     main = _open_target(friend, modules, search_query=search_query)
+    main_identity = (main.handle, main.process_id())
     window = _open_moments_from_chat(main, friend, modules)
     listing = window.child_window(**ui.Lists.MomentsList)
     detail = window.child_window(**ui.Lists.SnsDetailList)
     back = window.child_window(**ui.Buttons.BackButton)
     if not listing.exists(timeout=2):
         raise CaptureError("MOMENTS_UNREADABLE", "朋友圈列表不可读，可能未开放、暂无内容或当前微信版本界面不兼容。")
+    listing.wait("ready", timeout=4)
+    def assert_view():
+        if (main.handle, main.process_id()) != main_identity:
+            raise CaptureError("MOMENTS_VIEW_CHANGED", "当前朋友圈已切换，已停止读取，避免混入另一位好友的动态。")
+        # UIA container/runtime IDs legitimately change on returning from a
+        # detail. Verify the actual selected person, not that ephemeral ID.
+        _assert_target(main, friend, ui.Texts, Tools)
     Tools.activate_momentsList(listing)
     rows, warnings, seen = [], [], set()
+    post_keys = set()
+    pinned_mode, pinned_handled = False, False
+    header = listing.children(control_type="ListItem")
+    if len(header) >= 2 and all(cell.class_name() == "mmui::AlbumBaseCell" for cell in header[:2]):
+        try:
+            preview = _image(header[0], "moments-cover.jpg")
+            rows.append({"kind": "image", "sender": friend, "senderRole": "other", "text": "朋友圈封面",
+                         "images": [preview], "source": {"materialRole": "moments-cover", "imageType": "visible-ui-preview"}})
+        except Exception:
+            warnings.append("朋友圈封面未能读取，未纳入画面分析。")
+        signature = header[1].window_text().strip()
+        if signature:
+            rows.append({"kind": "text", "sender": friend, "senderRole": "other", "text": signature,
+                         "source": {"materialRole": "profile-signature"}})
     idle, image_bytes = 0, 0
     completion = {"scope": "all-visible" if all_visible else "requested-count", "complete": False,
                   "stopReason": "scanning", "recordCount": 0, "imageOmittedCount": 0, "unreadableCount": 0}
     last_publish = time.monotonic()
+    def moment_count():
+        return sum(row.get("kind") == "post" for row in rows)
     while True:
+        assert_view()
         listing.type_keys("{DOWN}", pause=0.12, set_foreground=True)
         selected = [item for item in listing.children(control_type="ListItem") if item.has_keyboard_focus()]
         if not selected:
-            idle += 1
-            if idle >= 5:
-                completion["stopReason"] = "focus-unavailable"
-                break
-            continue
+            # Returning from details may remove keyboard focus entirely. Read
+            # an unseen visible cell before scrolling the actual list viewport.
+            selected = [cell for cell in listing.children(control_type="ListItem")
+                        if cell.class_name() not in ("mmui::AlbumBaseCell", "mmui::AlbumTopCell")
+                        and cell.window_text() not in seen]
+            if not selected:
+                idle += 1
+                if idle >= 5:
+                    if pinned_mode:
+                        back.click_input()
+                        listing.wait("ready", timeout=3)
+                        pinned_mode, idle = False, 0
+                        seen.clear()
+                        Tools.activate_momentsList(listing)
+                        continue
+                    completion["stopReason"] = "navigation-stalled"
+                    break
+                try:
+                    from pywinauto import mouse
+                    rect = listing.rectangle()
+                    mouse.scroll(coords=(rect.left + rect.width() // 2, rect.top + rect.height() // 2), wheel_dist=-4)
+                    time.sleep(.6)
+                except Exception:
+                    pass
+                continue
         item = selected[0]
         # Virtualized lists recycle runtime IDs. Include visible content so
         # thousands of old posts are not mistaken for the first loaded page.
-        runtime = (tuple(item.element_info.runtime_id or []), item.window_text())
+        runtime = item.window_text()
         if runtime in seen:
             idle += 1
             if idle >= 8:
+                if pinned_mode:
+                    back.click_input()
+                    listing.wait("ready", timeout=3)
+                    pinned_mode, idle = False, 0
+                    seen.clear()
+                    Tools.activate_momentsList(listing)
+                    continue
                 at_end = _moments_at_visible_end(listing)
                 completion.update(complete=at_end and not completion["unreadableCount"],
                                   stopReason="unreadable-posts" if completion["unreadableCount"] else
                                   "visible-end" if at_end else "navigation-stalled")
                 break
             progress(50 if all_visible else min(90, 15 + int(len(rows) / limit * 70)),
-                     f"已读取 {len(rows)} 条朋友圈，正在确认是否还有更早动态…")
+                     f"已读取 {moment_count()} 条朋友圈，正在确认是否还有更早动态…")
             time.sleep(.5)
             continue
         seen.add(runtime)
-        if item.class_name() in ("mmui::AlbumBaseCell", "mmui::AlbumTopCell"):
+        if item.class_name() == "mmui::AlbumTopCell":
+            if not pinned_handled and item.window_text().strip() in ("置顶", "置頂", "Pinned"):
+                pinned_handled = pinned_mode = True
+                item.click_input()
+                listing.wait("ready", timeout=3)
+                seen.clear()
+            continue
+        if item.class_name() == "mmui::AlbumBaseCell":
             continue
         idle = 0
         item.click_input()
@@ -377,7 +473,7 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
             if content.startswith(friend):
                 content = content[len(friend):].lstrip()
             row = {"kind": "post", "sender": friend, "senderRole": "other", "at": at, "text": content,
-                   "source": {"imageType": "visible-ui-preview", "timePrecision": "ui-label" if at else "unknown"}}
+                   "source": {"materialRole": "moment", "pinned": pinned_mode, "imageType": "visible-ui-preview", "timePrecision": "ui-label" if at else "unknown"}}
             try:
                 preview = _image(content_item, f"moment-preview-{len(rows)+1}.jpg")
                 size = len(preview["data"])
@@ -394,9 +490,14 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
             if not content.strip() and not row.get("images"):
                 completion["unreadableCount"] += 1
                 continue
+            assert_view()
+            post_key = (at, content)
+            if content and post_key in post_keys:
+                continue
+            post_keys.add(post_key)
             rows.append(row)
             completion["recordCount"] = len(rows)
-            progress(50 if all_visible else min(90, 15 + int(len(rows) / limit * 70)), f"已读取 {len(rows)} 条朋友圈，继续读取更早动态…")
+            progress(50 if all_visible else min(90, 15 + int(len(rows) / limit * 70)), f"已读取 {moment_count()} 条朋友圈，继续读取更早动态…")
         finally:
             if detail.exists(timeout=0.2):
                 back.click_input()
@@ -404,7 +505,7 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
         if on_rows and (len(rows) == 1 or time.monotonic() - last_publish >= 5):
             on_rows(rows, warnings, dict(completion))
             last_publish = time.monotonic()
-        if not all_visible and len(rows) >= limit:
+        if not all_visible and moment_count() >= limit:
             completion["stopReason"] = "requested-count"
             break
     if not rows:
@@ -425,6 +526,7 @@ def capture(request, progress, on_partial=None):
         raise CaptureError("UNSUPPORTED_PLATFORM", "本采集器仅支持Windows。Mac请使用网页屏幕共享采集。")
     import pythoncom
     pythoncom.CoInitialize()
+    moments_source = None
     try:
         from pyweixin import Navigator, Tools, GlobalConfig
         from pyweixin import Uielements as ui
@@ -445,15 +547,16 @@ def capture(request, progress, on_partial=None):
         if request["kind"] == "chat":
             rows, warnings = _chat(request["friend"], request["limit"], nickname, first_progress, modules, convert_voices=False)
         else:
-            moments_selection = (_resolve_moments_contact(request) if request.get("contactId")
-                                 else (request["friend"], request["friend"], account))
+            moments_source = _open_moments_source(request, account)
+            moments_selection = _resolve_moments_contact(request, moments_source)
             target, search_query, canonical_account = moments_selection
             def publish_moments(rows, warnings, completion):
                 if on_partial is None:
                     return
-                if _account(Navigator) != (account, nickname):
-                    raise CaptureError("ACCOUNT_CHANGED", "微信账号已变化，已停止；已核对的动态仍可查看。")
-                if request.get("contactId") and _resolve_moments_contact(request) != moments_selection:
+                # open_my_profile -> open_weixin closes the embedded album in
+                # WeChat 4.1.15. Check the same authorized login/contact without
+                # opening any UI, both before partial publication and at end.
+                if _resolve_moments_contact(request, moments_source) != moments_selection:
                     raise CaptureError("ACCOUNT_CHANGED", "当前账号或所选联系人已变化，已停止本次采集。")
                 partial = normalized_capture("moments", request["friend"], canonical_account, rows, warnings)
                 partial["coverage"] = completion
@@ -461,11 +564,13 @@ def capture(request, progress, on_partial=None):
             rows, warnings, completion = _moments(target, request["limit"], progress, modules,
                 all_visible=request.get("allVisible", False), on_rows=publish_moments, search_query=search_query)
         progress(50 if two_phase else 95, "正在核对采集账号并整理原文")
-        final_account, final_nickname = _account(Navigator)
-        if (account, nickname) != (final_account, final_nickname):
-            raise CaptureError("ACCOUNT_CHANGED", "采集期间微信账号发生变化，结果已丢弃，请重新采集。")
-        if moments_selection and request.get("contactId") and _resolve_moments_contact(request) != moments_selection:
-            raise CaptureError("ACCOUNT_CHANGED", "当前账号或所选联系人已变化，未合并本轮动态。")
+        if moments_selection:
+            if _resolve_moments_contact(request, moments_source) != moments_selection:
+                raise CaptureError("ACCOUNT_CHANGED", "当前账号或所选联系人已变化，未合并本轮动态。")
+        else:
+            final_account, final_nickname = _account(Navigator)
+            if (account, nickname) != (final_account, final_nickname):
+                raise CaptureError("ACCOUNT_CHANGED", "采集期间微信账号发生变化，结果已丢弃，请重新采集。")
         batch = normalized_capture(request["kind"], request["friend"], canonical_account, rows, warnings)
         if request["kind"] == "moments":
             batch["coverage"] = completion
@@ -491,4 +596,6 @@ def capture(request, progress, on_partial=None):
         progress(95, "文字与语音已核对，正在整理原文。")
         return normalized_capture(request["kind"], request["friend"], account, converted, converted_warnings)
     finally:
+        if moments_source is not None:
+            moments_source.close()
         pythoncom.CoUninitialize()

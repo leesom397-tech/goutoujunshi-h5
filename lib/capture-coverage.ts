@@ -1,7 +1,8 @@
 import {captureReadableText} from "./capture-analysis-input";
+import {captureMaterialCounts} from "./capture-material";
 
 export type CaptureCoverageRow={kind:string;text:string;senderRole?:string;ocrTextVerified?:boolean;images?:unknown[];source?:Record<string,unknown>};
-export type CaptureCoverageSummary={total:number;readableText:number;unknownSpeaker:number;voiceTotal:number;transcribed:number;unreadVoice:number;voiceAvailable:number;voiceMissingLocal:number;voiceFailed:number;unreadImage:number;unreadSticker:number;other:number;frames:number;postImages:number};
+export type CaptureCoverageSummary={total:number;readableText:number;unknownSpeaker:number;voiceTotal:number;transcribed:number;unreadVoice:number;voiceAvailable:number;voiceMissingLocal:number;voiceFailed:number;unreadImage:number;unreadSticker:number;other:number;frames:number;postImages:number;momentCount:number;profileMaterialCount:number;pinnedCount:number;coverCount:number;signatureCount:number};
 const compact=(text:string)=>text.replace(/\s+/g," ").trim();
 const voicePlaceholder=/^(?:\[|【|\()?\.?(?:语音(?:消息)?|語音(?:訊息|消息)?|voice(?: message)?|audio(?: message)?)(?:\]|】|\))?(?:\s*(?:\d{1,3}\s*(?:秒|[“”"'′″]\s*秒?|s(?:ec(?:ond)?s?)?)|\d{1,2}[:：]\d{2}))?(?:\s*(?:未播放|已播放|未转文字|未轉文字))?$/iu;
 const videoPlaceholder=/^(?:\[|【|\()?(?:视频|影片|視頻|video)(?:\]|】|\))?(?:\s*\d{1,2}[:：]\d{2})?$/iu;
@@ -16,7 +17,7 @@ function readable(row:CaptureCoverageRow,kind:"chat"|"moments"){
  return captureReadableText(row).trim();
 }
 export function captureCoverage(records:readonly CaptureCoverageRow[],kind:"chat"|"moments"="chat"):CaptureCoverageSummary{
- const total:CaptureCoverageSummary={total:records.length,readableText:0,unknownSpeaker:0,voiceTotal:0,transcribed:0,unreadVoice:0,voiceAvailable:0,voiceMissingLocal:0,voiceFailed:0,unreadImage:0,unreadSticker:0,other:0,frames:0,postImages:0};
+ const total:CaptureCoverageSummary={total:records.length,readableText:0,unknownSpeaker:0,voiceTotal:0,transcribed:0,unreadVoice:0,voiceAvailable:0,voiceMissingLocal:0,voiceFailed:0,unreadImage:0,unreadSticker:0,other:0,frames:0,postImages:0,...captureMaterialCounts(kind==="moments"?records:[])};
  for(const row of records){
   if(captureVisualFrame(row)){total.frames++;continue;}
   const text=readable(row,kind);

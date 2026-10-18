@@ -36,6 +36,12 @@ export async function loadSubjectRelationshipContext(owner:string,subjectId:stri
  for(const saved of reports){
   const report=parse(saved.result),semantic=report.semanticHistory||report.relationshipDiagnosis?.semanticHistory;
   if(!semantic||!Array.isArray(semantic.findings))continue;
+  // Preserve verified profile materials in future questions even if synthesis did
+  // not select them as a headline conclusion. They remain presentation, not fact.
+  const materialEvidence=[...(Array.isArray(report.profileMaterials)?report.profileMaterials:[]).filter((item:any)=>item.materialRole==="profile-signature"&&typeof item.text==="string"&&item.text.trim()).map((item:any)=>({sourceId:item.sourceId,libraryId:item.libraryId,sourceKind:"moments",basis:"caption",senderRole:"other",at:item.at||"",quote:item.text,materialRole:item.materialRole})),...(Array.isArray(report.mediaEvidence)?report.mediaEvidence:[]).filter((item:any)=>item.materialRole==="moments-cover"&&typeof item.observation==="string"&&item.observation.trim()).map((item:any)=>({...item,sourceKind:"moments",senderRole:"other",quote:item.observation}))];
+  const verifiedProfile=await verifySupplementalEvidence(db,owner,subjectId,materialEvidence);
+  for(const [index,source]of [...verifiedProfile.values()].entries())if(!semantic.findings.some((finding:any)=>(finding.evidence||[]).some((item:any)=>item.sourceId===source.sourceId&&item.libraryId===source.libraryId)))semantic.findings.push({id:`profile-material:${index}`,claim:source.materialRole==="profile-signature"?"采集时的个性签名（仅为个人展示表达）":"采集时的朋友圈封面可见内容",evidence:[source]});
+
   const ids=[...new Set(semantic.findings.flatMap((finding:any)=>(Array.isArray(finding?.evidence)?finding.evidence:[]).map((item:any)=>item?.sourceId).filter((id:any)=>typeof id==="string"&&id)))];
   if(!ids.length){semantic.findings=[];saved.result=report;continue;}
   const rows=await db.prepare("SELECT r.local_id,r.record_json FROM coach_capture_records r JOIN coach_capture_libraries l ON l.id=r.library_id AND l.epoch=r.epoch WHERE r.owner_id=? AND l.owner_id=? AND l.subject_id=? AND l.kind='chat' AND l.deleted_at IS NULL AND (?='' OR l.id=?) AND r.local_id IN (SELECT value FROM json_each(?))").bind(owner,owner,subjectId,report.archiveSnapshot?.libraryId||"",report.archiveSnapshot?.libraryId||"",JSON.stringify(ids)).all<{local_id:string;record_json:string}>();

@@ -1,8 +1,9 @@
+import {captureMaterialRole} from "./capture-material";
 /** Browser-safe capture contract. Original text, timestamps and source labels are retained verbatim. */
 export type CaptureKind = "chat" | "moments";
 export type CaptureRecordKind = "text" | "image" | "sticker" | "post" | "other";
 export type CaptureImage = { mime: "image/png" | "image/jpeg" | "image/webp"; data: string; name: string };
-export type CaptureSource = { label: string; [key: string]: unknown };
+export type CaptureSource = { label: string; materialRole?: import("./capture-material").CaptureMaterialRole; pinned?: boolean; [key: string]: unknown };
 export type CaptureRecord = {
   /** Only use an ID supplied by the source which remains stable across captures; otherwise omit it. */
   id?: string;
@@ -16,7 +17,7 @@ export type CaptureRecord = {
   source: CaptureSource;
   images?: CaptureImage[];
 };
-export type CaptureCoverage = { scope: "all-visible" | "requested-count"; complete: boolean; stopReason: "scanning" | "visible-end" | "requested-count" | "focus-unavailable" | "unreadable-posts"; recordCount: number; imageOmittedCount: number; unreadableCount: number };
+export type CaptureCoverage = { scope: "all-visible" | "requested-count"; complete: boolean; stopReason: "scanning" | "visible-end" | "requested-count" | "focus-unavailable" | "unreadable-posts" | "navigation-stalled"; recordCount: number; momentCount?: number; profileMaterialCount?: number; imageOmittedCount: number; unreadableCount: number };
 export type CaptureBatch = { version: 1; kind: CaptureKind; friend: string; account: string; capturedAt: string; records: CaptureRecord[]; warnings: string[]; coverage?: CaptureCoverage };
 export type CaptureNamespace = { ownerId: string; account: string; friend: string; kind: CaptureKind };
 export type StoredCaptureRecord = CaptureRecord & { localId: string; namespace: string; firstCapturedAt: string; lastCapturedAt: string };
@@ -56,6 +57,7 @@ export function validateCaptureBatch(value: unknown): CaptureBatch {
   const records = value.records.map((row): CaptureRecord => {
     if (!object(row) || !["text", "image", "sticker", "post", "other"].includes(String(row.kind)) || !object(row.source)) throw new Error("记录类型或来源信息不正确。");
     const source = sourceValue(row.source) as CaptureSource;
+    if (source.materialRole !== undefined && !["moment", "moments-cover", "profile-signature"].includes(source.materialRole) || source.pinned !== undefined && typeof source.pinned !== "boolean" || source.pinned === true && source.materialRole !== undefined && source.materialRole !== "moment") throw Error("朋友圈材料来源类型不正确。");
     if (source.databaseIdentity !== undefined) throw new Error("数据库关联凭据只能由本机原文核对生成，不能从导入材料指定。");
     field(source.label, "原文来源", 500, true);
     if (row.images !== undefined && (!Array.isArray(row.images) || row.images.length > CAPTURE_LIMITS.imagesPerRecord)) throw new Error("单条记录最多携带 9 张图片。");
@@ -75,10 +77,15 @@ export function validateCaptureBatch(value: unknown): CaptureBatch {
   if (value.coverage !== undefined) {
     const c = value.coverage;
     if (value.kind !== "moments" || !object(c) || !["all-visible", "requested-count"].includes(String(c.scope)) || typeof c.complete !== "boolean"
-      || !["scanning", "visible-end", "requested-count", "focus-unavailable", "unreadable-posts"].includes(String(c.stopReason))
+      || !["scanning", "visible-end", "requested-count", "focus-unavailable", "unreadable-posts", "navigation-stalled"].includes(String(c.stopReason))
       || [c.recordCount, c.imageOmittedCount, c.unreadableCount].some(count => !Number.isSafeInteger(count) || Number(count) < 0)
       || c.complete && c.stopReason !== "visible-end") throw Error("朋友圈采集范围信息不完整，请更新助手后重试。");
     coverage = { scope: c.scope as CaptureCoverage["scope"], complete: c.complete, stopReason: c.stopReason as CaptureCoverage["stopReason"], recordCount: Number(c.recordCount), imageOmittedCount: Number(c.imageOmittedCount), unreadableCount: Number(c.unreadableCount) };
+    for (const key of ["momentCount", "profileMaterialCount"] as const) if (c[key] !== undefined) {
+      if (!Number.isSafeInteger(c[key]) || Number(c[key]) < 0 || Number(c[key]) > coverage.recordCount) throw Error("朋友圈材料数量不正确。");
+      coverage[key] = Number(c[key]);
+    }
+    if (coverage.momentCount !== undefined && coverage.profileMaterialCount !== undefined && coverage.momentCount + coverage.profileMaterialCount !== coverage.recordCount) throw Error("朋友圈材料数量不一致。");
   }
   return { version: 1, kind: value.kind as CaptureKind, account, friend, capturedAt, records, warnings: ((value.warnings || []) as unknown[]).map(item => field(item, "采集提示", 2000)), ...(coverage ? { coverage } : {}) };
 }
@@ -221,7 +228,7 @@ function bodyKey(record: CaptureRecord): string {
   const voice = voiceDescriptor(record);
   // The thumbnail is only a view of a voice bubble; duration/type remain part of
   // its identity so identical transcripts do not collapse distinct messages.
-  return JSON.stringify([record.kind, normalized(record.sender), record.senderRole || "unknown", normalized(record.text), record.ocrTextVerified === true, voice ? ["voice", voice.label] : (record.images || []).map(item => [item.mime, item.data])]);
+  return JSON.stringify([...(captureMaterialRole(record.source)!=="moment"?[captureMaterialRole(record.source)]:[]),record.kind, normalized(record.sender), record.senderRole || "unknown", normalized(record.text), record.ocrTextVerified === true, voice ? ["voice", voice.label] : (record.images || []).map(item => [item.mime, item.data])]);
 }
 function sequenceKey(record: CaptureRecord): string { return JSON.stringify([normalized(record.at), bodyKey(record)]); }
 /** Database identities must include the account, conversation and message shard.
@@ -688,7 +695,7 @@ export function mergeCaptureRecords(existing: StoredCaptureRecord[], input: unkn
           ...(isDatabaseVoice(row) ? { voiceAvailability: records[old].kind === "text" ? "transcribed" : row.source.voiceAvailability } : {}) }, lastCapturedAt: batch.capturedAt };
         incoming.push(old); return;
       }
-      records[old] = upgraded.has(index) || refreshedVoice.has(index) ? { ...records[old], ...row, images: row.images?.length ? row.images : records[old].images, source: { ...records[old].source, ...row.source, ...(upgraded.has(index) ? { transcriptCapturedAt: batch.capturedAt } : {}) }, lastCapturedAt: batch.capturedAt } : { ...records[old], lastCapturedAt: batch.capturedAt };
+      records[old] = upgraded.has(index) || refreshedVoice.has(index) ? { ...records[old], ...row, images: row.images?.length ? row.images : records[old].images, source: { ...records[old].source, ...row.source, ...(upgraded.has(index) ? { transcriptCapturedAt: batch.capturedAt } : {}) }, lastCapturedAt: batch.capturedAt } : { ...records[old], ...(batch.kind === "moments" ? {source:{...records[old].source,...row.source}}:{}), lastCapturedAt: batch.capturedAt };
       incoming.push(old); return;
     }
     const localId = `record:${hash(key)}:${records.length + 1}:${hash(sequenceKey(row) + (row.id || ""))}`;
