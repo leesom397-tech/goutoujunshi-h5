@@ -52,3 +52,23 @@
 
 .page{max-width:1100px}.pageHeader{display:flex;align-items:center;justify-content:space-between;gap:20px;padding:24px 0 28px}.pageHeader p{margin:0 0 10px;color:#a66049;font-size:13px}.pageHeader h1{margin:0 0 12px;font-size:30px;line-height:1.35;font-weight:700;letter-spacing:-.5px}.pageHeader span{font-size:15px;line-height:1.7;color:#796d65}.steps{margin-bottom:24px}.contactPicker{max-width:none}.contactChoices{grid-template-columns:repeat(3,minmax(0,1fr))}.contactPicker[data-selected=true] .contactChoices{grid-template-columns:1fr;max-width:540px}.contactPicker[data-selected=true] .contactChoices button[aria-pressed=false],.contactPicker[data-selected=true] .contactResults>p{display:none}.contactPicker .field[hidden]{display:none}.chosenContactHeading{display:flex;gap:12px;align-items:center;justify-content:space-between;max-width:540px;font-size:14px}.chosenContactHeading button{background:transparent;border:0;color:#a66049;padding:8px}.importAction{padding-bottom:0}.nextAction{scroll-margin-top:100px}.savedLibraries:not([open]){padding-top:17px;padding-bottom:17px}
 @media(max-width:760px){.pageHeader{padding:16px 0 22px;align-items:flex-start;flex-direction:column}.pageHeader h1{font-size:25px}.contactChoices{grid-template-columns:1fr}.steps{gap:4px}.steps li+li{padding-left:0}}
+.page [hidden]{display:none!important}
+.previewActions{display:flex;align-items:center;gap:12px}
+.returnToReady{display:flex;align-items:center;gap:8px;margin:16px 0;padding:10px 0;color:#a66049;font-weight:600}
+.page .nextChoices{display:flex;justify-content:center;margin-top:12px}
+.page .nextChoices>button:not([data-main=true]){border:0;background:transparent;padding:10px;font-size:14px;box-shadow:none}
+.page .nextChoices>button strong{font-weight:500}
+.page .nextAction{margin-top:12px}
+.page .personSummary{margin-top:20px}
+.page .fullReportCard{margin-top:24px}
+.page .confirmAnalysis{margin:0;border:0;padding:0;background:transparent}
+.page .confirmHeading button{width:auto;font-size:14px;white-space:nowrap}
+.page .materialTabs{margin-top:24px;border-top:1px solid #ead8ca;padding-top:16px}
+@media(max-width:600px){.previewActions{gap:4px}.previewActions button{font-size:13px}.page .nextChoices{display:block}}
+.preview[data-stage=ready] .previewHead{padding:26px 28px;margin:0;border:0;background:linear-gradient(90deg,#fffaf5 20%,#fffaf5dd 55%,#fffaf522),url('/images/aurora-fluted-light-v5.webp') right center/cover;min-height:126px}
+.page .nextAction{border:0;background:transparent;padding:20px 28px 0;margin:0}
+.importReceipt{display:flex;align-items:center;gap:10px;color:#53796a;font-size:15px;margin-bottom:24px}.importReceipt small{margin-left:auto;font-size:13px;color:#796d65}
+.page .nextAction .fullReportCard button{width:100%;max-width:none;justify-content:center;min-height:68px}
+.page .questionPicker{padding:0;border:0;background:transparent;margin-top:20px}.page .materialTabs{margin:20px 28px 0;padding-bottom:16px}.page .materialTabs button{border:0;background:transparent;padding:8px;font-size:14px}.page .personSummary{padding:0}
+.page .returnToReady{margin-left:28px}
+@media(max-width:600px){.page .nextAction{padding:18px 18px 0}.preview[data-stage=ready] .previewHead{padding:22px 18px}.page .materialTabs{margin:18px 18px 0}.importReceipt{flex-wrap:wrap}.importReceipt small{margin-left:0}.page .returnToReady{margin-left:18px}}

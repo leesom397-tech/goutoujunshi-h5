@@ -161,7 +161,7 @@ export async function runHistoryImport(options: HistoryImportOptions): Promise<H
           const started = await options.request("/capture", { signal: options.signal, body: {
             kind: "chat", mode: "background", friend: progress.friend, includeVoice: options.includeVoice === true,
             ...(options.contact ? {contactId:options.contact.contactId,accountKey:options.contact.accountKey} : {}),
-            pageSize: PAGE_SIZE, direction: progress.direction,
+            pageSize: options.includeVoice ? 100 : PAGE_SIZE, direction: progress.direction,
             ...(progress.cursor ? { cursor: progress.cursor } : progress.since ? { since: progress.since } : {}),
           } });
           if (!object(started) || !jobId(started.jobId)) throw invalid("本机助手未返回可核对的任务编号。");

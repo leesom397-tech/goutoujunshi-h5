@@ -9,6 +9,7 @@ new Function("exports", "require", js)(api, createRequire(import.meta.url));
 const { explicitEventDate, relationshipMaterial, distinctRelationshipEvents, relationshipTrendPoints } = api;
 assert.equal(explicitEventDate("2026年10月5日 18:30"), "2026-10-05");
 assert.equal(explicitEventDate("2024/2/29"), "2024-02-29");
+assert.equal(explicitEventDate("2026-01-01T10:00:00.000Z"), "2026-01-01");
 for (const text of ["2026-02-29", "昨天18:30", "10月5日", "18:30", "2026-13-01"]) assert.equal(explicitEventDate(text), "");
 const lines = Array.from({ length: 6 }, (_, i) => ({ speaker: i % 2 ? "other" : "self", text: `第${i}条聊天内容：我们讨论周末见面的一些具体安排`, timestampRaw: "2026-10-05" }));
 const full = relationshipMaterial(lines);

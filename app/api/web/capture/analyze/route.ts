@@ -11,7 +11,7 @@ import {capturePersonalEvidence,personalConnection} from "@/lib/personal-context
 import { parseQwenJson, qwenChat, qwenPublicError, type QwenContent } from "@/lib/qwen";
 import { saveAnalysisReport } from "@/lib/saved-reports.mjs";
 import { cleanMomentsReport, MOMENTS_PROMPT, MOMENTS_STATISTICS_PROMPT, MOMENTS_BEHAVIOR_PROMPT, MOMENTS_INTERACTION_PROMPT, MOMENTS_READING_GUIDANCE } from "@/lib/moments-report";
-import { relationshipRiskReview, RELATIONSHIP_RISK_GUIDANCE } from "@/lib/relationship-risk";
+import { relationshipRiskReview, fullHistoryRiskReview, RELATIONSHIP_RISK_GUIDANCE } from "@/lib/relationship-risk";
 import { selectKnowledge } from "@/lib/knowledge";
 import { publicKnowledgeSources } from "@/lib/knowledge-public";
 import { cleanSocialPhotoClues, SOCIAL_PHOTO_GUIDANCE } from "@/lib/social-photo-clues";
@@ -23,6 +23,8 @@ import { analyzeCaptureSemanticHistory, unavailableCaptureSemanticHistory } from
 import { CaptureFullHistoryError, checkFullCaptureHistory, readFullCaptureHistory } from "@/lib/capture-full-history-server";
 import { riskAwarePresentation } from "@/lib/risk-aware-presentation";
 import { updateSelfArchiveMemory } from "@/lib/self-archive-memory";
+import { projectRelationshipContext } from "@/lib/relationship-context";
+import { checkRelatedCaptureSnapshots, readRelatedCaptureEvidence, assertCaptureSnapshotsCurrent } from "@/lib/capture-related-history-server";
 
 export const runtime = "edge";
 const json = (data: unknown, status = 200) => Response.json(data, { status, headers: { "Cache-Control": "no-store" } });
@@ -66,6 +68,8 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
   const history = await readFullCaptureHistory(db, owner, input);
   if (!history.readable.length) throw new CaptureFullHistoryError("已读取全部聊天，但没有可用的文字或语音转写；请先补齐文字再生成完整报告。", 422);
   const chatActivity = computeChatActivity(history.records);
+  const riskReview = fullHistoryRiskReview(history.readable, input.libraryId || undefined);
+  const related = await readRelatedCaptureEvidence(db, owner, input, history, qwenChat);
   let selfMemoryStatus: string;
   try { selfMemoryStatus=await updateSelfArchiveMemory(owner,input.libraryId!,input.expectedEpoch!,history.readable,db); } catch { selfMemoryStatus="unavailable"; console.warn("self_archive_memory_update_unavailable"); }
   let personContext = "", selfContext = "";
@@ -84,28 +88,21 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
       fullHistory: true,
       personContext,
       selfContext,
+      supplementalRecords: related.supplementalRecords,
+      riskReview,
     }, qwenChat);
   } catch {
     semanticHistory = unavailableCaptureSemanticHistory(history.readable, history.records.length, 0);
   }
   const modelComplete = semanticHistory.status === "complete" && semanticHistory.coverage.analyzedText === history.readable.length;
   const relationshipDiagnosis = buildRelationshipDiagnosis(chatActivity, input.question, history.readable.map(row => ({ speaker: row.senderRole, text: row.text, sourceId: row.localId })));
-  if (input.photoPreviews.length) {
-    try {
-      const content: QwenContent = [{ type: "text", text: "这些是已导入聊天里的照片。只描述画面里看得见的场景、物件或图上的字。不要判断收入、性格、婚恋目标，不要把表情包当成生活事实。只返回 JSON {photos:[{sourceId,observation}]}。" }];
-      for (const row of input.photoPreviews.slice(0, 4)) {
-        const image = row.images[0];
-        content.push({ type: "text", text: `sourceId=${row.localId} 发送侧=${row.senderRole}` });
-        content.push({ type: "image_url", image_url: { url: `data:${image.mime};base64,${image.data}`, detail: "high" } });
-      }
-      const raw = await qwenChat([{ role: "user", content }], { vision: true, fast: true, json: true, maxTokens: 700, timeoutMs: 40_000 });
-      const parsed = parseQwenJson<{ photos?: Array<{ sourceId?: string; observation?: string }> }>(raw);
-      const allowed = new Set(input.photoPreviews.map(row => row.localId));
-      relationshipDiagnosis.personalConnection = relationshipDiagnosis.personalConnection || { commonPoints: [], fit: "", friction: [] };
-      const notes = (Array.isArray(parsed.photos) ? parsed.photos : []).filter(item => item && allowed.has(String(item.sourceId)) && typeof item.observation === "string" && item.observation.trim()).slice(0, 4).map(item => ({ sourceId: String(item.sourceId), observation: item.observation!.trim().slice(0, 80) }));
-      if (notes.length) Object.assign(relationshipDiagnosis, { photoNotes: notes });
-    } catch { /* Photos are extra. A vision miss must not discard the text report. */ }
+  for (const coverage of related.sourceCoverage) {
+    coverage.textRead = coverage.kind === "chat" ? semanticHistory.coverage.analyzedText : semanticHistory.coverage.sources?.[coverage.libraryId]?.captions || 0;
+    const expectedText = coverage.kind === "chat" ? history.readable.length : related.supplementalRecords.filter(row => row.libraryId === coverage.libraryId && row.basis === "caption").length;
+    if (coverage.textRead < expectedText) coverage.status = "partial";
   }
+  await assertCaptureSnapshotsCurrent(db, owner, related.snapshots);
+  await checkRelatedCaptureSnapshots(db, owner, input);
   Object.assign(relationshipDiagnosis, { semanticHistory });
   applySemanticDiagnosis(relationshipDiagnosis, semanticHistory);
   const anchorIds = new Set([...semanticHistory.summaryEvidenceIds, ...semanticHistory.actionEvidenceIds]);
@@ -113,19 +110,22 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
   const judgment = semanticHistory.summary && semanticHistory.summaryEvidenceIds.length
     ? semanticHistory.summary
     : relationshipDiagnosis.relationship.currentState || `已统计全部 ${history.records.length} 条聊天，并检查 ${history.readable.length} 条可读文字。`;
-  const sourceIds = [...new Set([...semanticHistory.findings.filter(item => anchorIds.has(item.id)).flatMap(item => item.evidence.map(e => e.sourceId)),
-    ...semanticHistory.findings.flatMap(item => item.evidence.map(e => e.sourceId)), history.readable[0].localId])].slice(0, 128);
+  const sourceIds = [...new Set([...semanticHistory.findings.filter(item => anchorIds.has(item.id)).flatMap(item => item.evidence.filter(e=>!e.libraryId||e.libraryId===input.libraryId).map(e => e.sourceId)),
+    ...riskReview.signals.flatMap(item => (item.sources || []).flatMap(source => [source.sourceId, ...(source.response ? [source.response.sourceId] : [])])),
+    ...semanticHistory.findings.flatMap(item => item.evidence.filter(e=>!e.libraryId||e.libraryId===input.libraryId).map(e => e.sourceId)), history.readable[0].localId])].slice(0, 128);
   const report: Record<string, any> = {
     id: input.requestId, reportId: input.requestId, kind: "chat", subjectId: input.subjectId,
     captureOrigin: true, captureFormat: "full-history", analysisScope: "fullHistory",
-    summary: judgment, lines: [], annotations: [], chatActivity, relationshipDiagnosis, semanticHistory,
+    summary: judgment, lines: [], annotations: [], chatActivity, relationshipDiagnosis, semanticHistory, riskReview,
+    sourceCoverage: related.sourceCoverage, mediaEvidence: related.mediaEvidence,
+    relatedSnapshots: related.snapshots.filter(snapshot => snapshot.kind === "moments"),
     profileEvidence: capturePersonalEvidence(history.readable, input.subjectId, input.requestId), selfMemoryStatus,
     archiveSnapshot: { libraryId: input.libraryId, epoch: input.expectedEpoch, revision: history.revision, total: history.records.length },
     decision: {
       judgment, evidence: anchor?.quote || "", nextStep: semanticHistory.action || relationshipDiagnosis.decision.recommendation,
       replyOptions: [],
     },
-    captureMediaNote: [modelComplete ? `已分段核对全部 ${history.readable.length} 条可读聊天，并结合当前人物已保存的资料。` : `已统计全部 ${history.records.length} 条消息；整体语义分析尚未完成。`, `未转写语音和未保存的线下经历不在语义依据内。`, chatActivity.unreadVoices
+    captureMediaNote: [modelComplete ? `已分段核对全部 ${history.readable.length} 条可读聊天，并结合本次确认的动态与图片线索。` : `已统计全部 ${history.records.length} 条消息；整体语义分析尚未完成。`, `图片仅覆盖已同步的预览或界面截图，不保证原图；缺失、模糊和失败数量见材料覆盖。未转写语音和未保存的线下经历不在语义依据内。`, chatActivity.unreadVoices
       ? `${chatActivity.unreadVoices} 条语音没有可读转写，其内容未纳入语义判断；完整统计仍包含这些消息。`
       : "", !modelComplete ? semanticHistory.coverage.limitation : ""].filter(Boolean).join(" ") || undefined,
   };
@@ -136,6 +136,7 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
     friction: Array.isArray(report.personalConnection?.differences) ? report.personalConnection.differences.slice(0, 3) : [],
   };
   report.relationshipReport = relationshipReportDocument(relationshipDiagnosis, semanticHistory);
+  report.relationshipContext=projectRelationshipContext({ownerId:owner,subjectId:input.subjectId||"current",reports:[{id:input.requestId,owner_id:owner,subject_id:input.subjectId||"current",kind:"chat",status:"done",result:report,created_at:Date.now()}],activity:chatActivity,activityStatus:"current",archiveMessages:history.records.length});
   return { report, sourceIds, totalCount: history.records.length };
 }
 
@@ -155,7 +156,7 @@ export async function POST(request: Request) {
   const db = getD1();
   if (input.subjectId && !await db.prepare("SELECT id FROM coach_subjects WHERE id=? AND owner_id=? AND status='active'").bind(input.subjectId, identity.ownerId).first()) return json({ error: "所选人物不存在，请重新选择。" }, 404);
   if (input.analysisScope === "fullHistory") {
-    try { await checkFullCaptureHistory(db, identity.ownerId, input); }
+    try { await checkFullCaptureHistory(db, identity.ownerId, input); await checkRelatedCaptureSnapshots(db, identity.ownerId, input); }
     catch (error) { return json({ error: error instanceof Error ? error.message : "完整聊天尚未同步完成。" }, error instanceof CaptureFullHistoryError ? error.status : 503); }
   }
   const replay = new Request(request.url, { method: "POST", headers: request.headers, body: raw });

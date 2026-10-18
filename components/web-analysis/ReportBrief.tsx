@@ -6,6 +6,7 @@ import { ArrowRight, ChartNoAxesCombined, Check, CircleHelp, Copy, Lightbulb, Me
 import type { Json } from "./client";
 import styles from "./ReportCard.module.css";
 import readerStyles from "./ReportReader.module.css";
+import { RelationshipSnapshot } from "@/components/RelationshipJourney";
 import {KeyEvidenceList} from "./ReportReadingTools";
 
 /** A usable reply in the first reading surface, without another navigation step. */
@@ -37,16 +38,16 @@ export function ChatReportBrief({ report, diagnosis }: { report: Json; diagnosis
   const action = presentation.nextStep || source.decision?.recommendation || "结合下一次真实回应，再更新判断。";
   return <section className={styles.relationshipBrief} aria-label="报告速读" data-report-brief data-risk-priority={presentation.mode}>
     <header><span><Sparkles size={18}/>{fullHistory ? "完整关系报告" : "这次聊天，先看结论"}</span>{typeof coverage.total === "number" && <small>{coverage.total} 条消息{coverage.startDate && coverage.endDate ? ` · ${coverage.startDate} — ${coverage.endDate}` : ""}</small>}</header>
-    <div className={styles.briefJudgment}>
+    <div className={styles.briefTopline}><div className={styles.briefJudgment}>
       <h2>{presentation.mode !== "normal" && presentation.title ? presentation.title : "当前判断"}</h2>
       <p>{judgment}</p>
-    </div>
+    </div><RelationshipSnapshot activity={report.chatActivity || report.relationshipContext?.activity}/></div>
     <div className={styles.briefEvidence}><h3><Quote size={17}/>关键依据</h3><KeyEvidenceList report={report} priorityEvidence={presentation.mode !== "normal" ? presentation.evidence : undefined}/></div>
     <div className={styles.briefDirection}>
       <article><h3><ChartNoAxesCombined size={17}/>关系趋势</h3><p>{trend || "材料不足，暂不判断变化。"}</p>{!semantic || semantic.status !== "complete" ? <small>已完成的统计可在「看见变化」查看；文字解读是否完成见分析范围。</small> : null}</article>
       <article><h3><ArrowRight size={17}/>下一步</h3><p>{action}</p></article>
     </div>
-    {semantic?.coverage && <p className={styles.briefCoverage}>已解读 {semantic.coverage.analyzedText} / {semantic.coverage.receivedText} 条可读文字{typeof coverage.voiceCount === "number" && coverage.voiceCount > 0 ? ` · 语音转写 ${coverage.voiceTranscribed || 0} / ${coverage.voiceCount} 条` : ""}{semantic.status !== "complete" ? " · 文字分析尚未全部完成" : ""}</p>}
+    {!report.sourceCoverage?.length && semantic?.coverage && <p className={styles.briefCoverage}>已解读 {semantic.coverage.analyzedText} / {semantic.coverage.receivedText} 条可读文字{typeof coverage.voiceCount === "number" && coverage.voiceCount > 0 ? ` · 语音转写 ${coverage.voiceTranscribed || 0} / ${coverage.voiceCount} 条` : ""}{semantic.status !== "complete" ? " · 文字分析尚未全部完成" : ""}</p>}
   </section>;
 }
 

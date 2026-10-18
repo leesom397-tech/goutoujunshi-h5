@@ -1,8 +1,8 @@
 import type { ChatActivitySummary } from "./chat-activity";
-import type { SemanticHistoryReport } from "./capture-semantic-history";
+import type { SemanticHistoryReport, SemanticHistoryEvidence } from "./capture-semantic-history";
 
-export type RelationshipQuestion = "panorama" | "attitude" | "trend" | "worth" | "next";
-export type RelationshipEvidence = { id: string; claim: string; value?: string; metric?: string; source: "activity" | "conversation" | "profile"; sample?: number; sourceIds?: string[]; quotes?: Array<{sourceId: string; at: string; quote: string; senderRole: string}> };
+export type RelationshipQuestion = "panorama" | "attitude" | "trend" | "worth" | "next" | "risk";
+export type RelationshipEvidence = { id: string; claim: string; value?: string; metric?: string; source: "activity" | "conversation" | "profile" | "media" | "moments"; sample?: number; sourceIds?: string[]; quotes?: SemanticHistoryEvidence[] };
 export type RelationshipHypothesis = {
   id: string;
   claim: string;
@@ -42,10 +42,11 @@ const questionLabels: Record<RelationshipQuestion, string> = {
   trend: "这段关系是在升温还是降温",
   worth: "这段关系值得继续投入吗",
   next: "我下一步应该怎么做",
+  risk: "有哪些风险需要核实，值不值得继续",
 };
 
 function question(value: unknown): RelationshipQuestion {
-  return value === "attitude" || value === "trend" || value === "worth" || value === "next" ? value : "panorama";
+  return value === "attitude" || value === "trend" || value === "worth" || value === "next" || value === "risk" ? value : "panorama";
 }
 
 function percent(value: number | null) { return value === null ? "待了解" : `${value}%`; }
@@ -163,7 +164,7 @@ export function buildRelationshipDiagnosis(summary: ChatActivitySummary, request
 /** Merge only source-checked semantic findings; never turn missing data into rejection. */
 export function applySemanticDiagnosis(diagnosis: RelationshipDiagnosis, semantic: SemanticHistoryReport): RelationshipDiagnosis {
   if (!semantic.summary || !semantic.summaryEvidenceIds.length) return diagnosis;
-  const evidence = semantic.findings.map(item => ({ id: item.id, claim: item.claim, source: "conversation" as const,
+  const evidence = semantic.findings.map(item => ({ id: item.id, claim: item.claim, source: (item.evidence.every(source=>source.basis==="visual") ? "media" : item.evidence.every(source=>source.sourceKind==="moments") ? "moments" : "conversation") as RelationshipEvidence["source"],
     sourceIds: item.evidence.map(source => source.sourceId), quotes: item.evidence, sample: item.evidence.length,
     metric: [...new Set(item.evidence.map(source => source.at).filter(Boolean))].join(" · ") }));
   diagnosis.facts.push(...evidence);

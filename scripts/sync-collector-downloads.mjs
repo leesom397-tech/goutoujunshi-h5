@@ -8,13 +8,30 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const RELEASE_ROOT = 'https://github.com/leesom397-tech/goutoujunshi-h5/releases/download/';
+const LEGACY_RELEASES = new Map([['1.2.4', 'collector-1.2.5'], ['1.2.5', 'collector-1.2.5']]);
+
+function compareVersions(left, right) {
+  const a = left.split('.').map(Number), b = right.split('.').map(Number);
+  return a[0] - b[0] || a[1] - b[1] || a[2] - b[2];
+}
+
+function assetUrlAllowed(file, index) {
+  const version = /^(?:ChengziWeChatCollector-Setup-|chengzi-wechat-collector-(?:windows-)?|manifest-)(\d+\.\d+\.\d+)[.-]/.exec(file.name)?.[1];
+  if (version && compareVersions(version, index.version) > 0) return false;
+  if (file.url === `${RELEASE_ROOT}${index.tag}/${file.name}`) return true;
+  // Only the explicitly versioned, immutable 1.2.4/1.2.5 files may reuse the
+  // previously published release. Generic aliases and new files stay pinned
+  // to the current tag, preventing an old installer from silently returning.
+  const legacyTag = version && compareVersions(version, index.version) < 0 && LEGACY_RELEASES.get(version);
+  return Boolean(legacyTag && file.url === `${RELEASE_ROOT}${legacyTag}/${file.name}`);
+}
 
 export function validateReleaseIndex(value) {
   if (!value || value.schema !== 1 || !/^\d+\.\d+\.\d+$/.test(value.version || '')
     || value.tag !== `collector-${value.version}` || !Array.isArray(value.files) || !value.files.length || value.files.length > 100) {
     throw Error('Invalid collector release index.');
   }
-  if (value.previousVersion !== undefined && (!/^\d+\.\d+\.\d+$/.test(value.previousVersion) || value.previousVersion === value.version)) {
+  if (value.previousVersion !== undefined && (!/^\d+\.\d+\.\d+$/.test(value.previousVersion) || compareVersions(value.previousVersion, value.version) >= 0)) {
     throw Error('Invalid previous collector release version.');
   }
   const names = new Set();
@@ -22,7 +39,7 @@ export function validateReleaseIndex(value) {
     if (!file || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,180}$/.test(file.name || '') || names.has(file.name)
       || !Number.isSafeInteger(file.bytes) || file.bytes <= 0 || file.bytes > 25 * 1024 * 1024
       || !/^[a-f0-9]{64}$/.test(file.sha256 || '')
-      || file.url !== `${RELEASE_ROOT}${value.tag}/${file.name}`) throw Error('Invalid collector release asset.');
+      || !assetUrlAllowed(file, value)) throw Error('Invalid collector release asset.');
     names.add(file.name);
   }
   for (const name of [`ChengziWeChatCollector-Setup-${value.version}.exe`, `manifest-${value.version}.json`, 'manifest.json']) {

@@ -40,7 +40,7 @@ const route = load('app/api/web/text/route.ts', {
   '@/db': { getD1: () => db }, '@/lib/miniapp-auth': { miniappOwner: async () => authenticated ? { ownerId: owner } : null },
   '@/lib/account-credits.mjs': credits, '@/lib/credit-response.mjs': { creditResponse },
   '@/lib/knowledge': { selectKnowledge: () => [] }, '@/lib/profile-context': { loadProfileContext: async () => profileText, loadFullHistoryQuestionContext: async () => ({status: 'missing'}) },
-  '@/lib/qwen': { parseQwenJson: JSON.parse, qwenPublicError: (_error, fallback) => fallback, qwenChat: async (messages, options) => { modelCalls++; sent = { messages, options }; if (fail) throw Error('SYNTHETIC_FAILURE'); return JSON.stringify(output); } },
+  '@/lib/qwen': { parseQwenJson: JSON.parse, qwenPublicError: (_error, fallback) => fallback, qwenChat: async (messages, options) => { modelCalls++; sent = { messages, options }; if (fail) throw Error('SYNTHETIC_FAILURE'); return JSON.stringify(typeof output === 'function' ? output() : output); } },
 });
 const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jF4cAAAAASUVORK5CYII=';
 const payload = (extra = {}) => ({ requestId: crypto.randomUUID(), confirmed: true, mode: 'conversation', self: '这句是什么意思？', images: [png], selfSide: 'right', ...extra });
@@ -141,5 +141,25 @@ await test('full-history question gets a fuller grounded answer while a simple r
   assert.equal(sent.options.maxTokens, 1200);
   assert.doesNotMatch(sent.messages[0].content, /约 350–650 汉字/);
   profileText = '';
+});
+await test('complex question keeps explanation paragraphs without a 220/300 character instruction', async () => {
+  const explanation = Array.from({ length: 10 }, (_, index) => `第${index + 1}个合成观察需要结合当时的具体安排理解，对方文字回应少和愿意见面是不同渠道里的表现，需要看后续是否主动确认并实际落实，不能单凭其中一项判断关系态度。`).join('\n\n');
+  assert.ok(explanation.length > 600 && explanation.length < 1100);
+  output = { possibleIntent: explanation, evidence: '', nextStep: '把下一次约见的日期确认好，再看对方是否一起落实。', replies: [] };
+  const response = await route.POST(request(payload({ images: undefined, selfSide: undefined, self: '为什么她微信回复少，但又主动约见面？把原因讲清楚，不要每次这么简短。' })));
+  assert.equal(response.status, 200); assert.equal((await response.json()).possibleIntent, explanation);
+  assert.equal(sent.options.maxTokens, 2200);
+  assert.doesNotMatch(sent.messages[0].content, /最多220字|最多300字|固定开场：/);
+  assert.match(sent.messages[0].content, /知识库用于解释已经出现的互动/);
+});
+await test('repair keeps the requested explanation depth and valid complete draft JSON', async () => {
+  let attempt = 0;
+  const repairedAnswer = '先区分联系习惯和实际投入。\n\n主动落实安排是积极行为，但单凭这件事还不能确定关系意愿；文字回应少的原因仍需结合她此前的习惯来看。';
+  output = () => ++attempt === 1 ? { possibleIntent: '', nextStep: '' } : { possibleIntent: repairedAnswer, nextStep: '下次确认安排时，也自然说清你希望保持怎样的联系。' };
+  const response = await route.POST(request(payload({ images: undefined, selfSide: undefined, self: '为什么线上线下感觉不同，详细分析一下。' })));
+  assert.equal(response.status, 200); assert.equal((await response.json()).possibleIntent, repairedAnswer);
+  assert.equal(attempt, 2); assert.equal(sent.options.maxTokens, 2200);
+  assert.doesNotThrow(() => JSON.parse(sent.messages.at(-1).content));
+  assert.doesNotMatch(sent.messages[0].content, /possibleIntent 用一两句话回答/);
 });
 sql.close(); console.log(`PASS ${groups} quick-question integration groups; no external calls or real user data.`);

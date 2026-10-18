@@ -10,7 +10,7 @@ const normalized = (value: string) => value.replace(/[\s\p{P}\p{S}]/gu, "");
 const uniqueText = (value: unknown): string[] => Array.isArray(value) ? [...new Set(value.map(text).filter(Boolean))] : [];
 
 /** Supporting reading only. The report overview owns the judgment and next step. */
-export function RelationshipDiagnosisPanel({ diagnosis, semanticHistory: standalone, folded = false }: { diagnosis?: Json | null; semanticHistory?: Json | null; folded?: boolean }) {
+export function RelationshipDiagnosisPanel({ diagnosis, semanticHistory: standalone, folded = false, hideCoverage = false }: { diagnosis?: Json | null; semanticHistory?: Json | null; folded?: boolean; hideCoverage?: boolean }) {
   const semantic = standalone || diagnosis?.semanticHistory;
   if (!diagnosis && !semantic) return null;
   const coverage = diagnosis?.coverage || {}, semanticCoverage = semantic?.coverage;
@@ -29,7 +29,7 @@ export function RelationshipDiagnosisPanel({ diagnosis, semanticHistory: standal
     {findings.length > 0 && <section className={styles.readingBlock}><h3><Quote size={18}/>支持与相反线索</h3><div className={styles.findings}>
       {findings.map((finding, index) => <article key={finding.id || index}>
         <header><strong>{finding.claim}</strong><small>{counterIds.has(finding.id) ? "相反证据" : "材料线索"}{finding.confidence ? ` · 把握度 ${finding.confidence}` : ""}</small></header>
-        {rows(finding.evidence).map((item, evidenceIndex) => <div className={styles.findingEvidence} key={`${item.sourceId}-${evidenceIndex}`}><blockquote>{item.quote}</blockquote><small>{reportPersonLabel(item.senderRole)}{item.at ? ` · ${item.at}` : ""}</small><CaptureEvidence quote={item.quote} sourceIds={item.sourceId ? [item.sourceId] : undefined}/></div>)}
+        {rows(finding.evidence).map((item, evidenceIndex) => <div className={styles.findingEvidence} key={`${item.sourceId}-${evidenceIndex}`}><blockquote>{item.quote}</blockquote><small>{item.basis==="visual"?"图片可见内容":reportPersonLabel(item.senderRole)}{item.at ? ` · ${item.at}` : ""}</small><CaptureEvidence quote={item.quote} sourceIds={item.sourceId ? [item.sourceId] : undefined} libraryId={item.libraryId} sourceKind={item.sourceKind} label={item.basis==="visual"?"查看图片来源":undefined}/></div>)}
         {finding.alternative && <p className={styles.alternative}><strong>也可能：</strong>{finding.alternative}</p>}
       </article>)}
     </div></section>}
@@ -37,7 +37,7 @@ export function RelationshipDiagnosisPanel({ diagnosis, semanticHistory: standal
     {alternatives.length > 0 && <section className={styles.readingBlock}><h3><CircleHelp size={18}/>还存在这些解释</h3><ul>{alternatives.map(value => <li key={value}>{value}</li>)}</ul></section>}
     {facts.length > 0 && <section className={styles.readingBlock}><h3><CheckCircle2 size={18}/>可核对的行为事实</h3><div className={styles.factList}>{facts.map((fact, index) => <article key={fact.id || index}><strong>{fact.claim}</strong>{fact.metric && <small>{fact.metric}</small>}</article>)}</div></section>}
     {unknowns.length > 0 && <section className={styles.readingBlock}><h3><CircleHelp size={18}/>目前还不知道什么</h3><ul>{unknowns.map(value => <li key={value}>{value}</li>)}</ul></section>}
-    <section className={styles.readingBlock}><h3><History size={18}/>这份报告看了哪些材料</h3>
+    {!hideCoverage && <section className={styles.readingBlock}><h3><History size={18}/>这份报告看了哪些材料</h3>
       <dl className={styles.readingCoverage}>
         <div><dt>已统计消息</dt><dd>{coverage.total ?? semanticCoverage?.totalImported ?? "待确认"}</dd></div>
         <div><dt>已解读文字</dt><dd>{semanticCoverage ? `${semanticCoverage.analyzedText} / ${semanticCoverage.receivedText} 条` : "本次上传的可读文字"}</dd></div>
@@ -45,6 +45,6 @@ export function RelationshipDiagnosisPanel({ diagnosis, semanticHistory: standal
       </dl>
       {coverage.startDate && <p>{coverage.startDate} — {coverage.endDate || "结束日期待确认"}</p>}
       {semanticCoverage?.limitation && <p className={styles.alternative}>{semanticCoverage.limitation}</p>}
-    </section>
+    </section>}
   </section>;
 }

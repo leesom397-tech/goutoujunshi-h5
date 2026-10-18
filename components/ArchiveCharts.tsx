@@ -38,6 +38,7 @@ export function ArchiveRadar({ rows, labels = [], mode = "score" }: { rows: Rada
   const displayValue = (item: typeof items[number]) => item.value === null ? "待了解" : mode === "evidence" ? `${evidenceCount(item)} 句` : `${item.value} / 100`;
   const active = items[Math.min(selectedIndex, 5)];
   const xy = (index: number, radius: number) => [180 + Math.cos(-Math.PI / 2 + index * Math.PI / 3) * radius, 145 + Math.sin(-Math.PI / 2 + index * Math.PI / 3) * radius];
+  if (!knownCount || mode === "evidence" && !items.some(item => (evidenceCount(item) || 0) > 0)) return <p className="cz-chart-note">这组材料还不足以绘制分项图，已有依据仍保留在报告中。</p>;
   return <div className="cz-chart-tool cz-radar-tool">
     <div className="cz-chart-toolbar"><span className="cz-chart-coverage"><ChartNoAxesCombined size={15}/>{mode === "evidence" ? "已展示" : "已知"} {knownCount} / 6 项</span><span><MousePointer2 size={13}/>点选维度查看</span></div>
     {knownCount ? <svg className="cz-data-chart cz-radar-chart" viewBox="0 0 360 295" role="group" aria-label={mode === "evidence" ? "六类可见线索次数图，可点选查看本段匹配次数" : "六维参考图，选择圆点或下方维度查看数值与依据"}>
@@ -83,7 +84,7 @@ export function ArchiveTrend({ points }: { points: ArchiveState["trends"][number
   const connected = (index: number) => index > 0 && known(dated[index].score) && known(dated[index - 1].score) && dated[index].connectPrevious && dated[index].previousReportId === dated[index - 1].reportId;
   const comparable = active && connected(selectedIndex);
   const delta = comparable ? active.score! - dated[selectedIndex - 1].score! : null;
-  if (!dated.some(point => known(point.score))) return <div className="cz-chart-tool cz-chart-empty"><ChartNoAxesCombined size={24}/><strong>先记录，再看关系怎么变化。</strong><p>还没有日期与分数都明确的记录，已有材料保留在下方。</p></div>;
+  if (!dated.some(point => known(point.score))) return <p className="cz-chart-note">还没有可比较的日期记录，先核对已保存的经历与原话。</p>;
   return <div className="cz-chart-tool cz-trend-tool">
     <div className="cz-chart-toolbar"><span className="cz-chart-coverage"><ChartNoAxesCombined size={15}/>最近 {dated.length} 个有日期的节点</span><span><MousePointer2 size={13}/>点选记录回看</span></div>
     <svg className="cz-data-chart cz-trend-chart" viewBox="0 0 395 245" role="group" aria-label="最近八个有日期节点的互动分数，未知分数留空，只有可比的材料连接趋势">

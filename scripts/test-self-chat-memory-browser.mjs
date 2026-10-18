@@ -28,7 +28,12 @@ try{
   });
   await page.goto(origin+path,{waitUntil:'networkidle0'});await page.waitForSelector('[data-self-chat-memory] details');
   assert.match(await page.$eval('[data-self-chat-memory]',e=>e.innerText),/2026\/10\/18/,'numeric timestamp rendered');
-  await page.$eval('[data-self-chat-memory] summary',e=>e.click());
+  await page.$$eval('[aria-label="本人聊天资料"] button',buttons=>buttons.find(e=>e.textContent==='我的表达历程').click());
+  assert.equal(await page.$eval('[data-self-expression-history] blockquote',e=>e.textContent),quote,'self timeline uses original statement only');
+  assert.ok(await page.$eval('[data-self-expression-history]',e=>e.innerText.includes('2026/10/15')),'statement date is not update date');
+  await page.$eval('[data-self-expression-history] article button',e=>e.click());
+  await page.waitForSelector('[data-self-memory-item] textarea');
+  await page.$$eval('[data-self-memory-item] button',buttons=>buttons.find(e=>e.textContent==='取消').click());
   assert.equal(await page.$eval('[data-self-memory-item] blockquote',e=>e.textContent),quote);
   await page.$$eval('[data-self-memory-item] button',buttons=>buttons.find(e=>e.textContent==='纠正').click());
   assert.equal(await page.$eval('[data-self-memory-item] textarea',e=>e.maxLength),180,'correction length matches server limit');

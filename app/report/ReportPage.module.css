@@ -23,3 +23,7 @@
 .materialReport :global(.risk-results) h3{font-size:21px}
 .materialReport :global(.risk-alert){background:#fffaf3;border-color:#ecd9c8}
 @media(max-width:600px){.materialReport :global(.risk-results){padding:18px}.materialReport :global(.risk-results) p{font-size:16px}}
+
+.reportHeader{background:linear-gradient(90deg,#fffaf5 0%,#fffaf5f2 57%,#fffaf585 100%),url('/images/aurora-fluted-light-v5.webp') right 48%/cover;padding:18px 24px}.reportHeader>div{max-width:70%}.reportHeader h1{font-size:26px}.reportHeader nav a{background:#fffaf5dc}@media(max-width:700px){.reportHeader{padding:15px 17px;background-position:60% center}.reportHeader>div{max-width:100%}.reportHeader h1{font-size:23px}.reportHeader .eyebrow{font-size:11px}.reportHeader p{font-size:12px}}
+
+.reportHeader,.footer,.materialReport{font-family:"Noto Sans SC","Microsoft YaHei",Arial,sans-serif}

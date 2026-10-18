@@ -15,7 +15,7 @@ export default function ReportPage() {
   const [saved, setSaved] = useState<Json | null>(null), [reportOwner, setReportOwner] = useState<string | null>(null), [error, setError] = useState(""), [loading, setLoading] = useState(true), [deleting, setDeleting] = useState(false), generation = useRef(0);
   const current = owner && owner === reportOwner ? saved : null;
   const kind = current?.kind === "moments" ? "moments" : current?.kind === "social" ? "social" : "chat";
-  const title = current?.report.riskAnalysis ? "关系提醒报告" : current?.report.importAnalysis ? "导入聊天分析报告" : kind === "moments" ? "朋友圈分析报告" : kind === "social" ? "社交主页分析报告" : "聊天分析报告";
+  const title = current?.report.riskAnalysis ? "关系提醒报告" : current?.report.importAnalysis ? "导入聊天分析报告" : kind === "moments" ? "朋友圈分析报告" : kind === "social" ? "社交主页分析报告" : current?.report.analysisScope === "fullHistory" ? "完整关系报告" : "聊天分析报告";
   const returnTo = current ? intakeReturnTo('/report?id=' + (current.report.reportId || current.report.id)) : '';
   const continueHref = current?.report.riskAnalysis ? "/risk" : current?.report.importAnalysis ? "/import" : intakeHref('/analyze',{mode:kind,subjectId:current?.subjectId || current?.report.subjectId || '',targetSelf:!!current?.targetSelf,returnTo});
   async function load() {

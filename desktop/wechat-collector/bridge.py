@@ -97,7 +97,7 @@ class CollectorState:
             except (ImportError, OSError, RuntimeError):
                 pass
         capabilities = {**health.get("capabilities", {}), "deferredVoice": True,
-                        "momentsAllVisible": True, "momentsContacts": True}
+                        "momentsAllVisible": True, "momentsContacts": True, "personBundle": True}
         if background:
             capabilities.update(backgroundChat=bool(background.get("ready")),
                                 backgroundVoice=bool(background.get("voiceReady")),

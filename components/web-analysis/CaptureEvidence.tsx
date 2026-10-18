@@ -6,9 +6,10 @@ import { type StoredCaptureRecord } from "@/lib/desktop-capture-vault";
 import { readSyncedReportSources as readReportSources } from "@/lib/capture-cloud-client";
 import { reportPersonLabel, reportSenderLabel } from "@/components/report-person-label";
 import styles from "./CaptureEvidence.module.css";
+import { readReportLibrarySources } from "./ReportSourceLibrary";
 
 type SourceLink = NonNullable<Awaited<ReturnType<typeof readReportSources>>>;
-type Selection = { quote?: string; sourceIds?: string[]; label?: string };
+type Selection = { quote?: string; sourceIds?: string[]; label?: string; libraryId?: string; sourceKind?: string };
 type EvidenceContext = { ownerId?: string; reportId?: string; visible: boolean; open: (selection: Selection, trigger: HTMLElement) => void };
 type ProviderProps = { ownerId?: string; reportId?: string; captureOrigin?: boolean; fullHistory?: boolean; historyCount?: number; children: ReactNode };
 const Context = createContext<EvidenceContext | null>(null);
@@ -53,10 +54,15 @@ export function CaptureEvidenceProvider(props: ProviderProps) {
 function CaptureEvidenceScope({ ownerId, reportId, captureOrigin = false, fullHistory = false, historyCount, children }: ProviderProps) {
   const [loaded, setLoaded] = useState<{ owner: string; report: string; link: SourceLink | null; error: string } | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null), [search, setSearch] = useState(""), [limit, setLimit] = useState(24);
+  const [librarySources,setLibrarySources]=useState<{key:string;link:SourceLink|null;error:string}|null>(null);
   const dialog = useRef<HTMLDialogElement>(null), trigger = useRef<HTMLElement | null>(null);
   const restore = useRef<{ x: number; y: number; overflow: string } | null>(null), headingId = useId();
   const current = loaded && loaded.owner === ownerId && loaded.report === reportId ? loaded : null;
-  const link = current?.link || null, visible = !!ownerId && !!reportId && (captureOrigin || !!link);
+  const baseLink=current?.link||null,libraryKey=selection?.libraryId?JSON.stringify([ownerId,reportId,selection.libraryId,selection.sourceIds||[]]):"";
+  const libraryCurrent=librarySources?.key===libraryKey?librarySources:null;
+  const link = libraryKey ? libraryCurrent?.link||null : baseLink, visible = !!ownerId && !!reportId && (captureOrigin || !!baseLink);
+  const sourceReady=libraryKey?!!libraryCurrent:!!current;
+  const sourceError=libraryKey?libraryCurrent?.error:current?.error;
 
   function restorePosition() {
     if (restore.current) {
@@ -76,6 +82,12 @@ function CaptureEvidenceScope({ ownerId, reportId, captureOrigin = false, fullHi
     return () => { active = false; };
   }, [ownerId, reportId]);
   useEffect(() => () => { if (restore.current) document.documentElement.style.overflow = restore.current.overflow; }, []);
+  useEffect(()=>{
+    if(!libraryKey||!ownerId||!selection?.libraryId){setLibrarySources(null);return;}
+    let active=true;const controller=new AbortController();
+    void readReportLibrarySources(ownerId,selection.libraryId,selection.sourceIds||[],controller.signal).then(value=>{if(active)setLibrarySources({key:libraryKey,link:value,error:""});}).catch(cause=>{if(active)setLibrarySources({key:libraryKey,link:null,error:cause instanceof Error?cause.message:"原始材料暂时无法读取。"});});
+    return()=>{active=false;controller.abort();};
+  },[libraryKey]);
 
   function open(next: Selection, target: HTMLElement) {
     if (!visible) return;
@@ -88,16 +100,16 @@ function CaptureEvidenceScope({ ownerId, reportId, captureOrigin = false, fullHi
   const scoped = matches.length ? matches : link?.records || [];
   const query = normalized(search);
   const shown = query ? scoped.filter(record => normalized(`${record.sender} ${record.at} ${record.text}`).includes(query)) : scoped;
-  const isMoments = link?.kind === "moments";
+  const isMoments = link?.kind === "moments" || selection?.sourceKind === "moments";
   const totalLabel = typeof historyCount === "number" && Number.isFinite(historyCount) && historyCount > 0 ? `全部已导入 ${historyCount} 条记录` : "完整聊天报告";
   const close = () => dialog.current?.close();
 
   return <Context.Provider value={{ ownerId, reportId, visible, open }}>
-    {visible && <div className={styles.sourceBar} data-capture-sources><FileSearch size={20}/><span>{fullHistory ? `${totalLabel}${link ? ` · 报告附 ${link.records.length} 条原话依据` : ""}` : link ? `本次采集 · ${link.records.length} 条原记录` : "本报告来自微信采集"}</span><button type="button" onClick={event => open({ label: fullHistory ? "这份报告附带的原话依据" : "本次分析的原始记录" }, event.currentTarget)}>{fullHistory ? "查看原话依据" : "查看原始记录"}<ArrowUpRight size={16}/></button></div>}
+    {visible && <div className={styles.sourceBar} data-capture-sources><FileSearch size={20}/><span>{fullHistory ? `${totalLabel}${baseLink ? ` · 报告附 ${baseLink.records.length} 条原话依据` : ""}` : baseLink ? `本次采集 · ${baseLink.records.length} 条原记录` : "本报告来自微信采集"}</span><button type="button" onClick={event => open({ label: fullHistory ? "这份报告附带的原话依据" : "本次分析的原始记录" }, event.currentTarget)}>{fullHistory ? "查看原话依据" : "查看原始记录"}<ArrowUpRight size={16}/></button></div>}
     {children}
     <dialog ref={dialog} className={styles.drawer} aria-labelledby={headingId} data-capture-evidence-dialog onClose={() => { restorePosition(); setSelection(null); }} onClick={event => { if (event.target === event.currentTarget) { const rect = event.currentTarget.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right) close(); } }}>
       <header className={styles.header}><div><span>回看分析依据</span><h2 id={headingId}>{isMoments ? "原始朋友圈动态" : "原始聊天记录"}</h2></div><button type="button" aria-label="关闭原始记录" onClick={close}><X size={22}/></button></header>
-      {!current ? <p className={styles.empty}>正在读取原始记录…</p> : !link || !link.records.length ? <div className={styles.empty}><FileSearch size={30}/><h3>这份报告的原始来源尚未同步</h3><p>{current.error || "请在采集电脑打开「已导入聊天」，对这份材料启用跨端同步。已删除且未同步的原文无法从报告还原。"}</p><button type="button" onClick={close}>返回报告</button></div> : <>
+      {!sourceReady ? <p className={styles.empty}>正在读取原始记录…</p> : !link || !link.records.length ? <div className={styles.empty}><FileSearch size={30}/><h3>{libraryKey?"这条依据暂时无法打开":"这份报告的原始来源尚未同步"}</h3><p>{sourceError || (libraryKey?"这条原记录已删除或尚未同步。请回到采集电脑核对材料。":"请在采集电脑打开「已导入聊天」，对这份材料启用跨端同步。已删除且未同步的原文无法从报告还原。")}</p><button type="button" onClick={close}>返回报告</button></div> : <>
         <div className={styles.context}><strong>{selection?.label || "这条判断引用的材料"}</strong>{selection?.quote && <blockquote>{selection.quote}</blockquote>}<p>{matches.length ? `找到 ${matches.length} 条对应原记录${matches.length > 1 ? "，请结合时间与说话人核对" : ""}。` : selection?.quote || selection?.sourceIds?.length ? "未能精确定位这段引用，以下为本次分析关联的原记录。" : fullHistory ? `这里展示报告附带的 ${link.records.length} 条原话依据；完整聊天的分析范围见报告。` : `共 ${link.records.length} 条，按本次分析的材料顺序呈现。`}</p></div>
         <label className={styles.search}><Search size={18}/><input aria-label="在本次原记录中查找" placeholder="查找文字、说话人或时间" value={search} onChange={event => { setSearch(event.target.value); setLimit(24); }}/></label>
         {link.records.length < link.sourceIds.length && <p className={styles.localNote}>这台设备缺少部分关联原文，以下仅显示仍保存的 {link.records.length} 条。</p>}
@@ -126,8 +138,8 @@ function CaptureRecord({ record, ordinal, isMoments }: { record: StoredCaptureRe
 }
 
 /** Place immediately beside an evidence quote. Ordinary reports render no new action. */
-export function CaptureEvidence({ quote, sourceIds, label = "回看原记录" }: { quote?: unknown; sourceIds?: string[]; label?: string }) {
+export function CaptureEvidence({ quote, sourceIds, libraryId, sourceKind, label = "回看原记录" }: { quote?: unknown; sourceIds?: string[]; libraryId?: string; sourceKind?: string; label?: string }) {
   const context = useContext(Context);
   if (!context?.visible) return null;
-  return <button className={styles.evidenceLink} type="button" data-capture-evidence onClick={event => context.open({ quote: plain(quote), sourceIds, label }, event.currentTarget)}><MessageCircle size={16}/>{label}<ArrowUpRight size={14}/></button>;
+  return <button className={styles.evidenceLink} type="button" data-capture-evidence onClick={event => context.open({ quote: plain(quote), sourceIds, label, libraryId, sourceKind }, event.currentTarget)}><MessageCircle size={16}/>{label}<ArrowUpRight size={14}/></button>;
 }

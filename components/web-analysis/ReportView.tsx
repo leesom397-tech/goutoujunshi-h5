@@ -1,4 +1,5 @@
 "use client";
+import { ReportCoverage } from "./ReportCoverage";
 import { useEffect, useRef, useState } from "react";
 import { Sparkles, MessageCircle, ChartNoAxesCombined, Quote, HeartHandshake, Copy, Smile, CircleHelp, Heart, HandHeart, Meh, Frown, Angry, Eye, CircleCheck, Send, ArrowLeft, ArrowRight, Lightbulb, Image, Sticker } from "lucide-react";
 import { api, ErrorNotice, followup, message, priceLabel, hasPrice, type Json } from "./client";
@@ -15,6 +16,8 @@ import { ReportFollowUp } from "./ReportFollowUp";
 import { RelationshipEvidenceCards } from "./RelationshipEvidenceCards";
 import { RiskReview } from "./RiskReview";
 import { riskAwarePresentation, riskReplyAllowed } from "@/lib/risk-aware-presentation";
+import { RelationshipJourney } from "@/components/RelationshipJourney";
+import { projectRelationshipContext } from "@/lib/relationship-context";
 import { CaptureEvidence, CaptureEvidenceProvider } from "./CaptureEvidence";
 import { PersonalConnection } from "./PersonalConnection";
 import { ChatActivity } from "@/components/ChatActivity";
@@ -99,12 +102,8 @@ const chatSections:ReadingSection[]=[
 ];
 const reportRows=(value:unknown):Json[]=>Array.isArray(value)?value.filter(item=>item&&typeof item==='object'):[];
 function RelationshipChanges({diagnosis,semantic}:{diagnosis:Json|null;semantic?:Json}){
- const timeline=reportRows(semantic?.timeline),findings=reportRows(semantic?.findings),claims=reportRows(diagnosis?.claimActions);
+ const claims=reportRows(diagnosis?.claimActions);
  return <>
-  {timeline.length>0&&<section className={reportStyles.reportSection}><h2><ChartNoAxesCombined size={21}/>关系的关键变化</h2><ol className={reportStyles.relationshipTimeline}>{timeline.map((point,index)=>{
-   const ids=new Set(Array.isArray(point.evidenceIds)?point.evidenceIds:[]),sources=findings.filter(finding=>ids.has(finding.id)).flatMap(finding=>reportRows(finding.evidence));
-   return <li key={`${point.at}-${index}`}><time>{point.at||'时间待核对'}</time><div><p>{point.note}</p>{sources.slice(0,1).map((source,n)=><CaptureEvidence key={n} quote={source.quote} sourceIds={source.sourceId?[source.sourceId]:undefined} label="回看变化依据"/>)}</div></li>;
-  })}</ol></section>}
   {claims.length>0&&<section className={reportStyles.reportSection}><h2><Quote size={21}/>说法与行动</h2><div className={reportStyles.claimActions}>{claims.map((item,index)=><article key={item.id||index}><header><h3>{item.claim}</h3><small>{item.status}</small></header><p>{item.action}</p>{item.claimEvidence&&<blockquote>{item.claimEvidence}<CaptureEvidence quote={item.claimEvidence} label="回看说法"/></blockquote>}{item.actionEvidence&&<blockquote>{item.actionEvidence}<CaptureEvidence quote={item.actionEvidence} label="回看后续行动"/></blockquote>}{item.note&&<small>{item.note}</small>}</article>)}</div></section>}
  </>;
 }
@@ -117,6 +116,7 @@ export function ChatReport({report,account,styleReportIds,preview=false,publicEx
  const semantic=report.semanticHistory||diagnosis?.semanticHistory;
  const fullHistory=report.analysisScope==='fullHistory'||report.captureFormat==='full-history';
  const hasCurrentLines=!fullHistory&&!report.sentenceSampleNote&&Array.isArray(report.lines)&&report.lines.length>0;
+ const journey=report.relationshipContext||projectRelationshipContext({ownerId:"current",subjectId:report.subjectId||"current",reports:[{id:report.reportId||report.id||"current",owner_id:"current",subject_id:report.subjectId||"current",kind:"chat",status:"done",result:report,created_at:0}],activity:report.chatActivity||null,activityStatus:report.chatActivity?"saved":"missing"});
  const action= presentation.nextStep||diagnosis?.decision?.recommendation||'结合下一次真实回应，再更新判断。';
  const observe=semantic?.observeWindow||diagnosis?.decision?.observeWindow;
  const stop=semantic?.stopCondition||diagnosis?.decision?.stopCondition;
@@ -127,8 +127,8 @@ export function ChatReport({report,account,styleReportIds,preview=false,publicEx
     <ChatReportBrief report={report} diagnosis={diagnosis}/>
     {decision.partial&&<p className="wa-status">部分材料未识别；下方依据只覆盖可读内容。</p>}
     <RiskReview report={report}/>
-    <div className={reportStyles.detailLinks}>
-     {(diagnosis||semantic)&&<ReportDetails title="为什么这样判断" description="详细解读、支持与相反证据、其他解释和分析范围"><RelationshipDiagnosisPanel diagnosis={diagnosis} semanticHistory={semantic}/></ReportDetails>}
+    <div className={reportStyles.detailLinks}><ReportCoverage report={report}/>
+     {(diagnosis||semantic)&&<ReportDetails title="为什么这样判断" description="详细解读、支持与相反证据、其他解释和分析范围"><RelationshipDiagnosisPanel diagnosis={diagnosis} semanticHistory={semantic} hideCoverage={!!report.sourceCoverage?.length}/></ReportDetails>}
      <ReportDetails title="我们之间：共同点与相处差异" description="对照双方已有资料，查看适配与需要磨合的地方"><PersonalConnection report={report} publicExample={publicExample}/>{fit&&<FitReport fit={fit} current={Object.prototype.hasOwnProperty.call(report,'latestCompatibility')}/>}</ReportDetails>
      {hasCurrentLines&&<ReportDetails title="逐句看本次上传的聊天" description={`${report.lines.length} 句原话 · 点击查看语气与意图`}><ToneEvidence key={readingScope||"public-tone"} report={report} storageKey={readingScope}/></ReportDetails>}
      {!preview&&!publicExample&&report.profileMemory&&<ReportDetails title="这次对我的新了解" description="查看从你的表达中整理的信息，也可以纠正"><ConversationMemoryReview memory={report.profileMemory} ownerId={account?.account?.userId} subjectId={report.subjectId}/></ReportDetails>}
@@ -136,11 +136,12 @@ export function ChatReport({report,account,styleReportIds,preview=false,publicEx
     </div>
    </>}
    {active==='change'&&<>
+    <RelationshipJourney embedded context={journey} currentReportId={report.reportId||report.id}/>
     <RelationshipChanges diagnosis={diagnosis} semantic={semantic}/>
     {!preview&&!publicExample&&<ReportFollowUp report={actionReport} owner={account?.account?.userId}/>}
     {publicExample&&report.demo===true&&report.publicEvidenceReview&&<section className="wa-card"><RelationshipEvidenceCards review={report.publicEvidenceReview} publicExample/></section>}
-    {report.chatActivity?<ChatActivity summary={report.chatActivity}/>:<p className="wa-muted">这份材料还没有完整的时间信息，暂不能统计长期频率与发起比例。</p>}
-    <ReportDetails title="互动仪表：回应、投入与边界" description="查看行为构成与对应原话"><InteractionEvidence report={report} owner={publicExample?undefined:account?.account?.userId}/></ReportDetails>
+    {report.chatActivity&&<ReportDetails title="回应、频率与统计口径" description="查看回复覆盖、间隔及完整统计说明"><ChatActivity summary={report.chatActivity}/></ReportDetails>}
+    {hasCurrentLines&&<ReportDetails title="本次上传中的回应与边界" description="只统计当前上传的行为线索"><InteractionEvidence report={report} owner={publicExample?undefined:account?.account?.userId}/></ReportDetails>}
    </>}
    {active==='next'&&<>
     <section className={reportStyles.nextAction}><h2><ArrowRight size={21}/>接下来先做这一件</h2><p>{action}</p><dl>{observe&&<div><dt>观察窗口</dt><dd>{observe}</dd></div>}{stop&&<div><dt>何时停止或重新判断</dt><dd>{stop}</dd></div>}</dl></section>

@@ -278,7 +278,8 @@ class LocalImageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             folder = Path(directory) / "FileStorage" / "Image"
             folder.mkdir(parents=True)
-            (folder / f"{md5}.jpg").write_bytes(b"\xff\xd8\xff" + b"synthetic-photo" + b"\x00" * 40)
+            from PIL import Image
+            Image.new("RGB", (32, 32), "red").save(folder / f"{md5}.jpg")
             found = local_chat_image(directory, xml)
             self.assertEqual(found["mime"], "image/jpeg")
             self.assertTrue(found["data"])

@@ -1,6 +1,6 @@
 import { analyzeScreenshot } from "@/app/api/crush/screenshot/route";
 import { miniappOwner } from "@/lib/miniapp-auth";
-import { loadRelationshipFit } from "@/lib/relationship-context";
+import { loadRelationshipFit } from "@/lib/relationship-context-server";
 
 export const runtime = "edge";
 export async function POST(request: Request) {

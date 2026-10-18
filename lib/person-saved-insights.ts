@@ -1,5 +1,7 @@
 import { cleanCommunicationReading } from "./communication-reading";
 import { cleanMomentsReport } from "./moments-report";
+import { savedChatActivity } from "./relationship-context";
+import type {TimelineRecord} from "./relationship-timeline";
 
 type SavedRow = {
   id: string;
@@ -31,6 +33,16 @@ const parse = (value: unknown): Record<string, unknown> => {
 };
 
 const text = (value: unknown, max = 240) => typeof value === "string" ? value.trim().slice(0, max) : "";
+
+/** Full imports have no sentence annotations or romantic score, but their real
+ * activity dates/counts must still reach the existing archive widgets. */
+export function savedFullHistorySignal(row:SavedRow,owner:string): (TimelineRecord&{contextCount:number})|null {
+  const report=parse(row.result),activity=savedChatActivity(report.chatActivity),semantic=report.semanticHistory as Record<string,unknown>|undefined,decision=report.decision as Record<string,unknown>|undefined;
+  if(row.owner_id!==owner||!row.subject_id||row.status!=="done"||row.kind!=="chat"||report.analysisScope!=="fullHistory"||report.targetSelf===true||report.subjectId&&report.subjectId!==row.subject_id||!activity)return null;
+  const snapshot=report.archiveSnapshot as Record<string,unknown>|undefined;
+  const signature=snapshot?`full:${String(snapshot.libraryId)}:${snapshot.epoch}:${snapshot.revision}`:`report:${row.id}`;
+  return{subjectId:row.subject_id,reportId:row.id,updatedAt:row.created_at,signature,materialVersion:3,score:null,comparable:false,estimated:false,summary:text(semantic?.summary)||text(report.summary)||text(decision?.judgment),nextStep:text(decision?.nextStep),contextCount:activity.messages,messageCount:activity.messages,eventStart:activity.startDate||"",eventEnd:activity.endDate||"",eventDays:activity.days.map(day=>({date:day.date,messageCount:day.total})),eventDayCount:activity.activeDays,undatedMessageCount:activity.undatedMessages,windowsComplete:false,evidenceWindows:[],dimensions:[{label:"TA 发起占比",value:activity.starts.otherPercent},{label:"我方发起占比",value:activity.starts.selfPercent}]};
+}
 
 /**
  * Read-only projection of completed saved reports onto one active person.

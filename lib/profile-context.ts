@@ -6,6 +6,9 @@ import { recoverProfileFields } from "@/lib/profile-fact-fields";
 import { communicationReadingContext } from "@/lib/communication-reading";
 import { computeChatActivity, type ChatActivityRecord } from "@/lib/chat-activity";
 import { loadSelfArchiveMemory, selfArchiveMemoryContext } from "./self-archive-memory";
+import { loadSubjectRelationshipContext } from "./relationship-context-server";
+import { relationshipContextExcerpt } from "./relationship-context";
+import { verifySupplementalEvidence, supplementalEvidenceKey } from "./capture-related-history-server";
 
 const parse = <T>(value: string): T | null => { try { return JSON.parse(value) as T; } catch { return null; } };
 const excerptText = (value: unknown, limit: number) => typeof value === "string" ? value.length > limit ? value.slice(0, limit) + "…" : value : "";
@@ -206,9 +209,11 @@ async function captureSemanticContext(db: ReturnType<typeof getD1>, ownerId: str
       if (report?.analysisScope !== "fullHistory") continue;
       const semantic = report.semanticHistory || report.relationshipDiagnosis?.semanticHistory;
       if (!Array.isArray(semantic?.findings)) continue;
+      const supplemental = await verifySupplementalEvidence(db,ownerId,subjectId,semantic.findings.flatMap((finding:any)=>Array.isArray(finding?.evidence)?finding.evidence:[]));
       const verified = semantic.findings.flatMap((finding: any) => {
         if (typeof finding?.id !== "string" || typeof finding?.claim !== "string" || !Array.isArray(finding.evidence)) return [];
         const evidence = finding.evidence.flatMap((source: any) => {
+          if (source?.basis) { const verified=supplemental.get(supplementalEvidenceKey(source)); return verified ? [verified] : []; }
           const current = memory.sources.get(source?.sourceId);
           if (!current || typeof source.quote !== "string" || source.quote.length < 2 || source.senderRole !== current.role || !current.text.replace(/\s+/g, "").includes(source.quote.replace(/\s+/g, ""))) return [];
           return [{ sourceId: source.sourceId, quote: excerptText(source.quote, 160), at: current.at, senderRole: current.role }];
@@ -219,12 +224,15 @@ async function captureSemanticContext(db: ReturnType<typeof getD1>, ownerId: str
       const pairs = queryPairs(query), score = (item: typeof verified[number]) => pairs.reduce((n, pair) => n + Number(JSON.stringify(item).includes(pair)), 0);
       const selected = [...new Map([...verified.filter((item: any) => semantic.summaryEvidenceIds?.includes(item.id) || semantic.counterEvidenceIds?.includes(item.id)), ...verified.sort((a: any, b: any) => score(b) - score(a)), verified.at(-1)].filter(Boolean).map((item: any) => [item.id, item])).values()].slice(0, 12);
       const snapshot = memory.snapshots.get(report.archiveSnapshot?.libraryId);
-      const complete = semantic.status === "complete" && semantic.coverage?.analyzedText === memory.text && snapshot && memory.snapshots.size === 1 && snapshot.epoch === report.archiveSnapshot.epoch && snapshot.revision === report.archiveSnapshot.revision && snapshot.total === report.archiveSnapshot.total;
+      const related = Array.isArray(report.relatedSnapshots) ? report.relatedSnapshots : [];
+      const activeRelated = related.length ? await db.prepare("SELECT id,epoch,revision FROM coach_capture_libraries WHERE owner_id=? AND subject_id=? AND deleted_at IS NULL AND id IN(SELECT value FROM json_each(?))").bind(ownerId,subjectId,JSON.stringify(related.map((item:any)=>item.libraryId))).all<{id:string;epoch:number;revision:number}>() : {results:[]};
+      const relatedComplete = related.every((expected:any)=>activeRelated.results.some(row=>row.id===expected.libraryId&&row.epoch===expected.epoch&&row.revision===expected.revision));
+      const complete = relatedComplete && semantic.status === "complete" && semantic.coverage?.analyzedText === memory.text && snapshot && memory.snapshots.size === 1 && snapshot.epoch === report.archiveSnapshot.epoch && snapshot.revision === report.archiveSnapshot.revision && snapshot.total === report.archiveSnapshot.total;
       const status = complete ? "complete" as const : "partial" as const;
       const analyzedText = Math.min(memory.text, Number(semantic.coverage?.analyzedText) || 0);
       let block = "";
       for (let count = selected.length; count > 0; count--) {
-        block = "历史全量分析的可复核线索（claim/alternative是旧判断，evidence才是原话；当前原文已重新核对；状态partial时不能声称本次全量语义已完成）：" + JSON.stringify({ status, analyzedText, findings: selected.slice(0, count) });
+        block = "历史全量分析的可复核线索（claim/alternative是旧判断；无basis的evidence是聊天原话，caption是动态文字，visual是模型对已同步预览图的描述，不是本人原话；来源已重新核对；状态partial时不能声称本次全量语义已完成）：" + JSON.stringify({ status, analyzedText, sourceCoverage: report.sourceCoverage || [], findings: selected.slice(0, count) });
         if (block.length <= 6000) break;
       }
       return { block, status, analyzedText };
@@ -292,6 +300,10 @@ export async function loadProfileContext(ownerId: string, subjectId?: string | n
       const reading = communicationReadingContext(data || {});
       if (reading && subject.status === "active") sections.push({ priority: 9, weight: .5, cap: 800, build: budget => reading.length <= budget ? reading : "" });
       if (actionFeedbackContext(data || {}, query)) sections.push({ priority: 1, weight: 4, cap: 1800, build: budget => actionFeedbackContext(data || {}, query, budget) });
+      if(subject.status === "active")try {
+        const relationship = await loadSubjectRelationshipContext(ownerId,subjectId,{db});
+        if(relationship?.events.length)sections.push({priority:1.4,weight:4,cap:2000,build:budget=>relationshipContextExcerpt(relationship,query,budget)});
+      } catch { /* Confirmed facts and source archive remain usable if a projection is unavailable. */ }
       // Keep the query cap above the old 40-note limit.  packContext still
       // bounds what reaches the model, while the archive projection below
       // carries aggregate coverage for all synced records.

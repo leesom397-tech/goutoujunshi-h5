@@ -238,7 +238,7 @@ export default function ChatPage() {
   );
   return <><WebNav/><main className={styles.page}>
     <QuestionImagePreview image={previewImage} onClose={()=>setPreviewImage(null)}/>
-    <header className="chat-question-heading"><div><span>成子智能体 · 有疑问，直接问</span><h1>问成子</h1><p>先给你一个直接的判断，想聊细一点，再接着问。</p></div><a className={styles.fullAnalysis} href={"/analyze" + (subject ? "?subjectId=" + encodeURIComponent(subject) : "")}><ScanLine size={18}/>完整分析<ArrowUpRight size={16}/></a></header>
+    <header className="chat-question-heading"><div><span>成子智能体 · 有疑问，直接问</span><h1>问成子</h1><p>说说让你困惑的事，一起看清原因和下一步。</p></div><a className={styles.fullAnalysis} href={"/analyze" + (subject ? "?subjectId=" + encodeURIComponent(subject) : "")}><ScanLine size={18}/>完整分析<ArrowUpRight size={16}/></a></header>
     {account.unauthorized ? <div className={styles.guestNotice}><span>可以先了解怎么问，添加私人截图或发送问题时再登录。</span><a href="/login?return_to=%2Fchat">登录后继续<ArrowUpRight size={14}/></a></div> : <AccountNotice state={account}/>}
     {accessIssue && <div className="chat-access-notice" role="status"><span>{accessIssue}</span><a href="/account#contact">查看积分与开通 <ArrowUpRight size={15}/></a></div>}
     <div className={"chat-experience-grid" + (settingsOpen ? " has-context" : "")}>
@@ -248,6 +248,7 @@ export default function ChatPage() {
           ["现在怎么回", "结合这份报告，我现在该怎么自然地回复？请说明适用条件，并给一句可以调整后使用的话。"],
           ["下一步观察什么", "结合这份报告，接下来最值得观察的具体行为是什么？什么结果会改变当前判断？"],
           ["还有哪些可能", "这份报告里哪些是材料事实，哪些是推测？还有什么合理解释，以及我该如何核实？"],
+          ["有哪些风险", "结合这个人的完整资料，哪些具体行为需要留意？请分清关系期待不合、需要核实的疑点和明确越界，给原文依据与下一步核实方式；没有证据不要给人定性。"],
         ].map(([label, text]) => <button type="button" disabled={controlsBusy || !ready} key={label} onClick={() => fillPrompt(text)}>{label}<ChevronRight size={14}/></button>)}</div></section>}
         {isEmpty ? <>{composerContent}{historyContent}</> : <>{historyContent}{composerContent}</>}
       </section>

@@ -2493,7 +2493,7 @@ await test("native Mini Program report requires its owner bearer and preserves c
   const route=load("app/api/miniapp/report/route.ts",{
     "@/db":{getD1:()=>db},
     "@/lib/miniapp-auth":{miniappOwner:async request=>request.headers.get("Authorization")==="Bearer owner-token"?{ownerId:"owner-one"}:null},
-    "@/lib/relationship-context":{loadRelationshipFit:async()=>({fitScore:35,methodVersion:'profile-fit-2'})},
+    "@/lib/relationship-context-server":{loadRelationshipFit:async()=>({fitScore:35,methodVersion:'profile-fit-2'})},
     "@/lib/crush/service":{ownedReport:async(owner,reportId)=>{requested.push([owner,reportId]);return {id:reportId,lines:[],affinity:null,compatibility:{fitScore:80}};}}
   });
   const url="https://example.test/api/miniapp/report?id="+id;

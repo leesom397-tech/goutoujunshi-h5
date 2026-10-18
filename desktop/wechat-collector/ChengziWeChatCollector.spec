@@ -24,7 +24,7 @@ hiddenimports = ['pythoncom', 'pywintypes', 'voice_ui', 'voice_transcript', 'voi
                  'local_vision', 'voice_frame_identity', 'onnxruntime.capi.onnxruntime_pybind11_state',
                  'background_reader', 'local_voice_transcriber', 'apsw', 'zstandard', 'cryptography',
                  'pysilk.backends.cython._silk', 'voice_runtime_self_test',
-                 'local_database_source', 'vendor.wechat_db_primitives', 'database_runtime_self_test']
+                 'local_database_source', 'local_chat_images', 'vendor.wechat_db_primitives', 'database_runtime_self_test']
 datas += copy_metadata('pywechat127')
 hiddenimports += collect_submodules('comtypes')
 

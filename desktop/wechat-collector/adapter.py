@@ -268,7 +268,7 @@ def _resolve_moments_contact(request):
         if duplicate and "alias" in _contact_metadata_columns(conn):
             alias = _contact_text(conn.execute("SELECT alias FROM contact WHERE username=?", (username,)).fetchone()[0])
         source.assert_unchanged()
-        return display, (alias or username) if duplicate else display
+        return display, (alias or username) if duplicate else display, source.account_id
     finally:
         source.close()
 
@@ -366,6 +366,8 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
                     completion["imageOmittedCount"] += 1
                     row["source"]["previewUnavailable"] = "batch-image-budget"
             except Exception:
+                completion["imageOmittedCount"] += 1
+                row["source"]["previewUnavailable"] = "capture-unavailable"
                 warnings.append("部分朋友圈详情截图未获取，已保留可读文字。")
             rows.append(row)
             completion["recordCount"] = len(rows)
@@ -385,7 +387,7 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
     if completion["stopReason"] == "focus-unavailable":
         warnings.append("微信列表焦点丢失，本次只保留已读取的动态，尚未确认读到可见末尾。请将微信放在前台后重试。")
     if completion["imageOmittedCount"]:
-        warnings.append(f"已保留所有读到的动态文字；其中 {completion['imageOmittedCount']} 条详情预览超过本次图片容量，未附加图片，不能据此分析画面。")
+        warnings.append(f"已保留所有读到的动态文字；其中 {completion['imageOmittedCount']} 条详情预览因容量或截图不可用未附加图片，不能据此分析画面。")
     warnings.append("仅采集当前账号可见的朋友圈；可见末尾可能由三天、半年或分组权限决定，不代表对方全部历史。配图为详情区域预览，可能只显示部分缩略图。")
     warnings.append("朋友圈时间保留原界面标签，未出现完整日期的内容不会推测年份。")
     return rows, warnings, completion
@@ -403,6 +405,8 @@ def capture(request, progress, on_partial=None):
         GlobalConfig.is_maximize = False
         progress(5, "正在核对当前微信账号")
         account, nickname = _account(Navigator)
+        canonical_account = account
+        moments_selection = None
         modules = Navigator, Tools, ui
         include_voice = request.get("includeVoice", False)
         if type(include_voice) is not bool:
@@ -412,14 +416,17 @@ def capture(request, progress, on_partial=None):
         if request["kind"] == "chat":
             rows, warnings = _chat(request["friend"], request["limit"], nickname, first_progress, modules, convert_voices=False)
         else:
-            target, search_query = (_resolve_moments_contact(request) if request.get("contactId")
-                                    else (request["friend"], request["friend"]))
+            moments_selection = (_resolve_moments_contact(request) if request.get("contactId")
+                                 else (request["friend"], request["friend"], account))
+            target, search_query, canonical_account = moments_selection
             def publish_moments(rows, warnings, completion):
                 if on_partial is None:
                     return
                 if _account(Navigator) != (account, nickname):
                     raise CaptureError("ACCOUNT_CHANGED", "微信账号已变化，已停止；已核对的动态仍可查看。")
-                partial = normalized_capture("moments", request["friend"], account, rows, warnings)
+                if request.get("contactId") and _resolve_moments_contact(request) != moments_selection:
+                    raise CaptureError("ACCOUNT_CHANGED", "当前账号或所选联系人已变化，已停止本次采集。")
+                partial = normalized_capture("moments", request["friend"], canonical_account, rows, warnings)
                 partial["coverage"] = completion
                 on_partial(partial)
             rows, warnings, completion = _moments(target, request["limit"], progress, modules,
@@ -428,7 +435,9 @@ def capture(request, progress, on_partial=None):
         final_account, final_nickname = _account(Navigator)
         if (account, nickname) != (final_account, final_nickname):
             raise CaptureError("ACCOUNT_CHANGED", "采集期间微信账号发生变化，结果已丢弃，请重新采集。")
-        batch = normalized_capture(request["kind"], request["friend"], account, rows, warnings)
+        if moments_selection and request.get("contactId") and _resolve_moments_contact(request) != moments_selection:
+            raise CaptureError("ACCOUNT_CHANGED", "当前账号或所选联系人已变化，未合并本轮动态。")
+        batch = normalized_capture(request["kind"], request["friend"], canonical_account, rows, warnings)
         if request["kind"] == "moments":
             batch["coverage"] = completion
         missing = any(row.get("source", {}).get("mediaKind") == "voice" and row["source"].get("transcriptionStatus") != "visible-text" for row in rows)

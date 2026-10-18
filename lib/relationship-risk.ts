@@ -1,5 +1,6 @@
-export type RelationshipRiskSignal = { kind:"safety"|"expectation"|"pattern"; title:string; level:"留意"|"警惕"; evidence:string; reading:string; alternative:string; action:string };
-export type RelationshipRiskReview = { assessed:boolean; summary:string; signals:RelationshipRiskSignal[] };
+export type RelationshipRiskSource = { sourceId:string; libraryId?:string; at:string; quote:string; response?:{sourceId:string;at:string;quote:string} };
+export type RelationshipRiskSignal = { kind:"safety"|"expectation"|"pattern"; title:string; level:"留意"|"警惕"; evidence:string; reading:string; alternative:string; action:string; occurrences?:number; sources?:RelationshipRiskSource[]; firstAt?:string; lastAt?:string };
+export type RelationshipRiskReview = { assessed:boolean; summary:string; signals:RelationshipRiskSignal[]; scope?:"full-history"; coverage?:{readable:number;other:number;sourceCount:number} };
 type Row = Record<string, any>;
 const text=(v:unknown,n=240)=>typeof v==="string"?v.trim().slice(0,n).replace(/1[3-9]\d{9}/g,"[手机号已隐去]").replace(/[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}/g,"[邮箱已隐去]"):"";
 const list=(v:unknown):Row[]=>Array.isArray(v)?v.filter(x=>x&&typeof x==="object"&&!Array.isArray(x)):[];
@@ -26,11 +27,28 @@ const material=(report:Row)=>{
 export function cleanRelationshipRiskReview(value:unknown):RelationshipRiskReview {
   const v=value&&typeof value==="object"&&!Array.isArray(value)?value as Row:{};
   const signals=list(v.signals).slice(0,8).map(row=>({kind:["safety","expectation","pattern"].includes(row.kind)?row.kind:"",title:text(row.title,50),level:row.level==="警惕"?"警惕":"留意",evidence:text(row.evidence,420),reading:text(row.reading,200),alternative:text(row.alternative,160),action:text(row.action,160)})).filter(row=>row.kind&&row.title&&row.evidence&&row.reading&&row.alternative&&row.action) as RelationshipRiskSignal[];
+  if(v.scope==="full-history"){
+    for(let index=0;index<signals.length;index++){
+      const raw=list(v.signals).find(row=>row.kind===signals[index].kind&&text(row.title,50)===signals[index].title);
+      const sources=list(raw?.sources).slice(0,6).flatMap(row=>{
+        const sourceId=text(row.sourceId,200),quote=typeof row.quote==="string"?row.quote.trim().slice(0,420):"";
+        if(!sourceId||!quote)return [];
+        const response=row.response&&text(row.response.sourceId,200)&&typeof row.response.quote==="string"?{sourceId:text(row.response.sourceId,200),at:text(row.response.at,120),quote:row.response.quote.trim().slice(0,300)}:undefined;
+        return [{sourceId,quote,at:text(row.at,120),...(text(row.libraryId,100)?{libraryId:text(row.libraryId,100)}:{}),...(response?.quote?{response}:{})}];
+      });
+      signals[index]={...signals[index],sources,occurrences:Math.max(sources.length,Number.isSafeInteger(raw?.occurrences)?Math.min(Number(raw?.occurrences),1000000):sources.length),firstAt:text(raw?.firstAt,120),lastAt:text(raw?.lastAt,120)};
+    }
+    const integer=(n:unknown)=>Number.isSafeInteger(n)&&Number(n)>=0?Math.min(Number(n),1000000):0;
+    return {assessed:v.assessed===true,summary:text(v.summary,180),signals:signals.filter(signal=>signal.sources?.length),scope:"full-history",coverage:{readable:integer(v.coverage?.readable),other:integer(v.coverage?.other),sourceCount:integer(v.coverage?.sourceCount)}};
+  }
   return {assessed:v.assessed===true,summary:text(v.summary,180),signals};
 }
 /** Model findings must point back to retained source text, never to appearance. */
 export function relationshipRiskReview(report:Row|null|undefined):RelationshipRiskReview {
   if(!report||report.targetSelf===true||report.target==="self"||report.moments?.targetSelf===true)return {assessed:false,summary:report?"本次是你的资料，不生成对方风险判断。":"尚无可评估的材料。",signals:[]};
+  // Full-history reports deliberately keep lines empty. Their server-checked
+  // risk excerpts and counts are the persisted projection of all readable rows.
+  if((report.analysisScope==="fullHistory"||report.captureFormat==="full-history")&&report.riskReview?.scope==="full-history")return cleanRelationshipRiskReview(report.riskReview);
   const sources=material(report).filter(row=>!indirect(row.text));
   const candidates=[...cleanRelationshipRiskReview(report.riskReview).signals,...cleanRelationshipRiskReview(report.decision?.riskReview).signals,...cleanRelationshipRiskReview(report.moments?.riskReview).signals];
   const signals:RelationshipRiskSignal[]=[];
@@ -72,5 +90,59 @@ export function relationshipRiskReview(report:Row|null|undefined):RelationshipRi
   const assessed=sources.some(row=>normalize(row.text).length>=8)||sources.length>=2&&sources.reduce((n,row)=>n+normalize(row.text).length,0)>=8||signals.length>0;
   const ordered=signals.sort((a,b)=>(a.kind==="safety"?0:1)-(b.kind==="safety"?0:1)).slice(0,4);
   return {assessed,summary:ordered.length?`发现 ${ordered.length} 条需要留意的线索，先看依据，再决定投入。`:assessed?"当前材料未识别到明确预警；这不代表已排除全部风险。":"可读的对方原话或明确资料不足，暂未评估风险。",signals:ordered};
+}
+
+type HistoryRiskRow = {localId:string;senderRole:string;at:string;text:string;kind?:string;basis?:string};
+/** Scan the complete server-owned archive, independently of model chunk success.
+ * Only a few supporting excerpts survive in the report; the full corpus stays
+ * in the source library. Counts describe messages, never real-life incidence. */
+export function fullHistoryRiskReview(rows:readonly HistoryRiskRow[],libraryId?:string):RelationshipRiskReview {
+  const unique=[...new Map(rows.filter(row=>row.localId&&row.text.trim()&&!row.basis&&(!row.kind||row.kind==="text")&&(row.senderRole==="self"||row.senderRole==="other")).map(row=>[row.localId,row])).values()];
+  const ordered=[...unique].sort((a,b)=>{const x=Date.parse(a.at),y=Date.parse(b.at);return Number.isFinite(x)&&Number.isFinite(y)?x-y:0;});
+  const groups=new Map<string,{signal:RelationshipRiskSignal;sources:RelationshipRiskSource[];ids:Set<string>}>();
+  const sourceFor=(row:HistoryRiskRow,index:number):RelationshipRiskSource=>{
+    const following=ordered.slice(index+1,index+5).find(next=>next.senderRole==="self");
+    const delta=following?Date.parse(following.at)-Date.parse(row.at):NaN;
+    const response=following&&Number.isFinite(delta)&&delta>=0&&delta<=86400000?{sourceId:following.localId,at:following.at,quote:following.text.slice(0,300)}:undefined;
+    return {sourceId:row.localId,...(libraryId?{libraryId}:{}),at:row.at,quote:row.text.slice(0,420),...(response?{response}:{})};
+  };
+  const add=(signal:RelationshipRiskSignal,source:RelationshipRiskSource)=>{
+    const key=signal.kind+":"+signal.title,group=groups.get(key)||{signal,sources:[],ids:new Set<string>()};
+    if(!group.ids.has(source.sourceId)){group.sources.push(source);group.ids.add(source.sourceId);}
+    groups.set(key,group);
+  };
+  const avoided:RelationshipRiskSource[]=[];
+  ordered.forEach((row,index)=>{
+    if(row.senderRole!=="other")return;
+    if(indirect(row.text)||/^(?:【|\[|（|\()?(?:表情包|贴纸|动图|图片|照片|语音)/.test(row.text.trim()))return;
+    const source=sourceFor(row,index);
+    const admitsSafety=security(row.text),admitsExpectation=casual(row.text);
+    // A genuine long original can contain a relevant clause after character
+    // 1,400. Scan sentence-sized fragments; retain the exact matching excerpt.
+    const fragments=row.text.match(/[^。！？!?\n；;，,]{1,200}[。！？!?\n；;，,]?/g)||[row.text];
+    for(const fragment of fragments){
+      const routineMoney=/AA|饭钱|餐费|票钱|车费|平摊|拼单|还款|还钱|报销/.test(row.text)&&!/保证金|解冻|投资|炒币|稳赚|保本|验证|诚意|验证码|密码|私密|裸照|曝光|伤害/.test(row.text);
+      for(const signal of relationshipRiskReview({lines:[{speaker:"other",text:fragment}]}).signals){
+        if(signal.kind==="expectation"&&!admitsExpectation||signal.kind==="safety"&&!admitsSafety)continue;
+        if(signal.kind==="safety"&&routineMoney)continue;
+        add(signal,{...source,quote:fragment.trim().slice(0,420)});
+      }
+    }
+    // Repeated avoidance needs direct replies to the user's relationship
+    // questions on separate dated occasions; silence or sparse data is not one.
+    const prior=ordered.slice(Math.max(0,index-3),index).reverse().find(item=>item.senderRole==="self");
+    const delta=prior?Date.parse(row.at)-Date.parse(prior.at):NaN;
+    if(!indirect(row.text)&&!historic(row.text)&&!denied(row.text)&&prior&&Number.isFinite(delta)&&delta>=0&&delta<=86400000&&/关系|承诺|交往|认真|以后|长期/.test(prior.text)&&/(?:别|不要|不用)(?:再)?问.{0,10}(?:关系|承诺)|(?:关系|承诺|交往).{0,8}(?:以后再说|改天再说|不想谈|不回答)|(?:不想|不愿|不回答).{0,6}(?:谈|讨论|回答).{0,6}(?:关系|承诺)/.test(row.text))avoided.push(source);
+  });
+  if(new Set(avoided.map(row=>row.at.match(/^\d{4}-\d{2}-\d{2}/)?.[0]).filter(Boolean)).size>=2){
+    const pattern:RelationshipRiskSignal={kind:"pattern",title:"不同日期出现回避关系确认的回应",level:"留意",evidence:"",reading:"你提出关系问题后，对方在不同日期回避回答。继续投入前，可以先确认双方愿意讨论什么。",alternative:"可能尚未准备好或当时不方便讨论；这些原话不能证明欺骗，也不说明当前仍如此。",action:"选一次双方方便的时间说明你的期待，询问何时能认真讨论；根据实际回应决定投入。"};
+    for(const source of avoided)add(pattern,source);
+  }
+  const signals=[...groups.values()].sort((a,b)=>Number(b.signal.kind==="safety")-Number(a.signal.kind==="safety")).slice(0,4).map(({signal,sources})=>{
+    const kept=sources.length<=6?sources:[...sources.slice(0,3),...sources.slice(-3)];
+    return {...signal,evidence:kept.slice(0,2).map(row=>`${row.at||"日期待确认"} 对方：“${text(row.quote,200)}”`).join("；"),sources:kept,occurrences:sources.length,firstAt:sources.find(row=>row.at)?.at||"",lastAt:[...sources].reverse().find(row=>row.at)?.at||"",alternative:signal.kind==="pattern"?signal.alternative:"这是记录当时的表达；可能有具体情境或后续变化，不能仅凭这些原话认定动机或当前状态。"};
+  });
+  const other=ordered.filter(row=>row.senderRole==="other").length;
+  return {scope:"full-history",assessed:other>0,coverage:{readable:ordered.length,other,sourceCount:unique.length},summary:signals.length?`已检查全部 ${ordered.length} 条可读聊天，找到 ${signals.length} 类需要核实的表达；发生时间与后续回应见依据。`:other?`已检查全部 ${ordered.length} 条可读聊天，未识别到明确预警。没有提及的信息仍未知，不能据此排除全部风险。`:"缺少已确认身份的对方原话，暂未评估风险。",signals};
 }
 export const RELATIONSHIP_RISK_GUIDANCE=`额外返回riskReview:{assessed:boolean,signals:[{kind:'safety'|'expectation'|'pattern',title,level:'留意'|'警惕',evidence,reading,alternative,action}]}，最多3条，不新增模型调用。safety仅具体金钱/验证码/私密影像索取、威胁、明确越界或可逐字核对的跨图矛盾；expectation仅对方明确自述短期交往、不愿承诺等，并说清与用户长期目标可能的分歧，短期取向本身不是诈骗或品德判断；pattern需至少两处不同、上下文完整的对方原话支持重复回避关系定义、只接受受限互动等模式。evidence必须标图号/原句位置，并逐字用中文引号引用材料，模式至少引用两处；每条reading说明对用户投入的意义，alternative给合理竞争解释，action给一个明确可执行动作。只评估已确认对方的文字自述/原话，不把我方表达、转述别人、拒绝短期、表情包台词当对方意图。不从脸/衣着/自拍、单次夜间邀约、回得慢、没发合照/婚恋资料缺失推断短期、欺骗、不忠或危险。不用渣男/骗子等定性，不给风险概率。资料不足assessed=false；有资料但无明确信号assessed=true且signals=[]，不承诺安全。targetSelf或用户本人资料时assessed=false且signals=[]。`;

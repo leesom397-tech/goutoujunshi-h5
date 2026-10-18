@@ -74,13 +74,14 @@ export function quickQuestionTextEvidence(value: unknown, mode: "conversation" |
   const sources = [self, ...history.filter(item => item.role === "user").map(item => item.content)];
   const candidates = [raw.replace(/^[「“‘\"']|[」”’\"']$/g, ""), ...Array.from(raw.matchAll(/[「“‘\"']([^「」“”‘’\"']{2,180})[」”’\"']/g), match => match[1])];
   if (archiveLines.length) {
+    const labelPattern = /^(?:\[[^\]]{1,40}\]\s*)?(?:我|对方|未确认一方|用户补充|对方朋友圈|对方主页)：/;
     const verified: string[] = [];
     for (const candidate of [...candidates.slice(1), candidates[0]]) {
       const quote = candidate.trim();
       if (quote.length < 2 || quote.length > 180) continue;
-      const archive = archiveLines.find(line => line.includes(quote));
+      const archive = archiveLines.find(line => line.replace(labelPattern, "").includes(quote));
       if (!archive && !sources.some(source => source.includes(quote))) continue;
-      const sourceLabel = archive?.match(/^(?:\[[^\]]{1,40}\]\s*)?(?:我|对方|未确认一方)：/)?.[0] || "";
+      const sourceLabel = archive?.match(labelPattern)?.[0] || "";
       const item = sourceLabel + "「" + quote + "」";
       if (!verified.includes(item)) verified.push(item);
       if (verified.length >= 3) break;

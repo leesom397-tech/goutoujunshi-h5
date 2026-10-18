@@ -6,7 +6,7 @@ const normalize = (value: string) => value.normalize("NFKC").replace(/[\s，。�
 
 /** Only explicit calendar dates qualify. Never substitute the upload date/year. */
 export function explicitEventDate(raw: string): string {
-  const match = raw.match(/(?:^|[^\d])(\d{4})[年/.-](\d{1,2})[月/.-](\d{1,2})(?:日|\b|(?=\s))/);
+  const match = raw.match(/(?:^|[^\d])(\d{4})[年/.-](\d{1,2})[月/.-](\d{1,2})(?:日|\b|(?=T|\s|$))/);
   if (!match) return "";
   const [, y, m, d] = match;
   const date = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)));
@@ -119,7 +119,7 @@ export function relationshipTrendPoints<T extends TimelineRecord>(records: T[]) 
     return { reportId: item.reportId, subjectId: item.subjectId, score: item.score, summary: item.summary || "",
       eventStart: item.eventStart || "", eventEnd: item.eventEnd || "", sourceReportIds: item.sourceReportIds,
       eventDays: item.eventDays || [], eventDayCount: item.eventDayCount || 0, undatedMessageCount: item.undatedMessageCount || 0,
-      dayBreakdownLabel: (item.eventDayCount || 0) > 1 ? `含 ${item.eventDayCount} 个有日期的聊天日，评分对应整组材料` : "",
+      dayBreakdownLabel: (item.eventDayCount || 0) > 1 ? `含 ${item.eventDayCount} 个有日期的聊天日，${item.score == null ? "统计覆盖这些聊天日期" : "评分对应整组材料"}` : "",
       label: item.eventStart ? (item.eventStart === item.eventEnd ? "聊天记录" : "跨日聊天") : "日期待确认",
       dateLabel: item.eventStart ? (item.eventStart === item.eventEnd ? item.eventStart : `${item.eventStart} 至 ${item.eventEnd}`) : "",
       recordedDateLabel: new Date(item.updatedAt).toLocaleDateString("zh-CN", { timeZone: "Asia/Shanghai" }),

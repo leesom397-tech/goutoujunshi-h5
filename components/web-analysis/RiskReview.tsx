@@ -2,7 +2,7 @@
 
 import { ArrowRight, Eye, HeartHandshake, Quote, Repeat2, Shield, TriangleAlert } from "lucide-react";
 import { relationshipRiskReview } from "@/lib/relationship-risk";
-import {riskEvidenceOccurrences} from "@/lib/report-reading";
+import {riskEvidenceOccurrences,reportEvidenceDate} from "@/lib/report-reading";
 import type { Json } from "./client";
 import styles from "./RiskReview.module.css";
 import { CaptureEvidence } from "./CaptureEvidence";
@@ -23,6 +23,20 @@ export function RiskReview({ report }: { report: Json }) {
   if (report.targetSelf || report.target === "self") return null;
   const review = relationshipRiskReview(report);
   const signals = review.signals.slice(0, 4);
+  if(review.scope==="full-history")return <section className={styles.review} data-risk-review data-risk-state={signals.length?"signals":review.assessed?"clear":"unassessed"} aria-label="全历史风险核实">
+    <header className={styles.heading}><h2><Shield size={22}/>需要核实的风险与期待</h2><span className={styles.count}>{review.coverage?.readable||0} 条可读聊天</span></header>
+    <p className={styles.summary}>{review.summary}</p>
+    {signals.length>0&&<div className={styles.historySignals}>{signals.map((signal,index)=>{
+      const kind=kinds[signal.kind],Icon=kind.Icon;
+      return <details className={styles.historySignal} key={`${signal.kind}:${signal.title}:${index}`} data-risk-kind={signal.kind}>
+        <summary><Icon size={19}/><span><strong>{signal.title}</strong><small>{kind.label} · {signal.occurrences||signal.sources?.length||0} 条表达{signal.firstAt&&` · ${signal.firstAt.slice(0,10)}${signal.lastAt&&signal.lastAt.slice(0,10)!==signal.firstAt.slice(0,10)?` — ${signal.lastAt.slice(0,10)}`:""}`}</small></span><span className={styles.openEvidence}>查看依据</span></summary>
+        <div className={styles.historyDetail}><p>{signal.reading}</p><p className={styles.alternative}><Eye size={16}/><span>{signal.alternative}</span></p><div className={styles.action}><ArrowRight size={18}/><div><strong>下一步核实</strong><p>{signal.action}</p></div></div>
+          <h4>记录中的原话与回应</h4>{(signal.sources||[]).map(source=><div className={styles.historySource} key={`${source.libraryId}:${source.sourceId}`}><small>对方 · {reportEvidenceDate(source.at)}</small><blockquote>{source.quote}</blockquote><CaptureEvidence sourceIds={[source.sourceId]} libraryId={source.libraryId} sourceKind="chat" quote={source.quote} label="回看这条原话"/>{source.response&&<div className={styles.historyResponse}><small>随后一条我方回应 · {reportEvidenceDate(source.response.at)}</small><blockquote>{source.response.quote}</blockquote><CaptureEvidence sourceIds={[source.response.sourceId]} libraryId={source.libraryId} sourceKind="chat" quote={source.response.quote} label="回看回应"/></div>}</div>)}
+          {(signal.occurrences||0)>(signal.sources?.length||0)&&<small>共 {signal.occurrences} 条表达，报告保留最早和最近的 {signal.sources?.length} 条依据；次数按消息计算。</small>}
+        </div>
+      </details>;
+    })}</div>}
+  </section>;
   if (!signals.length) return null;
   const state = signals.length ? "signals" : review.assessed ? "clear" : "unassessed";
   return <section className={styles.review} data-risk-review data-risk-state={state} aria-label="风险与关系预期">

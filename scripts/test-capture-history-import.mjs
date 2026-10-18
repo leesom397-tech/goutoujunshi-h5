@@ -18,7 +18,7 @@ const notFound = () => Object.assign(new Error("synthetic missing job"), { statu
 function makeBatch(body, total, { transcript = false, voice = false, account = "synthetic-account" } = {}) {
   let upper = total, lower = body.since ? Number(body.since.split("_")[1]) : 0, offset = 0;
   if (body.cursor) [, upper, lower, offset] = body.cursor.split("_").map((value, index) => index ? Number(value) : value);
-  const count = Math.max(0, Math.min(500, upper - lower - offset));
+  const count = Math.max(0, Math.min(body.pageSize, upper - lower - offset));
   const start = body.direction === "forward" ? lower + offset : upper - offset - count;
   const hasMore = offset + count < upper - lower;
   return { version: 1, kind: "chat", friend: body.friend, account, capturedAt: "2026-10-16T01:00:00Z", warnings: [],
@@ -39,7 +39,7 @@ class FakeBridge {
     if (options.signal?.aborted) throw new DOMException("cancelled", "AbortError");
     if (path === "/capture") {
       const body = clone(options.body), id = `job_${this.starts.length + 1}`;
-      assert.equal(body.pageSize, 500); assert.equal(body.mode, "background"); assert.equal(body.kind, "chat");
+      assert.equal(body.pageSize, body.includeVoice ? 100 : 500); assert.equal(body.mode, "background"); assert.equal(body.kind, "chat");
       assert.equal("limit" in body, false);
       this.starts.push(body);
       this.jobs.set(id, { id, body, reads: 0, cancelled: false,
@@ -145,13 +145,13 @@ await test("voice partial, failed second page, reload and retry retain text with
   };
   await assert.rejects(run(bridge, vault), /ASR failed/);
   const checkpoint = readHistoryProgress(owner, friend);
-  assert.equal(checkpoint.count, 500); assert.equal(checkpoint.pages, 1); assert.equal(checkpoint.pendingJob, null);
-  assert.equal(vault.rows.size, 1000);
+  assert.equal(checkpoint.count, 100); assert.equal(checkpoint.pages, 1); assert.equal(checkpoint.pendingJob, null);
+  assert.equal(vault.rows.size, 200);
   const pending = checkpoint.cursor, existingTranscripts = [...vault.rows.values()].filter(row => row.source.transcriptionStatus === "visible-text").length;
   assert.ok(existingTranscripts > 0);
   const result = await run(bridge, vault, newHistoryProgress(owner, friend, checkpoint));
   assert.equal(bridge.starts[2].cursor, pending); assert.equal(result.progress.count, 2703);
-  assert.equal(result.added, 1703); assert.equal(vault.rows.size, 2703);
+  assert.equal(result.added, 2503); assert.equal(vault.rows.size, 2703);
   assert.ok([...vault.rows.values()].filter(row => row.source.transcriptionStatus === "visible-text").length > existingTranscripts);
 });
 
@@ -162,9 +162,9 @@ await test("abort after accepting voice partial cancels the worker and safely re
   } }), { name: "AbortError" });
   const stopped = readHistoryProgress(owner, friend);
   assert.equal(stopped.count, 0); assert.equal(stopped.pages, 0); assert.equal(stopped.cursor, null); assert.equal(stopped.pendingJob, null);
-  assert.equal(vault.rows.size, 500); assert.ok(bridge.calls.some(call => call.path.endsWith("/cancel")));
+  assert.equal(vault.rows.size, 100); assert.ok(bridge.calls.some(call => call.path.endsWith("/cancel")));
   const result = await run(bridge, vault, newHistoryProgress(owner, friend, stopped));
-  assert.equal(result.added, 2203); assert.equal(result.progress.count, 2703); assert.equal(vault.rows.size, 2703);
+  assert.equal(result.added, 2603); assert.equal(result.progress.count, 2703); assert.equal(vault.rows.size, 2703);
   assert.ok(result.updatedVoice > 0);
 });
 
@@ -255,7 +255,7 @@ await test("malformed counts, empty continuation, snapshot changes and moving pa
   await assert.rejects(run(bridge, vault)); assert.equal(vault.rows.size, 500); assert.equal(readHistoryProgress(owner, friend).count, 500);
   storage.clear(); const moving = new FakeBridge(), partialVault = new FakeVault(); moving.voice = true;
   moving.hook = job => { if (job.reads === 2) { const result = clone(job.result); result.records[0].id = "wechat-db:changed"; return { status: "completed", result }; } };
-  await assert.rejects(run(moving, partialVault), /同一页/); assert.equal(partialVault.rows.size, 500);
+  await assert.rejects(run(moving, partialVault), /同一页/); assert.equal(partialVault.rows.size, 100);
   assert.equal(readHistoryProgress(owner, friend).count, 0);
 });
 

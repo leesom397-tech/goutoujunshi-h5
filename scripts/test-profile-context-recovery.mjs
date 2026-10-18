@@ -53,6 +53,9 @@ const api = load("lib/profile-context.ts", {
   "@/lib/communication-reading": communicationReading
   , "@/lib/chat-activity": chatActivity
   , "./self-archive-memory": {loadSelfArchiveMemory:async()=>({status:"ready",summaries:[]}),selfArchiveMemoryContext:()=>""}
+  , "./relationship-context-server": {loadSubjectRelationshipContext:async()=>null}
+  , "./relationship-context": {relationshipContextExcerpt:()=>""}
+  , "./capture-related-history-server": {verifySupplementalEvidence:async()=>new Map(),supplementalEvidenceKey:JSON.stringify}
 });
 const snapshot = structuredClone(facts);
 const result = await api.loadProfileContext("owner", "A");

@@ -24,6 +24,7 @@ SOURCE_FILES += ('local_database_source.py', 'test_local_database_source.py',
                  'test_database_runtime_self_test.py')
 SOURCE_FILES += ('pairing.py', 'test_pairing.py', 'test_history_paging.py')
 SOURCE_FILES += ('test_moments_capture.py', 'test_contact_search.py')
+SOURCE_FILES += ('local_chat_images.py', 'test_local_chat_images.py')
 SOURCE_FILES += ('launcher.py', 'build_launcher.py', 'test_launcher.py', 'launcher.ico',
                  'windows_version_info.py', 'test_windows_version_info.py', 'sign_release.ps1')
 

@@ -1,7 +1,7 @@
 import { miniappOwner } from "@/lib/miniapp-auth";
 import { ownedReport } from "@/lib/crush/service";
 import { CrushError } from "@/lib/crush/types";
-import { loadRelationshipFit } from "@/lib/relationship-context";
+import { loadRelationshipFit } from "@/lib/relationship-context-server";
 import { getD1 } from "@/db";
 import { readAnalysisReport, deleteAnalysisReport } from "@/lib/saved-reports.mjs";
 import { readableReport } from "@/lib/crush/evidence";

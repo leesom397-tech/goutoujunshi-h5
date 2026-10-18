@@ -1,9 +1,13 @@
+import {dateLabel} from "./web-account";
 type Row=Record<string,any>;
 const text=(v:unknown)=>typeof v==="string"?v.trim():"";
 const rows=(v:unknown):Row[]=>Array.isArray(v)?v.filter(x=>x&&typeof x==="object"):[];
 const normalized=(v:string)=>v.replace(/[\s\p{P}\p{S}]/gu,"");
 const quoted=(v:string)=>Array.from(v.matchAll(/[“「『"‘']([^”」』"’']{3,700})[”」』"’']/g)).map(x=>x[1]);
 const fullDate=(v:unknown)=>text(v).match(/\b20\d{2}[-/.年]\d{1,2}[-/.月]\d{1,2}日?(?:[T\s]+\d{1,2}:\d{2}(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)?/)?.[0]||"";
+/** Use the product's China-local date formatter for exact ISO timestamps;
+ * preserve partial source labels without inventing a time. */
+export function reportEvidenceDate(value:unknown){const raw=text(value);if(!raw)return "日期待确认";const at=/^\d{4}-\d{2}-\d{2}T/.test(raw)?Date.parse(raw):NaN;return Number.isFinite(at)?dateLabel(at):raw;}
 export type MaterialEvidence={quote:string;label:string;date?:string};
 function material(report:Row):MaterialEvidence[]{
  const lines=rows(report.lines);

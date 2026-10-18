@@ -76,13 +76,18 @@ try{
   await page.setViewport({width:1366,height:900});await page.goto(origin+'/capture?method=library&kind=chat',{waitUntil:'networkidle0'});
   await contains('合成人物');await page.evaluate(()=>[...document.querySelectorAll('details button')].find(e=>e.textContent.includes('合成人物')).click());
   await contains('生成完整关系报告');
+  assert.equal(await page.$eval('#capture-originals',e=>e.getBoundingClientRect().height),0,'raw history is opt-in, not a long list before the action');
+  await page.screenshot({path:output+'/report-ready-desktop.png',fullPage:true});
   assert.doesNotMatch(await page.$eval('#capture-originals',e=>e.textContent),/最近待分析|已选 40/);
   assert.equal(await page.$$eval('#capture-originals input[type=checkbox]',e=>e.length),0,'full chat has no misleading subset checkboxes');
   await page.evaluate(()=>[...document.querySelectorAll('button')].find(e=>e.textContent.includes('生成完整关系报告')).click());
   await contains('确认材料与费用');assert.match(await page.$eval('#capture-confirm',e=>e.innerText),/全部 675 条聊天/);
+  assert.equal(await page.$eval('[aria-label="导入操作"]',e=>e.getBoundingClientRect().height),0,'confirmation replaces earlier operations');
+  assert.equal(await page.$eval('#capture-person',e=>e.getBoundingClientRect().height),0,'person setup is not repeated during confirmation');
   await page.screenshot({path:output+'/report-confirm-desktop.png',fullPage:true});
   await page.setViewport({width:390,height:844});assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
   await page.evaluate(()=>document.querySelector('#capture-confirm').scrollIntoView());await page.screenshot({path:output+'/report-confirm-mobile.png'});
+  await page.click('[aria-label="返回报告准备"]');
   await page.evaluate(()=>[...document.querySelectorAll('button')].find(e=>e.textContent.includes('基于全部聊天提问')).click());
   await page.waitForFunction(()=>location.pathname==='/chat');
   const handoff=await page.evaluate(owner=>{const key=Object.keys(sessionStorage).find(k=>k.startsWith('chengzi-capture-question:'+owner+':'));return JSON.parse(sessionStorage.getItem(key));},owner);

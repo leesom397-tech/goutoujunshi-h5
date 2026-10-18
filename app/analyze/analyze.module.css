@@ -340,3 +340,11 @@
 .page :global(.ax-main-column) { min-width:0; }
 .balanceLine { display:flex; gap:16px; flex-wrap:wrap; align-items:center; color:#796757; font-size:14px; }
 .balanceLine a { display:inline-flex; align-items:center; gap:5px; color:#995d45; }
+.page [hidden]{display:none!important}
+.page [data-aurora-hero]{min-height:148px;padding:26px 30px}
+.photoTips{margin:14px 0;color:#806d5c;font-size:13px;line-height:1.75}.photoTips summary{cursor:pointer}.photoTips p{margin:8px 0}
+.confirmMaterialStrip{display:flex;align-items:center;gap:14px;padding-bottom:20px;margin-bottom:22px;border-bottom:1px solid #e7dacd}
+.confirmMaterialStrip>div{display:flex;gap:6px}.confirmMaterialStrip img{width:38px;height:48px;object-fit:cover;border-radius:6px;border:1px solid #e7dacd}
+.confirmMaterialStrip span{font-size:14px;color:#796757}.confirmMaterialStrip button{margin-left:auto;color:#995d45;background:transparent;font-size:14px;min-height:44px}
+.page :global(.ax-next-link){width:100%;justify-content:center;margin-top:22px}
+@media(max-width:600px){.page [data-aurora-hero]{padding:22px 20px;min-height:128px}.confirmMaterialStrip{gap:8px;flex-wrap:wrap}.confirmMaterialStrip img{width:30px;height:38px}}

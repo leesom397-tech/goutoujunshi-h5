@@ -42,6 +42,28 @@ try {
   await assert.rejects(() => syncCollectorDownloads(settings), /No network fallback/);
   assert.throws(() => validateReleaseIndex({ ...index, files: [{ ...index.files[0], name: '../escape.exe' }] }), /Invalid/);
   assert.throws(() => validateReleaseIndex({ ...index, files: [{ ...index.files[0], url: 'https://untrusted.invalid/setup.exe' }] }), /Invalid/);
+  const releaseRoot = 'https://github.com/leesom397-tech/goutoujunshi-h5/releases/download/';
+  const mixedIndex = { ...index, version: '1.2.6', previousVersion: '1.2.5', tag: 'collector-1.2.6', files: [
+    ...index.files.map(file => ({ ...file, name: file.name.replaceAll('1.2.5', '1.2.6'), url: file.url.replaceAll('1.2.5', '1.2.6') })),
+    ...index.files.filter(file => file.name !== 'manifest.json'),
+    { ...index.files[0], name: 'ChengziWeChatCollector-Setup-1.2.4.exe', url: `${releaseRoot}collector-1.2.5/ChengziWeChatCollector-Setup-1.2.4.exe` },
+  ] };
+  assert.equal(validateReleaseIndex(mixedIndex), mixedIndex, 'Versioned legacy assets reuse the verified previous release.');
+  const changeFile = (name, change) => ({ ...mixedIndex, files: mixedIndex.files.map(file => file.name === name ? { ...file, ...change } : file) });
+  assert.throws(() => validateReleaseIndex(changeFile('ChengziWeChatCollector-Setup-1.2.6.exe', {
+    url: `${releaseRoot}collector-1.2.5/ChengziWeChatCollector-Setup-1.2.6.exe`,
+  })), /Invalid/, 'A new installer must not load from an old tag.');
+  assert.throws(() => validateReleaseIndex(changeFile('manifest.json', { url: `${releaseRoot}collector-1.2.5/manifest.json` })), /Invalid/);
+  assert.throws(() => validateReleaseIndex({ ...mixedIndex, files: [...mixedIndex.files, {
+    ...index.files[0], name: 'chengzi-wechat-collector-windows.zip', url: `${releaseRoot}collector-1.2.5/chengzi-wechat-collector-windows.zip`,
+  }] }), /Invalid/, 'Generic ZIP aliases must use the current tag.');
+  assert.throws(() => validateReleaseIndex(changeFile('ChengziWeChatCollector-Setup-1.2.5.exe', {
+    url: 'https://untrusted.invalid/collector-1.2.5/ChengziWeChatCollector-Setup-1.2.5.exe',
+  })), /Invalid/);
+  assert.throws(() => validateReleaseIndex({ ...mixedIndex, files: [...mixedIndex.files, {
+    ...index.files[0], name: 'ChengziWeChatCollector-Setup-1.2.7.exe', url: `${releaseRoot}collector-1.2.6/ChengziWeChatCollector-Setup-1.2.7.exe`,
+  }] }), /Invalid/, 'Future versions cannot be inserted under the current tag.');
+  assert.throws(() => validateReleaseIndex({ ...mixedIndex, previousVersion: '1.2.7' }), /Invalid/);
   console.log('PASS collector release sync: offline preloading, checksums, cache reuse, corrupt downloads, preservation and path/URL validation');
 } finally {
   if (!resolve(base).startsWith(resolve(tmpdir()) + '\\chengzi-release-fixture-')

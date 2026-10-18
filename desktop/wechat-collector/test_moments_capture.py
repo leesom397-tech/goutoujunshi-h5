@@ -6,7 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 import re
 
-from adapter import _moments, _resolve_moments_contact
+from adapter import _moments, _resolve_moments_contact, capture, CaptureError
 from background_reader import BackgroundCaptureError
 from bridge import CollectorState, BridgeError
 from test_background_reader import Source
@@ -43,6 +43,25 @@ class Album:
 
 
 class MomentsCaptureTests(unittest.TestCase):
+    def test_bundle_uses_database_account_identity_and_retains_selected_label(self):
+        import sys
+        modules = {"pythoncom": SimpleNamespace(CoInitialize=lambda: None, CoUninitialize=lambda: None),
+                   "pyweixin": SimpleNamespace(Navigator=None, Tools=None, Uielements=None, GlobalConfig=SimpleNamespace())}
+        rows = [{"kind": "post", "sender": "好友", "senderRole": "other", "text": "合成动态"}]
+        coverage = {"complete": True, "stopReason": "visible-end"}
+        partials = []
+        def moments(*args, **kwargs):
+            kwargs["on_rows"](rows, [], coverage)
+            return rows, [], coverage
+        with patch.dict(sys.modules, modules), patch("adapter._account", return_value=("visible_wechat_alias", "本人")), \
+             patch("adapter._resolve_moments_contact", return_value=("好友", "selected-id", "wxid_canonical")), \
+             patch("adapter._moments", side_effect=moments):
+            batch = capture({"kind": "moments", "friend": "所选唯一标签", "contactId": "selected-id", "accountKey": "a" * 64, "limit": 2000, "allVisible": True}, lambda *args: None, partials.append)
+        self.assertEqual(batch["account"], "wxid_canonical")
+        self.assertEqual(partials[0]["account"], "wxid_canonical")
+        self.assertEqual(batch["friend"], "所选唯一标签")
+        self.assertTrue(CollectorState(health_provider=lambda: {}).health()["capabilities"]["personBundle"])
+
     def run_album(self, count, limit=10, all_visible=True, no_focus=False):
         album = Album(count, no_focus)
         detail = SimpleNamespace(exists=lambda **kwargs: True,
@@ -88,7 +107,7 @@ class MomentsCaptureTests(unittest.TestCase):
         key = hashlib.sha256(source.account_id.encode()).hexdigest()
         provider = SimpleNamespace(open_authorized_source=lambda: source)
         with patch("background_reader._provider_module", return_value=provider):
-            self.assertEqual(_resolve_moments_contact({"friend": "唯一备注", "contactId": "target-user", "accountKey": key}), ("唯一备注", "唯一备注"))
+            self.assertEqual(_resolve_moments_contact({"friend": "唯一备注", "contactId": "target-user", "accountKey": key}), ("唯一备注", "唯一备注", source.account_id))
         self.assertTrue(source.closed)
         source = Source()
         with patch("background_reader._provider_module", return_value=SimpleNamespace(open_authorized_source=lambda: source)):

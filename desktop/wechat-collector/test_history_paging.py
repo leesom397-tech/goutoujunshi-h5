@@ -170,6 +170,29 @@ class HistoryPagingTests(unittest.TestCase):
         self.assertTrue(all(partial["history"] == final["history"] for partial in partials))
         self.assertTrue(all(row["source"]["transcriptionStatus"] == "visible-text" for row in final["records"]))
 
+    def test_voice_pagination_reaches_audio_older_than_latest_thousand_messages(self):
+        self.template.add(self.tables[0], 9000, 990001, mtype=34, sequence=-5)
+        self.template.add_audio(990001, data=b"old-voice")
+        self.template.add(self.tables[0], 9001, 990002, mtype=34, sequence=10000)
+        self.template.add_audio(990002, data=b"recent-voice", label="media_1.db")
+        seen, calls, cursor, pages = set(), [], None, 0
+        def transcribe(blob, key):
+            calls.append((blob, key))
+            return "合成语音已转写"
+        while True:
+            request = {"pageSize": 500, "includeVoice": True, **({"cursor": cursor} if cursor else {})}
+            batch = self.capture(request, transcribe=transcribe)
+            pages += 1
+            for row in batch["records"]:
+                self.assertNotIn(row["id"], seen)
+                seen.add(row["id"])
+            if batch["history"]["complete"]:
+                break
+            cursor = batch["history"]["nextCursor"]
+        self.assertGreater(pages, 2)
+        self.assertEqual(len(seen), len(self.expected) + 2)
+        self.assertEqual([blob for blob, _ in calls], [b"recent-voice", b"old-voice"])
+
     def test_deleted_interior_messages_terminate_and_removed_boundary_fails_closed(self):
         first = self.capture({"direction": "forward"})
         conn, table = self.tables[0]

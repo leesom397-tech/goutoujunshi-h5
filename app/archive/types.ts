@@ -1,3 +1,4 @@
+import type { RelationshipContext } from "@/lib/relationship-context";
 import type { SelfData } from "@/lib/profile";
 import type { relationshipFit } from "@/lib/relationship-fit";
 import type { cleanCommunicationReading } from "@/lib/communication-reading";
@@ -9,6 +10,7 @@ import type { PersonSavedAnalysis } from "@/lib/person-saved-insights";
 export type MomentsReport = NonNullable<ReturnType<typeof cleanMomentsReport>>;
 export type Reading = NonNullable<ReturnType<typeof cleanCommunicationReading>>;
 export type Person = {
+  relationshipContext?: RelationshipContext;
   id: string; label: string; avatar?: string; updatedAt: number;
   notes?: string; stage?: string; howMet?: string; values?: string; boundaries?: string;
   ageRange?: string; city?: string; education?: string; occupation?: string;

@@ -164,7 +164,7 @@ const types=load('lib/crush/types.ts');let routeOwner='owner-a';
 const mocks={
   '@/lib/miniapp-auth':{miniappOwner:async()=>({ownerId:routeOwner})},
   '@/lib/crush/service':{ownedReport:async()=>{throw new types.CrushError('报告不存在。',404)}},
-  '@/lib/crush/types':types,'@/lib/relationship-context':{loadRelationshipFit:async()=>null},
+  '@/lib/crush/types':types,'@/lib/relationship-context-server':{loadRelationshipFit:async()=>null},
   '@/db':{getD1:()=>db},'@/lib/saved-reports.mjs':savedReports,'@/lib/crush/evidence':{readableReport:value=>value},
   '@/lib/personal-context-server':load('lib/personal-context-server.ts'),
 };

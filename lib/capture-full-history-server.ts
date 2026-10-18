@@ -3,7 +3,7 @@ import type { CaptureAnalysisInput, CaptureMemoryRow } from "./capture-analysis-
 import type { CloudCaptureRecord } from "./capture-cloud";
 
 type Database = ReturnType<typeof getD1>;
-type Library = { id: string; friend: string; kind: string; epoch: number; revision: number; deleted_at: number | null };
+type Library = { id: string; friend: string; kind: string; subject_id: string | null; epoch: number; revision: number; deleted_at: number | null };
 export const MAX_FULL_CAPTURE_ROWS = 20_000;
 const PAGE_SIZE = 500;
 
@@ -14,10 +14,11 @@ export class CaptureFullHistoryError extends Error {
 /** Reject an unsynced, changed or foreign library before reserving any credits. */
 export async function checkFullCaptureHistory(db: Database, owner: string, input: CaptureAnalysisInput): Promise<Library> {
   if (input.analysisScope !== "fullHistory" || !input.libraryId || !input.expectedTotal || !input.expectedEpoch) throw new CaptureFullHistoryError("完整报告请求不完整，请重新打开资料库。");
-  const snapshot = await db.prepare("SELECT id,friend,kind,epoch,revision,deleted_at FROM coach_capture_libraries WHERE id=? AND owner_id=?")
+  const snapshot = await db.prepare("SELECT id,friend,kind,subject_id,epoch,revision,deleted_at FROM coach_capture_libraries WHERE id=? AND owner_id=?")
     .bind(input.libraryId, owner).first<Library>();
   if (!snapshot || snapshot.deleted_at !== null) throw new CaptureFullHistoryError("找不到这份已同步的聊天，请先完成同步。", 404);
   if (snapshot.kind !== "chat" || snapshot.friend !== input.friend || snapshot.epoch !== input.expectedEpoch) throw new CaptureFullHistoryError("聊天资料已变化，请刷新并重新核对好友。", 409);
+  if (input.subjectId && snapshot.subject_id && snapshot.subject_id !== input.subjectId) throw new CaptureFullHistoryError("聊天当前关联的是另一位人物，请重新核对关联后分析。", 409);
   const totalRow = await db.prepare("SELECT COUNT(*) AS total FROM coach_capture_records WHERE owner_id=? AND library_id=? AND epoch=?")
     .bind(owner, snapshot.id, snapshot.epoch).first<{ total: number }>();
   const total = Number(totalRow?.total) || 0;

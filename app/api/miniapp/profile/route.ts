@@ -12,7 +12,8 @@ import { cleanMomentsReport } from "@/lib/moments-report";
 import { cleanCommunicationReading } from "@/lib/communication-reading";
 import { interactionScore } from "@/lib/crush/interaction-score";
 import { conversationEventMetadata, correctConversationEventDate, FeedbackError } from "@/lib/relationship-feedback";
-import { projectPersonSavedAnalysis } from "@/lib/person-saved-insights";
+import { projectPersonSavedAnalysis, savedFullHistorySignal } from "@/lib/person-saved-insights";
+import { loadSubjectRelationshipContext } from "@/lib/relationship-context-server";
 import { loadSelfArchiveMemory, correctSelfArchiveMemory, backfillSelfArchiveMemory } from "@/lib/self-archive-memory";
 
 export const runtime = "edge";
@@ -55,14 +56,16 @@ const fallbackDimensions = (report: Record<string, unknown>, base = 50) => {
   ];
 };
 
-async function state(owner: string) {
+async function state(owner: string,focusSubject?:string) {
   const db = getD1();
   const [profile, subjects, facts, savedReports] = await Promise.all([
     db.prepare("SELECT consent_at,paused,data FROM coach_profiles WHERE owner_id=?").bind(owner).first<{ consent_at: number | null; paused: number; data: string }>(),
     db.prepare("SELECT id,label,data,updated_at FROM coach_subjects WHERE owner_id=? AND status='active' ORDER BY updated_at DESC LIMIT 40").bind(owner).all<{ id: string; label: string; data: string; updated_at: number }>(),
     db.prepare("SELECT id,subject_id,field,value,source,evidence,status,event_meta FROM coach_facts WHERE owner_id=? AND (field IN ('recentEvent','profileClue','selfProfileClue') OR field LIKE 'selfBasic:%' OR field LIKE 'subjectBasic:%') AND status IN ('pending','accepted') ORDER BY created_at DESC LIMIT 200").bind(owner).all<{ id: string; subject_id: string | null; field: string; value: string; source: string; evidence: string; status: string; event_meta:string|null }>(),
-    db.prepare("SELECT id,owner_id,subject_id,kind,status,result,summary,created_at FROM (SELECT id,owner_id,subject_id,kind,status,result,summary,created_at,ROW_NUMBER() OVER (PARTITION BY subject_id,kind ORDER BY created_at DESC,id DESC) AS rn FROM coach_saved_reports WHERE owner_id=? AND status='done' AND kind IN ('chat','moments','social') AND subject_id IS NOT NULL) WHERE rn<=2").bind(owner).all<{ id: string; owner_id: string; subject_id: string | null; kind: string; status: string; result: string | null; summary: string | null; created_at: number }>(),
+    db.prepare("SELECT id,owner_id,subject_id,kind,status,result,summary,created_at FROM coach_saved_reports WHERE owner_id=? AND status='done' AND kind IN ('chat','moments','social') AND subject_id IS NOT NULL ORDER BY created_at DESC").bind(owner).all<{ id: string; owner_id: string; subject_id: string | null; kind: string; status: string; result: string | null; summary: string | null; created_at: number }>(),
   ]);
+  const activeSources=profile?.consent_at&&!profile.paused?await db.prepare("SELECT id,epoch,subject_id FROM coach_capture_libraries WHERE owner_id=? AND deleted_at IS NULL").bind(owner).all<{id:string;epoch:number;subject_id:string|null}>():{results:[]};
+  const visibleSavedReports=savedReports.results.filter(row=>{try{const value=JSON.parse(row.result||"{}"),snapshot=value.archiveSnapshot;return !snapshot||activeSources.results.some(source=>source.id===snapshot.libraryId&&source.epoch===snapshot.epoch&&source.subject_id===row.subject_id);}catch{return false;}});
   const signalRows = profile?.consent_at && !profile.paused ? await db.prepare(`
     SELECT subject_id, report_id, affinity, result, updated_at FROM (
       SELECT s.id AS subject_id, r.id AS report_id,
@@ -103,10 +106,13 @@ async function state(owner: string) {
       contextCount: typeof affinity.contextCount === "number" ? Math.max(0, Math.floor(affinity.contextCount)) : 0,
       dimensions, updatedAt: row.updated_at };
   });
-  const persistentSignals = subjects.results.flatMap(subject => { try { const data = JSON.parse(subject.data); return Array.isArray(data.relationshipHistory) ? data.relationshipHistory.filter((point: Record<string, unknown>) => point.subjectId === subject.id) : []; } catch { return []; } }) as typeof parsedSignals;
-  const distinctSignals = distinctRelationshipEvents([...persistentSignals, ...parsedSignals]);
+  const persistentSignals = (profile?.consent_at&&!profile.paused?subjects.results.flatMap(subject => { try { const data = JSON.parse(subject.data); return Array.isArray(data.relationshipHistory) ? data.relationshipHistory.filter((point: Record<string, unknown>) => point.subjectId === subject.id) : []; } catch { return []; } }):[]) as typeof parsedSignals;
+  const savedSignals=profile?.consent_at&&!profile.paused?visibleSavedReports.flatMap(row=>{const signal=savedFullHistorySignal(row,owner);return signal?[signal]:[];}):[];
+  const allSignals=[...persistentSignals,...parsedSignals,...savedSignals];
+  const distinctSignals = distinctRelationshipEvents(allSignals);
   const signals = latestRelationshipSignals(distinctSignals).map(({ evidenceWindows: _windows, ...signal }) => signal);
-  const trends = Array.from(new Set(distinctSignals.map(item => item.subjectId))).map(subjectId => ({ subjectId, points: relationshipTrendPoints([...persistentSignals, ...parsedSignals].filter(item => item.subjectId === subjectId)) }));
+  const trends = Array.from(new Set(distinctSignals.map(item => item.subjectId))).map(subjectId => ({ subjectId, points: relationshipTrendPoints(allSignals.filter(item => item.subjectId === subjectId)) }));
+  const contexts=new Map(await Promise.all(subjects.results.map(async item=>[item.id,profile?.consent_at&&!profile.paused?await loadSubjectRelationshipContext(owner,item.id,{includeActivity:item.id===focusSubject,db}):null] as const)));
   return {
     selfMemory: await loadSelfArchiveMemory(owner, db),
     enabled: !!profile?.consent_at,
@@ -119,7 +125,7 @@ async function state(owner: string) {
       const field = (key: string) => typeof data[key] === "string" ? data[key] as string : "";
       const own = (() => { try { return recoverProfileFields(JSON.parse(profile?.data || "{}"), facts.results, null); } catch { return {}; } })();
       const compatibility = relationshipFit(own, Object.fromEntries(selfBasicKeys.map(key => [key, field(key) || field("subjectBasic:" + key)])));
-      return { avatar: field("avatar"), communicationReading: profile?.consent_at && !profile.paused ? cleanCommunicationReading(data.communicationReading) : null, momentsReport: profile?.consent_at && !profile.paused ? cleanMomentsReport(data.momentsReport) : null, savedAnalysis: profile?.consent_at && !profile.paused ? projectPersonSavedAnalysis(savedReports.results || [], item.id) : null, savedChatAnalysis: profile?.consent_at && !profile.paused ? projectPersonSavedAnalysis(savedReports.results || [], item.id, ["chat"]) : null, compatibility, id: item.id, label: item.label, notes: field("notes"), stage: field("stage"), howMet: field("howMet"), values: field("values"), boundaries: field("boundaries"), ageRange: (field("ageRange") || field("subjectBasic:ageRange")), city: (field("city") || field("subjectBasic:city")), education: (field("education") || field("subjectBasic:education")), occupation: (field("occupation") || field("subjectBasic:occupation")), relationshipStatus: (field("relationshipStatus") || field("subjectBasic:relationshipStatus")), childrenPlan: (field("childrenPlan") || field("subjectBasic:childrenPlan")), lifestyle: (field("lifestyle") || field("subjectBasic:lifestyle")), interests: field("interests"), strengths: field("strengths"), communicationStyle: field("communicationStyle"), goals: field("goals"), preferredRelationship: field("preferredRelationship"), updatedAt: item.updated_at };
+      return { relationshipContext:contexts.get(item.id)||null, avatar: field("avatar"), communicationReading: profile?.consent_at && !profile.paused ? cleanCommunicationReading(data.communicationReading) : null, momentsReport: profile?.consent_at && !profile.paused ? cleanMomentsReport(data.momentsReport) : null, savedAnalysis: profile?.consent_at && !profile.paused ? projectPersonSavedAnalysis(visibleSavedReports, item.id) : null, savedChatAnalysis: profile?.consent_at && !profile.paused ? projectPersonSavedAnalysis(visibleSavedReports, item.id, ["chat"]) : null, compatibility, id: item.id, label: item.label, notes: field("notes"), stage: field("stage"), howMet: field("howMet"), values: field("values"), boundaries: field("boundaries"), ageRange: (field("ageRange") || field("subjectBasic:ageRange")), city: (field("city") || field("subjectBasic:city")), education: (field("education") || field("subjectBasic:education")), occupation: (field("occupation") || field("subjectBasic:occupation")), relationshipStatus: (field("relationshipStatus") || field("subjectBasic:relationshipStatus")), childrenPlan: (field("childrenPlan") || field("subjectBasic:childrenPlan")), lifestyle: (field("lifestyle") || field("subjectBasic:lifestyle")), interests: field("interests"), strengths: field("strengths"), communicationStyle: field("communicationStyle"), goals: field("goals"), preferredRelationship: field("preferredRelationship"), updatedAt: item.updated_at };
     }),
     facts: facts.results.map(item => { const event=item.field==="recentEvent" ? conversationEventMetadata(item.event_meta) : null; return { id: item.id, subjectId: item.subject_id, kind: item.field, value: item.value, source: item.source, evidence: item.evidence, status: item.status === "accepted" ? "accepted" : "pending", eventTitle:event?.title||"", eventDate:event?.spokenDate||"" }; }),
     signals,
@@ -135,7 +141,7 @@ export async function GET(request: Request) {
   const identity = await miniappOwner(request);
   if (!identity) return json({ error: "登录已过期，请重新登录。" }, 401);
   try { await backfillSelfArchiveMemory(identity.ownerId); } catch { console.warn("self_archive_memory_backfill_unavailable"); }
-  return json(await state(identity.ownerId));
+  return json(await state(identity.ownerId,new URL(request.url).searchParams.get("subjectId")||undefined));
 }
 
 export async function POST(request: Request) {

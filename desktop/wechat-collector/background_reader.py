@@ -357,35 +357,9 @@ def _plain_image(data: bytes):
 
 
 def local_chat_image(account_dir, content: str):
-    """Attach one already-readable photo for this message. Skip if it is not on disk."""
-    md5 = ""
-    try:
-        root = ElementTree.fromstring(content)
-        node = root if root.tag == "img" else root.find(".//img")
-        if node is not None:
-            md5 = str(node.attrib.get("md5") or "").lower()
-    except ElementTree.ParseError:
-        return None
-    if not re.fullmatch(r"[0-9a-f]{32}", md5):
-        return None
-    root_dir = Path(account_dir)
-    checked = 0
-    for relative in ("msg/attach", "FileStorage/Image", "FileStorage/Cache"):
-        base = root_dir / relative
-        if not base.is_dir():
-            continue
-        for path in base.rglob("*"):
-            checked += 1
-            if checked > 400:
-                return None
-            if not path.is_file() or md5 not in path.name.lower() or path.stat().st_size > 180_000:
-                continue
-            found = _plain_image(path.read_bytes())
-            if not found:
-                continue
-            mime, data = found
-            return {"mime": mime, "name": "chat-photo.jpg", "data": base64.b64encode(data).decode("ascii")}
-    return None
+    """Compatibility helper; the batch path shares one filename index."""
+    from local_chat_images import LocalChatImages
+    return LocalChatImages(account_dir, [content]).resolve(content)[0]
 
 
 def _decode_text(value):
@@ -593,7 +567,12 @@ def _build_batch(source, friend, session, rows, audio):
     self_username = _short_id(source.self_username, "本人")
     records = []
     warnings = []
-    photos = 0
+    image_bytes = 0
+    photo_rows = [row for row in rows if row["type"] == 3]
+    image_reader = None
+    if photo_rows and getattr(source, "account_dir", None):
+        from local_chat_images import LocalChatImages
+        image_reader = LocalChatImages(source.account_dir, [row["content"] for row in photo_rows])
     for index, row in enumerate(rows):
         try:
             at = datetime.fromtimestamp(int(row["timestamp"]), timezone.utc).isoformat()
@@ -633,11 +612,16 @@ def _build_batch(source, friend, session, rows, audio):
         elif media_type in (3, 43, 47, 11000):
             metadata["mediaAvailability"] = "not-collected"
         image = None
-        if media_type == 3 and photos < 8 and getattr(source, "account_dir", None):
-            image = local_chat_image(source.account_dir, row["content"])
+        if media_type == 3:
+            image, availability = image_reader.resolve(row["content"]) if image_reader else (None, "missing-local")
+            if image and image_bytes + len(image["data"]) > 20 * 1024 * 1024:
+                image, availability = None, "batch-image-budget"
+            metadata["mediaAvailability"] = availability
             if image:
-                metadata["mediaAvailability"] = "preview"
-                photos += 1
+                image_bytes += len(image["data"])
+                metadata["imageType"] = "local-cache-preview"
+            else:
+                metadata["previewUnavailable"] = availability
         record = {"id": rid, "kind": kind, "sender": "我" if role == "self" else friend if role == "other" else "未知发言人",
                         "senderRole": role, "at": at, "text": text, "source": metadata}
         if image:
@@ -645,6 +629,11 @@ def _build_batch(source, friend, session, rows, audio):
         records.append(record)
     if len({r["id"] for r in records}) != len(records):
         raise BackgroundCaptureError("MESSAGE_IDENTITY_AMBIGUOUS", "本地消息标识重复，未导入。")
+    if photo_rows:
+        readable = sum(bool(record.get("images")) for record in records if record["kind"] == "image")
+        warnings.append(f"本批 {len(photo_rows)} 条图片消息已取得 {readable} 张本机缓存预览；其余 {len(photo_rows)-readable} 张未取得可读画面，不参与图片内容判断。预览经过缩放，不是原始图片文件。")
+        if image_reader and not image_reader.complete:
+            warnings.append("本机图片目录较大，限时检索尚未遍历完；未找到的图片不能当作不存在。文字和已找到的图片已保留。")
     return {"version": 1, "kind": "chat", "friend": friend, "account": account,
             "capturedAt": datetime.now(timezone.utc).isoformat(), "records": records,
             "warnings": list(dict.fromkeys(warnings))}

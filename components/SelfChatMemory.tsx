@@ -15,6 +15,7 @@ export function SelfChatMemory({ enabled = true, paused = false }: { enabled?: b
   const [state, setState] = useState<State | null>(null), [loading, setLoading] = useState(true);
   const [error, setError] = useState(""), [notice, setNotice] = useState(""), [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(""), [draft, setDraft] = useState("");
+  const [view, setView] = useState<"summary" | "history">("summary"), [historyPage, setHistoryPage] = useState(0);
   async function load() {
     setLoading(true); setError("");
     try {
@@ -40,9 +41,12 @@ export function SelfChatMemory({ enabled = true, paused = false }: { enabled?: b
   if (!enabled) return null;
   const disabled = paused || state?.paused || state?.selfMemory?.status === "disabled";
   const summaries = disabled ? [] : state?.selfMemory?.summaries || [];
+  const expressions = [...new Map(summaries.flatMap(memory => memory.items.filter(item => item.quote).map(item => ({ memory, item }))).map(entry => [`${entry.item.at || ""}:${entry.item.quote}`, entry])).values()].sort((a,b) => (Date.parse(b.item.at || "") || 0) - (Date.parse(a.item.at || "") || 0));
+  const pages = Math.max(1, Math.ceil(expressions.length / 8)), currentPage = Math.min(historyPage, pages - 1);
   return <section className={styles.card} aria-labelledby="self-chat-memory-title" data-self-chat-memory>
     <header><MessageCircle size={22}/><div><h2 id="self-chat-memory-title">从聊天中了解我</h2><p>整理你自己说过的偏好与需要，已确认资料优先。每条都可以纠正或移除。</p></div></header>
-    {loading ? <p role="status">正在读取…</p> : disabled ? <p className={styles.empty}>档案已暂停，暂不使用聊天中整理的信息。</p> : summaries.length ? <div className={styles.summaries}>{summaries.map(memory => <details key={memory.id}>
+    {!loading && !disabled && summaries.length > 0 && <div className={styles.views} role="group" aria-label="本人聊天资料"><button aria-pressed={view === "summary"} onClick={() => setView("summary")}>资料摘要</button><button aria-pressed={view === "history"} onClick={() => setView("history")}>我的表达历程</button></div>}
+    {loading ? <p role="status">正在读取…</p> : disabled ? <p className={styles.empty}>档案已暂停，暂不使用聊天中整理的信息。</p> : summaries.length && view === "history" ? <div className={styles.history} data-self-expression-history><p className={styles.empty}>只保留你对自己的明确表达。日期不明的原话单独标注。</p>{expressions.slice(currentPage * 8, (currentPage + 1) * 8).map(({memory,item}) => <article key={`${memory.id}:${item.id}`}><time>{date(item.at)}</time><div><small>{item.label || "本人自述"}</small><blockquote>{item.quote}</blockquote>{item.basis === "correction" && <p>已纠正为：{item.value}</p>}<button onClick={() => { setView("summary"); setEditing(`${memory.id}:${item.id}`); setDraft(item.value); requestAnimationFrame(() => document.querySelector(`[data-memory-id="${CSS.escape(memory.id)}"]`)?.setAttribute("open", "")); }}><Pencil size={14}/>纠正这条</button></div></article>)}{pages > 1 && <div className={styles.actions}><button disabled={!currentPage} onClick={() => setHistoryPage(currentPage - 1)}>上一页</button><span>{currentPage + 1} / {pages}</span><button disabled={currentPage >= pages - 1} onClick={() => setHistoryPage(currentPage + 1)}>下一页</button></div>}</div> : summaries.length ? <div className={styles.summaries}>{summaries.map(memory => <details key={memory.id} data-memory-id={memory.id}>
       <summary><span><strong>{memory.summary || "查看从本人自述整理的线索"}</strong><small>{date(memory.updatedAt)} · 第 {memory.version} 版 · {memory.items.length} 条</small></span><ChevronDown size={18}/></summary>
       <div className={styles.items}>{memory.items.map(item => <article key={item.id} data-self-memory-item>
         <div className={styles.itemHeading}><strong>{item.label || "本人自述"}</strong>{item.basis === "correction" && <span><Check size={13}/>已由我纠正</span>}</div>
