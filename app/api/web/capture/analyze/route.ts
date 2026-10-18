@@ -2,6 +2,7 @@ import { env } from "cloudflare:workers";
 import { checkpointedCaptureModel, isCaptureJobControl, CaptureJobYield, type CaptureCheckpoint } from "@/lib/capture-job-control";
 import { reportContextSnapshot } from "@/lib/report-freshness";
 import { CAPTURE_REPORT_VERSION } from "@/lib/capture-report-version";
+import { loadReportParticipants } from "@/lib/report-participants-server";
 import { getD1 } from "@/db";
 import { miniappOwner } from "@/lib/miniapp-auth";
 import { captureAnalysisInput, captureReadableText, type CaptureAnalysisInput, type CaptureMemoryRow } from "@/lib/capture-analysis-input";
@@ -73,6 +74,7 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
   const validateContext = job ? () => assertReportContextCurrent(db,owner,input.subjectId,job.manifest.contextSnapshot) : undefined;
   const model = job ? checkpointedCaptureModel(qwenChat, job.checkpoint, validateContext) : qwenChat;
   const history = await readFullCaptureHistory(db, owner, input);
+  const participants=await loadReportParticipants(db,owner,input.subjectId,{archiveSnapshot:{libraryId:input.libraryId}});
   const momentsOnly=input.kind==="moments";
   if (!momentsOnly&&!history.readable.length) throw new CaptureFullHistoryError("已读取全部聊天，但没有可用的文字或语音转写；请先补齐文字再生成完整报告。", 422);
   const chatActivity = momentsOnly?null:computeChatActivity(history.records);
@@ -96,6 +98,7 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
       totalImported: momentsOnly?0:history.records.length,
       selectedLineCount: 0,
       question: input.question,
+      participantLabels:{self:participants.self.label,other:participants.other.label},
       activity: chatActivity,
       fullHistory: true,
       personContext,
@@ -119,7 +122,7 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
   if(momentsOnly){
     const summary=semanticHistory.sourceInsights?.moments?.summary||semanticHistory.summary||`已核对 ${history.records.length} 条动态；当前没有足以形成具体人物判断的内容。`;
     const sourceIds=[...new Set(semanticHistory.findings.flatMap(item=>item.evidence.filter(source=>source.libraryId===input.libraryId).map(source=>source.sourceId)))];
-    const report:Record<string,any>={id:input.requestId,reportId:input.requestId,kind:"profile",captureKind:"moments",subjectId:input.subjectId,readable:true,captureOrigin:true,captureFormat:"full-history",analysisScope:"fullHistory",analysisVersion:CAPTURE_REPORT_VERSION,analysisFingerprint:job?.manifest.fingerprint,summary,semanticHistory,
+    const report:Record<string,any>={id:input.requestId,reportId:input.requestId,kind:"profile",captureKind:"moments",subjectId:input.subjectId,participants,analysisQuestion:input.question||"panorama",readable:true,captureOrigin:true,captureFormat:"full-history",analysisScope:"fullHistory",analysisVersion:CAPTURE_REPORT_VERSION,analysisFingerprint:job?.manifest.fingerprint,summary,semanticHistory,
       sourceCoverage:related.sourceCoverage,mediaEvidence:related.mediaEvidence,relatedSnapshots:[],contextSnapshot:job?.manifest.contextSnapshot||await reportContextSnapshot(db,owner,input.subjectId),archiveSnapshot:{libraryId:input.libraryId,epoch:input.expectedEpoch,revision:history.revision,total:history.records.length},
       moments:{summary,posts:[],themes:[],hypotheses:[],behaviorClues:[],starters:[],approach:"",compositionReading:"",timelineReading:""},
       decision:{judgment:summary,nextStep:semanticHistory.actionPlan?.steps[0]?.action||semanticHistory.action||"",replyOptions:[]},
@@ -140,7 +143,7 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
     ...semanticHistory.findings.flatMap(item => item.evidence.filter(e=>!e.libraryId||e.libraryId===input.libraryId).map(e => e.sourceId)), history.readable[0].localId])].slice(0, 128);
   const report: Record<string, any> = {
     id: input.requestId, reportId: input.requestId, kind: "chat", subjectId: input.subjectId,
-    captureOrigin: true, captureKind:"chat",captureFormat: "full-history", analysisScope: "fullHistory",analysisVersion:CAPTURE_REPORT_VERSION,
+    captureOrigin: true, captureKind:"chat",captureFormat: "full-history", analysisScope: "fullHistory",analysisVersion:CAPTURE_REPORT_VERSION,participants,analysisQuestion:input.question||"panorama",
     analysisFingerprint: job?.manifest.fingerprint,
     summary: judgment, lines: [], annotations: [], chatActivity, relationshipDiagnosis, semanticHistory, affinity:semanticHistory.affinity,riskReview,
     sourceCoverage: related.sourceCoverage, mediaEvidence: related.mediaEvidence,

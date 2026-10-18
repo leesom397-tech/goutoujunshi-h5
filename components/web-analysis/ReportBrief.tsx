@@ -10,6 +10,7 @@ import { GlassStudy } from "@/components/GlassStudy";
 import { ReportVisualMetrics } from "./ReportVisualMetrics";
 import visual from "./RelationshipBriefVisual.module.css";
 import {KeyEvidenceList} from "./ReportReadingTools";
+import {reportIdentity,reportGoal} from "./report-context";
 
 /** A usable reply in the first reading surface, without another navigation step. */
 export function ReportReplyPreview({ text, reason, label = "现在可以这样回" }: { text?: string; reason?: string; label?: string }) {
@@ -35,6 +36,7 @@ export function ReportChapterArt({kind}:{kind:"change"|"next"}) {
 
 export function ChatReportBrief({ report, diagnosis, showMetrics=true }: { report: Json; diagnosis?: Json | null; showMetrics?:boolean }) {
   const presentation = riskAwarePresentation(report);
+  const identity=reportIdentity(report),goal=reportGoal(report);
   const source = diagnosis || report.relationshipDiagnosis || {};
   const semantic = report.semanticHistory || source.semanticHistory;
   const coverage = source.coverage || {};
@@ -48,10 +50,10 @@ export function ChatReportBrief({ report, diagnosis, showMetrics=true }: { repor
   return <section className={visual.brief} aria-label="报告速读" data-report-brief data-risk-priority={presentation.mode}>
     <div className={visual.hero}>
       <div className={visual.verdict}>
-        <div className={visual.kicker}><span className={visual.liveDot}/>{fullHistory ? report.captureKind==='moments'?"完整朋友圈报告":"完整关系报告" : "这次聊天的观察"}</div>
-        <span className={visual.verdictLabel}>{presentation.mode !== "normal" && presentation.title ? presentation.title : "当前判断"}</span>
+        <div className={visual.kicker}><span className={visual.liveDot}/>{fullHistory ? report.captureKind==='moments'?"完整朋友圈报告":goal==='risk'?"风险核实报告":goal==='connection'?"聊天与推进报告":"完整关系报告" : "这次聊天的观察"}</div>
+        <span className={visual.verdictLabel}>{presentation.mode !== "normal" && presentation.title ? presentation.title : goal==='risk'?`关于${identity.other}的风险判断`:`${identity.other}与你 · 当前判断`}</span>
         <h2>{judgment}</h2>
-        <div className={visual.trend}><ChartNoAxesCombined size={17}/><span>{report.captureKind==='moments'?'动态变化':'关系趋势'}</span><strong>{trend || "待了解"}</strong></div>
+        {goal!=='risk'&&<div className={visual.trend}><ChartNoAxesCombined size={17}/><span>{report.captureKind==='moments'?'动态变化':'关系趋势'}</span><strong>{trend || "待了解"}</strong></div>}
         {typeof coverage.total === "number" && <p className={visual.scope}>{coverage.total.toLocaleString("zh-CN")} 条消息{coverage.startDate && coverage.endDate ? ` · ${coverage.startDate} — ${coverage.endDate}` : ""}</p>}
       </div>
       <div className={visual.art} data-report-art="overview"><GlassStudy imageSrc="/images/report-aurora-overview-v3.webp" variant="report"/></div>

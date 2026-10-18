@@ -14,6 +14,10 @@ assert.equal(new URL(restoreCaptureConnectionEntry('owner-a','/capture?kind=chat
 assert.equal(restoreCaptureConnectionEntry('owner-a','/capture',storage,1_801_000),'','stale navigation expires');
 assert.equal(captureConnectionEntry('/capture?returnTo=https://evil.test&subjectId=invalid&token=secret&contactSearch=%00bad'),'/capture?method=desktop');
 assert.equal(captureConnectionEntry('/other?intent=person'),'');
+const supplement='/capture?method=desktop&kind=moments&intent=supplement-moments&question=risk&libraryId=cl_original&subjectId='+subject+'&returnTo='+encodeURIComponent('/report?id='+subject);
+rememberCaptureConnectionEntry('owner-a',supplement,storage,2000);
+assert.deepEqual([...new URL(restoreCaptureConnectionEntry('owner-a','/capture?method=desktop',storage,2001),'https://example.test').searchParams].sort(),[...new URL(supplement,'https://example.test').searchParams].sort(),'helper reopening preserves the precise supplementary Moments step');
+assert.equal(new URL(captureConnectionEntry('/capture?question=forged'),'https://example.test').searchParams.get('question'),null);
 
 const originals={BroadcastChannel:globalThis.BroadcastChannel,window:globalThis.window,document:globalThis.document,setInterval:globalThis.setInterval,clearInterval:globalThis.clearInterval};
 const channels=new Set(),messages=[],timers=new Map();let timerId=0;

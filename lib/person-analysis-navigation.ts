@@ -1,4 +1,5 @@
 import type { SyncedLibrarySummary } from "./capture-cloud-client";
+import { intakeReturnTo } from "../components/web-analysis/intake-navigation";
 
 export const personAnalysisHref = (subjectId = "") => "/relationship" + (subjectId ? "?subjectId=" + encodeURIComponent(subjectId) : "");
 export const capturePersonHref = (subjectId = "", libraryId = "", kind: "chat" | "moments" = "chat") => {
@@ -7,6 +8,24 @@ export const capturePersonHref = (subjectId = "", libraryId = "", kind: "chat" |
   if (libraryId) query.set("libraryId", libraryId);
   return "/capture?" + query.toString();
 };
+/** Prepare this person's Moments collection while keeping the original chat. Never starts capture. */
+export function captureReportQuestion(value: unknown) {
+  return value === "panorama" || value === "attitude" || value === "trend" || value === "worth" || value === "next" || value === "risk" ? value : undefined;
+}
+export function withCaptureQuestion(href: string, question?: unknown): string {
+  const goal=captureReportQuestion(question);
+  if(!goal||!href.startsWith("/")||href.startsWith("//"))return href;
+  const next=new URL(href,"https://capture.invalid");next.searchParams.set("question",goal);
+  return next.pathname+next.search+next.hash;
+}
+export function captureMomentsSupplementHref(subjectId = "", chatLibraryId = "", returnTo = "", question: unknown = undefined) {
+  const query = new URLSearchParams({method:"desktop",kind:"moments",intent:"supplement-moments"});
+  if(subjectId)query.set("subjectId",subjectId);
+  if(chatLibraryId)query.set("libraryId",chatLibraryId);
+  const back=intakeReturnTo(returnTo);if(back)query.set("returnTo",back);
+  const goal=captureReportQuestion(question);if(goal)query.set("question",goal);
+  return "/capture?"+query;
+}
 export const capturePersonLabel = (name: string) => name.replace(/ · #[a-fA-F0-9]{16}$/, "");
 /** A search term is a hint for the contact picker, never an archive identity. */
 export function capturePersonSearchHref(value = "") {

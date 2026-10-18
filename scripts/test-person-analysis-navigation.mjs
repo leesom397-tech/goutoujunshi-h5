@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { build } from "esbuild";
 const bundled=await build({entryPoints:["lib/person-analysis-navigation.ts"],bundle:true,write:false,platform:"node",format:"esm"});
-const {groupAnalysisPeople,capturePersonHref,capturePersonSearchHref,analysisFocus,withAnalysisFocus}=await import("data:text/javascript;base64,"+Buffer.from(bundled.outputFiles[0].text).toString("base64"));
+const {groupAnalysisPeople,capturePersonHref,captureMomentsSupplementHref,capturePersonSearchHref,analysisFocus,withAnalysisFocus,withCaptureQuestion}=await import("data:text/javascript;base64,"+Buffer.from(bundled.outputFiles[0].text).toString("base64"));
 const owner="owner-a";
 const library=(id,kind,friend,subjectId="",account="wx-a")=>({id,kind,friend,ownerId:owner,account,total:kind==="chat"?675:23,pending:0,createdAt:"2026-10-16T00:00:00Z",updatedAt:"2026-10-18T00:00:00Z",warnings:[],reportLinks:[],cloud:subjectId?{subjectId,enabled:true}:undefined});
 const people=[
@@ -32,4 +32,13 @@ assert.equal(searchLink.searchParams.get("contactSearch"),"雅欣 & 小雅");
 assert.equal(searchLink.searchParams.get("subjectId"),null,"A name is not an archive assignment");
 assert.equal(searchLink.searchParams.get("libraryId"),null);
 assert.equal(new URL(capturePersonSearchHref("  \n"),"https://example.test").searchParams.get("contactSearch"),null);
+const supplement=new URL(captureMomentsSupplementHref('subject','cl_chat','/report?id=11111111-1111-4111-8111-111111111111'),'https://example.test');
+assert.equal(supplement.searchParams.get('intent'),'supplement-moments');assert.equal(supplement.searchParams.get('kind'),'moments');assert.equal(supplement.searchParams.get('method'),'desktop');assert.equal(supplement.searchParams.get('libraryId'),'cl_chat');assert.equal(supplement.searchParams.get('subjectId'),'subject');assert.equal(supplement.searchParams.get('returnTo'),'/report?id=11111111-1111-4111-8111-111111111111');
+assert.equal(new URL(captureMomentsSupplementHref('subject','cl_chat','https://evil.test'),'https://example.test').searchParams.get('returnTo'),null);
+assert.equal(new URL(captureMomentsSupplementHref('subject','cl_chat','/report?id=x','risk'),'https://example.test').searchParams.get('question'),'risk');
+assert.equal(new URL(captureMomentsSupplementHref('subject','cl_chat','','forged'),'https://example.test').searchParams.get('question'),null);
+assert.equal(withCaptureQuestion('/capture?kind=chat#current','risk'),'/capture?kind=chat&question=risk#current');
+assert.equal(withCaptureQuestion('/capture?question=next','risk'),'/capture?question=risk');
+assert.equal(withCaptureQuestion('https://other.test','risk'),'https://other.test');
+assert.equal(withCaptureQuestion('/capture','forged'),'/capture');
 console.log("Person entry grouping, ownership, identity isolation, source routing and focus handoff passed.");

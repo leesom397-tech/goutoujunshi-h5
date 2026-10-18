@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { build } from "esbuild";
 const compiled=await build({entryPoints:["lib/capture-semantic-history.ts"],bundle:true,write:false,format:"cjs",platform:"node",logLevel:"silent"});
 const compiledModule={exports:{}};new Function("module","exports",compiled.outputFiles[0].text)(compiledModule,compiledModule.exports);
-const { analyzeCaptureSemanticHistory, chunkCaptureHistory, hasCompleteHistorySynthesis, validatedHistoryAffinity, validatedChunkFindings, validatedSynthesis }=compiledModule.exports;
+const { analyzeCaptureSemanticHistory, chunkCaptureHistory, hasCompleteHistorySynthesis, validatedHistoryAffinity, validatedChunkFindings, validatedSynthesis,validatedRiskAssessment,groundedRiskFindings }=compiledModule.exports;
 
 const row = (index, text = `第${index}条消息：周末见面以后继续聊安排。`) => ({
   localId: `real-source-${index}`, kind: "text", senderRole: index % 2 ? "other" : "self",
@@ -24,6 +24,8 @@ const tampered = validatedChunkFindings({ findings: [
 ] }, chunks[0], 0);
 assert.equal(tampered.length, 1);
 assert.equal(tampered[0].evidence[0].sourceId, "real-source-1");
+const distinctActors=validatedChunkFindings({findings:[{subject:'other',claim:'主动讨论安排',evidence:[{sourceId:chunks[0][0].alias,quote:'继续聊安排'}]},{subject:'self',claim:'主动讨论安排',evidence:[{sourceId:chunks[0][1].alias,quote:'继续聊安排'}]}]},chunks[0],0);
+assert.deepEqual(distinctActors.map(item=>item.subject),['other','self'],'the same wording about different actors must not merge their identities');
 
 const seen = [];
 const qwen = async messages => {
@@ -162,4 +164,28 @@ assert.equal(hasCompleteHistorySynthesis(explicitInsufficient,[evidenceFindings[
 assert.equal(hasCompleteHistorySynthesis({...explicitInsufficient,action:"确认安排",actionEvidenceIds:["chat"]},[evidenceFindings[0]],true),false,"a grounded proposed action must not lose its usable plan");
 assert.equal(hasCompleteHistorySynthesis({...explicitInsufficient,action:"确认安排",actionEvidenceIds:["chat"],actionPlan:{goal:"connection",steps:[{...step,evidenceIds:["chat"]}]}},[evidenceFindings[0]],true),true);
 assert.equal(hasCompleteHistorySynthesis({...detailedBase,affinityAssessment:{dimensions:[{...rated[0],level:90}]}},[evidenceFindings[0]],true),false);
+const riskOriginal=[{localId:'risk-original',kind:'text',senderRole:'other',at:'2026-10-01T10:00:00Z',text:'把验证码发给我。'},{localId:'self-refusal',kind:'text',senderRole:'self',at:'2026-10-01T10:01:00Z',text:'我不会给你验证码。'},{localId:'later-response',kind:'text',senderRole:'other',at:'2026-10-01T10:05:00Z',text:'不用给我验证码了，你在官方页面自己操作。'}];
+const riskReview={signals:[{title:'索取验证码',alternative:'可能误把正常流程说错，需核实。',sources:[{sourceId:'risk-original',at:'1999-01-01',quote:'把验证码发给我。',response:{sourceId:'self-refusal',at:'1999-01-01',quote:'我不会给你验证码。'}}]}]};
+const anchors=groundedRiskFindings(riskReview,riskOriginal);
+assert.equal(anchors[0].subject,'other');assert.equal(anchors[0].evidence[0].at,riskOriginal[0].at,'risk dates come from originals, not supplied review metadata');
+assert.deepEqual(groundedRiskFindings({...riskReview,signals:[{...riskReview.signals[0],sources:[{sourceId:'self-refusal',quote:'我不会给你验证码。'}]}]},riskOriginal),[],'self words cannot become a warning about the other person');
+assert.deepEqual(groundedRiskFindings({...riskReview,signals:[{...riskReview.signals[0],sources:[{sourceId:'risk-original',quote:'发银行卡给我'}]}]},riskOriginal),[],'stale or invented risk excerpts are rejected');
+const riskFinding=[...anchors,{id:'refusal',claim:'你拒绝提供',confidence:'高',alternative:'不推测动机',evidence:[{...riskOriginal[1],sourceId:riskOriginal[1].localId,quote:riskOriginal[1].text}]},{id:'clarification',claim:'对方后来改变说明',confidence:'中',alternative:'仍需独立核验',evidence:[{...riskOriginal[2],sourceId:riskOriginal[2].localId,quote:riskOriginal[2].text}]}];
+const riskItem={title:'验证码索取后来已有明确更正',subject:'other',meaning:'对方曾要求你提供账号验证码，之后明确说改由你自行操作，前后说明需要一并看。',evidenceIds:['risk:1'],timeRange:{start:'1900-01-01',end:'2099-01-01'},resolution:{status:'clarified',reading:'五分钟后对方改口，要求你自己在官方页面操作。',evidenceIds:['clarification']},alternative:'可能是对流程表达不清，澄清也不能替代你自己验证操作渠道。',verify:{action:'仅在自己确认的官方页面操作，不分享验证码。',question:'我会在官方页面自行操作，可以确认你不需要我的验证码吗？',outcomes:[{when:'对方接受你自行操作',nextStep:'保留边界并核实官方流程；不因一句澄清就发送验证码。'},{when:'对方再次要求验证码',nextStep:'停止这一操作并保留记录。'}]}};
+const riskAssessment={status:'signals',summary:'一项账号边界表达后来更正，核实后再决定是否操作。',items:[riskItem]};
+const checkedRisk=validatedRiskAssessment(riskAssessment,riskFinding);
+assert.equal(checkedRisk.items[0].resolution.status,'clarified','genuine later clarification on the same day is accepted');
+assert.deepEqual(checkedRisk.items[0].timeRange,{start:'2026-10-01',end:'2026-10-01'});
+assert.equal(validatedRiskAssessment({...riskAssessment,items:[{...riskItem,resolution:{...riskItem.resolution,evidenceIds:['refusal']}}]},riskFinding),undefined,'the user refusing is not the other person clarifying');
+assert.equal(validatedRiskAssessment({...riskAssessment,items:[{...riskItem,subject:'self'}]},riskFinding),undefined);
+assert.equal(validatedRiskAssessment({...riskAssessment,items:[{...riskItem,evidenceIds:['refusal']}]},riskFinding),undefined);
+assert.equal(validatedRiskAssessment({...riskAssessment,items:[{...riskItem,evidenceIds:['photo']}]},[...riskFinding,...evidenceFindings]),undefined,'public photos cannot become private risk signals');
+const riskBase={summary:'核实账号边界',explanation:'原始要求与后续更正都存在，应保持不提供验证码的边界。',summaryEvidenceIds:['risk:1'],affinityAssessment:{dimensions:[],unavailableReason:'这些原话不支持评价接近意愿。'}};
+assert.equal(hasCompleteHistorySynthesis(riskBase,riskFinding,true,'risk'),false,'risk goals cannot complete with only generic prose');
+assert.equal(hasCompleteHistorySynthesis({...riskBase,riskAssessment},riskFinding,true,'risk'),true);
+assert.equal(hasCompleteHistorySynthesis({...riskBase,riskAssessment:{status:'no_supported_signal',summary:'没有风险',items:[]}},riskFinding,true,'risk'),false,'verified risk anchors cannot be silently omitted');
+assert.equal(hasCompleteHistorySynthesis({...explicitInsufficient,riskAssessment:{status:'no_supported_signal',summary:'当前邀请原话没有明确风险信号，仍不能确认绝对安全。',items:[]}},[evidenceFindings[0]],true,'risk'),true,'a risk report does not have to invent a warning');
+const selfProfile=validatedSynthesis({profileInsights:[{subject:'other',dimension:'投入与行动',reading:'对方很主动',evidenceIds:['self-only']},{subject:'self',dimension:'投入与行动',reading:'你表达了见面意愿',evidenceIds:['self-only']}]},[selfOnly]);
+assert.equal(selfProfile.profileInsights.length,1);assert.equal(selfProfile.profileInsights[0].subject,'self');
+assert.equal(signals.affinitySignals[0].subject,'other');assert.equal(signals.affinitySignals[0].toward,'self');assert.equal(structured.actionPlan.actor,'self');
 console.log("Capture semantic history passed: all source rows, verified rubric reference ratings, meaningful chronology and action plans, required Moments sections, genuine evidence and honest incomplete states.");

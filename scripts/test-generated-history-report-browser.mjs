@@ -44,7 +44,7 @@ try{for(const width of [1440,390])for(const {name,report} of fixtures){
  await page.$eval('[data-open-moments]',node=>node.click());await page.waitForSelector('[data-history-moments]');
  if(name==="chat-only-210-194"||name==="sparse-dates"){
   assert.match(await page.$eval('[data-history-moments]',node=>node.textContent),/当前报告没有收到这个人的朋友圈/);
-  const link=new URL(await page.$eval('[data-import-moments]',node=>node.getAttribute('href')),origin);assert.equal(link.searchParams.get('kind'),'chat');assert.equal(link.searchParams.get('libraryId'),report.archiveSnapshot.libraryId);assert.equal(link.searchParams.get('subjectId'),subjectId);assert.equal(link.searchParams.get('returnTo'),'/report?id='+reportId);assert.equal(await page.$('[data-moments-synthesis]'),null);
+  const link=new URL(await page.$eval('[data-import-moments]',node=>node.getAttribute('href')),origin);assert.equal(link.searchParams.get('kind'),'moments');assert.equal(link.searchParams.get('method'),'desktop');assert.equal(link.searchParams.get('intent'),'supplement-moments');assert.equal(link.searchParams.get('libraryId'),report.archiveSnapshot.libraryId);assert.equal(link.searchParams.get('subjectId'),subjectId);assert.equal(link.searchParams.get('returnTo'),'/report?id='+reportId);assert.equal(await page.$('[data-moments-synthesis]'),null);
  }else {
   assert.match(await page.$eval('[data-history-moments]',node=>node.textContent),/已导入 3 条朋友圈/);
   assert.match(await page.$eval('[data-history-moments]',node=>node.textContent),/图片已解读 3 \/ 3 张/);

@@ -1,4 +1,5 @@
 import { intakeReturnTo } from "../components/web-analysis/intake-navigation";
+import { captureReportQuestion } from "./person-analysis-navigation";
 
 const ENTRY_TTL = 30 * 60_000;
 const CHANNEL = "chengzi-capture-connection:v1";
@@ -11,9 +12,10 @@ export function captureConnectionEntry(href: string): string {
     const url = new URL(href, "https://capture.invalid");
     if (url.pathname !== "/capture") return "";
     const params = new URLSearchParams({ method: "desktop" }), input = url.searchParams;
-    if (input.get("intent") === "person") params.set("intent", "person");
+    if (["person","supplement-moments"].includes(input.get("intent") || "")) params.set("intent", input.get("intent")!);
     if (["chat", "moments"].includes(input.get("kind") || "")) params.set("kind", input.get("kind")!);
     if (["affinity", "intent", "reply"].includes(input.get("focus") || "")) params.set("focus", input.get("focus")!);
+    const question=captureReportQuestion(input.get("question"));if(question)params.set("question",question);
     const subject = input.get("subjectId") || "", library = input.get("libraryId") || "", search = input.get("contactSearch") || "";
     if (/^[a-f0-9-]{36}$/i.test(subject)) params.set("subjectId", subject);
     if (library && library.length <= 500 && !/[\u0000-\u001f\\]/.test(library)) params.set("libraryId", library);

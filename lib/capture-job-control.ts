@@ -17,7 +17,7 @@ export function checkpointedCaptureModel(qwen: typeof qwenChat, checkpoint: Capt
     const phase = options?.vision ? "images" : Array.isArray(detail.rows) ? "segments" : "synthesis";
     // Earlier synthesis checkpoints accepted a one-line summary as a complete
     // report. Invalidate those while retaining all verified segment/image work.
-    const encoded = JSON.stringify({version: phase === "synthesis" ? 2 : 1, messages, options});
+    const encoded = JSON.stringify({version: phase === "synthesis" ? 3 : 1, messages, options});
     const key = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(encoded))), b => b.toString(16).padStart(2, "0")).join("");
     const cached = await checkpoint(key);
     if (typeof cached?.text === "string") return cached.text;
@@ -36,7 +36,7 @@ export function checkpointedCaptureModel(qwen: typeof qwenChat, checkpoint: Capt
       let parsed: any;
       try { parsed = JSON.parse(text.replace(/^\s*```(?:json)?\s*|\s*```\s*$/g, "")); } catch { throw new CaptureJobRetry("本段结果需要重新核对。"); }
       if (phase === "segments" && !Array.isArray(parsed?.findings) || phase === "images" && (typeof parsed?.readable !== "boolean" || typeof parsed?.observation !== "string") || phase === "synthesis" && typeof parsed?.summary !== "string") throw new CaptureJobRetry("本段结果需要重新核对。");
-      if (phase === "synthesis" && !hasCompleteHistorySynthesis(parsed, Array.isArray(detail.findings) ? detail.findings : [],detail.fullHistory===true)) throw new CaptureJobRetry("综合判断与推理尚未生成完整，正在补全；已核对的原文会保留。");
+      if (phase === "synthesis" && !hasCompleteHistorySynthesis(parsed, Array.isArray(detail.findings) ? detail.findings : [],detail.fullHistory===true,detail.question)) throw new CaptureJobRetry("综合判断与推理尚未生成完整，正在补全；已核对的原文会保留。");
       await checkpoint(key, {text, phase, count,captionCount});
       return text;
     })();

@@ -19,6 +19,7 @@ import { riskAwarePresentation, riskReplyAllowed } from "@/lib/risk-aware-presen
 import { RelationshipJourney } from "@/components/RelationshipJourney";
 import { projectRelationshipContext } from "@/lib/relationship-context";
 import { CaptureEvidence, CaptureEvidenceProvider } from "./CaptureEvidence";
+import { reportIdentity, reportGoal } from "./report-context";
 import { PersonalConnection } from "./PersonalConnection";
 import { ChatActivity } from "@/components/ChatActivity";
 import { RelationshipDiagnosisPanel } from "./RelationshipDiagnosisPanel";
@@ -112,6 +113,16 @@ const fullMomentsSections:ReadingSection[]=[
  {id:'change',label:'动态变化',caption:'有依据的前后变化',tone:'teal'},
  {id:'next',label:'聊什么',caption:'话题切口与相处建议',tone:'slate'},
 ];
+const riskSections:ReadingSection[]=[
+ {id:'status',label:'风险结论',caption:'哪些值得警惕，哪些还不能下结论',tone:'coral'},
+ {id:'change',label:'证据核实',caption:'谁说了什么，后来有没有澄清',tone:'teal'},
+ {id:'next',label:'如何应对',caption:'你怎样核实，什么回应值得停下来',tone:'slate'},
+];
+const connectionSections:ReadingSection[]=[
+ {id:'status',label:'TA的态度',caption:'对你的好感信号与实际投入',tone:'coral'},
+ {id:'change',label:'互动变化',caption:'谁变了，哪些行为支持变化',tone:'teal'},
+ {id:'next',label:'怎么聊推进',caption:'给你的表达与下一步',tone:'slate'},
+];
 const reportRows=(value:unknown):Json[]=>Array.isArray(value)?value.filter(item=>item&&typeof item==='object'):[];
 function RelationshipChanges({diagnosis,semantic}:{diagnosis:Json|null;semantic?:Json}){
  const claims=reportRows(diagnosis?.claimActions);
@@ -129,6 +140,7 @@ export function ChatReport({report,account,styleReportIds,preview=false,publicEx
  const semantic=report.semanticHistory||diagnosis?.semanticHistory;
  const fullHistory=report.analysisScope==='fullHistory'||report.captureFormat==='full-history';
  const momentOnly=fullHistory&&report.captureKind==='moments';
+ const identity=reportIdentity(report),goal=reportGoal(report);
  const hasCurrentLines=!fullHistory&&!report.sentenceSampleNote&&Array.isArray(report.lines)&&report.lines.length>0;
  const journey=report.relationshipContext||projectRelationshipContext({ownerId:"current",subjectId:report.subjectId||"current",reports:[{id:report.reportId||report.id||"current",owner_id:"current",subject_id:report.subjectId||"current",kind:"chat",status:"done",result:report,created_at:0}],activity:report.chatActivity||null,activityStatus:report.chatActivity?"saved":"missing"});
  const action= presentation.nextStep||diagnosis?.decision?.recommendation||'结合下一次真实回应，再更新判断。';
@@ -139,14 +151,16 @@ export function ChatReport({report,account,styleReportIds,preview=false,publicEx
  function askGoal(goal:'connection'|'risk'){try{followup(actionReport,account!.account.userId,'完整报告追问',{title:goal==='risk'?'核实风险与边界':'聊天与推进',summary:semantic?.explanation||semantic?.summary||action,question:goal==='risk'?'基于这个人的全部已保存资料，哪些具体风险值得核实？请区分原话证据、其他解释、我该怎样确认，以及什么回应需要暂停投入。':'基于这个人的全部已保存资料，我下一步怎样自然聊天或推进？请给具体表达、这样说的原因、合适时机，以及对方不同回应时我怎么接。'});}catch(error){setFollowupError(message(error));}}
  const historyCount=momentOnly?report.archiveSnapshot?.total??reportRows(report.sourceCoverage).filter(row=>row.kind==='moments').reduce((sum,row)=>sum+(Number.isFinite(row.total)?row.total:0),0):semantic?.coverage?.totalImported??diagnosis?.coverage?.total??report.chatActivity?.messages;
  return <CaptureEvidenceProvider ownerId={publicExample?undefined:account?.account?.userId} reportId={report.reportId||report.id} captureOrigin={report.captureOrigin===true} fullHistory={fullHistory} historyKind={momentOnly?'moments':'chat'} historyCount={historyCount}><div className={reportStyles.document}>
-  <ReportReader key={readingScope||report.reportId||report.id||"chat-report"} storageKey={readingScope} initialSection={initialFocus==='reply'?'next':initialFocus==='intent'&&!fullHistory?'change':initialFocus==='affinity'||initialFocus==='intent'?'status':undefined} items={hasCurrentLines ? screenshotSections : momentOnly?fullMomentsSections:chatSections}>{active=><>
+  <div className={reportStyles.participantScope} data-report-participants><span>正在分析</span><strong>{identity.direction}</strong><small>{goal==='risk'?`核实${identity.other}在这段关系中的风险与边界`:goal==='connection'?`看${identity.other}对你的态度，给你下一步建议`:`看清${identity.other}与你的互动、变化与下一步`}</small></div>
+  <ReportReader key={readingScope||report.reportId||report.id||"chat-report"} storageKey={readingScope} initialSection={initialFocus==='reply'?'next':initialFocus==='intent'&&!fullHistory?'change':initialFocus==='affinity'||initialFocus==='intent'?'status':undefined} items={hasCurrentLines ? screenshotSections : momentOnly?fullMomentsSections:goal==='risk'?riskSections:goal==='connection'?connectionSections:chatSections}>{active=><>
    {active==='status'&&<>
-    {fullHistory&&<HistoryReportEntry report={report} onSelect={openHistory}/>}
+    {fullHistory&&goal!=='risk'&&<HistoryReportEntry report={report} onSelect={openHistory}/>}
     {!preview&&!publicExample&&<ReportFollowUp report={actionReport} owner={account?.account?.userId}/>}
     {hasCurrentLines&&<AffinityOverview report={report}/>}
     <ChatReportBrief report={report} diagnosis={diagnosis} showMetrics={!fullHistory}/>
     {decision.partial&&<p className="wa-status">部分材料未识别；下方依据只覆盖可读内容。</p>}
-    <RiskReview report={report}/>
+    <RiskReview report={report} summaryOnly={fullHistory&&goal==='risk'}/>
+    {fullHistory&&goal==='risk'&&<HistoryReportEntry report={report} onSelect={openHistory}/>}
     {fullHistory&&<HistoryReportReading report={report} diagnosis={diagnosis} section={historySection} onSectionChange={setHistorySection}/>}
     <div className={reportStyles.detailLinks}><h2><BookOpen size={19}/>深入读这份报告</h2><ReportCoverage report={report}/>
      {!fullHistory&&(diagnosis||semantic)&&<ReportDetails title="为什么这样判断" description="详细解读、相反证据与其他可能"><RelationshipDiagnosisPanel diagnosis={diagnosis} semanticHistory={semantic} hideCoverage={!!report.sourceCoverage?.length}/></ReportDetails>}
@@ -161,7 +175,7 @@ export function ChatReport({report,account,styleReportIds,preview=false,publicEx
     {fullHistory?<HistoryChangeReading report={report}/>:<RelationshipJourney embedded context={journey} currentReportId={report.reportId||report.id}/>}
     <RelationshipChanges diagnosis={diagnosis} semantic={semantic}/>
     {publicExample&&report.demo===true&&report.publicEvidenceReview&&<section className="wa-card"><RelationshipEvidenceCards review={report.publicEvidenceReview} publicExample/></section>}
-    {report.chatActivity&&<ChatActivity summary={report.chatActivity}/>}
+    {report.chatActivity&&(goal==='risk'?<ReportDetails title="互动统计" description="核实联系与回应的背景"><ChatActivity summary={report.chatActivity} friend={identity.other}/></ReportDetails>:<ChatActivity summary={report.chatActivity} friend={identity.other}/>)}
     {fullHistory&&<ReportDetails title="完整相处历程与来源" description="按日期核对聊天、动态与已确认经历"><RelationshipJourney embedded context={journey} currentReportId={report.reportId||report.id}/></ReportDetails>}
     </>}
    </>}

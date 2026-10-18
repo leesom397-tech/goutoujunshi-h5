@@ -34,7 +34,7 @@ const fixture = {
     if (phase === 'images') return JSON.stringify({ readable: true, observation: '合成预览中可见海边步道。' });
     if (phase === 'segments') return JSON.stringify({ findings: detail.rows.slice(0, 2).map(row => ({ claim: '这段原文涉及安排。', confidence: '低', alternative: '日常交流不能证明关系意图。', evidence: [{ sourceId: row.sourceId, quote: row.text.slice(0, 30) }] })) });
     const moments=detail.findings?.filter(item=>item.evidence?.some(source=>source.sourceKind==='moments'))||[];
-    return JSON.stringify({ summary: '根据这些合成聊天，可以进一步确认实际安排。', explanation: '原话出现了对安排的讨论，但尚没有明确确认赴约的证据，所以可以核实时间，不能把讨论直接当作承诺。', summaryEvidenceIds: detail.findings?.length ? [detail.findings[0].id] : [], action: '确认双方方便的时间。', actionEvidenceIds: detail.findings?.length ? [detail.findings[0].id] : [], observeWindow: '下一次约定', stopCondition: '明确拒绝就停止',affinityAssessment:{dimensions:[],unavailableReason:'这些合成原话只泛泛讨论安排，没有足够的具体互动维度。'},actionPlan:{goal:'connection',rationale:'目前只有安排的讨论。',steps:[{title:'确认安排',action:'确认双方方便的时间。',why:'讨论尚未形成明确确认。',evidenceIds:detail.findings?.length?[detail.findings[0].id]:[],observeFor:'下一次相关回应',advanceWhen:'双方确认时间后再安排。',stopWhen:'明确拒绝就停止。'}]},...(moments.length?{sourceInsights:{moments:{summary:'已核对的动态呈现了具体活动线索，不能据此推断恋爱意愿。',evidenceIds:[moments[0].id],unknowns:['不清楚是否与用户共同参与']}}}:{}) });
+    return JSON.stringify({ riskAssessment:{status:'no_supported_signal',summary:'合成日常安排没有可核验的风险原话，不能据此保证不存在风险。',items:[]},summary: '根据这些合成聊天，可以进一步确认实际安排。', explanation: '原话出现了对安排的讨论，但尚没有明确确认赴约的证据，所以可以核实时间，不能把讨论直接当作承诺。', summaryEvidenceIds: detail.findings?.length ? [detail.findings[0].id] : [], action: '确认双方方便的时间。', actionEvidenceIds: detail.findings?.length ? [detail.findings[0].id] : [], observeWindow: '下一次约定', stopCondition: '明确拒绝就停止',affinityAssessment:{dimensions:[],unavailableReason:'这些合成原话只泛泛讨论安排，没有足够的具体互动维度。'},actionPlan:{goal:'connection',rationale:'目前只有安排的讨论。',steps:[{title:'确认安排',action:'确认双方方便的时间。',why:'讨论尚未形成明确确认。',evidenceIds:detail.findings?.length?[detail.findings[0].id]:[],observeFor:'下一次相关回应',advanceWhen:'双方确认时间后再安排。',stopWhen:'明确拒绝就停止。'}]},...(moments.length?{sourceInsights:{moments:{summary:'已核对的动态呈现了具体活动线索，不能据此推断恋爱意愿。',evidenceIds:[moments[0].id],unknowns:['不清楚是否与用户共同参与']}}}:{}) });
   },
   budget() { reserveBudgets++; },
 };
@@ -59,7 +59,7 @@ const mockSources = new Map([
   ['./lib/web-native-auth.mjs', 'export const authCookie=()=>"synthetic-session"'],
   ['./lib/web-identity-state.mjs', 'export const withWebIdentityScope=(_cookie,run)=>run()'],
 ]);
-const built = await build({ stdin: { contents: `export {CaptureHistoryJobs} from './lib/capture-history-jobs.mjs';export * as route from './app/api/web/capture/analyze/route.ts';export * as cloud from './lib/capture-cloud-server.ts';export {default as worker} from './worker-entry.mjs';export * from './lib/capture-job-control.ts';`, resolveDir: process.cwd(), sourcefile: 'capture-durable-test.ts' },
+const built = await build({ stdin: { contents: `export {CaptureHistoryJobs} from './lib/capture-history-jobs.mjs';export * as route from './app/api/web/capture/analyze/route.ts';export * as cloud from './lib/capture-cloud-server.ts';export {default as worker} from './worker-entry.mjs';export * from './lib/capture-job-control.ts';export {CAPTURE_REPORT_VERSION} from './lib/capture-report-version.ts';`, resolveDir: process.cwd(), sourcefile: 'capture-durable-test.ts' },
   bundle: true, write: false, format: 'cjs', platform: 'node', logLevel: 'silent', plugins: [{ name: 'synthetic-only', setup(build) {
     build.onResolve({ filter: /.*/ }, args => {
       const key = /dist\/server\/index\.js$/.test(args.path) ? 'app' : args.path;
@@ -69,7 +69,7 @@ const built = await build({ stdin: { contents: `export {CaptureHistoryJobs} from
   } }] });
 const module = { exports: {} };
 new Function('module', 'exports', 'require', 'fetch', built.outputFiles[0].text)(module, module.exports, require, () => assert.fail('No external network permitted'));
-const { CaptureHistoryJobs, route, cloud, worker, checkpointedCaptureModel, allCaptureSteps, CaptureJobYield, CaptureJobRetry } = module.exports;
+const { CaptureHistoryJobs, route, cloud, worker, checkpointedCaptureModel, allCaptureSteps, CaptureJobYield, CaptureJobRetry, CAPTURE_REPORT_VERSION } = module.exports;
 fixture.dispatch = request => route.POST(request);
 
 function makeStorage() {
@@ -296,7 +296,7 @@ await test('real route serializes cited affinity, chronological changes, useful 
     return JSON.stringify({summary:chat.length?'从聊散步到约定和回顾，实际接触有了推进，恋爱意愿尚待确认。':'动态呈现了散步活动，可从具体路线自然聊起。',explanation:chat.length?'早些原话提到一起散步，后面出现了具体时间与活动回顾，实际相处的证据比单纯聊得热闹更充分。\n\n不过，开心地一起活动也可能是朋友相处。对方还没有明确表达恋爱意愿，下一步适合回应具体体验，不宜据此追问关系承诺。':'配文和可见图片都涉及海边步道，支持把散步作为当前可聊的话题。公开动态无法证明对方对用户的态度，也不能据此判断收入、性格或恋爱意愿。',summaryEvidenceIds:[cite],affinityAssessment:{dimensions,unavailableReason:chat.length?'':'本次只有朋友圈，没有双方聊天，不能评价对方对你的好感。'},affinitySignals:chat.length?[{direction:'support',signal:'安排从提议走到具体时间',meaning:'具体安排和活动回顾支持愿意继续接触，但尚不等于恋爱确认。',evidenceIds:[latest.id],alternative:'也可能是舒适的朋友活动。'}]:[],changeInsights:earliest&&latest?[{title:'从讨论活动到出现活动回顾',before:{reading:'之前还在提出一起散步的想法。',evidenceIds:[earliest.id]},after:{reading:'之后出现具体安排，并回顾一起活动的体验。',evidenceIds:[latest.id]},meaning:'接触已经不只停留在口头提议，下一次可顺着共同体验自然推进。',alternative:'朋友之间也可能有同样的活动安排，尚不能确认恋爱意图。'}]:[],actionPlan:{goal:'connection',rationale:chat.length?'已有共同活动和对方愿意继续约的原话。':'已有具体动态话题，可从公开内容开场。',steps:[{title:chat.length?'回应共同体验':'从具体动态开场',action:chat.length?'回应散步时你也喜欢的一个细节，再接住下一次邀约。':'聊动态中的步道路线，先看看对方是否愿意展开。',why:chat.length?'对方已经回顾体验并提到下次，回应这件事比另起无关话题自然。':'配文提供了具体话题，不需要根据照片猜测私人情况。',evidenceIds:[actionSource],observeFor:'下一轮与这个话题有关的真实互动',advanceWhen:'对方也延续话题并愿意共同确认安排时再推进。',stopWhen:'对方明确拒绝或表示不想继续，就停止推进。',reply:chat.length?'我也挺开心的，海边那段走起来很舒服，下次再一起走呀。':'看到你分享海边步道，那段路走起来感觉怎么样？'}]},...(moments.length?{sourceInsights:{moments:{summary:'动态配文记录了海边散步，图片可见步道场景，可以作为生活话题线索。',evidenceIds:[moments[0].id],unknowns:['无法判断是否与用户同行'],...(chat.length?{crossSource:{summary:'聊天和动态都出现散步话题，但日期不同，不能断定是同一次活动。',evidenceIds:[cite,moments[0].id]}}:{})}}}:{})});
   };
   await start(data.owner,data.body);const joint=await finish(data.owner);assert.equal(joint.status,'done',joint.error);
-  assert.equal(joint.result.analysisVersion,2);assert.equal(joint.result.affinity.contextCount,194);assert.equal(typeof joint.result.affinity.value,'number');assert.equal(joint.result.affinity.dimensions.length,6);
+  assert.equal(joint.result.analysisVersion,CAPTURE_REPORT_VERSION);assert.equal(joint.result.affinity.contextCount,194);assert.equal(typeof joint.result.affinity.value,'number');assert.equal(joint.result.affinity.dimensions.length,6);
   assert.equal(joint.result.semanticHistory.changeInsights.length,1);assert.ok(joint.result.semanticHistory.actionPlan.steps[0].reply);assert.ok(joint.result.semanticHistory.sourceInsights.moments.crossSource);
   assert.equal(joint.result.sourceCoverage.find(source=>source.kind==='chat').total,210);assert.equal(joint.result.sourceCoverage.find(source=>source.kind==='chat').textRead,194);
   assert.equal(joint.result.sourceCoverage.find(source=>source.kind==='moments').total,3);assert.equal(calls.slice(before).filter(call=>call.phase==='segments').flatMap(call=>call.detail.rows).filter(row=>row.basis==='chat-original').length,194);
@@ -304,6 +304,35 @@ await test('real route serializes cited affinity, chronological changes, useful 
   const chatOnlyBody={...data.body,requestId:crypto.randomUUID(),relatedSnapshots:[]};await start(data.owner,chatOnlyBody);const chatOnly=await finish(data.owner);assert.equal(chatOnly.status,'done',chatOnly.error);assert.equal(chatOnly.result.sourceCoverage.length,1);assert.match(chatOnly.result.captureMediaNote,/尚未提供朋友圈/);writeFileSync(folder+'/chat-only-210-194.json',JSON.stringify(chatOnly.result,null,2));
   const momentsBody={...data.body,requestId:crypto.randomUUID(),kind:'moments',libraryId:momentsId,expectedTotal:3,relatedSnapshots:[]};await start(data.owner,momentsBody);const momentOnly=await finish(data.owner);assert.equal(momentOnly.status,'done',momentOnly.error);
   assert.equal(momentOnly.result.kind,'profile');assert.equal(momentOnly.result.captureKind,'moments');assert.equal(momentOnly.result.chatActivity,undefined);assert.equal(momentOnly.result.affinity,undefined);assert.equal(momentOnly.result.sourceCoverage.length,1);assert.equal(momentOnly.result.sourceCoverage[0].kind,'moments');assert.equal(momentOnly.result.sourceCoverage[0].textRead,3);assert.equal(momentOnly.result.sourceCoverage[0].imagesAnalyzed,3);assert.ok(momentOnly.result.semanticHistory.sourceInsights.moments);writeFileSync(folder+'/moments-only.json',JSON.stringify(momentOnly.result,null,2));
+});
+
+await test('risk goal keeps named subjects, early warnings, later clarification and conditional next steps',async()=>{
+  const data=await setup(10),before=calls.length;data.body.question='risk';
+  sql.prepare('UPDATE coach_subjects SET label=? WHERE id=?').run('合成对象林澈',data.subject);
+  const words={0:'我希望长期稳定地相处。',1:'把验证码发给我。',2:'我不会提供验证码，我会自己操作。',3:'不用给我验证码了，你自己在官方页面操作。刚才是我说法不合适。',5:'我只想短期交往。',6:'我期待长期关系，想知道我们的目标能否一致。',7:'我现在仍然只想短期交往。'};
+  for(const item of sql.prepare('SELECT local_id,record_json FROM coach_capture_records WHERE library_id=?').all(data.library)){
+    const row=JSON.parse(item.record_json),index=Number(row.localId.split('-').at(-1));if(words[index])row.text=words[index];row.at=`2026-01-${String(index+1).padStart(2,'0')}T10:00:00.000Z`;
+    sql.prepare('UPDATE coach_capture_records SET record_json=?,sort_time=? WHERE library_id=? AND local_id=?').run(JSON.stringify(row),Date.parse(row.at),data.library,row.localId);
+  }
+  let synthesisCalls=0;
+  providerFailure=messages=>{
+    const detail=JSON.parse(messages.at(-1).content);
+    assert.equal(detail.participantLabels.self,'你');assert.equal(detail.participantLabels.other,'合成对象林澈');
+    if(detail.rows)return JSON.stringify({findings:detail.rows.filter(row=>Object.values(words).includes(row.text)).map(row=>({subject:row.role,claim:`${row.role==='self'?'你':'林澈'}的具体表达：${row.text}`,confidence:'中',alternative:'只根据这句表达不能确定未记录的事实。',evidence:[{sourceId:row.sourceId,quote:row.text}]}))});
+    const anchors=detail.findings.filter(item=>item.id.startsWith('risk:'));assert.equal(anchors.length,2);
+    const code=anchors.find(item=>item.evidence.some(source=>source.quote==='把验证码发给我。')),expectation=anchors.find(item=>item!==code);
+    const clarification=detail.findings.find(item=>item.evidence.some(source=>source.quote===words[3]));
+    const base={summary:'林澈的验证码要求后来有明确更正，但短期关系期待仍与你的长期期待不同。',explanation:'验证码要求发生在一月二日；你拒绝后，林澈在一月四日明确说由你自己在官方页面操作，因此不能只展示最早一句就认定当前仍在索取。\n\n关系期待是另一件事。林澈后来仍表达短期交往，而你明确希望长期稳定。需要把这个实际差异问清楚，不能用更主动的投入替代双方目标一致。',summaryEvidenceIds:[code.id,expectation.id],affinityAssessment:{dimensions:[],unavailableReason:'这些原话主要涉及边界与关系目标，缺少足够互动维度合成好感参考度。'},action:'先确认双方现在是否接受相同的关系目标。',actionEvidenceIds:[expectation.id],actionPlan:{goal:'risk',rationale:'已经存在明确的关系目标差异。',steps:[{title:'先确认目标',action:'说明你希望长期稳定，询问林澈现在是否愿意朝同样的方向了解。',why:'林澈明确表达短期，而你的期待是长期；这个差异影响你是否继续投入。',evidenceIds:[expectation.id],observeFor:'下一次双方认真讨论关系时',advanceWhen:'双方明确愿意了解长期相处后，再结合实际行动决定。',stopWhen:'林澈仍只接受短期，而你不能接受时停止增加投入。',reply:'我希望的是长期稳定的相处。你现在也愿意往这个方向了解吗？'}]}};
+    if(++synthesisCalls===1)return JSON.stringify(base); // Must retry the missing goal-specific interpretation.
+    return JSON.stringify({...base,riskAssessment:{status:'signals',summary:'账号边界要保留，关系目标差异需要单独确认。',items:[{title:'验证码要求后来已更正',subject:'other',meaning:'林澈曾要求你提供验证码，后来改为你自行操作。两段原话需要一起看，同时保持账号边界。',evidenceIds:[code.id],resolution:{status:'clarified',reading:'一月四日林澈明确更正为你在官方页面自行操作；这不能替代你独立核实渠道。',evidenceIds:[clarification.id]},alternative:'可能是当时对流程表达不清；更正后的说法仍需和实际操作一致。',verify:{action:'只在自己确认的官方页面操作，不发送验证码。',question:'我会在官方页面自行操作，你确认不需要我的验证码，对吗？',outcomes:[{when:'林澈接受你自行操作',nextStep:'保留账号边界，自行核实流程。'},{when:'林澈再次索取验证码',nextStep:'停止操作并保留记录。'}]}},{title:'短期目标与你的长期期待不一致',subject:'other',meaning:'林澈明确表达短期交往，你明确想要长期。短期本身不是欺骗，但它与你继续投入的前提不同。',evidenceIds:[expectation.id],resolution:{status:'unresolved',reading:'较晚原话仍表示短期，目前没有双方达成长期共识的记录。',evidenceIds:[]},alternative:'目标可能随相处阶段改变，但可能改变不能当作已经承诺。',verify:{action:'直接确认当前目标，再决定自己的投入。',question:'我想了解长期稳定的可能，你现在愿意往这个方向相处吗？',outcomes:[{when:'明确愿意了解长期关系',nextStep:'结合之后的具体投入观察，暂不把回答当作承诺兑现。'},{when:'仍只接受短期',nextStep:'如果你不能接受短期，就停止追加投入。'}]}}]}});
+  };
+  await start(data.owner,data.body);const done=await finish(data.owner);assert.equal(done.status,'done',done.error);
+  assert.equal(synthesisCalls,2);assert.equal(calls.slice(before).filter(call=>call.phase==='segments').length,1,'incomplete risk synthesis reuses the verified segment');
+  assert.equal(done.result.analysisQuestion,'risk');assert.equal(done.result.participants.other.label,'合成对象林澈');assert.equal(done.result.semanticHistory.riskAssessment.items.length,2);
+  assert.equal(done.result.semanticHistory.riskAssessment.items[0].resolution.status,'clarified');assert.equal(done.result.semanticHistory.riskAssessment.items[0].timeRange.start,'2026-01-02');
+  assert.equal(done.result.semanticHistory.actionPlan.actor,'self');assert.equal(done.result.affinity.direction,'otherToSelf');assert.equal(balance(data.owner),1000-price);
+  assert.ok(done.result.semanticHistory.riskAssessment.items.every(item=>item.subject==='other'&&item.verify.outcomes.length===2));
+  const folder='outputs/report-route-fixtures';mkdirSync(folder,{recursive:true});writeFileSync(folder+'/risk-person.json',JSON.stringify(done.result,null,2));
 });
 
 await test('summary-only synthesis retries without losing completed evidence or charging a partial report', async()=>{

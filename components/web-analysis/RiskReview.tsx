@@ -9,6 +9,7 @@ import styles from "./RiskReview.module.css";
 import visual from "./RiskVisual.module.css";
 import { CaptureEvidence } from "./CaptureEvidence";
 import type { RiskAwarePresentation } from "@/lib/risk-aware-presentation";
+import { reportIdentity } from "./report-context";
 
 const kinds = {
   safety: { label: "安全与边界", Icon: Shield },
@@ -21,10 +22,11 @@ export function RiskActionNotice({ presentation }: { presentation: RiskAwarePres
   return <aside className={styles.actionNotice} data-risk-action={presentation.mode}><strong><Shield size={19}/>{presentation.title}</strong><p>{presentation.nextStep}</p><small>{presentation.mode === "safety" ? "回复已优先围绕这条明确要求处理边界；是否继续回应，由你决定。" : "先对齐双方当前想法；短期取向本身不代表品德问题。"}</small><CaptureEvidence quote={presentation.priority.evidence}/></aside>;
 }
 
-export function RiskReview({ report }: { report: Json }) {
+export function RiskReview({ report,summaryOnly=false }: { report: Json;summaryOnly?:boolean }) {
   const [selected, setSelected] = useState<keyof typeof kinds | null>(null);
   if (report.targetSelf || report.target === "self") return null;
   const review = relationshipRiskReview(report);
+  const identity=reportIdentity(report);
   const signals = review.signals.slice(0, 4);
   const fullHistory = review.scope === "full-history";
   if (!fullHistory && !signals.length) return null;
@@ -33,15 +35,17 @@ export function RiskReview({ report }: { report: Json }) {
   const count = (signal: typeof signals[number]) => fullHistory ? signal.occurrences || signal.sources?.length || 0 : riskEvidenceOccurrences(report, signal.evidence).count;
   return <section className={visual.review} data-risk-review data-risk-state={state} aria-label={fullHistory ? "全历史风险核实" : "风险与关系预期"}>
     <header className={visual.heading}>
-      <div><span className={visual.eyebrow}><Shield size={15}/>值得多看一眼</span><h2>风险与期待</h2></div>
+      <div><span className={visual.eyebrow}><Shield size={15}/>值得多看一眼</span><h2>{identity.other}与你：风险与期待</h2></div>
       <span className={visual.coverage}>{fullHistory ? `${review.coverage?.readable || 0} 条可读聊天` : "本次上传材料"}</span>
     </header>
     <div className={visual.categories} role="group" aria-label="按类型查看待核实的表达">{(Object.keys(kinds) as Array<keyof typeof kinds>).map(key => {
       const { Icon, label } = kinds[key], matches = signals.filter(signal => signal.kind === key), total = matches.reduce((sum, signal) => sum + count(signal), 0);
-      return <button type="button" key={key} data-risk-category={key} aria-pressed={active === key} onClick={() => setSelected(key)}><span className={visual.categoryIcon}><Icon size={22}/></span><span className={visual.categoryLabel}>{label}</span><span className={visual.categoryCount}><b>{total || (matches.length || !review.assessed ? "—" : "0")}</b><small>{total ? "条表达" : matches.length ? "待核对处数" : review.assessed ? "条明确表达" : "尚未评估"}</small></span></button>;
+      const card=<><span className={visual.categoryIcon}><Icon size={22}/></span><span className={visual.categoryLabel}>{label}</span><span className={visual.categoryCount}><b>{total || (matches.length || !review.assessed ? "—" : "0")}</b><small>{total ? "条表达" : matches.length ? "待核对处数" : review.assessed ? "条明确表达" : "尚未评估"}</small></span></>;
+      return summaryOnly?<div className={visual.categoryStatic} key={key}>{card}</div>:<button type="button" key={key} data-risk-category={key} aria-pressed={active === key} onClick={()=>setSelected(key)}>{card}</button>;
     })}</div>
     {!signals.length && <p className={visual.clear}>{review.summary || "资料还不足以排除风险，继续结合实际相处核实。"}</p>}
-    {signals.length > 0 && <>
+    {summaryOnly&&signals.length>0&&<p className={visual.clear}>{report.semanticHistory?.riskAssessment?.summary||review.summary||`已保留 ${signals.length} 项需要核实的表达。`}</p>}
+    {!summaryOnly&&signals.length > 0 && <>
       <div className={visual.signals}>{signals.filter(signal => signal.kind === active).map((signal, index) => {
         const sources = signal.sources?.length ? signal.sources : [{sourceId:"", at:"", quote:signal.evidence}];
         return <details className={visual.signal} key={`${signal.kind}:${signal.title}:${index}`} data-risk-kind={signal.kind}>
@@ -51,7 +55,7 @@ export function RiskReview({ report }: { report: Json }) {
             <div className={visual.timelineHeading}><h3>原话与后续回应</h3><span data-risk-occurrences>{count(signal) ? `${count(signal)} 条表达` : "具体处数待核对"}</span></div>
             <ol className={visual.timeline}>{sources.map((source, sourceIndex) => <li key={`${source.sourceId}:${sourceIndex}`} data-risk-conversation>
               <div className={visual.timelineDate}><i aria-hidden="true"/><span>{source.at ? reportEvidenceDate(source.at).split(" ")[0] : fullHistory ? "日期待确认" : "本次截图"}</span></div>
-              <div className={visual.conversation}><div className={visual.other}><small>对方{source.at && ` · ${reportEvidenceDate(source.at)}`}</small><blockquote>{source.quote}</blockquote><CaptureEvidence sourceIds={source.sourceId ? [source.sourceId] : undefined} libraryId={"libraryId" in source ? source.libraryId : undefined} sourceKind="chat" quote={source.quote} label="回看这条原话"/></div>{"response" in source && source.response && <div className={visual.self}><small>随后一条我方回应 · {reportEvidenceDate(source.response.at)}</small><blockquote>{source.response.quote}</blockquote><CaptureEvidence sourceIds={[source.response.sourceId]} libraryId={source.libraryId} sourceKind="chat" quote={source.response.quote} label="回看回应"/></div>}</div>
+              <div className={visual.conversation}><div className={visual.other}><small>{identity.other}说{source.at && ` · ${reportEvidenceDate(source.at)}`}</small><blockquote>{source.quote}</blockquote><CaptureEvidence sourceIds={source.sourceId ? [source.sourceId] : undefined} libraryId={"libraryId" in source ? source.libraryId : undefined} sourceKind="chat" quote={source.quote} label="回看这条原话"/></div>{"response" in source && source.response && <div className={visual.self}><small>你随后说 · {reportEvidenceDate(source.response.at)}</small><blockquote>{source.response.quote}</blockquote><CaptureEvidence sourceIds={[source.response.sourceId]} libraryId={source.libraryId} sourceKind="chat" quote={source.response.quote} label="回看回应"/></div>}</div>
             </li>)}</ol>
             {(signal.occurrences || 0) > sources.length && <p className={visual.retained}>共 {signal.occurrences} 条表达，这里保留最早和最近的 {sources.length} 条依据。</p>}
             <div className={visual.action}><span><ArrowRight size={18}/></span><div><strong>下一步核实</strong><p>{signal.action}</p></div></div>

@@ -1,10 +1,11 @@
 "use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { CheckCircle2, ChevronLeft, ChevronRight, CircleHelp, History, Quote, Sparkles } from "lucide-react";
 import { CaptureEvidence } from "./CaptureEvidence";
 import { reportPersonLabel } from "@/components/report-person-label";
 import { reportEvidenceDate } from "@/lib/report-reading";
 import styles from "./RelationshipDiagnosisPanel.module.css";
+import {reportEvidenceSpeaker} from "./report-context";
 
 type Json = Record<string, any>;
 const rows = (value: unknown): Json[] => Array.isArray(value) ? value.filter(item => item && typeof item === "object") : [];
@@ -13,8 +14,10 @@ const normalized = (value: string) => value.replace(/[\s\p{P}\p{S}]/gu, "");
 const uniqueText = (value: unknown): string[] => Array.isArray(value) ? [...new Set(value.map(text).filter(Boolean))] : [];
 
 /** Supporting reading only. The report overview owns the judgment and next step. */
-export function RelationshipDiagnosisPanel({ diagnosis, semanticHistory: standalone, folded = false, hideCoverage = false, pageSize, hideFacts = false, compactEvidence = false }: { diagnosis?: Json | null; semanticHistory?: Json | null; folded?: boolean; hideCoverage?: boolean; pageSize?:number; hideFacts?:boolean; compactEvidence?:boolean }) {
+export function RelationshipDiagnosisPanel({ diagnosis, semanticHistory: standalone, report={}, folded = false, hideCoverage = false, pageSize, hideFacts = false, compactEvidence = false }: { diagnosis?: Json | null; semanticHistory?: Json | null; report?:Json; folded?: boolean; hideCoverage?: boolean; pageSize?:number; hideFacts?:boolean; compactEvidence?:boolean }) {
   const [page,setPage]=useState(0);
+  const evidenceRoot=useRef<HTMLElement>(null);
+  function turn(next:number){setPage(next);requestAnimationFrame(()=>evidenceRoot.current?.scrollIntoView({block:'start',behavior:'instant'}));}
   const semantic = standalone || diagnosis?.semanticHistory;
   if (!diagnosis && !semantic) return null;
   const coverage = diagnosis?.coverage || {}, semanticCoverage = semantic?.coverage;
@@ -33,13 +36,13 @@ export function RelationshipDiagnosisPanel({ diagnosis, semanticHistory: standal
       <h3><Sparkles size={18}/>为什么这样判断{semantic?.confidence && <small>把握度：{semantic.confidence}</small>}</h3>
       {explanation.split(/\n+/).filter(Boolean).map((paragraph, index) => <p key={index}>{paragraph}</p>)}
     </section>}
-    {findings.length > 0 && <section className={styles.readingBlock} data-history-findings><h3><Quote size={18}/>支持与相反线索</h3><div className={styles.findings}>
+    {findings.length > 0 && <section ref={evidenceRoot} style={{scrollMarginTop:120}} className={styles.readingBlock} data-history-findings><h3><Quote size={18}/>支持与相反线索</h3><div className={styles.findings}>
       {visibleFindings.map((finding, index) => <article key={finding.id || index} data-finding-id={finding.id}>
         <header><strong>{finding.claim}</strong><small>{counterIds.has(finding.id) ? "相反证据" : "材料线索"}{finding.confidence ? ` · 把握度 ${finding.confidence}` : ""}</small></header>
-        {rows(finding.evidence).map((item, evidenceIndex) => <div className={compactEvidence?styles.evidenceLink:styles.findingEvidence} key={`${item.sourceId}-${evidenceIndex}`}>{!compactEvidence&&<blockquote>{item.quote}</blockquote>}<small>{item.basis==="visual"?"图片可见内容":reportPersonLabel(item.senderRole)}{item.at ? ` · ${reportEvidenceDate(item.at)}` : ""}</small><CaptureEvidence quote={item.quote} sourceIds={item.sourceId ? [item.sourceId] : undefined} libraryId={item.libraryId} sourceKind={item.sourceKind} label={item.basis==="visual"?"查看图片来源":undefined}/></div>)}
+        {rows(finding.evidence).map((item, evidenceIndex) => <div className={compactEvidence?styles.evidenceLink:styles.findingEvidence} key={`${item.sourceId}-${evidenceIndex}`}><small>{reportEvidenceSpeaker(report,item.senderRole,item.basis)}{item.at ? ` · ${reportEvidenceDate(item.at)}` : ""}</small>{!compactEvidence&&<blockquote>{item.quote}</blockquote>}<CaptureEvidence quote={item.quote} sourceIds={item.sourceId ? [item.sourceId] : undefined} libraryId={item.libraryId} sourceKind={item.sourceKind} label={item.basis==="visual"?"查看图片来源":undefined}/></div>)}
         {finding.alternative && <p className={styles.alternative}><strong>也可能：</strong>{finding.alternative}</p>}
       </article>)}
-    </div>{pages>1&&<nav className={styles.evidencePager} aria-label="判断线索分页"><button disabled={!currentPage} onClick={()=>setPage(currentPage-1)}><ChevronLeft size={16}/>上一组</button><span>{currentPage+1} / {pages} · 共 {findings.length} 条线索</span><button disabled={currentPage===pages-1} onClick={()=>setPage(currentPage+1)}>下一组<ChevronRight size={16}/></button></nav>}</section>}
+    </div>{pages>1&&<nav className={styles.evidencePager} aria-label="判断线索分页"><button disabled={!currentPage} onClick={()=>turn(currentPage-1)}><ChevronLeft size={16}/>上一组</button><span>{currentPage+1} / {pages} · 共 {findings.length} 条线索</span><button disabled={currentPage===pages-1} onClick={()=>turn(currentPage+1)}>下一组<ChevronRight size={16}/></button></nav>}</section>}
     {!findings.length && hypotheses.length > 0 && <section className={styles.readingBlock}><h3><Sparkles size={18}/>从行为看到的线索</h3><div className={styles.findings}>{hypotheses.map((item, index) => <article key={item.id || index}><header><strong>{item.claim}</strong><small>把握度 {item.confidence || "低"}</small></header>{uniqueText(item.alternatives).map(value => <p className={styles.alternative} key={value}>其他解释：{value}</p>)}{item.whatToObserve && <p>接着观察：{item.whatToObserve}</p>}</article>)}</div></section>}
     {alternatives.length > 0 && <section className={styles.readingBlock}><h3><CircleHelp size={18}/>还存在这些解释</h3><ul>{alternatives.map(value => <li key={value}>{value}</li>)}</ul></section>}
     {!hideFacts && facts.length > 0 && <section className={styles.readingBlock}><h3><CheckCircle2 size={18}/>可核对的行为事实</h3><div className={styles.factList}>{facts.map((fact, index) => <article key={fact.id || index}><strong>{fact.claim}</strong>{fact.metric && <small>{fact.metric}</small>}</article>)}</div></section>}

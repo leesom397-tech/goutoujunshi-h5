@@ -7,6 +7,7 @@ import {relationshipRiskReview} from "@/lib/relationship-risk";
 import type {Json} from "./client";
 import {CaptureEvidence} from "./CaptureEvidence";
 import styles from "./ReportReadingTools.module.css";
+import {reportEvidenceSpeaker,reportIdentity} from "./report-context";
 
 export function MethodReferences({sources}:{sources?:Json[]}){
  if(!Array.isArray(sources)||!sources.length)return null;
@@ -22,9 +23,9 @@ export function KeyEvidenceList({report,priorityEvidence,showReferences=true}:{r
  const findings:Json[]=Array.isArray(semantic?.findings)?semantic.findings:[];
  const anchorIds=new Set(Array.isArray(semantic?.summaryEvidenceIds)?semantic.summaryEvidenceIds:[]);
  const anchors=[...findings.filter(row=>anchorIds.has(row.id)),...findings.filter(row=>!anchorIds.has(row.id))];
- const semanticItems=anchors.flatMap(finding=>(Array.isArray(finding.evidence)?finding.evidence:[]).map((evidence:Json)=>({text:String(evidence.quote||""),label:`${evidence.basis==="visual"?"图片可见内容":reportPersonLabel(evidence.senderRole)}${evidence.at?" · "+reportEvidenceDate(evidence.at):""}`,sourceId:evidence.sourceId,libraryId:evidence.libraryId,sourceKind:evidence.sourceKind,basis:evidence.basis}))).filter(item=>item.text.trim());
+ const semanticItems=anchors.flatMap(finding=>(Array.isArray(finding.evidence)?finding.evidence:[]).map((evidence:Json)=>({text:String(evidence.quote||""),label:`${reportEvidenceSpeaker(report,evidence.senderRole,evidence.basis)}${evidence.at?" · "+reportEvidenceDate(evidence.at):""}`,sourceId:evidence.sourceId,libraryId:evidence.libraryId,sourceKind:evidence.sourceKind,basis:evidence.basis}))).filter(item=>item.text.trim());
  const risk=semanticItems.length?null:relationshipRiskReview(report);
- const riskItems=risk?.scope==="full-history"?risk.signals.flatMap(signal=>(signal.sources||[]).map(source=>({text:source.quote,label:`风险核实 · 对方 · ${reportEvidenceDate(source.at)}`,sourceId:source.sourceId,libraryId:source.libraryId,sourceKind:"chat"}))):[];
+ const riskItems=risk?.scope==="full-history"?risk.signals.flatMap(signal=>(signal.sources||[]).map(source=>({text:source.quote,label:`风险核实 · ${reportIdentity(report).other}说 · ${reportEvidenceDate(source.at)}`,sourceId:source.sourceId,libraryId:source.libraryId,sourceKind:"chat"}))):[];
  const normalize=(value:string)=>value.replace(/[\s\p{P}\p{S}]/gu,"");
  const candidates:Array<{text:string;label:string;sourceId?:string;libraryId?:string;sourceKind?:string;basis?:string}>=[...(priorityEvidence?keyReportEvidence(report,priorityEvidence).slice(0,1):[]),...semanticItems,...riskItems,...keyReportEvidence(report)];
  const items=candidates.filter((item,index,all)=>all.findIndex(other=>normalize(other.text)===normalize(item.text))===index).slice(0,3);

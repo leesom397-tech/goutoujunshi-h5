@@ -219,6 +219,8 @@ export function relationshipReportDocument(diagnosis: RelationshipDiagnosis, sem
     changes:semantic?.changeInsights||[],
     sourceInsights:semantic?.sourceInsights,
     actionPlan:semantic?.actionPlan,
+    analysisQuestion:diagnosis.question,
+    riskAssessment:semantic?.riskAssessment,
     timeline: semantic?.timeline?.length ? semantic.timeline : diagnosis.periods.map(period => ({ trend: "互动量", note: `${period.label} ${period.range}：共 ${period.sample} 条，你 ${period.self}，TA ${period.other}` })),
     decision: {
       action: diagnosis.decision.recommendation,

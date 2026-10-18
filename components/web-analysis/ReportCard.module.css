@@ -9,6 +9,10 @@
 }
 
 .document > :not(.card) { grid-column: 1 / -1; min-width: 0; }
+.participantScope { display:flex; align-items:baseline; flex-wrap:wrap; gap:7px 13px; padding:14px 0 20px; border-bottom:1px solid #e9dfd3; overflow-wrap:anywhere; }
+.participantScope > span { color:#8a624c; font-size:15px; }
+.participantScope > strong { color:#244c46; font-size:23px; }
+.participantScope > small { flex-basis:100%; color:#68594e; font-size:15px; }
 
 .cover {
   position: relative;

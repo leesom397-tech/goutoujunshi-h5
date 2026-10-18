@@ -8,6 +8,7 @@ import { readableReport } from "@/lib/crush/evidence";
 import type { CrushResult } from "@/lib/crush/types";
 import {personalizeReport} from "@/lib/personal-context-server";
 import { reportFreshness } from "@/lib/report-freshness";
+import { loadReportParticipants } from "@/lib/report-participants-server";
 import { withCaptureHistoryPurge, CAPTURE_PURGE_UNAVAILABLE } from "@/lib/capture-history-purge";
 
 export const runtime = "edge";
@@ -22,6 +23,9 @@ export async function GET(request: Request) {
   try {
     const saved=await readAnalysisReport(getD1(),identity.ownerId,id);
     if(saved){
+      const participants=await loadReportParticipants(getD1(),identity.ownerId,saved.subjectId||null,saved.report);
+      saved.report={...saved.report,participants};
+      if(saved.entries)saved.entries=saved.entries.map((entry:CrushResult)=>({...entry,participants}));
       if(saved.report.importAnalysis || saved.report.riskAnalysis) return json(saved);
       if(saved.kind==='chat'){
         saved.entries=saved.entries?.map((entry:CrushResult)=>readableReport(entry));
@@ -37,10 +41,11 @@ export async function GET(request: Request) {
       return json({...saved, ...(freshness ? {freshness} : {})});
     }
     const report = await ownedReport(identity.ownerId, id);
+    const participants=await loadReportParticipants(getD1(),identity.ownerId,report.subjectId||null,report);
     const latestCompatibility = await loadRelationshipFit(identity.ownerId, report.subjectId);
     const connection=await personalizeReport(identity.ownerId,report.subjectId,report);
     // Do not overwrite a stored historical assessment with a live projection.
-    return json({kind:'chat',reportId:id,subjectId:report.subjectId,retention:'until-deleted',report: { ...report, reportId:id,retention:'until-deleted',personalConnection:connection,personalConnectionContext:{basis:'current-confirmed-material',computedAt:Date.now()},latestCompatibility, compatibilityContext: {
+    return json({kind:'chat',reportId:id,subjectId:report.subjectId,retention:'until-deleted',report: { ...report, participants,reportId:id,retention:'until-deleted',personalConnection:connection,personalConnectionContext:{basis:'current-confirmed-material',computedAt:Date.now()},latestCompatibility, compatibilityContext: {
       basis: 'current-confirmed-profile', computedAt: Date.now(), methodVersion: latestCompatibility?.methodVersion || null
     } } });
   } catch (error) {
