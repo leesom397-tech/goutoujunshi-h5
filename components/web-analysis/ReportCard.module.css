@@ -253,3 +253,52 @@
 @media (max-width: 380px) {
   .document .body :global(.cz-data-chart) text { font-size: 20px; }
 }
+
+/* A single overview, followed by optional reading in a dialog. */
+.relationshipBrief { padding:0 0 24px; border-bottom:1px solid #eaded4; color:#272421; }
+.relationshipBrief > header { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:12px; color:#8b5845; }
+.relationshipBrief > header > span { display:flex; align-items:center; gap:8px; font-size:14px; font-weight:600; }
+.relationshipBrief > header > small { font-size:12px; color:#7a6c61; }
+.briefJudgment { margin:22px 0; }
+.briefJudgment h2 { margin:0 0 10px; font-size:14px; color:#8b5845; }
+.briefJudgment > p { margin:0; max-width:46em; font-size:clamp(20px,2vw,25px); font-weight:600; line-height:1.75; }
+.briefEvidence { margin:24px 0; padding:20px; border:1px solid #e7d8cb; border-radius:16px; background:#fffaf5; }
+.briefEvidence h3,.briefDirection h3 { display:flex; gap:8px; align-items:center; margin:0 0 12px; font-size:14px; color:#95624d; }
+.briefDirection { display:grid; grid-template-columns:minmax(0,.7fr) minmax(0,1.3fr); gap:28px; }
+.briefDirection article { min-width:0; }
+.briefDirection p { margin:0; line-height:1.8; }
+.briefDirection small { display:block; margin-top:8px; color:#7c6d61; font-size:12px; line-height:1.7; }
+.briefCoverage { margin:20px 0 0; color:#7d6a5e; font-size:13px; }
+.detailLinks { margin-top:20px; }
+.reportSection { margin:0 0 28px; padding-bottom:25px; border-bottom:1px solid #eaded4; }
+.reportSection h2 { margin:0 0 20px; }
+.relationshipTimeline { list-style:none; margin:0; padding:0; }
+.relationshipTimeline li { display:grid; grid-template-columns:140px minmax(0,1fr); gap:18px; padding:16px 0; border-bottom:1px solid #f0e5dd; }
+.relationshipTimeline time { color:#92644f; font-size:13px; line-height:1.8; }
+.relationshipTimeline p { margin:0; }
+.claimActions { display:grid; gap:15px; }
+.claimActions article { padding:18px; border:1px solid #e9d9cd; border-radius:14px; background:#fffaf5; }
+.claimActions header { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:8px; }
+.claimActions h3 { margin:0; }
+.claimActions small { color:#7e6a5e; font-size:13px; line-height:1.7; }
+.claimActions blockquote { display:grid; margin:12px 0; padding:10px 14px; border-left:3px solid #cca18a; background:#fff; font-size:14px; }
+.nextAction { padding:4px 0 24px; margin-bottom:24px; border-bottom:1px solid #eaded4; }
+.nextAction h2 { margin:0 0 16px; }
+.nextAction > p { max-width:46em; margin:0 0 22px; font-size:20px; line-height:1.8; }
+.nextAction dl,.actionOptions dl { display:grid; gap:14px; margin:0; }
+.nextAction dl > div,.actionOptions dl > div { display:grid; grid-template-columns:160px minmax(0,1fr); gap:16px; }
+.nextAction dt,.actionOptions dt { color:#8d624d; font-size:14px; }
+.nextAction dd,.actionOptions dd { margin:0; line-height:1.8; }
+.actionOptions { display:grid; gap:24px; }
+.actionOptions article + article { padding-top:24px; border-top:1px solid #eaded4; }
+.actionOptions h3 { margin:0; }
+@media(max-width:700px) {
+ .briefJudgment { margin:18px 0; }.briefJudgment > p { font-size:20px; }.briefEvidence { padding:15px; }.briefDirection { grid-template-columns:1fr; gap:20px; }
+ .relationshipTimeline li { grid-template-columns:1fr; gap:5px; }.nextAction dl > div,.actionOptions dl > div { grid-template-columns:1fr; gap:5px; }
+}
+.briefEvidence :global([data-key-evidence]) > ol { grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px; }
+.briefEvidence :global([data-key-evidence]) > ol > li + li { border-top:0; padding-top:0; border-left:1px solid #e8d9cd; padding-left:18px; }
+@media(max-width:700px) { .briefEvidence :global([data-key-evidence]) > ol { grid-template-columns:1fr; gap:12px; }.briefEvidence :global([data-key-evidence]) > ol > li + li { padding:12px 0 0; border-left:0; border-top:1px solid #e8d9cd; } }
+.document :global(.report-tools) { border-color:#e8d9cd; background:#fffaf5; color:#8b604b; }
+.document :global(.report-tools-actions button) { background:#fffdf9; border:1px solid #e0c7b7; color:#8b503c; border-radius:10px; padding:9px 12px; }
+.document :global(.wa-actions a.wa-button) { background:#fffaf5; color:#925b45; border:1px solid #dec3b2; }

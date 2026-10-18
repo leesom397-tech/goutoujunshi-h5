@@ -1,5 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
+import { SelfChatMemory } from "@/components/SelfChatMemory";
+import styles from "./profile.module.css";
 import { ArrowLeft, Check, Pause, Play, Plus, Trash2, X } from "lucide-react";
 import { dimensions, suitability, type Dimension, type Fact, type ProfileState, type SelfData, type Subject, type SubjectData } from "@/lib/profile";
 
@@ -13,6 +15,7 @@ const fieldNames: Record<string, string> = {
 export default function ProfilePage() {
   const [state, setState] = useState<ProfileState>(empty);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [section, setSection] = useState<"self" | "subjects" | "review">("self");
   const [self, setSelf] = useState<SelfData>({});
   const [subject, setSubject] = useState<SubjectData>({});
   const [label, setLabel] = useState("");
@@ -71,7 +74,7 @@ export default function ProfilePage() {
   const high = current ? dimensions.filter(({ key }) => (current.data.ratings?.[key] || 0) >= 4).map((item) => item.label) : [];
   const low = current ? dimensions.filter(({ key }) => (current.data.ratings?.[key] || 9) <= 2).map((item) => item.label) : [];
 
-  return <main className="profile-page">
+  return <main className={`profile-page ${styles.page}`}>
     <div className="profile-wrap">
       <header className="profile-top"><a href="/" className="back-link"><ArrowLeft size={18} /> 返回工作台</a><span>成子 · 关系档案</span></header>
       <section className="profile-intro"><p className="eyebrow">越了解，越不靠猜</p><h1>把重要的人和事，放在一起看。</h1><p>截图原图不会存入档案；你在微信回复「是」后，本次已识别聊天文字才会作为该对象的长期记忆保存，可在这里查看和删除。其他新线索仍须你确认。还没想清楚要找什么样的人？<a href="/positioning">先做择偶定位</a>。<a href="/miniapp/manage">管理小程序关联</a>。</p></section>
@@ -80,9 +83,11 @@ export default function ProfilePage() {
       signedOut ? <section className="profile-card"><h2>先登录再建档</h2><p>关系资料只对登录的本人开放。</p><a className="primary-action" href="/login?return_to=%2Fprofile" target="_top">登录并继续</a></section> :
       !state.enabled ? <section className="profile-card consent-card"><h2>启用你的关系档案</h2><p>同意后，成子 会保存你填写的本人和对象资料，并从后续对话中整理待确认的线索。你可以随时查看、修改、暂停、撤回同意或彻底删除。</p><button type="button" className="primary-action" disabled={busy} onClick={() => void act("consent", { enabled: true }, "档案已启用。先填写你的基本资料吧。")}>同意并启用</button>{state.subjects.length > 0 && <button type="button" className="text-action" onClick={() => { if (window.confirm("永久删除你所有的关系档案？此操作无法撤销。")) void act("wipe", {}, "全部档案已删除。"); }}>删除已保留的档案</button>}</section> :
       <div className="profile-layout">
-        <div className="profile-quickstart"><div><strong>{pending.length ? "先核对新线索" : state.subjects.length ? "资料会随着对话慢慢补全" : "先记两件最重要的事"}</strong><p>{pending.length ? "有 " + pending.length + " 条从对话中整理的信息，确认后才会成为正式档案。" : state.subjects.length ? "不必一次填满。下次聊这个人时选中对象，军师就能结合你确认的资料回答。" : "写下你想要怎样的关系，再给正在接触的人起个称呼；其他都可以留空。"}</p></div><a href={pending.length ? "#review-facts" : state.subjects.length ? "/" : "#my-profile"}>{pending.length ? "去核对" : state.subjects.length ? "带着档案去聊" : "从这里开始"} →</a></div>
+        <nav className={styles.sections} aria-label="档案内容">{([{id:"self",label:"我的资料"},{id:"subjects",label:"人物资料"},{id:"review",label:"新线索"}] as const).map(item=><button type="button" key={item.id} aria-pressed={section===item.id} onClick={()=>setSection(item.id)}>{item.label}{item.id==="review"&&pending.length>0?<small>{pending.length}</small>:null}</button>)}</nav>
+        <div className="profile-quickstart"><div><strong>{pending.length ? "先核对新线索" : state.subjects.length ? "资料会随着对话慢慢补全" : "先记两件最重要的事"}</strong><p>{pending.length ? "有 " + pending.length + " 条从对话中整理的信息，确认后才会成为正式档案。" : state.subjects.length ? "不必一次填满。下次聊这个人时选中对象，军师就能结合你确认的资料回答。" : "写下你想要怎样的关系，再给正在接触的人起个称呼；其他都可以留空。"}</p></div><a onClick={()=>{if(pending.length)setSection("review");else if(!state.subjects.length)setSection("self");}} href={pending.length ? "#review-facts" : state.subjects.length ? "/consult" : "#my-profile"}>{pending.length ? "去核对" : state.subjects.length ? "带着档案去聊" : "从这里开始"} →</a></div>
         <div className="profile-main">
-          <section className="profile-card" id="my-profile">
+          {section === "self" && <SelfChatMemory enabled={state.enabled} paused={state.paused}/>}
+          <section className="profile-card" id="my-profile" hidden={section!=="self"}>
             <div className="card-head"><div><p className="eyebrow">01 / 你自己</p><h2>我的资料</h2></div><span className="subtle">不知道可留空，随时修改</span></div>
             <div className="field-grid">
               <TextField label="MBTI（可留空）" value={self.mbti} onChange={(value) => setSelf({ ...self, mbti: value })} />
@@ -98,7 +103,7 @@ export default function ProfilePage() {
             <div className="dimension-grid">{dimensions.map(({ key, label: name }) => <label className="rating-field" key={key}><span>{name}</span><select value={self.weights?.[key] ?? 3} onChange={(event) => setSelf({ ...self, weights: { ...self.weights, [key]: Number(event.target.value) } })}>{[1, 2, 3, 4, 5].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>)}</div>
             <button className="primary-action" type="button" disabled={busy} onClick={() => void act("self", { data: self }, "我的资料已更新。")}>保存我的资料</button>
           </section>
-          <section className="profile-card" id="subjects">
+          <section className="profile-card" id="subjects" hidden={section!=="subjects"}>
             <div className="card-head"><div><p className="eyebrow">02 / 接触对象</p><h2>分别认识每个人</h2></div><span className="subtle">{state.subjects.length} 位对象</span></div>
             <div className="subject-tabs">{state.subjects.map((item) => <button key={item.id} type="button" className={"subject-tab " + (selectedId === item.id ? "active" : "")} onClick={() => selectSubject(item.id)}>{item.label}{item.status === "draft" && <small>待确认</small>}</button>)}</div>
             <form className="add-subject" onSubmit={(event) => { event.preventDefault(); void act("subject-create", { label: newLabel }, "新对象已建立。").then((next) => { if (next) { selectSubject(next.subjects.find((item) => item.label === newLabel.trim())?.id || null, next.subjects); setNewLabel(""); } }); }}><input value={newLabel} onChange={(event) => setNewLabel(event.target.value)} maxLength={60} placeholder="输入新对象的称呼或代号" aria-label="新对象称呼" /><button type="submit" disabled={busy || !newLabel.trim()}><Plus size={17} /> 新建</button></form>
@@ -121,19 +126,19 @@ export default function ProfilePage() {
           </section>
         </div>
         <aside className="profile-side">
-          <section className="profile-card insight-card">
+          <section className="profile-card insight-card" hidden={section!=="subjects"||!current}>
             <p className="eyebrow">03 / 适配观察</p><h2>{current ? current.label : "选择对象"}的六维图</h2>
             <Radar ratings={current?.data.ratings || {}} />
             {current && <><div className="dimension-grid">{dimensions.map(({ key, label: name }) => <label className="rating-field" key={key}><span>{name}</span><select value={subject.ratings?.[key] ?? ""} onChange={(event) => setSubject({ ...subject, ratings: { ...subject.ratings, [key]: event.target.value ? Number(event.target.value) : undefined } })}><option value="">未知</option>{[1, 2, 3, 4, 5].map((value) => <option key={value} value={value}>{value}</option>)}</select></label>)}</div><p className="section-help">评分来自你自己的观察，1 为明显不适配，5 为很适配。修改后请保存对象资料。</p></>}
             <div className="insight-summary">{current ? <><strong>{score ? "主观适配度 " + score.score + "/100" : "信息还不够计算适配度"}</strong><p>已评 {observed.length}/6 维。{score ? "这是按你的权重计算的参考，不是对人的价值判定。" : "至少评估 3 维后显示参考分。"}</p>{high.length > 0 && <p>目前较匹配：{high.join("、")}。</p>}{low.length > 0 && <p>值得留意：{low.join("、")}，建议结合具体行为再判断。</p>}{observed.length < 6 && <p>仍未知：{dimensions.filter(({ key }) => !current.data.ratings?.[key]).map((item) => item.label).join("、")}。</p>}</> : <p>选中对象后，在这里查看六维适配观察。</p>}</div>
             {current && <a className="outline-action" href={"/?subjectId=" + encodeURIComponent(current.id) + "&prompt=" + encodeURIComponent("结合我的档案，分析我和" + current.label + "是否适合继续发展。请分清已知和未知，并指出还要观察什么。")}>让军师综合分析 →</a>}
           </section>
-          <section className="profile-card" id="review-facts">
+          <section className="profile-card" id="review-facts" hidden={section!=="review"}>
             <div className="card-head"><div><p className="eyebrow">04 / 新发现</p><h2>待你确认</h2></div><span className="subtle">{pending.length} 条</span></div>
             {pending.length ? pending.slice(0, 20).map((item) => <FactCard key={item.id} fact={item} subject={state.subjects.find((subject) => subject.id === item.subjectId)} busy={busy} onDecision={(decision) => void act("fact-decide", { id: item.id, decision }, decision === "accept" ? "这条信息已加入档案。" : "已忽略这条信息。")} />) : <p className="empty-note">对话里有值得记下的信息时，会先放在这里，不会悄悄写进正式档案。</p>}
           </section>
-            {current&&<section className="profile-card"><h2>「{current.label}」的微信聊天记忆</h2><p>只显示你在微信明确回复「是」保存的已识别文字；原截图不保存。删除整次记忆后，后续分析不再从长期档案读取。</p>{memoryGroups.length?memoryGroups.map(group=><div className="fact-card" key={group[0].evidence.split("#")[0]}><div className="fact-meta">{new Date(group[0].createdAt).toLocaleDateString("zh-CN")} · 微信截图已确认{group.length>1?" · 共"+group.length+"段":""}</div><details><summary>查看本次聊天文字</summary><p style={{whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{group.map(item=>item.value).join("\n")}</p></details><button className="danger-action" type="button" disabled={busy} onClick={()=>{if(window.confirm("删除这次微信聊天记忆的全部文字？"))void act("memory-delete",{id:group[0].id},"这次记忆已全部删除。");}}>删除这次记忆</button></div>):<p className="empty-note">还没有确认保存的微信聊天记忆。</p>}</section>}
-          <section className="profile-card controls-card"><h2>档案控制</h2><p>暂停后，对话不读取档案，也不会整理新信息。撤回同意会保留旧资料供你查看；删除会永久清空。</p><div className="control-actions"><button type="button" disabled={busy} onClick={() => void act("pause", { paused: !state.paused }, state.paused ? "档案已恢复。" : "档案已暂停。")}>{state.paused ? <Play size={16} /> : <Pause size={16} />}{state.paused ? "恢复使用" : "暂停使用"}</button><button type="button" disabled={busy} onClick={() => void act("consent", { enabled: false }, "已撤回同意，旧资料仍可查看或删除。")}>撤回同意</button><button type="button" className="delete-control" disabled={busy} onClick={() => { if (window.confirm("永久删除你的本人资料、全部对象和线索？无法撤销。")) void act("wipe", {}, "全部档案已删除。"); }}><Trash2 size={16} /> 清空所有档案</button></div></section>
+            {current&&<section className="profile-card" hidden={section!=="subjects"}><h2>「{current.label}」的微信聊天记忆</h2><p>只显示你在微信明确回复「是」保存的已识别文字；原截图不保存。删除整次记忆后，后续分析不再从长期档案读取。</p>{memoryGroups.length?memoryGroups.map(group=><div className="fact-card" key={group[0].evidence.split("#")[0]}><div className="fact-meta">{new Date(group[0].createdAt).toLocaleDateString("zh-CN")} · 微信截图已确认{group.length>1?" · 共"+group.length+"段":""}</div><details><summary>查看本次聊天文字</summary><p style={{whiteSpace:"pre-wrap",overflowWrap:"anywhere"}}>{group.map(item=>item.value).join("\n")}</p></details><button className="danger-action" type="button" disabled={busy} onClick={()=>{if(window.confirm("删除这次微信聊天记忆的全部文字？"))void act("memory-delete",{id:group[0].id},"这次记忆已全部删除。");}}>删除这次记忆</button></div>):<p className="empty-note">还没有确认保存的微信聊天记忆。</p>}</section>}
+          <section className="profile-card controls-card" hidden={section!=="self"}><h2>档案控制</h2><p>暂停后，对话不读取档案，也不会整理新信息。撤回同意会保留旧资料供你查看；删除会永久清空。</p><div className="control-actions"><button type="button" disabled={busy} onClick={() => void act("pause", { paused: !state.paused }, state.paused ? "档案已恢复。" : "档案已暂停。")}>{state.paused ? <Play size={16} /> : <Pause size={16} />}{state.paused ? "恢复使用" : "暂停使用"}</button><button type="button" disabled={busy} onClick={() => void act("consent", { enabled: false }, "已撤回同意，旧资料仍可查看或删除。")}>撤回同意</button><button type="button" className="delete-control" disabled={busy} onClick={() => { if (window.confirm("永久删除你的本人资料、全部对象和线索？无法撤销。")) void act("wipe", {}, "全部档案已删除。"); }}><Trash2 size={16} /> 清空所有档案</button></div></section>
         </aside>
       </div>}
       {error && <div className="profile-toast error" role="alert">{error}</div>}{notice && <div className="profile-toast" role="status">{notice}</div>}
@@ -165,4 +170,3 @@ function Radar({ ratings }: { ratings: Partial<Record<Dimension, number>> }) {
     {complete && <polygon points={dimensions.map(({ key }, index) => at(index, ratings[key]!).join(",")).join(" ")} fill="#72c5b255" stroke="#268d86" strokeWidth="2" />}
   </svg>;
 }
-

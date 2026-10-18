@@ -7,6 +7,7 @@ import { personalConversationStarter } from "@/lib/personal-starters";
 import { riskAwarePresentation } from "@/lib/risk-aware-presentation";
 import { CaptureEvidence } from "./CaptureEvidence";
 import type { Json } from "./client";
+import { reportPersonLabel } from "@/components/report-person-label";
 import styles from "./PersonalConnection.module.css";
 
 const sourceName: Record<PersonalEvidence["source"], string> = {
@@ -26,7 +27,7 @@ function evidenceExcerpt(quote: string, insightId: string) {
 
 function Sources({ rows, insightId }: { rows: PersonalEvidence[]; insightId: string }) {
   return <div className={styles.sources}>{rows.map(row => <div className={styles.source} data-side={row.side} key={row.id}>
-    <span><UserRound size={15}/>{row.side === "self" ? "你" : "对方"}<small>{row.label || sourceName[row.source]}</small></span>
+    <span><UserRound size={15}/>{reportPersonLabel(row.side)}<small>{reportPersonLabel(row.label || sourceName[row.source])}</small></span>
     <blockquote>{evidenceExcerpt(row.quote, insightId)}</blockquote>
     {row.source !== "self-profile" && row.source !== "subject-profile" && <CaptureEvidence quote={row.quote}/>}
   </div>)}</div>;

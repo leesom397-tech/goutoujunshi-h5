@@ -1,0 +1,6 @@
+{
+  "name": "chengzi-local-preview",
+  "main": "vinext/server/fetch-handler",
+  "compatibility_date": "2026-03-01",
+  "compatibility_flags": ["nodejs_compat"]
+}

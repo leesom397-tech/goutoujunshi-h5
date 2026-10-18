@@ -20,13 +20,20 @@ function load(file) {
   }, () => assert.fail('No external requests allowed'));
   return exports;
 }
-const { personalConnection, reportPersonalEvidence, uniquePersonalEvidence, extractQuickSelfProfile } = load('lib/personal-context.ts');
+const { personalConnection, reportPersonalEvidence, uniquePersonalEvidence, extractQuickSelfProfile, capturePersonalEvidence } = load('lib/personal-context.ts');
 const { loadPersonalContext, personalizeReport } = load('lib/personal-context-server.ts');
 const { cleanData } = load('lib/profile.ts');
 let checks = 0;
 function check(name, callback) { callback(); console.log('PASS',name); checks++; }
 const line = (speaker,text,id=crypto.randomUUID()) => ({id,speaker,text});
 const chat = lines => ({id:'fixture-chat',lines});
+check('完整历史共同点扫描早期双方自述，不依赖最近12句逐句标注',()=>{
+  const history = [{localId:'early-self',senderRole:'self',at:'2026-01-01',text:'我喜欢摄影'}, {localId:'early-other',senderRole:'other',at:'2026-01-02',text:'我也喜欢摄影'}, ...Array.from({length:675},(_,i)=>({localId:'filler-'+i,senderRole:'other',at:'2026-10-01',text:'收到'}))];
+  const evidence = capturePersonalEvidence(history,'subject-a','full-report');
+  const current = personalConnection({analysisScope:'fullHistory',subjectId:'subject-a',lines:[],profileEvidence:evidence});
+  assert.ok(current.commonPoints.some(item=>item.id==='common-photography'));
+  assert.ok(current.sources.some(item=>item.sourceId==='early-self'));
+});
 const paired = personalConnection(chat([line('self','我喜欢摄影，也喜欢看展。'),line('other','我也喜欢摄影，周末经常看展。')]));
 check('双侧原话支持摄影和审美交集，每项必须同时有self+other',()=>{
   assert.equal(paired.commonPoints.length,2);
@@ -99,7 +106,7 @@ check('新增self字段白名单可保存且超长拒绝',()=>{
 const sql=new DatabaseSync(':memory:');
 sql.exec(`CREATE TABLE coach_profiles(owner_id TEXT PRIMARY KEY,consent_at INTEGER,paused INTEGER,data TEXT,updated_at INTEGER);
 CREATE TABLE coach_subjects(id TEXT PRIMARY KEY,owner_id TEXT,status TEXT,data TEXT,updated_at INTEGER);
-CREATE TABLE coach_facts(owner_id TEXT,subject_id TEXT,field TEXT,value TEXT,status TEXT,created_at INTEGER);
+CREATE TABLE coach_facts(owner_id TEXT,subject_id TEXT,field TEXT,value TEXT,status TEXT,created_at INTEGER,evidence TEXT,event_meta TEXT);
 CREATE TABLE coach_saved_reports(id TEXT PRIMARY KEY,owner_id TEXT,subject_id TEXT,status TEXT,result TEXT,created_at INTEGER);
 CREATE TABLE coach_crush_threads(id TEXT PRIMARY KEY,owner_id TEXT,subject_id TEXT);
 CREATE TABLE coach_crush_reports(id TEXT PRIMARY KEY,owner_id TEXT,thread_id TEXT,status TEXT,result TEXT,created_at INTEGER);`);
@@ -111,7 +118,7 @@ sql.prepare('INSERT INTO coach_saved_reports VALUES(?,?,?,\'done\',?,2)').run('s
 sql.prepare('INSERT INTO coach_saved_reports VALUES(?,?,?,\'done\',?,3)').run('saved-foreign','owner-b','subject-b',JSON.stringify(chat([line('self','其他账号聊天秘密内容')])));
 sql.prepare('INSERT INTO coach_crush_threads VALUES(?,?,?)').run('thread-a','owner-a','subject-a');
 sql.prepare('INSERT INTO coach_crush_reports VALUES(?,?,?,\'done\',?,4)').run('chat-a','owner-a','thread-a',JSON.stringify(chat([line('self','我喜欢看展'),line('other','我喜欢摄影')])));
-sql.prepare('INSERT INTO coach_facts VALUES(?,NULL,?,?,?,1)').run('owner-a','selfBasic:lifestyle','pending应不显示','pending');
+sql.prepare('INSERT INTO coach_facts(owner_id,subject_id,field,value,status,created_at) VALUES(?,NULL,?,?,?,1)').run('owner-a','selfBasic:lifestyle','pending应不显示','pending');
 const context=await loadPersonalContext('owner-a','subject-a',db);
 check('owner+subject限定历史聚合，带原报告来源',()=>{
   const content=JSON.stringify(context);

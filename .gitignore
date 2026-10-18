@@ -41,6 +41,7 @@ coverage/
 desktop/wechat-collector/.venv/
 desktop/wechat-collector/dist/
 desktop/wechat-collector/build/
+desktop/wechat-collector/.chengzi-version-info.txt
 __pycache__/
 *.pyc
 .tmp-cssrg.txt

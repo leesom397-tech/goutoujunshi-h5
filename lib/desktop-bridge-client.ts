@@ -1,6 +1,6 @@
 // Credentials stay in this tab. Nothing is sent to the website's server.
 export const DESKTOP_BRIDGE = "http://127.0.0.1:17863";
-export type BridgeHealth = { version: string; ready: boolean; message?: string; backgroundMessage?: string; backgroundStatus?: string; backgroundModelReady?: boolean; backgroundMaxRows?: number; backgroundPageSize?: number; momentsMaxRows?: number; capabilities: { chat: boolean; moments: boolean; deferredVoice?: boolean; backgroundChat?: boolean; backgroundVoice?: boolean; backgroundHistory?: boolean } };
+export type BridgeHealth = { version: string; ready: boolean; message?: string; backgroundMessage?: string; backgroundStatus?: string; backgroundModelReady?: boolean; backgroundMaxRows?: number; backgroundPageSize?: number; momentsMaxRows?: number; capabilities: { chat: boolean; moments: boolean; momentsAllVisible?: boolean; momentsContacts?: boolean; deferredVoice?: boolean; backgroundChat?: boolean; backgroundVoice?: boolean; backgroundHistory?: boolean } };
 export class BridgeError extends Error { constructor(message: string, public status=0, public code="") { super(message); } }
 export async function bridgeRequest<T>(path: string, options: { token?: string; body?: unknown; signal?: AbortSignal; timeoutMs?: number } = {}): Promise<T> {
   if (!/^\/(?:health|session|pair(?:\/handoff)?|contacts\/search|capture|jobs\/[a-zA-Z0-9_-]+(?:\/cancel)?)$/.test(path)) throw Error("采集请求地址无效。");

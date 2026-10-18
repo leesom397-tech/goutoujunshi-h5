@@ -1,12 +1,11 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { Sparkles, MessageCircle, ChartNoAxesCombined, Quote, Layers3, HeartHandshake, Copy, ScanLine, Smile, CircleHelp, Heart, HandHeart, Meh, Frown, Angry, Eye, CircleCheck, Send, ArrowLeft, ArrowRight, Lightbulb, Image, Sticker, UserRound } from "lucide-react";
-import { api, ErrorNotice, InlinePerson, followup, message, priceLabel, hasPrice, type Json } from "./client";
+import { Sparkles, MessageCircle, ChartNoAxesCombined, Quote, HeartHandshake, Copy, Smile, CircleHelp, Heart, HandHeart, Meh, Frown, Angry, Eye, CircleCheck, Send, ArrowLeft, ArrowRight, Lightbulb, Image, Sticker } from "lucide-react";
+import { api, ErrorNotice, followup, message, priceLabel, hasPrice, type Json } from "./client";
 import { personalizeReplyText, replyStyleSamples } from "@/lib/crush/reply-style";
 import { ArchiveRadar } from "@/components/ArchiveCharts";
-import { SocialContentPanel, SocialNextAdvice } from "./SocialReadingPanels";
-import { ChatPhotoClues, InteractionEvidence, SocialMaterialEvidence } from "./ReportEvidence";
-import { socialArchiveMaterial, validScore, visibleSignalProfile } from "./report-data";
+import { ChatPhotoClues, InteractionEvidence } from "./ReportEvidence";
+import { validScore } from "./report-data";
 import {ReportReader, type ReadingSection} from "./ReportReader";
 import readerStyles from "./ReportReader.module.css";
 import reportStyles from "./ReportCard.module.css";
@@ -14,17 +13,17 @@ import { ReportActions } from "./ReportActions";
 import { InsightExplorer } from "./InsightExplorer";
 import { ReportFollowUp } from "./ReportFollowUp";
 import { RelationshipEvidenceCards } from "./RelationshipEvidenceCards";
-import { RiskReview, RiskActionNotice } from "./RiskReview";
+import { RiskReview } from "./RiskReview";
 import { riskAwarePresentation, riskReplyAllowed } from "@/lib/risk-aware-presentation";
 import { CaptureEvidence, CaptureEvidenceProvider } from "./CaptureEvidence";
 import { PersonalConnection } from "./PersonalConnection";
 import { ChatActivity } from "@/components/ChatActivity";
 import { RelationshipDiagnosisPanel } from "./RelationshipDiagnosisPanel";
 import { buildRelationshipDiagnosis } from "@/lib/relationship-diagnosis";
-import { activityChart } from "@/lib/chat-activity";
 import { ConversationMemoryReview } from "@/components/ConversationMemoryReview";
-import { ReportReplyPreview, ChatReportBrief } from "./ReportBrief";
-import {KeyEvidenceList, ReplyDifference} from "./ReportReadingTools";
+import { ChatReportBrief } from "./ReportBrief";
+import { ReportDetails } from "./ReportDetails";
+import {ReplyDifference} from "./ReportReadingTools";
 import {reportReadingScope,reportLineKey,readReportPosition,saveReportPosition} from "@/lib/report-reading-position";
 export function Replies({ options, report, account, styleReportIds, publicExample = false }: { options: Json[]; report?: Json; account: Json | null; styleReportIds?: string[]; publicExample?: boolean }) {
   const [rewrites, setRewrites] = useState<Record<number, Json>>({}), [busy, setBusy] = useState(-1), [error, setError] = useState(""), [copied, setCopied] = useState(-1);
@@ -80,8 +79,9 @@ function ToneEvidence({report,storageKey}:{report:Json;storageKey?:string}){
    if(mobile){
     // Collapsing the previous inline answer must not move the sentence just tapped.
     const top=selectedButton.getBoundingClientRect().top;
-    if(fromPager){const nav=selectedButton.closest('[data-report-reader]')?.querySelector('[role="tablist"]')?.parentElement;window.scrollBy({top:top-(nav?.getBoundingClientRect().height||100)-16,behavior:'instant'});selectedButton.focus({preventScroll:true});}
-    else if(before!==undefined&&Math.abs(top-before)>1)window.scrollBy({top:top-before,behavior:'instant'});
+    const dialog=selectedButton.closest('dialog');
+    if(fromPager){const nav=dialog?.querySelector('header')||selectedButton.closest('[data-report-reader]')?.querySelector('[role="tablist"]')?.parentElement;const targetTop=dialog?dialog.getBoundingClientRect().top+(nav?.getBoundingClientRect().height||72)+16:(nav?.getBoundingClientRect().height||100)+16;(dialog||window).scrollBy({top:top-targetTop,behavior:'instant'});selectedButton.focus({preventScroll:true});}
+    else if(before!==undefined&&Math.abs(top-before)>1)(dialog||window).scrollBy({top:top-before,behavior:'instant'});
    }else if(fromPager){
     const bounds=list.current.getBoundingClientRect(),rect=selectedButton.getBoundingClientRect();
     if(rect.top<bounds.top+8)list.current.scrollBy({top:rect.top-bounds.top-8,behavior:'instant'});
@@ -89,27 +89,66 @@ function ToneEvidence({report,storageKey}:{report:Json;storageKey?:string}){
    }
   });
  }
- const detail=(inline=false)=><article className={`${readerStyles.toneDetail} ${inline?readerStyles.inlineToneDetail:readerStyles.desktopToneDetail}`} data-tone-detail={inline?'inline':'desktop'}><div className={readerStyles.linePosition}><span><Quote size={16}/>正在解读 · 第 {index+1} / {lines.length} 句 · {line?.speaker==='self'?'我':line?.speaker==='other'?'对方':'身份待确认'}</span><span>{annotation?.evidence==='limited'?'线索有限':annotation?.evidence==='insufficient'?'依据不足':'文字线索'}</span></div>{!inline&&<blockquote>{line?.text}</blockquote>}<CaptureEvidence quote={line?.text} sourceIds={line?.sourceId?[line.sourceId]:undefined}/>{annotation?<AnnotationSignal annotation={annotation}/>:line?.text?<AnnotationSignal annotation={{evidence:"limited",note:"这句还没有模型解读。下面只按字数、问号和安排用词计数，不是情绪判断。",emotion:[{key:"length",label:"语句长度",weight:Math.min(100,Math.round(line.text.length/40*100))}],intent:[{key:"ask",label:"问句",weight:/[?？]/.test(line.text)?80:10},{key:"plan",label:"时间或安排",weight:/周|明天|后天|点|见面|一起/.test(line.text)?70:8}]}}/>:<p className={readerStyles.empty}>这句暂未返回语气数据，不补造百分比。</p>}<div className={readerStyles.linePager}><button type="button" disabled={index===0} onClick={()=>choose(index-1,true)}><ArrowLeft size={16}/>上一句</button><button type="button" disabled={index===lines.length-1} onClick={()=>choose(index+1,true)}>下一句<ArrowRight size={16}/></button></div></article>;
- return <section className="wa-card" id="tone"><h2><MessageCircle size={21}/>逐句语气与意图</h2><p className="wa-muted">点击一句看解读。百分比表示解释权重，不是喜欢你的概率。</p>{line?<div className={readerStyles.toneLayout}><div className={readerStyles.conversation} ref={list} onScroll={remember} data-reading-list role="group" aria-label="选择一句原话">{lines.map((item,n)=><div className={readerStyles.conversationItem} data-selected={n===index} key={item.id||n}><button type="button" className={readerStyles.sentenceButton} data-line={n} data-reading-anchor={reportLineKey(item,n)} aria-pressed={n===index} onClick={()=>choose(n)}><small><span>第 {n+1} 句 · {item.speaker==='self'?'我':item.speaker==='other'?'对方':'身份待确认'}{item.screenshotNumber?` · 图 ${item.screenshotNumber}`:''}</span>{n===index&&<b><CircleCheck size={14}/>正在解读</b>}</small><span>{item.text}</span></button>{n===index&&detail(true)}</div>)}</div>{detail()}</div>:<p className={readerStyles.empty}>这张截图没有可解读的文字气泡。</p>}{report.decision?.mediaBubbles?.length>0&&<div className={readerStyles.interpretation}><strong><Image size={17}/>对话里的表情与图片</strong>{report.decision.mediaBubbles.map((bubble:Json,n:number)=><p key={n}><span className="wa-pill">{bubble.kind==='sticker'?<Sticker size={15}/>:<Image size={15}/>} {bubble.screenshotNumber ? `图 ${bubble.screenshotNumber} · ` : ""}第 {(bubble.lineIndex??n)+1} 个气泡 · {bubble.speaker==='self'?'我':'对方'}</span> {bubble.kind==='sticker'?'表情包':bubble.kind==='voice'?'语音':'图片'}{bubble.kind==='sticker'&&!bubble.text?'（无文字）':''}</p>)}</div>}<ChatPhotoClues clues={report.decision?.photoClues}/></section>;
+ const detail=(inline=false)=><article className={`${readerStyles.toneDetail} ${inline?readerStyles.inlineToneDetail:readerStyles.desktopToneDetail}`} data-tone-detail={inline?'inline':'desktop'}><div className={readerStyles.linePosition}><span><Quote size={16}/>正在解读 · 第 {index+1} / {lines.length} 句 · {line?.speaker==='self'?'我':line?.speaker==='other'?'对方':'身份待确认'}</span><span>{annotation?.evidence==='limited'?'线索有限':annotation?.evidence==='insufficient'?'依据不足':'文字线索'}</span></div>{!inline&&<blockquote>{line?.text}</blockquote>}<CaptureEvidence quote={line?.text} sourceIds={line?.sourceId?[line.sourceId]:undefined}/>{annotation?<AnnotationSignal annotation={annotation}/>:<p className={readerStyles.empty}>这句已保留原文，暂未完成逐句解读。请结合完整对话与报告依据阅读。</p>}<div className={readerStyles.linePager}><button type="button" disabled={index===0} onClick={()=>choose(index-1,true)}><ArrowLeft size={16}/>上一句</button><button type="button" disabled={index===lines.length-1} onClick={()=>choose(index+1,true)}>下一句<ArrowRight size={16}/></button></div></article>;
+ return <section className="wa-card" id="tone"><h2><MessageCircle size={21}/>逐句语气与意图</h2><p className="wa-muted">点击一句看解读。百分比表示解释权重，不是喜欢你的概率。</p>{line?<div className={readerStyles.toneLayout}><div className={readerStyles.conversation} ref={list} onScroll={remember} data-reading-list role="group" aria-label="选择一句原话">{lines.map((item,n)=><div className={readerStyles.conversationItem} data-selected={n===index} key={item.id||n}><button type="button" className={readerStyles.sentenceButton} data-line={n} data-reading-anchor={reportLineKey(item,n)} aria-pressed={n===index} onClick={()=>choose(n)}><small><span>第 {n+1} 句 · {item.speaker==='self'?'我':item.speaker==='other'?'对方':'身份待确认'}{item.screenshotNumber?` · 图 ${item.screenshotNumber}`:''}</span>{n===index&&<b><CircleCheck size={14}/>正在解读</b>}</small><span>{item.text}</span></button>{n===index&&detail(true)}</div>)}</div>{detail()}</div>:<p className={readerStyles.empty}>这张截图没有可解读的文字气泡。</p>}{report.decision?.mediaBubbles?.length>0&&<div className={readerStyles.interpretation}><strong><Image size={17}/>对话里的表情与图片</strong>{report.decision.mediaBubbles.map((bubble:Json,n:number)=><p key={n}><span className="wa-pill">{bubble.kind==='sticker'?<Sticker size={15}/>:<Image size={15}/>} {bubble.screenshotNumber ? `图 ${bubble.screenshotNumber} · ` : ""}第 {(bubble.lineIndex??n)+1} 个气泡 · {bubble.speaker==='self'?'我':bubble.speaker==='other'?'对方':'身份待确认'}</span> {bubble.kind==='sticker'?'表情包':bubble.kind==='voice'?'语音':'图片'}{bubble.kind==='sticker'&&!bubble.text?'（无文字）':''}</p>)}</div>}<ChatPhotoClues clues={report.decision?.photoClues}/></section>;
 }
 const chatSections:ReadingSection[]=[
- {id:'status',label:'看清现状',caption:'态度、投入、风险和匹配',tone:'coral'},
- {id:'change',label:'看见变化',caption:'升温、降温、转折和前后差异',tone:'teal'},
- {id:'next',label:'决定下一步',caption:'怎么验证、怎么回、何时停止',tone:'slate'},
+ {id:'status',label:'看清现状',caption:'判断、依据，以及与你的关系',tone:'coral'},
+ {id:'change',label:'看见变化',caption:'时间线、聊天节奏与说法和行动',tone:'teal'},
+ {id:'next',label:'决定下一步',caption:'做什么、观察多久、何时停止',tone:'slate'},
 ];
+const reportRows=(value:unknown):Json[]=>Array.isArray(value)?value.filter(item=>item&&typeof item==='object'):[];
+function RelationshipChanges({diagnosis,semantic}:{diagnosis:Json|null;semantic?:Json}){
+ const timeline=reportRows(semantic?.timeline),findings=reportRows(semantic?.findings),claims=reportRows(diagnosis?.claimActions);
+ return <>
+  {timeline.length>0&&<section className={reportStyles.reportSection}><h2><ChartNoAxesCombined size={21}/>关系的关键变化</h2><ol className={reportStyles.relationshipTimeline}>{timeline.map((point,index)=>{
+   const ids=new Set(Array.isArray(point.evidenceIds)?point.evidenceIds:[]),sources=findings.filter(finding=>ids.has(finding.id)).flatMap(finding=>reportRows(finding.evidence));
+   return <li key={`${point.at}-${index}`}><time>{point.at||'时间待核对'}</time><div><p>{point.note}</p>{sources.slice(0,1).map((source,n)=><CaptureEvidence key={n} quote={source.quote} sourceIds={source.sourceId?[source.sourceId]:undefined} label="回看变化依据"/>)}</div></li>;
+  })}</ol></section>}
+  {claims.length>0&&<section className={reportStyles.reportSection}><h2><Quote size={21}/>说法与行动</h2><div className={reportStyles.claimActions}>{claims.map((item,index)=><article key={item.id||index}><header><h3>{item.claim}</h3><small>{item.status}</small></header><p>{item.action}</p>{item.claimEvidence&&<blockquote>{item.claimEvidence}<CaptureEvidence quote={item.claimEvidence} label="回看说法"/></blockquote>}{item.actionEvidence&&<blockquote>{item.actionEvidence}<CaptureEvidence quote={item.actionEvidence} label="回看后续行动"/></blockquote>}{item.note&&<small>{item.note}</small>}</article>)}</div></section>}
+ </>;
+}
 export function ChatReport({report,account,styleReportIds,preview=false,publicExample=false}:{report:Json;account:Json|null;styleReportIds?:string[];preview?:boolean;publicExample?:boolean}){
  const [followupError,setFollowupError]=useState('');
  const decision=report.decision||{},fit=Object.prototype.hasOwnProperty.call(report,'latestCompatibility')?report.latestCompatibility:report.compatibility;
  const presentation=riskAwarePresentation(report), options=presentation.replyOptions, actionReport=presentation.viewReport;
  const readingScope=reportReadingScope(account?.account?.userId,report.reportId||report.id,report.subjectId,"chat",publicExample);
  const diagnosis=report.relationshipDiagnosis||(report.chatActivity?buildRelationshipDiagnosis(report.chatActivity,undefined,Array.isArray(report.lines)?report.lines:[]):null);
- return <CaptureEvidenceProvider ownerId={publicExample?undefined:account?.account?.userId} reportId={report.reportId||report.id} captureOrigin={report.captureOrigin===true}><div className={reportStyles.document}>
-  {report.captureMediaNote && <p className="wa-status"><Image size={18}/>{report.captureMediaNote}</p>}
-  <p className="wa-muted">先看趋势和谁在投入，再看逐句语气。一次回复慢说明不了什么。聊天只是一个渠道，线下见面和通话不在这些数字里。</p>
+ const semantic=report.semanticHistory||diagnosis?.semanticHistory;
+ const fullHistory=report.analysisScope==='fullHistory'||report.captureFormat==='full-history';
+ const hasCurrentLines=!fullHistory&&!report.sentenceSampleNote&&Array.isArray(report.lines)&&report.lines.length>0;
+ const action= presentation.nextStep||diagnosis?.decision?.recommendation||'结合下一次真实回应，再更新判断。';
+ const observe=semantic?.observeWindow||diagnosis?.decision?.observeWindow;
+ const stop=semantic?.stopCondition||diagnosis?.decision?.stopCondition;
+ const alternatives=reportRows(diagnosis?.decision?.options).filter(option=>option.action!==action);
+ return <CaptureEvidenceProvider ownerId={publicExample?undefined:account?.account?.userId} reportId={report.reportId||report.id} captureOrigin={report.captureOrigin===true} fullHistory={fullHistory} historyCount={semantic?.coverage?.totalImported??diagnosis?.coverage?.total??report.chatActivity?.messages}><div className={reportStyles.document}>
   <ReportReader key={readingScope||report.reportId||report.id||"chat-report"} storageKey={readingScope} items={chatSections}>{active=><>
-   {active==='status'&&<><ChatReportBrief report={report}/><div className={readerStyles.overview} data-brief data-risk-priority={presentation.mode}><article><h3><Sparkles size={18}/>当前判断</h3>{presentation.title&&<h2 className={readerStyles.verdictTitle}>{presentation.title}</h2>}<p data-has-title={!!presentation.title}>{presentation.judgment||'先核对本轮可见对话。'}</p><CaptureEvidence quote={presentation.evidence} label="查看判断所用原话"/></article><article><h3><Quote size={18}/>三条关键证据</h3><KeyEvidenceList report={report} priorityEvidence={presentation.mode!=="normal"?presentation.evidence:undefined}/></article><article><h3><ChartNoAxesCombined size={18}/>一条关系趋势</h3><p>{(report.relationshipDiagnosis?.relationship?.trend || (report.chatActivity ? buildRelationshipDiagnosis(report.chatActivity).relationship.trend : "待了解"))}</p><small>{report.relationshipDiagnosis?.relationship?.reciprocity || "趋势只根据已有互动变化，不代表喜欢程度。"}</small></article><article><h3><ArrowRight size={18}/>本周只做这一件</h3><p>{presentation.nextStep||report.relationshipDiagnosis?.decision?.recommendation||'结合原话和完整上下文决定如何回应。'}</p><small>{report.relationshipDiagnosis?.decision?.observeWindow ? `观察 ${report.relationshipDiagnosis.decision.observeWindow}。停止：${report.relationshipDiagnosis.decision.stopCondition || "事实变化后再更新。"}` : ""}</small></article></div><RelationshipDiagnosisPanel folded diagnosis={report.relationshipDiagnosis || (report.chatActivity ? buildRelationshipDiagnosis(report.chatActivity, undefined, report.lines) : undefined)} semanticHistory={report.semanticHistory}/><RiskReview report={report}/>{publicExample&&report.demo===true&&report.publicEvidenceReview&&<section className="wa-card"><RelationshipEvidenceCards review={report.publicEvidenceReview} publicExample/></section>}{!preview&&!publicExample&&<ReportFollowUp report={actionReport} owner={account?.account?.userId}/>} {decision.partial&&<p className="wa-status">部分内容未识别，结论只覆盖当前可读材料。</p>}<ReportReplyPreview text={options[0]?.text} reason={options[0]?.reason} label={presentation.mode==="safety"?"如需回应，先说清边界":presentation.mode==="expectation"?"先确认双方期待":"现在可以这样回"}/>{!preview&&!publicExample&&<ConversationMemoryReview memory={report.profileMemory} ownerId={account?.account?.userId} subjectId={report.subjectId}/>}<PersonalConnection report={report} publicExample={publicExample}/><InsightExplorer compact publicExample={publicExample} report={report} kind="chat" owner={publicExample?undefined:account?.account?.userId}/>{Array.isArray(report.lines)&&report.lines.length>0&&<><p className="wa-muted">{report.sentenceSampleNote||"点一句看情绪和意图。横条是解释权重，不是喜欢程度。"}</p><ToneEvidence key={readingScope||"public-tone"} report={report} storageKey={readingScope}/></>} </>}
-   {active==='change'&&<>{report.chatActivity&&<ChatActivity summary={report.chatActivity}/>}{report.chatActivity&&<section className="wa-card"><h2>互动构成</h2><ArchiveRadar labels={activityChart(report.chatActivity).dimensions.map(row=>row.label)} rows={activityChart(report.chatActivity).dimensions.map(row=>({label:row.label,value:row.value}))}/></section>}{Array.isArray(diagnosis?.periods)&&diagnosis.periods.length>1&&<section className="wa-card"><h2>前后两段</h2>{diagnosis.periods.map((period:Json)=>{const max=Math.max(1,...diagnosis.periods.map((item:Json)=>Number(item.sample)||0));return <div key={period.label}><strong>{period.label}</strong> <small>{period.range}</small><div style={{display:"flex",height:14,margin:"8px 0",background:"#f3ebe3",borderRadius:8,overflow:"hidden"}}><i style={{width:`${(Number(period.self)||0)/max*100}%`,background:"#b66c55"}}/><i style={{width:`${(Number(period.other)||0)/max*100}%`,background:"#608b7b"}}/></div><p>我 {period.self} · TA {period.other} · 共 {period.sample} 条</p></div>;})}</section>}{Array.isArray(diagnosis?.claimActions)&&diagnosis.claimActions.length>0&&<section className="wa-card"><h2>说法与行动</h2>{diagnosis.claimActions.map((item:Json)=><article key={item.id}><strong>{item.claim}</strong><p>{item.status} · {item.action}</p><small>{item.claimEvidence}</small>{item.actionEvidence&&<small>{item.actionEvidence}</small>}</article>)}</section>}<InteractionEvidence report={report} owner={publicExample?undefined:account?.account?.userId}/>{fit&&<FitReport fit={fit} current={Object.prototype.hasOwnProperty.call(report,'latestCompatibility')}/>}</>}
-   {active==='next'&&<>{(diagnosis?.decision?.options||[]).length>0&&<section className="wa-card"><h2>四个选择，本周只做一个</h2>{diagnosis.decision.options.slice(0,4).map((option:Json)=><article key={option.label}><strong>{option.label}</strong><p>{option.action}</p><small>{option.observeWindow===diagnosis.decision.observeWindow?"本周就做这个。":""}观察 {option.observeWindow}。停止：{option.stopCondition}</small></article>)}</section>}<section className="wa-card" id="replies"><h2><Send size={21}/>现在怎么回</h2><RiskActionNotice presentation={presentation}/>{options.length?<Replies key={`${account?.account?.userId}:${report.id}`} options={options} report={report} account={account} styleReportIds={styleReportIds} publicExample={publicExample}/>:<p className={readerStyles.empty}>{report.lines?.at(-1)?.speaker==='self'?'最后一句是你发的，先等对方回应。':presentation.nextStep||'这轮没有可靠的回复候选，先观察实际回应。'}</p>}{decision.replyReview&&<div className={readerStyles.interpretation}><strong>对原回复的回顾</strong><p>{decision.replyReview}</p></div>}</section>{!publicExample&&<div className="wa-actions"><button disabled={!account?.account?.userId} onClick={()=>{try{followup(actionReport,account!.account.userId);}catch(e){setFollowupError(message(e));}}}><MessageCircle size={16}/>带着报告问成子</button>{report.subjectId&&<a className="wa-button" href={`/archive?subjectId=${report.subjectId}`}>人物档案</a>}</div>}<ErrorNotice error={followupError}/></>}
+   {active==='status'&&<>
+    <ChatReportBrief report={report} diagnosis={diagnosis}/>
+    {decision.partial&&<p className="wa-status">部分材料未识别；下方依据只覆盖可读内容。</p>}
+    <RiskReview report={report}/>
+    <div className={reportStyles.detailLinks}>
+     {(diagnosis||semantic)&&<ReportDetails title="为什么这样判断" description="详细解读、支持与相反证据、其他解释和分析范围"><RelationshipDiagnosisPanel diagnosis={diagnosis} semanticHistory={semantic}/></ReportDetails>}
+     <ReportDetails title="我们之间：共同点与相处差异" description="对照双方已有资料，查看适配与需要磨合的地方"><PersonalConnection report={report} publicExample={publicExample}/>{fit&&<FitReport fit={fit} current={Object.prototype.hasOwnProperty.call(report,'latestCompatibility')}/>}</ReportDetails>
+     {hasCurrentLines&&<ReportDetails title="逐句看本次上传的聊天" description={`${report.lines.length} 句原话 · 点击查看语气与意图`}><ToneEvidence key={readingScope||"public-tone"} report={report} storageKey={readingScope}/></ReportDetails>}
+     {!preview&&!publicExample&&report.profileMemory&&<ReportDetails title="这次对我的新了解" description="查看从你的表达中整理的信息，也可以纠正"><ConversationMemoryReview memory={report.profileMemory} ownerId={account?.account?.userId} subjectId={report.subjectId}/></ReportDetails>}
+     {!diagnosis&&!semantic&&<ReportDetails title="查看完整分析" description="这份报告保留的详细线索与解释"><InsightExplorer compact publicExample={publicExample} report={report} kind="chat" owner={publicExample?undefined:account?.account?.userId}/></ReportDetails>}
+    </div>
+   </>}
+   {active==='change'&&<>
+    <RelationshipChanges diagnosis={diagnosis} semantic={semantic}/>
+    {!preview&&!publicExample&&<ReportFollowUp report={actionReport} owner={account?.account?.userId}/>}
+    {publicExample&&report.demo===true&&report.publicEvidenceReview&&<section className="wa-card"><RelationshipEvidenceCards review={report.publicEvidenceReview} publicExample/></section>}
+    {report.chatActivity?<ChatActivity summary={report.chatActivity}/>:<p className="wa-muted">这份材料还没有完整的时间信息，暂不能统计长期频率与发起比例。</p>}
+    <ReportDetails title="互动仪表：回应、投入与边界" description="查看行为构成与对应原话"><InteractionEvidence report={report} owner={publicExample?undefined:account?.account?.userId}/></ReportDetails>
+   </>}
+   {active==='next'&&<>
+    <section className={reportStyles.nextAction}><h2><ArrowRight size={21}/>接下来先做这一件</h2><p>{action}</p><dl>{observe&&<div><dt>观察窗口</dt><dd>{observe}</dd></div>}{stop&&<div><dt>何时停止或重新判断</dt><dd>{stop}</dd></div>}</dl></section>
+    {options.length>0&&<section className="wa-card" id="replies"><h2><Send size={21}/>需要回复时，可以这样说</h2><Replies key={`${account?.account?.userId}:${report.id}`} options={options} report={report} account={account} styleReportIds={styleReportIds} publicExample={publicExample}/>{decision.replyReview&&<div className={readerStyles.interpretation}><strong>对原回复的回顾</strong><p>{decision.replyReview}</p></div>}</section>}
+    {presentation.mode==='normal'&&alternatives.length>0&&<ReportDetails title="如果情况变化，还有哪些选择" description="比较其他做法及适用条件"><div className={reportStyles.actionOptions}>{alternatives.slice(0,4).map((option,index)=><article key={option.label||index}><h3>{option.label}</h3><p>{option.action}</p><dl><div><dt>观察</dt><dd>{option.observeWindow}</dd></div><div><dt>停止条件</dt><dd>{option.stopCondition}</dd></div></dl></article>)}</div></ReportDetails>}
+    {!publicExample&&<div className="wa-actions"><button disabled={!account?.account?.userId} onClick={()=>{try{followup(actionReport,account!.account.userId);}catch(e){setFollowupError(message(e));}}}><MessageCircle size={16}/>{fullHistory?'基于全部聊天继续问成子':'带着报告问成子'}</button>{report.subjectId&&<a className="wa-button" href={`/archive?subjectId=${report.subjectId}`}>人物档案</a>}</div>}
+    <ErrorNotice error={followupError}/>
+   </>}
   </>}</ReportReader>
   <ReportActions report={actionReport} publicExample={publicExample}/>
  </div></CaptureEvidenceProvider>;

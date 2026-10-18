@@ -46,7 +46,30 @@ assert(excerpts.some(line => line.includes("周末一起看展吗？")));
 assert(excerpts.some(line => line.includes("看展的票我已经买好了。")));
 assert.equal(questionDepth.needsCaptureHistoryAnswer("根据全部聊天，她对我的投入有变化吗？", excerpts, false), true);
 assert.equal(questionDepth.needsCaptureHistoryAnswer("只给一句怎么回？", excerpts, false), false);
+assert.equal(questionDepth.needsCaptureHistoryAnswer("结合之前全部聊天，这张图意味着什么？", excerpts, true, true), true);
+assert.equal(questionDepth.needsCaptureHistoryAnswer("为什么建议这么回复？", excerpts, false), true);
 const foreign = await context.loadProfileContext(other, foreignSubject, "看展", 2600);
 assert.doesNotMatch(foreign, /看展的票我已经买好了/);
 assert.ok(result.length <= 2600);
+const beforeReport = await context.loadFullHistoryQuestionContext(owner, subject, "看展安排有哪些变化？");
+assert.equal(beforeReport.status, "ready");
+assert.equal(beforeReport.semanticStatus, "not-generated");
+assert.match(beforeReport.context, /不要声称已逐条理解全部聊天/);
+const reportId = "33333333-3333-4333-8333-333333333333";
+const report = {analysisScope: "fullHistory", archiveSnapshot: {libraryId: library, epoch: 1, revision: 0, total: 3}, semanticHistory: {
+  status: "complete", coverage: {analyzedText: 3}, summaryEvidenceIds: ["h1"], findings: [
+    {id: "h1", claim: "给出了具体可用时间", alternative: "这不等于浪漫意愿", evidence: [{sourceId: "r2", senderRole: "other", at: rows[1].at, quote: "周六下午可以"}]},
+    {id: "forged", claim: "捏造关系事实", evidence: [{sourceId: "foreign-message", senderRole: "other", quote: "我已经答应结婚"}]}
+  ]
+}};
+sql.prepare("INSERT INTO coach_saved_reports(id,owner_id,kind,subject_id,status,result,created_at,updated_at) VALUES(?,?,'chat',?,'done',?,1,1)").run(reportId, owner, subject, JSON.stringify(report));
+const withReport = await context.loadFullHistoryQuestionContext(owner, subject, "看展安排");
+assert.equal(withReport.semanticStatus, "complete");
+assert.match(withReport.context, /给出了具体可用时间/);
+assert.doesNotMatch(withReport.context, /捏造关系事实|已经答应结婚/);
+assert(questionDepth.captureArchiveExcerpts(withReport.context).some(line => line.includes("周六下午可以")));
+sql.prepare("UPDATE coach_capture_libraries SET revision=1 WHERE id=?").run(library);
+assert.equal((await context.loadFullHistoryQuestionContext(owner, subject, "看展")).semanticStatus, "partial", "modified source snapshot invalidates the old complete-coverage claim");
+sql.prepare("UPDATE coach_profiles SET paused=1 WHERE owner_id=?").run(owner);
+assert.equal((await context.loadFullHistoryQuestionContext(owner, subject, "看展")).status, "paused");
 console.log("Capture memory context passed: owner/person scoped archive retrieval, query evidence, aggregate count, and bounded prompt.");

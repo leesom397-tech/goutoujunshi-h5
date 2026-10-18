@@ -3,6 +3,7 @@
 import { useId, useMemo, useState } from "react";
 import { Activity, CalendarDays, ChartNoAxesCombined, ChevronDown, Clock3, Gauge, MessageCircle, Mic, MoveUpRight } from "lucide-react";
 import { chatActivityTimeline, computeChatActivity, type ChatActivityRecord, type ChatActivitySummary } from "@/lib/chat-activity";
+import { reportPersonLabel } from "./report-person-label";
 import styles from "./ChatActivity.module.css";
 
 export type ChatActivityProps = { records?: readonly ChatActivityRecord[]; summary?: ChatActivitySummary; account?: string; friend?: string; compact?: boolean; className?: string };
@@ -20,7 +21,7 @@ export function ChatActivity({ records = [], summary: supplied, account, friend 
   const totalStarts = summary.starts.comparable;
   const selfRatio = summary.starts.selfPercent || 0;
   const responses = summary.responses || { selfToOther: 0, otherToSelf: 0, selfCoverage: null, otherCoverage: null, averageSelfReplyMinutes: null, averageOtherReplyMinutes: null, comparableTurns: 0 };
-  const otherName = friend === "TA" ? "TA" : friend;
+  const otherName = reportPersonLabel(friend, "对方");
   if (!summary.messages) return null;
   return <section className={`${styles.panel} ${compact ? styles.compact : ""} ${className}`} aria-labelledby={titleId} data-chat-activity="true">
     <header className={styles.header}>

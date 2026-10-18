@@ -27,7 +27,7 @@ export async function checkFullCaptureHistory(db: Database, owner: string, input
 }
 
 /** Read the authenticated owner's entire synchronized snapshot, with no client-selected 40-row slice. */
-export async function readFullCaptureHistory(db: Database, owner: string, input: CaptureAnalysisInput): Promise<{ records: CloudCaptureRecord[]; readable: CaptureMemoryRow[] }> {
+export async function readFullCaptureHistory(db: Database, owner: string, input: CaptureAnalysisInput): Promise<{ records: CloudCaptureRecord[]; readable: CaptureMemoryRow[]; revision: number }> {
   const snapshot = await checkFullCaptureHistory(db, owner, input);
   const total = input.expectedTotal!;
   const records: CloudCaptureRecord[] = [], ids = new Set<string>();
@@ -54,5 +54,5 @@ export async function readFullCaptureHistory(db: Database, owner: string, input:
   const databaseSignatures = new Set(eligible.filter(isDatabase).map(signature));
   const readable: CaptureMemoryRow[] = eligible.filter(row => isDatabase(row) || !databaseSignatures.has(signature(row)))
     .map(row => ({ localId: row.localId, kind: "text", senderRole: row.senderRole as "self" | "other", at: row.at, text: row.text }));
-  return { records, readable };
+  return { records, readable, revision: snapshot.revision };
 }

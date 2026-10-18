@@ -1,4 +1,5 @@
 "use client";
+import { reportPersonLabel } from "@/components/report-person-label";
 import {BookOpen,ArrowUpRight,MessageCircle} from "lucide-react";
 import {knowledgeManifest} from "@/lib/knowledge-public";
 import {keyReportEvidence,replyContrasts} from "@/lib/report-reading";
@@ -16,8 +17,15 @@ export function MethodReferences({sources}:{sources?:Json[]}){
  })}</div><p>文献提供分析方法；这次判断的个人依据仍是上面的材料。</p></details>;
 }
 export function KeyEvidenceList({report,priorityEvidence,showReferences=true}:{report:Json;priorityEvidence?:string;showReferences?:boolean}){
- const items=keyReportEvidence(report,priorityEvidence);
- return <div data-key-evidence>{items.length?<ol className={styles.evidenceList}>{items.map((item,index)=><li key={index}><small><b>{index+1}</b>{item.label}</small><blockquote>{item.text.length>100?item.text.slice(0,100)+"…":item.text}</blockquote><CaptureEvidence quote={item.text}/></li>)}</ol>:<p className={styles.empty}>本轮暂未保留可引用的具体依据，不补造原话。</p>}{showReferences&&<MethodReferences sources={report.knowledgeSources||report.decision?.knowledgeSources}/>}</div>;
+ const semantic=report.semanticHistory||report.relationshipDiagnosis?.semanticHistory;
+ const findings:Json[]=Array.isArray(semantic?.findings)?semantic.findings:[];
+ const anchorIds=new Set(Array.isArray(semantic?.summaryEvidenceIds)?semantic.summaryEvidenceIds:[]);
+ const anchors=[...findings.filter(row=>anchorIds.has(row.id)),...findings.filter(row=>!anchorIds.has(row.id))];
+ const semanticItems=anchors.flatMap(finding=>(Array.isArray(finding.evidence)?finding.evidence:[]).map((evidence:Json)=>({text:String(evidence.quote||""),label:`${reportPersonLabel(evidence.senderRole)}${evidence.at?" · "+evidence.at:""}`,sourceId:evidence.sourceId}))).filter(item=>item.text.trim());
+ const normalize=(value:string)=>value.replace(/[\s\p{P}\p{S}]/gu,"");
+ const candidates:Array<{text:string;label:string;sourceId?:string}>=[...(priorityEvidence?keyReportEvidence(report,priorityEvidence).slice(0,1):[]),...semanticItems,...keyReportEvidence(report)];
+ const items=candidates.filter((item,index,all)=>all.findIndex(other=>normalize(other.text)===normalize(item.text))===index).slice(0,3);
+ return <div data-key-evidence>{items.length?<ol className={styles.evidenceList}>{items.map((item,index)=><li key={index}><small><b>{index+1}</b>{item.label}</small><blockquote>{item.text.length>150?item.text.slice(0,150)+"…":item.text}</blockquote><CaptureEvidence quote={item.text} sourceIds={item.sourceId?[item.sourceId]:undefined}/></li>)}</ol>:<p className={styles.empty}>本轮暂未保留可引用的具体依据，不补造原话。</p>}{showReferences&&<MethodReferences sources={report.knowledgeSources||report.decision?.knowledgeSources}/>}</div>;
 }
 export function ReplyDifference({options,index}:{options:Json[];index:number}){
  const contrast=replyContrasts(options).find(row=>row.index===index);

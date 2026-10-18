@@ -20,7 +20,6 @@ const managedLinux = readExecutionProfile() === "managed-linux";
 
 const localBindingConfig = {
   main: "vinext/server/fetch-handler",
-  compatibility_flags: ["nodejs_compat"],
   d1_databases: d1
     ? [
         {
@@ -72,10 +71,11 @@ export default defineConfig(async () => {
 
   return {
     server: {
+      host: "127.0.0.1",
       ...(managedLinux ? { host: "0.0.0.0", allowedHosts: ["terminal.local"] } : {}),
       watch: {
         // Native packaging locks its EXE on Windows; it is not web HMR input.
-        ignored: ["**/desktop/**/build/**", "**/desktop/**/dist/**", "**/desktop/**/.venv/**", "**/.tmp/**", "**/outputs/**"],
+        ignored: ["**/desktop/**/build/**", "**/desktop/**/dist/**", "**/desktop/**/.venv/**", "**/public/downloads/**", "**/.tmp/**", "**/outputs/**"],
         ...(isCodexSeatbeltSandbox ? { useFsEvents: false, usePolling: true } : {}),
       },
     },
@@ -83,6 +83,9 @@ export default defineConfig(async () => {
       vinext(),
       sites({ mockAuth: !managedLinux }),
       cloudflare({
+        // The production entry exports queue/DO handlers. The Vite SSR entry
+        // does not, so do not inherit production bindings during local preview.
+        configPath: "wrangler.vite.jsonc",
         viteEnvironment: { name: "rsc", childEnvironments: ["ssr"] },
         inspectorPort: false,
         config: localBindingConfig,

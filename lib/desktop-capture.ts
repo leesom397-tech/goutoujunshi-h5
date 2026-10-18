@@ -16,7 +16,8 @@ export type CaptureRecord = {
   source: CaptureSource;
   images?: CaptureImage[];
 };
-export type CaptureBatch = { version: 1; kind: CaptureKind; friend: string; account: string; capturedAt: string; records: CaptureRecord[]; warnings: string[] };
+export type CaptureCoverage = { scope: "all-visible" | "requested-count"; complete: boolean; stopReason: "scanning" | "visible-end" | "requested-count" | "focus-unavailable" | "unreadable-posts"; recordCount: number; imageOmittedCount: number; unreadableCount: number };
+export type CaptureBatch = { version: 1; kind: CaptureKind; friend: string; account: string; capturedAt: string; records: CaptureRecord[]; warnings: string[]; coverage?: CaptureCoverage };
 export type CaptureNamespace = { ownerId: string; account: string; friend: string; kind: CaptureKind };
 export type StoredCaptureRecord = CaptureRecord & { localId: string; namespace: string; firstCapturedAt: string; lastCapturedAt: string };
 export type CaptureMerge = { added: number; repeated: number; updatedVoice: number; total: number; newRecords: StoredCaptureRecord[]; records: StoredCaptureRecord[] };
@@ -70,7 +71,32 @@ export function validateCaptureBatch(value: unknown): CaptureBatch {
     return { ...(id ? { id } : {}), kind: row.kind as CaptureRecordKind, sender: field(row.sender, "说话人", 200), senderRole: senderRole as CaptureRecord["senderRole"], at: field(row.at, "原文时间", 120), text, ...(row.ocrTextVerified !== undefined ? { ocrTextVerified: row.ocrTextVerified as boolean } : {}), source, ...(images ? { images } : {}) };
   });
   if (value.warnings !== undefined && (!Array.isArray(value.warnings) || value.warnings.length > 100)) throw new Error("采集提示格式不正确。");
-  return { version: 1, kind: value.kind as CaptureKind, account, friend, capturedAt, records, warnings: ((value.warnings || []) as unknown[]).map(item => field(item, "采集提示", 2000)) };
+  let coverage: CaptureCoverage | undefined;
+  if (value.coverage !== undefined) {
+    const c = value.coverage;
+    if (value.kind !== "moments" || !object(c) || !["all-visible", "requested-count"].includes(String(c.scope)) || typeof c.complete !== "boolean"
+      || !["scanning", "visible-end", "requested-count", "focus-unavailable", "unreadable-posts"].includes(String(c.stopReason))
+      || [c.recordCount, c.imageOmittedCount, c.unreadableCount].some(count => !Number.isSafeInteger(count) || Number(count) < 0)
+      || c.complete && c.stopReason !== "visible-end") throw Error("朋友圈采集范围信息不完整，请更新助手后重试。");
+    coverage = { scope: c.scope as CaptureCoverage["scope"], complete: c.complete, stopReason: c.stopReason as CaptureCoverage["stopReason"], recordCount: Number(c.recordCount), imageOmittedCount: Number(c.imageOmittedCount), unreadableCount: Number(c.unreadableCount) };
+  }
+  return { version: 1, kind: value.kind as CaptureKind, account, friend, capturedAt, records, warnings: ((value.warnings || []) as unknown[]).map(item => field(item, "采集提示", 2000)), ...(coverage ? { coverage } : {}) };
+}
+
+/** Split a bounded bridge snapshot into normal storage batches before validation.
+ * Validation stays at 1000 rows; all-visible capture is not silently truncated.
+ * Validate every chunk before returning so malformed later rows cannot partially import.
+ */
+export function splitCaptureBatch(value: unknown): CaptureBatch[] {
+  if (!object(value) || !Array.isArray(value.records)) throw Error("采集数据缺少原文记录。");
+  if (new TextEncoder().encode(JSON.stringify(value)).byteLength > 32 * 1024 * 1024) throw Error("采集快照超过传输容量，已保存的材料仍可查看，请分次采集。");
+  const batches: CaptureBatch[] = [];
+  for (let offset = 0; offset < Math.max(1, value.records.length); offset += CAPTURE_LIMITS.recordsPerBatch) {
+    const last = offset + CAPTURE_LIMITS.recordsPerBatch >= value.records.length;
+    const coverage = object(value.coverage) && !last ? { ...value.coverage, complete: false, stopReason: "scanning" } : value.coverage;
+    batches.push(validateCaptureBatch({ ...value, records: value.records.slice(offset, offset + CAPTURE_LIMITS.recordsPerBatch), ...(coverage ? { coverage } : {}) }));
+  }
+  return batches;
 }
 
 const normalized = (value: string) => value.normalize("NFKC").replace(/\s+/g, " ").trim();

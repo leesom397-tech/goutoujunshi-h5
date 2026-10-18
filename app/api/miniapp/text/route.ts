@@ -5,14 +5,13 @@ import { loadFullHistoryQuestionContext, loadProfileContext, type FullHistoryQue
 import { parseQwenJson, qwenChat, qwenPublicError } from "@/lib/qwen";
 import { CREDIT_PRICES } from "@/lib/account-credits.mjs";
 import { ANALYSIS_DEPTH_GUIDANCE } from "@/lib/analysis-depth";
-import { CAPTURE_HISTORY_ANSWER_GUIDANCE, captureArchiveExcerpts, needsCaptureHistoryAnswer } from "@/lib/capture-question-depth";
+import { CAPTURE_HISTORY_ANSWER_GUIDANCE, captureArchiveExcerpts, cleanCaptureHistoryAnswer, needsCaptureHistoryAnswer } from "@/lib/capture-question-depth";
 import { creditResponse } from "@/lib/credit-response.mjs";
 import { QUICK_QUESTION_IMAGE_GUIDANCE, QUICK_QUESTION_REPLY_GUIDANCE, QuickQuestionInputError, quickQuestionImages, quickQuestionTextEvidence, readQuickQuestionBody } from "@/lib/quick-question";
 
 export const runtime = "edge";
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
 const clean = (value: unknown, limit: number) => typeof value === "string" ? value.replace(/[\r\n]+/g, " ").trim().slice(0, limit) : "";
-const cleanParagraphs = (value: unknown, limit: number) => typeof value === "string" ? value.replace(/\r\n?/g, "\n").trim().slice(0, limit) : "";
 type Reply = { style?: unknown; text?: unknown; reason?: unknown; cost?: unknown; weight?: unknown };
 type ReadyHistory = Extract<FullHistoryQuestionContext, { status: "ready" }>;
 
@@ -42,9 +41,9 @@ async function executeRequest(body: Record<string, unknown>, ownerId: string, at
   // person's complete synced chat archive (aggregate counts plus relevant
   // excerpts).  The projection is still capped inside loadProfileContext;
   // this is not a request to send the raw archive to the model.
-  const profile = fullHistory?.context || (subjectId ? await loadProfileContext(identity.ownerId, subjectId, (other + " " + self).trim(), mode === "conversation" ? 3600 : 2600) : "");
-  const archiveExcerpts = mode === "conversation" && !images.length ? captureArchiveExcerpts(profile) : [];
-  const detailedArchive = mode === "conversation" && needsCaptureHistoryAnswer(self, archiveExcerpts, images.length > 0);
+  const profile = fullHistory?.context || await loadProfileContext(identity.ownerId, subjectId, (other + " " + self).trim(), mode === "conversation" ? 3600 : 2600);
+  const archiveExcerpts = mode === "conversation" ? captureArchiveExcerpts(profile) : [];
+  const detailedArchive = mode === "conversation" && needsCaptureHistoryAnswer(self, archiveExcerpts, images.length > 0, !!fullHistory);
   let parsed: Record<string, unknown>;
   try {
     const output = await qwenChat([
@@ -54,6 +53,7 @@ async function executeRequest(body: Record<string, unknown>, ownerId: string, at
         QUICK_QUESTION_REPLY_GUIDANCE,
         images.length ? "" : archiveExcerpts.length ? "evidence只引用当前用户输入、历史用户消息或下方资料库摘要中可逐字核对的原话；不能引用上一轮智能体解读、统计字段或未展示的消息。没有原话就给空字符串，不用问题本身代替依据。" : "evidence只放当前用户输入或历史用户消息中可逐字核对的原话短引文；不要把上一轮智能体的解读当原话。用户只是追问时，引用他先前给过的相关内容。没有可引用的原话就给空字符串，不用当前疑问代替依据。",
         images.length ? QUICK_QUESTION_IMAGE_GUIDANCE : "",
+        images.length && detailedArchive ? "本次还带有当前人物的完整资料参考：截图用于解释当前疑问，历史用于核对变化；整体解释按完整聊天要求充分展开，不适用截图单独短答的一两句限制。引用时明确是本次截图还是历史原话。" : "",
         detailedArchive ? CAPTURE_HISTORY_ANSWER_GUIDANCE : "",
         profile ? "本次人物档案：" + profile : "",
         reference ? "参考方法：" + reference.content.slice(0, 850) : "",
@@ -73,22 +73,22 @@ async function executeRequest(body: Record<string, unknown>, ownerId: string, at
         { type: "text", text: JSON.stringify({ "我的问题": self, selfSide, "我在截图哪侧": selfSide === "left" ? "左侧" : "右侧", "材料说明": "仅限本次问题；图片依次为第1张、第2张、第3张。" }) },
         ...images.map(url => ({ type: "image_url" as const, image_url: { url, detail: "high" as const } })),
       ] : JSON.stringify(mode === "chat" ? { "对方原话": other, "我说过的话": self } : { "我的需求和疑问": self }) },
-    ], { ...(images.length ? { vision: true } : {}), fast: true, json: true, maxTokens: detailedArchive ? 1800 : 1200, timeoutMs: images.length || detailedArchive ? 30000 : 18000 });
+    ], { ...(images.length ? { vision: true } : {}), fast: true, json: true, maxTokens: detailedArchive ? 3000 : 1200, timeoutMs: images.length || detailedArchive ? 45000 : 18000 });
     parsed = parseQwenJson<Record<string, unknown>>(output);
   } catch (error) { return json({ error: qwenPublicError(error, "这次解读暂未完成，请稍后重试。") }, 503); }
-  let possibleIntent = detailedArchive ? cleanParagraphs(parsed?.possibleIntent, 950) : clean(parsed?.possibleIntent, mode === "conversation" ? 600 : 300), nextStep = clean(parsed?.nextStep, detailedArchive ? 260 : 160);
+  let possibleIntent = detailedArchive ? cleanCaptureHistoryAnswer(parsed?.possibleIntent) : clean(parsed?.possibleIntent, mode === "conversation" ? 600 : 300), nextStep = clean(parsed?.nextStep, detailedArchive ? 320 : 160);
   if (!possibleIntent || !nextStep) {
     try {
       const repair = await qwenChat([
-        { role: "system", content: "只返回 JSON {possibleIntent,nextStep}。possibleIntent 用一两句话回答当前问题；nextStep 给一条可执行的下一步。两项都不要空字符串。" },
+        { role: "system", content: "只返回 JSON {possibleIntent,nextStep}。补全缺失字段，保留已经完整的回答。nextStep 给一条由已知证据支持的动作，没有依据不要编造约定。" + (detailedArchive ? CAPTURE_HISTORY_ANSWER_GUIDANCE : "possibleIntent 用一两句话回答当前问题。") + (profile ? "\n本次可用资料：" + profile : "") },
         { role: "user", content: JSON.stringify({ question: self || other, draft: { possibleIntent: parsed?.possibleIntent || "", evidence: parsed?.evidence || "", nextStep: parsed?.nextStep || "" } }).slice(0, 2000) },
       ], { fast: true, json: true, maxTokens: 2000, timeoutMs: 20000 });
       const repaired = parseQwenJson<Record<string, unknown>>(repair);
-      if (!possibleIntent) possibleIntent = detailedArchive ? cleanParagraphs(repaired?.possibleIntent, 950) : clean(repaired?.possibleIntent, mode === "conversation" ? 600 : 300);
-      if (!nextStep) nextStep = clean(repaired?.nextStep, detailedArchive ? 260 : 160);
+      if (!possibleIntent) possibleIntent = detailedArchive ? cleanCaptureHistoryAnswer(repaired?.possibleIntent) : clean(repaired?.possibleIntent, mode === "conversation" ? 600 : 300);
+      if (!nextStep) nextStep = clean(repaired?.nextStep, detailedArchive ? 320 : 160);
     } catch { /* first parse stands; still incomplete answers are refunded below */ }
   }
-  if (possibleIntent && !nextStep) nextStep = "先观察对方下一次是否给出具体时间或替代安排，再决定要不要继续投入。";
+  if (possibleIntent && !nextStep) nextStep = "先对照上面的原话依据核对当前判断；出现新信息后再决定是否调整。";
   // A visual short answer cites the current image, never the user's question
   // disguised as its evidence. It remains an interpretation of visible text.
   const evidence = images.length ? clean(parsed?.evidence, 220) || "本次截图未提供足够清晰的原话，请补充相关上下文。" : quickQuestionTextEvidence(parsed?.evidence, mode, self, other, history, archiveExcerpts);
@@ -102,7 +102,7 @@ async function executeRequest(body: Record<string, unknown>, ownerId: string, at
   // answer is saved to a profile. The ordinary short-lived billing receipt
   // stores the answer only so retries do not repeat a paid model call.
   
-  return json({ mode, possibleIntent, evidence, nextStep, replies, ...(fullHistory ? { historyCoverage: { total: fullHistory.total, readable: fullHistory.readable } } : {}) });
+  return json({ mode, possibleIntent, evidence, nextStep, replies, ...(fullHistory ? { historyCoverage: { total: fullHistory.total, readable: fullHistory.readable, semanticStatus: fullHistory.semanticStatus, analyzedText: fullHistory.analyzedText } } : {}) });
 }
 
 export async function POST(request: Request) {
@@ -124,6 +124,11 @@ export async function POST(request: Request) {
       if (archive.status === "missing") return json({ error: "没有读到当前人物已同步的可读聊天资料。请先在采集页完成同步后重试；本次未调用智能分析。" }, 409);
       if (archive.status !== "ready") return json({ error: "完整聊天资料暂时不可用，请先回到采集页重试。" }, 409);
       fullHistory = archive;
+    } else if (body.mode === "conversation" && typeof body.subjectId === "string" && /^[a-f0-9-]{36}$/i.test(body.subjectId)) {
+      // Selecting a person includes their saved archive in follow-up questions,
+      // even when the user entered from the general Ask Chengzi screen.
+      const archive = await loadFullHistoryQuestionContext(identity.ownerId, body.subjectId, clean(body.self, 1500));
+      if (archive.status === "ready") fullHistory = archive;
     }
     const boundedRequest = new Request(request.url, { method: "POST", headers: request.headers, body: raw, signal: request.signal });
     return creditResponse(getD1(), identity.ownerId, boundedRequest, "chat", CREDIT_PRICES.text, () => executeRequest(body, identity.ownerId, attachments, fullHistory));

@@ -4,12 +4,13 @@ import { createContext, useContext, useEffect, useId, useRef, useState, type Rea
 import { ArrowUpRight, Clock3, FileSearch, MessageCircle, Search, UserRound, X } from "lucide-react";
 import { type StoredCaptureRecord } from "@/lib/desktop-capture-vault";
 import { readSyncedReportSources as readReportSources } from "@/lib/capture-cloud-client";
+import { reportPersonLabel, reportSenderLabel } from "@/components/report-person-label";
 import styles from "./CaptureEvidence.module.css";
 
 type SourceLink = NonNullable<Awaited<ReturnType<typeof readReportSources>>>;
 type Selection = { quote?: string; sourceIds?: string[]; label?: string };
 type EvidenceContext = { ownerId?: string; reportId?: string; visible: boolean; open: (selection: Selection, trigger: HTMLElement) => void };
-type ProviderProps = { ownerId?: string; reportId?: string; captureOrigin?: boolean; children: ReactNode };
+type ProviderProps = { ownerId?: string; reportId?: string; captureOrigin?: boolean; fullHistory?: boolean; historyCount?: number; children: ReactNode };
 const Context = createContext<EvidenceContext | null>(null);
 const plain = (value: unknown) => typeof value === "string" ? value.trim() : "";
 const normalized = (value: string) => value.replace(/[\s“”‘’「」『』，。！？：；、,.!?;:'"()（）]/gu, "");
@@ -49,7 +50,7 @@ export function CaptureEvidenceProvider(props: ProviderProps) {
   return <CaptureEvidenceScope {...props}/>;
 }
 
-function CaptureEvidenceScope({ ownerId, reportId, captureOrigin = false, children }: ProviderProps) {
+function CaptureEvidenceScope({ ownerId, reportId, captureOrigin = false, fullHistory = false, historyCount, children }: ProviderProps) {
   const [loaded, setLoaded] = useState<{ owner: string; report: string; link: SourceLink | null; error: string } | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null), [search, setSearch] = useState(""), [limit, setLimit] = useState(24);
   const dialog = useRef<HTMLDialogElement>(null), trigger = useRef<HTMLElement | null>(null);
@@ -88,15 +89,16 @@ function CaptureEvidenceScope({ ownerId, reportId, captureOrigin = false, childr
   const query = normalized(search);
   const shown = query ? scoped.filter(record => normalized(`${record.sender} ${record.at} ${record.text}`).includes(query)) : scoped;
   const isMoments = link?.kind === "moments";
+  const totalLabel = typeof historyCount === "number" && Number.isFinite(historyCount) && historyCount > 0 ? `全部已导入 ${historyCount} 条记录` : "完整聊天报告";
   const close = () => dialog.current?.close();
 
   return <Context.Provider value={{ ownerId, reportId, visible, open }}>
-    {visible && <div className={styles.sourceBar} data-capture-sources><FileSearch size={20}/><span>{link ? `本次采集 · ${link.records.length} 条原记录` : "本报告来自微信采集"}</span><button type="button" onClick={event => open({ label: "本次分析的原始记录" }, event.currentTarget)}>查看原始记录<ArrowUpRight size={16}/></button></div>}
+    {visible && <div className={styles.sourceBar} data-capture-sources><FileSearch size={20}/><span>{fullHistory ? `${totalLabel}${link ? ` · 报告附 ${link.records.length} 条原话依据` : ""}` : link ? `本次采集 · ${link.records.length} 条原记录` : "本报告来自微信采集"}</span><button type="button" onClick={event => open({ label: fullHistory ? "这份报告附带的原话依据" : "本次分析的原始记录" }, event.currentTarget)}>{fullHistory ? "查看原话依据" : "查看原始记录"}<ArrowUpRight size={16}/></button></div>}
     {children}
     <dialog ref={dialog} className={styles.drawer} aria-labelledby={headingId} data-capture-evidence-dialog onClose={() => { restorePosition(); setSelection(null); }} onClick={event => { if (event.target === event.currentTarget) { const rect = event.currentTarget.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right) close(); } }}>
       <header className={styles.header}><div><span>回看分析依据</span><h2 id={headingId}>{isMoments ? "原始朋友圈动态" : "原始聊天记录"}</h2></div><button type="button" aria-label="关闭原始记录" onClick={close}><X size={22}/></button></header>
       {!current ? <p className={styles.empty}>正在读取原始记录…</p> : !link || !link.records.length ? <div className={styles.empty}><FileSearch size={30}/><h3>这份报告的原始来源尚未同步</h3><p>{current.error || "请在采集电脑打开「已导入聊天」，对这份材料启用跨端同步。已删除且未同步的原文无法从报告还原。"}</p><button type="button" onClick={close}>返回报告</button></div> : <>
-        <div className={styles.context}><strong>{selection?.label || "这条判断引用的材料"}</strong>{selection?.quote && <blockquote>{selection.quote}</blockquote>}<p>{matches.length ? `找到 ${matches.length} 条对应原记录${matches.length > 1 ? "，请结合时间与说话人核对" : ""}。` : selection?.quote || selection?.sourceIds?.length ? "未能精确定位这段引用，以下为本次分析关联的原记录。" : `共 ${link.records.length} 条，按本次分析的材料顺序呈现。`}</p></div>
+        <div className={styles.context}><strong>{selection?.label || "这条判断引用的材料"}</strong>{selection?.quote && <blockquote>{selection.quote}</blockquote>}<p>{matches.length ? `找到 ${matches.length} 条对应原记录${matches.length > 1 ? "，请结合时间与说话人核对" : ""}。` : selection?.quote || selection?.sourceIds?.length ? "未能精确定位这段引用，以下为本次分析关联的原记录。" : fullHistory ? `这里展示报告附带的 ${link.records.length} 条原话依据；完整聊天的分析范围见报告。` : `共 ${link.records.length} 条，按本次分析的材料顺序呈现。`}</p></div>
         <label className={styles.search}><Search size={18}/><input aria-label="在本次原记录中查找" placeholder="查找文字、说话人或时间" value={search} onChange={event => { setSearch(event.target.value); setLimit(24); }}/></label>
         {link.records.length < link.sourceIds.length && <p className={styles.localNote}>这台设备缺少部分关联原文，以下仅显示仍保存的 {link.records.length} 条。</p>}
         <div className={styles.records}>{shown.slice(0, limit).map(record => <CaptureRecord key={record.localId} record={record} ordinal={link.sourceIds.indexOf(record.localId) + 1} isMoments={isMoments}/>)}</div>
@@ -114,12 +116,12 @@ function CaptureRecord({ record, ordinal, isMoments }: { record: StoredCaptureRe
   const videoSeconds = Number(record.source.videoTime) || 0;
   const time = `${Math.floor(videoSeconds / 60).toString().padStart(2,"0")}:${Math.floor(videoSeconds % 60).toString().padStart(2,"0")}`;
   return <article className={styles.record} data-capture-record={record.localId}>
-    <header><strong>{ordinal === 0 ? "已导入历史 · 资料依据" : frame ? `第 ${ordinal} 张采集画面` : isMoments ? `第 ${ordinal} 条动态` : `第 ${ordinal} 条消息`}</strong>{!frame && <span><UserRound size={15}/>{record.senderRole === "self" ? "我" : record.sender || (isMoments ? "作者未识别" : "说话人未识别")}</span>}</header>
+    <header><strong>{ordinal === 0 ? "已导入历史 · 资料依据" : frame ? `第 ${ordinal} 张采集画面` : isMoments ? `第 ${ordinal} 条动态` : `第 ${ordinal} 条消息`}</strong>{!frame && <span><UserRound size={15}/>{reportSenderLabel(record.senderRole, record.sender)}</span>}</header>
     {record.source.method === "video-import" ? <p className={styles.time}><Clock3 size={15}/>录屏位置 {time} · 消息时间以画面原文为准</p> : !frame && <p className={styles.time}><Clock3 size={15}/>{record.at || "未识别时间"}</p>}
     {(record.text || !frame) && <p className={styles.original}>{record.text || "这条记录没有识别出的文字。"}</p>}
     {images.length > 0 && <div className={styles.images}>{images.map((src, index) => <img key={index} src={src} alt={`第 ${ordinal} 条记录的第 ${index + 1} 张附图`} loading="lazy"/>)}</div>}
     {record.source.cloudMediaUnavailable===true&&<p className={styles.localNote}>这条记录的图片尚未同步完整，请在采集电脑继续同步。</p>}
-    {record.source?.label && <p className={styles.sourceLabel}>{record.source.label}</p>}
+    {record.source?.label && <p className={styles.sourceLabel}>{reportPersonLabel(record.source.label)}</p>}
   </article>;
 }
 

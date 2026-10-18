@@ -39,7 +39,7 @@ let authenticated = true, modelCalls = 0, sent, fail = false, profileText = '', 
 const route = load('app/api/web/text/route.ts', {
   '@/db': { getD1: () => db }, '@/lib/miniapp-auth': { miniappOwner: async () => authenticated ? { ownerId: owner } : null },
   '@/lib/account-credits.mjs': credits, '@/lib/credit-response.mjs': { creditResponse },
-  '@/lib/knowledge': { selectKnowledge: () => [] }, '@/lib/profile-context': { loadProfileContext: async () => profileText },
+  '@/lib/knowledge': { selectKnowledge: () => [] }, '@/lib/profile-context': { loadProfileContext: async () => profileText, loadFullHistoryQuestionContext: async () => ({status: 'missing'}) },
   '@/lib/qwen': { parseQwenJson: JSON.parse, qwenPublicError: (_error, fallback) => fallback, qwenChat: async (messages, options) => { modelCalls++; sent = { messages, options }; if (fail) throw Error('SYNTHETIC_FAILURE'); return JSON.stringify(output); } },
 });
 const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jF4cAAAAASUVORK5CYII=';
@@ -127,13 +127,14 @@ await test('full-history question gets a fuller grounded answer while a simple r
   const detailed = await route.POST(request({ requestId: crypto.randomUUID(), confirmed: true, mode: 'conversation', subjectId: subject, self: '根据全部聊天，她对我的投入有变化吗？' }));
   assert.equal(detailed.status, 200);
   const answer = await detailed.json();
-  assert.equal(answer.possibleIntent, output.possibleIntent, 'archive answer keeps useful paragraphs beyond the old 300-character prompt limit');
+  assert.ok(answer.possibleIntent.startsWith(explanation + '\n\n'), 'archive answer keeps paragraph structure');
+  assert.equal(answer.possibleIntent.split('另一种解释是近期工作确实占用了时间').length - 1, 1, 'literal repeated explanations are removed');
   assert.match(answer.evidence, /2026-10-01.*对方.*周六下午可以/);
   assert.match(answer.evidence, /2026-10-10.*对方.*下周再约/);
   assert.doesNotMatch(answer.evidence, /决定结婚/, 'invented archive quotes are removed');
   assert.match(sent.messages[0].content, /未展示的消息没有进入本次模型上下文/);
   assert.match(sent.messages[0].content, /没有真实反例或可比日期就说明证据不足/);
-  assert.equal(sent.options.maxTokens, 1800);
+  assert.equal(sent.options.maxTokens, 3000);
   output = { possibleIntent: '先回应她的安排。', evidence: '周六下午可以', nextStep: '问她几点方便。', replies: [] };
   const concise = await route.POST(request({ requestId: crypto.randomUUID(), confirmed: true, mode: 'conversation', subjectId: subject, self: '只给一句怎么回她？' }));
   assert.equal(concise.status, 200);

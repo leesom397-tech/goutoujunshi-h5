@@ -481,6 +481,7 @@ export default function AnalyzePage() {
                 <div><span>{selectedMode.label}</span><strong>{effectiveFiles.length ? effectiveFiles.length + " 张待分析" : task ? "继续已保存的任务" : "等待添加截图"}</strong></div>
                 <div><span>{previousCount > 0 ? "本次补图费用" : "本次费用"}</span><strong>{files.length && !effectiveFiles.length ? "0 积分 · 可回看已有报告" : priceLabel(account.account, costKey)}</strong></div>
               </div>
+              {account.account && <p className={styles.balanceLine}>当前可用 {balance} 积分{needsCredits && !task ? " · 余额不足" : ""}<a href="/account#contact">购买 / 开通 <ArrowRight size={14}/></a></p>}
               <label className="wa-check ax-consent"><input type="checkbox" checked={consent} disabled={disabled} onChange={e => { setConsent(e.target.checked); if (error === "请确认材料提供权与本次处理范围。") setError(""); }}/><span>我有权提供这些材料，同意将本次图片发送至阿里云百炼进行分析。上传中的图片会临时保存在当前浏览器以便断线续传，任务完成或取消后删除本机临时图片。</span></label>
               {mode === "chat" && <p className="wa-muted ax-retention"><ShieldCheck size={15}/>报告和识别出的文字长期保存到分析记录，由你决定何时删除。原截图不归档。</p>}
               <ErrorNotice error={error}/>
@@ -500,25 +501,7 @@ export default function AnalyzePage() {
             </section>}
           </div>
 
-          {hasMaterials && <aside className="ax-aside">
-            <section className="wa-card ax-outcome">
-              <figure className="wa-feature-visual ax-feature-visual" aria-hidden="true"><img src="/visuals/conversation-daylight.webp" alt=""/><span><Sparkles size={14}/>把线索连成理解</span></figure>
-              <span className="ax-section-number">分析之后，你会得到</span>
-              <h2>看得懂，也用得上。</h2>
-              <div className="ax-outcome-item"><span><MessageSquare size={18}/></span><div><strong>{mode === "chat" ? "读懂当下，知道怎么回" : "了解这个人，从可见事实开始"}</strong><p>{mode === "chat" ? "区分双方的话与情绪，给出带理由的回复方案。" : "整理资料事实、兴趣与边界，给出自然开场和相处建议。"}</p></div></div>
-              <div className="ax-outcome-item"><span><ScanLine size={18}/></span><div><strong>每个判断，都能回看依据</strong><p>原话、合理的另一种解释，以及下一步可以观察什么。</p></div></div>
-              <div className="ax-outcome-item"><span><FolderHeart size={18}/></span><div><strong>把一次分析，连到长期关系</strong><p>关联人物后持续积累互动，分别理解好感信号与资料适配。</p></div></div>
-            </section>
 
-            <section className="wa-card ax-credit-card" aria-label="本次积分">
-              <div className="ax-credit-heading"><Coins size={19}/><h2>费用先说清楚</h2></div>
-              <strong className="ax-credit-price">{files.length && !effectiveFiles.length ? "0 积分" : priceLabel(account.account, costKey)}</strong>
-              <p>{mode === "chat" ? "1–3 / 4–6 / 7–9 张按组计费" : "每组资料分析，补图新批次另计费"}</p>
-              {account.account && <div className="ax-balance"><span>当前可用<strong>{balance} 积分</strong></span><a href="/account#contact">购买 / 开通<ArrowRight size={14}/></a></div>}
-              {needsCredits && !task && <p className="ax-credit-warning">当前余额不足，开通积分后再开始分析。</p>}
-              <span className="ax-credit-reassurance"><ShieldCheck size={15}/>失败释放本次预留积分</span>
-            </section>
-          </aside>}
         </div>
         {!hasMaterials && <div id="analysis-example"><AnalysisExample mode={mode as "chat" | "moments" | "social"} onUpload={requestUpload}/></div>}
       </>}

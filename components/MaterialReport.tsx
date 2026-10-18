@@ -1,4 +1,5 @@
 "use client";
+import { reportPersonLabel } from "./report-person-label";
 import { useState } from "react";
 import { ReplyPaths } from "@/components/ReplyPaths";
 import { KnowledgeBasis } from "@/components/KnowledgeBasis";
@@ -20,7 +21,7 @@ export function ConversationPanel({ result, me, other, ready }: { result: Analys
   }
   return <section className="conversation-panel" aria-label="逐句线索与回复方向">
     <div className="conversation-head"><div><span className="eyebrow">逐句看信号</span><h3>看得见的原话，和还不能确定的事</h3></div><span>仅展示最近一批可辨认的关键句</span></div>
-    {result.lineInsights?.length > 0 ? <div className="conversation-lines">{result.lineInsights.map((line, index) => <article key={index} className={"conversation-line " + (line.speaker === me ? "mine" : "") }><div className="conversation-bubble"><div className="conversation-speaker"><strong>{line.speaker === me ? "我" : line.speaker === other ? other : line.speaker}</strong><span>{line.certainty}</span></div><p>“{line.quote}”</p></div><div className="conversation-reading"><strong>{line.signal}</strong><span>另一种解释：{line.alternative}</span></div></article>)}</div> : <p className="conversation-empty">这批材料暂时无法可靠地分出原话和说话人。可以补充带称呼、时间的文字记录，或更清楚的截图。</p>}
+    {result.lineInsights?.length > 0 ? <div className="conversation-lines">{result.lineInsights.map((line, index) => <article key={index} className={"conversation-line " + (line.speaker === me ? "mine" : "") }><div className="conversation-bubble"><div className="conversation-speaker"><strong>{line.speaker === me ? "我" : reportPersonLabel(line.speaker === other ? other : line.speaker)}</strong><span>{line.certainty}</span></div><p>“{line.quote}”</p></div><div className="conversation-reading"><strong>{line.signal}</strong><span>另一种解释：{line.alternative}</span></div></article>)}</div> : <p className="conversation-empty">这批材料暂时无法可靠地分出原话和说话人。可以补充带称呼、时间的文字记录，或更清楚的截图。</p>}
     <div className="conversation-replies"><div className="conversation-replies-head"><h4>如果现在要回复</h4><span>根据最后一批材料，选择符合你真实意愿的一条</span></div>{!ready ? <p className="conversation-empty">全部材料分析完成后，再看回复方向。</p> : result.replyOptions?.length === 3 ? <div className="conversation-reply-grid">{result.replyOptions.map((option, index) => <article key={index} className="conversation-reply"><div><strong>{labels[index]}</strong><button type="button" onClick={() => void copy(option.text, index)} aria-label={"复制" + labels[index]}>{copied === index ? "已复制" : "复制"}</button></div><p>{option.text}</p><small>{option.when}</small><ReplyPaths paths={option.next} /></article>)}</div> : <p className="conversation-empty">这批材料暂时不足以给出可靠的回复备选，或当前情境不适合直接发话术。先看上方总结与待核对的问题。</p>}{copyError && <p className="conversation-empty" role="status">{copyError}</p>}<span className="sr-only" role="status">{copied !== null ? "回复已复制" : ""}</span></div>
   </section>;
 }

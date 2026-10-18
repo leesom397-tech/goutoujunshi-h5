@@ -1,9 +1,9 @@
-import { applyVerifiedVoiceUpdatesToRecords, captureLibraryId, captureNamespaceKey, mergeCaptureRecords, validateCaptureBatch, type CaptureNamespace, type StoredCaptureRecord, type VerifiedVoiceUpdates } from "./desktop-capture";
+import { applyVerifiedVoiceUpdatesToRecords, captureLibraryId, captureNamespaceKey, mergeCaptureRecords, validateCaptureBatch, type CaptureCoverage, type CaptureNamespace, type StoredCaptureRecord, type VerifiedVoiceUpdates } from "./desktop-capture";
 export type { StoredCaptureRecord } from "./desktop-capture";
 
 export type CaptureReportLink = { reportId: string; sourceIds: string[]; memorySourceIds?: string[]; createdAt: string };
 export type CaptureCloudState = { id: string; epoch: number; enabled: boolean; syncedAt: string; total: number; subjectId?: string; digests?: Record<string,string>; mediaDigests?: Record<string,string>; retired?: boolean; offline?: boolean };
-export type CaptureLibrary = CaptureNamespace & { id: string; createdAt: string; updatedAt: string; records: StoredCaptureRecord[]; warnings: string[]; reportLinks: CaptureReportLink[]; cloud?: CaptureCloudState };
+export type CaptureLibrary = CaptureNamespace & { id: string; createdAt: string; updatedAt: string; records: StoredCaptureRecord[]; warnings: string[]; reportLinks: CaptureReportLink[]; coverage?: CaptureCoverage; cloud?: CaptureCloudState };
 export type CaptureLibrarySummary = Omit<CaptureLibrary, "records"> & { total: number; pending: number };
 export type CaptureReportSources = { libraryId: string; sourceIds: string[]; records: StoredCaptureRecord[]; memoryRecords?: StoredCaptureRecord[]; kind: CaptureNamespace["kind"]; friend: string; account: string };
 type ReportSourceEntry = { id: string; ownerId: string; reportId: string; libraryId: string; sourceIds: string[]; memorySourceIds?: string[]; createdAt: string };
@@ -63,7 +63,7 @@ export async function saveCaptureBatch(ownerId: string, input: unknown): Promise
         // The merger validates the batch again and uses its bounded history
         // metadata to preserve ordering across pages with tied timestamps.
         const merged = mergeCaptureRecords(existing?.records || [], input, namespace);
-        const library: CaptureLibrary = { ...namespace, id, createdAt: existing?.createdAt || batch.capturedAt, updatedAt: batch.capturedAt, records: merged.records, warnings: batch.warnings, reportLinks: existing?.reportLinks || [], ...(existing?.cloud ? { cloud: existing.cloud } : {}) };
+        const library: CaptureLibrary = { ...namespace, id, createdAt: existing?.createdAt || batch.capturedAt, updatedAt: batch.capturedAt, records: merged.records, warnings: batch.warnings, reportLinks: existing?.reportLinks || [], ...((batch.coverage || existing?.coverage) ? {coverage:batch.coverage || existing?.coverage} : {}), ...(existing?.cloud ? { cloud: existing.cloud } : {}) };
         store.put(library); result = { library, added: merged.added, repeated: merged.repeated, updatedVoice: merged.updatedVoice, total: merged.total, newRecords: merged.newRecords };
       } catch (error) { reason = error; transaction.abort(); }
     };

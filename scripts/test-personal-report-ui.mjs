@@ -71,3 +71,25 @@ for (const [mode, sample] of [["chat", publicChat], ["moments", social.publicMom
   console.log("PASS demo", mode, value.commonPoints.length, "supported common points");
 }
 console.log("PASS personal report UI: two-sided sources, one-sided leads, no fake count, self-report hidden, optional profile entry, visible action, fictional demos.");
+
+// Raw enum values must stay in data, while quoted English remains verbatim.
+const { reportPersonLabel, reportSenderLabel } = load("components/report-person-label.ts");
+assert.equal(reportPersonLabel("self"), "我");
+assert.equal(reportPersonLabel("other"), "对方");
+assert.equal(reportPersonLabel("unknown"), "身份待确认");
+assert.equal(reportSenderLabel("other", "other"), "对方");
+assert.equal(reportSenderLabel("unknown", "unknown"), "身份待确认");
+assert.equal(reportSenderLabel("other", "Alice"), "Alice");
+assert.equal(reportSenderLabel("other", "小欣 · #0123456789abcdef"), "小欣");
+const { ConversationPanel } = load("components/MaterialReport.tsx");
+const { RelationshipDiagnosisPanel } = load("components/web-analysis/RelationshipDiagnosisPanel.tsx");
+const quote = "Be your self; respect the other person.";
+const material = renderToStaticMarkup(React.createElement(ConversationPanel, {me:"本人称呼",other:"对方称呼",ready:true,result:{lineInsights:[{speaker:"self",quote,signal:"说明边界",alternative:"需要核对",certainty:"低"},{speaker:"other",quote:"好的",signal:"回应",alternative:"待观察",certainty:"低"},{speaker:"unknown",quote:"来源待核对",signal:"未知",alternative:"待观察",certainty:"低"}],replyOptions:[]}}));
+assert.match(material, /<strong>我<\/strong>/);assert.match(material, /<strong>对方<\/strong>/);assert.match(material, /<strong>身份待确认<\/strong>/);
+assert.ok(material.includes(quote));assert.doesNotMatch(material, /<strong>(self|other|unknown)<\/strong>/);
+const semantic = renderToStaticMarkup(React.createElement(RelationshipDiagnosisPanel,{semanticHistory:{findings:[{id:"a",claim:"本人表达",evidence:[{senderRole:"self",quote}]},{id:"b",claim:"他人表达",evidence:[{senderRole:"other",quote:"收到"}]},{id:"c",claim:"身份缺失",evidence:[{senderRole:"unknown",quote:"待核对"}]}]}}));
+assert.ok(semantic.includes(quote));assert.doesNotMatch(semantic, /<small>(self|other|unknown)/);assert.match(semantic, /身份待确认/);
+const enumLabels = render({personalConnection:{version:1,sources:[{...self,label:"self",quote:"我喜欢摄影，self is an English word about 摄影."},{...other,label:"other",quote:"摄影，other is an English word about 摄影."}]}});
+assert.doesNotMatch(enumLabels, /<small>(self|other|unknown)<\/small>/);
+assert.match(enumLabels, /self is an English word/);assert.match(enumLabels, /other is an English word/);
+console.log("PASS report labels: self/other/unknown are localized; source names and English quotes remain unchanged.");

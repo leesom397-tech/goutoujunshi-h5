@@ -16,6 +16,7 @@ const recovery = load("lib/profile-fact-fields.ts");
 const feedback = load("lib/relationship-feedback.ts");
 const communicationReading = load("lib/communication-reading.ts");
 const profileFields = load("lib/profile.ts");
+const chatActivity = load("lib/chat-activity.ts");
 const facts = [
   { owner: "owner", subject_id: null, field: "selfBasic:occupation", value: "导演", status: "accepted" },
   { owner: "owner", subject_id: null, field: "selfBasic:city", value: "截图旧城市", status: "accepted" },
@@ -50,6 +51,8 @@ const api = load("lib/profile-context.ts", {
   "@/lib/profile-fact-fields": recovery,
   "@/lib/relationship-feedback": feedback,
   "@/lib/communication-reading": communicationReading
+  , "@/lib/chat-activity": chatActivity
+  , "./self-archive-memory": {loadSelfArchiveMemory:async()=>({status:"ready",summaries:[]}),selfArchiveMemoryContext:()=>""}
 });
 const snapshot = structuredClone(facts);
 const result = await api.loadProfileContext("owner", "A");

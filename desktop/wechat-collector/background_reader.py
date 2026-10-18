@@ -16,6 +16,7 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Protocol
+from urllib.parse import urlsplit, urlunsplit
 from xml.etree import ElementTree
 
 MAX_ROWS = 1000
@@ -236,6 +237,38 @@ def _duplicate_displays(conn, displays):
     return {name for name, count in rows if count > 1}
 
 
+def _contact_metadata_columns(conn):
+    return {str(row[1]) for row in _execute(conn, "PRAGMA table_info(contact)").fetchall()}
+
+
+def _avatar_url(value):
+    """Only actual WeChat avatar hosts; never return arbitrary DB URLs."""
+    if not isinstance(value, str) or len(value) > 2000:
+        return ""
+    try:
+        url = urlsplit(value)
+        host = (url.hostname or "").lower()
+        if url.scheme not in ("http", "https") or url.username or url.password or url.port not in (None, 80, 443):
+            return ""
+        if not any(host == base or host.endswith("." + base) for base in ("qlogo.cn", "qpic.cn")):
+            return ""
+        return urlunsplit(("https", host, url.path, url.query, ""))
+    except ValueError:
+        return ""
+
+
+def _contact_extras(row):
+    alias, thumbnail, full, cached = row[3:7]
+    alias = _contact_text(alias)
+    # Missing aliases stay empty; an internal wxid is not a public WeChat ID.
+    avatar_data = ""
+    if isinstance(cached, (bytes, bytearray)) and len(cached) <= 64 * 1024:
+        image = _plain_image(bytes(cached))
+        if image:
+            avatar_data = "data:" + image[0] + ";base64," + base64.b64encode(image[1]).decode("ascii")
+    return {"wechatId": alias, "avatarUrl": _avatar_url(thumbnail) or _avatar_url(full), "avatarData": avatar_data}
+
+
 def search_contacts_from_source(query, source):
     """Search only contact names in the verified account; never open messages."""
     try:
@@ -245,13 +278,16 @@ def search_contacts_from_source(query, source):
         escaped = query.replace("!", "!!").replace("%", "!%").replace("_", "!_")
         pattern = f"%{escaped}%"
         conn = source.contacts()
+        columns = _contact_metadata_columns(conn)
+        alias = "alias" if "alias" in columns else "''"
+        extras = [alias] + [name if name in columns else "NULL" for name in ("small_head_url", "big_head_url", "head_image")]
         rows = _execute(conn,
-            "SELECT username,nick_name,remark FROM contact "
+            "SELECT username,nick_name,remark," + ",".join(extras) + " FROM contact "
             "WHERE username<>? AND username NOT LIKE '%@chatroom' "
-            "AND (username LIKE ? ESCAPE '!' OR nick_name LIKE ? ESCAPE '!' OR remark LIKE ? ESCAPE '!') "
+            "AND (username LIKE ? ESCAPE '!' OR nick_name LIKE ? ESCAPE '!' OR remark LIKE ? ESCAPE '!' OR " + alias + " LIKE ? ESCAPE '!') "
             "ORDER BY CASE WHEN remark=? THEN 0 WHEN nick_name=? THEN 1 WHEN username=? THEN 2 ELSE 3 END, "
             "COALESCE(NULLIF(TRIM(remark),''),NULLIF(TRIM(nick_name),''),username),username LIMIT ?",
-            (source.self_username, pattern, pattern, pattern, query, query, query, MAX_CONTACT_RESULTS + 1)).fetchall()
+            (source.self_username, pattern, pattern, pattern, pattern, query, query, query, MAX_CONTACT_RESULTS + 1)).fetchall()
         duplicates = _duplicate_displays(conn, {_contact_display(row) for row in rows[:MAX_CONTACT_RESULTS]})
         contacts = []
         seen = set()
@@ -261,7 +297,7 @@ def search_contacts_from_source(query, source):
                 continue
             seen.add(contact_id)
             contacts.append({"contactId": contact_id, "label": _contact_label(row, _contact_display(row) in duplicates),
-                             "nickname": _contact_text(row[1]), "remark": _contact_text(row[2])})
+                             "nickname": _contact_text(row[1]), "remark": _contact_text(row[2]), **_contact_extras(row)})
         source.assert_unchanged()
         return {"contacts": contacts, "accountKey": _identity(_short_id(source.account_id, "账号")),
                 "hasMore": len(rows) > MAX_CONTACT_RESULTS,

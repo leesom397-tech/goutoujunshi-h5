@@ -1,7 +1,8 @@
 import type { ChatActivitySummary } from "./chat-activity";
+import type { SemanticHistoryReport } from "./capture-semantic-history";
 
 export type RelationshipQuestion = "panorama" | "attitude" | "trend" | "worth" | "next";
-export type RelationshipEvidence = { id: string; claim: string; value?: string; metric?: string; source: "activity" | "conversation" | "profile" };
+export type RelationshipEvidence = { id: string; claim: string; value?: string; metric?: string; source: "activity" | "conversation" | "profile"; sample?: number; sourceIds?: string[]; quotes?: Array<{sourceId: string; at: string; quote: string; senderRole: string}> };
 export type RelationshipHypothesis = {
   id: string;
   claim: string;
@@ -29,7 +30,7 @@ export type RelationshipDiagnosis = {
   hypotheses: RelationshipHypothesis[];
   claimActions: RelationshipClaimAction[];
   unknowns: string[];
-  relationship: { currentState: string; trend: "升温" | "降温" | "相对稳定" | "待了解"; reciprocity: string; risks: string[] };
+  relationship: { currentState: string; trend: "升温" | "降温" | "相对稳定" | "待了解"; reciprocity: string; risks: string[]; activityTrend?: string };
   periods: Array<{ label: string; range: string; sample: number; self: number; other: number }>;
   decision: { recommendation: string; options: Array<{ label: string; action: string; observeWindow: string; stopCondition: string }>; observeWindow: string; stopCondition: string };
   personalConnection: { commonPoints: Array<string | Record<string, unknown>>; fit: string; friction: Array<string | Record<string, unknown>> };
@@ -62,16 +63,22 @@ function conversationFacts(lines: readonly DiagnosisLine[]): RelationshipEvidenc
   ];
 }
 function activityPeriods(summary: ChatActivitySummary) {
-  if (summary.days.length < 4 || !summary.startDate || !summary.endDate) return [];
-  const split = Math.max(1, Math.floor(summary.days.length / 2));
-  const pack = (days: ChatActivitySummary["days"], label: string) => ({
+  if (!summary.startDate || !summary.endDate || !summary.spanDays || summary.spanDays < 4) return [];
+  // Compare equal calendar windows, including silent days. Splitting active
+  // days would hide long silences and compare unequal spans.
+  const end = Date.parse(summary.endDate), windowDays = Math.min(14, Math.floor(summary.spanDays / 2));
+  const date = (value: number) => new Date(value).toISOString().slice(0, 10);
+  const pack = (from: number, to: number, label: string) => {
+    const days = summary.days.filter(day => day.date >= date(from) && day.date <= date(to));
+    return {
     label,
-    range: `${days[0]?.date || ""} 至 ${days.at(-1)?.date || ""}`,
+    range: `${date(from)} 至 ${date(to)}`,
     sample: days.reduce((total, day) => total + day.total, 0),
     self: days.reduce((total, day) => total + day.self, 0),
     other: days.reduce((total, day) => total + day.other, 0),
-  });
-  return [pack(summary.days.slice(0, split), "前半段"), pack(summary.days.slice(-split), "后半段")];
+    };
+  };
+  return [pack(end - (windowDays * 2 - 1) * 86400000, end - windowDays * 86400000, `此前 ${windowDays} 天`), pack(end - (windowDays - 1) * 86400000, end, `最近 ${windowDays} 天`)];
 }
 function shortQuote(value: string) { return value.replace(/[\r\n]+/g, " ").trim().slice(0, 110); }
 function lineLabel(line: DiagnosisLine, index: number) {
@@ -124,44 +131,61 @@ export function buildRelationshipDiagnosis(summary: ChatActivitySummary, request
   const responseBalanced = summary.responses.comparableTurns > 2 && Math.abs(summary.responses.selfToOther - summary.responses.otherToSelf) <= Math.max(1, Math.round(summary.responses.comparableTurns * .25));
   const hypotheses: RelationshipHypothesis[] = [];
   if (otherLeads) hypotheses.push({ id: "hypothesis:other-initiative", claim: "在这份材料里，TA 重新开启聊天的次数更多，存在主动维持联系的行为线索。", supportIds: ["activity:starts"], counterIds: [], alternatives: ["主动开口不等于明确的恋爱意愿，还要看回应质量和后续行动。"], confidence: summary.starts.comparable >= 5 ? "中" : "低", whatToObserve: "下一次由 TA 主动开启后，是否继续提问、延续话题或落实具体安排。" });
-  else if (selfLeads) hypotheses.push({ id: "hypothesis:self-initiative", claim: "在这份材料里，你重新开启聊天的次数更多，当前投入可能更偏向你这一侧。", supportIds: ["activity:starts"], counterIds: [], alternatives: ["TA 也可能更习惯回应而不是主动开场，不能只凭发起次数定性。"], confidence: summary.starts.comparable >= 5 ? "中" : "低", whatToObserve: "降低一次主动频率后，观察 TA 是否主动回来并把话题继续下去。" });
+  else if (selfLeads) hypotheses.push({ id: "hypothesis:self-initiative", claim: "在这份材料里，你重新开启聊天的次数更多，文字联系的发起更多来自你。", supportIds: ["activity:starts"], counterIds: [], alternatives: ["TA 也可能更习惯回应，或在线下和通话里投入，不能只凭文字发起次数定性。"], confidence: summary.starts.comparable >= 5 ? "中" : "低", whatToObserve: "接下来的自然互动中，看 TA 是否认真回应你的内容、主动延续或落实安排。" });
   else if (summary.starts.comparable > 2) hypotheses.push({ id: "hypothesis:shared-initiative", claim: "双方都有重新开启聊天的记录，发起行为相对接近。", supportIds: ["activity:starts"], counterIds: [], alternatives: ["发起次数没有反映每次聊天的质量和线下投入。"], confidence: "中", whatToObserve: "继续看谁会把聊天推进到具体行动，以及行动能否兑现。" });
   if (responseBalanced) hypotheses.push({ id: "hypothesis:reciprocal-response", claim: "双方在可比较的消息里都有接住对方的记录，互动回应具有一定互惠性。", supportIds: ["activity:responses"], counterIds: [], alternatives: ["回应次数没有判断语气、内容深度或现实投入。"], confidence: "中", whatToObserve: "观察对方是否会回应你的具体问题，并在下一轮主动延续。" });
 
-  const trend = summary.days.length >= 4 ? (() => {
-    const split = Math.max(1, Math.floor(summary.days.length / 2)), first = summary.days.slice(0, split).reduce((n, day) => n + day.total, 0), last = summary.days.slice(-split).reduce((n, day) => n + day.total, 0);
-    if (last >= first * 1.35) return "升温" as const;
-    if (last <= first * .65) return "降温" as const;
-    return "相对稳定" as const;
-  })() : "待了解" as const;
+  const periods = activityPeriods(summary);
+  const activityTrend = periods.length ? `${periods[0].label} ${periods[0].sample} 条，${periods[1].label} ${periods[1].sample} 条；这只反映文字互动量，关系方向仍需结合内容与实际行动。` : "时间材料不足，暂不比较互动量变化。";
+  const trend = "待了解" as const;
   const reciprocity = summary.starts.comparable && summary.responses.comparableTurns ? `发起比例：你 ${percent(summary.starts.selfPercent)}，TA ${percent(summary.starts.otherPercent)}；回应覆盖：TA 接住你 ${percent(summary.responses.otherCoverage)}。` : "当前材料不足以稳定判断双方投入是否均衡。";
   const risks = [
     summary.starts.comparable < 3 ? "发起轮次较少，暂不适合概括长期主动性。" : "",
     summary.undatedMessages ? `${summary.undatedMessages} 条消息缺少可靠日期，关系趋势可能不完整。` : "",
     summary.unreadVoices ? `${summary.unreadVoices} 条语音还没有转成文字，相关判断需要保留。` : "",
   ].filter(Boolean);
-  const currentState = summary.messages < 3 ? "材料太少，先补充完整对话" : trend === "升温" ? "互动量近期增加，关系有升温线索" : trend === "降温" ? "互动量近期减少，出现降温线索" : "已有持续互动，当前状态需要结合回应和行动判断";
-  const recommendation = risks.length >= 2 ? "先停止追加投入，补齐关键材料后再决定是否继续。" : otherLeads || responseBalanced ? "可以继续一次具体、可退出的推进，并看对方是否把回应落到行动上。" : selfLeads ? "先降低主动频率，把下一次发起留给对方。" : "先确认双方对联系和关系的期待，再决定投入。";
-  const options = [
-    { label: "继续推进", action: "提出一个具体、可退出的话题或安排，看对方是否接住并给出自己的时间。", observeWindow: "接下来 1–2 轮互动", stopCondition: "连续两轮都只有你推进，对方不回应，也不给替代安排。" },
-    { label: "先确认关系期待", action: "用一句具体问题确认对方对联系频率或关系方向的期待。", observeWindow: "看对方是否正面回答", stopCondition: "回避关键问题、反复含糊，或明确表示不想继续。" },
-    { label: "降低投入观察", action: "暂停连续追问，把时间留给自己的生活，只保留自然回应。", observeWindow: "7–14 天", stopCondition: "期间没有主动联系，也没有把说过的安排兑现。" },
-    { label: "暂停或退出", action: "不再追加投入。需要说边界时只说一次，之后不再追问。", observeWindow: "说清之后即停止", stopCondition: "对方已经明确拒绝，或多次回避且没有替代安排。" },
-  ];
-  const primary = risks.length >= 2 ? options[3] : otherLeads || responseBalanced ? options[0] : selfLeads ? options[2] : options[1];
+  const currentState = summary.messages < 3 ? "可读材料较少，暂不足以判断整体关系" : "已整理互动数据，关系状态还需结合原话与实际行动判断";
+  const recommendation = "先围绕你当前最在意的一件事自然沟通，结合对方的具体回应再决定下一步；仅凭消息统计不建议改变关系投入。";
+  const options = [{ label: "核对当前疑问", action: recommendation, observeWindow: "下一次与当前疑问相关的自然交流", stopCondition: "若对方明确拒绝或表达边界，尊重其回应并停止推进。" }];
+  const primary = options[0];
   return {
     version: 1, question: selected, questionLabel: questionLabels[selected],
     coverage: { total: summary.messages, dated: summary.datedMessages, startDate: summary.startDate, endDate: summary.endDate, activeDays: summary.activeDays, voiceCount: summary.voices, voiceTranscribed: Math.max(0, summary.voices - summary.unreadVoices), identityNote: summary.unknown ? `${summary.unknown} 条身份待确认` : "双方身份已用于统计" },
     facts, hypotheses, claimActions: buildClaimActions(lines),
     unknowns: [summary.undatedMessages ? "部分消息没有可靠日期，无法判断完整时间线。" : "", summary.unreadVoices ? "部分语音没有文字，无法纳入语义判断。" : "", "聊天记录无法替代线下见面、通话和真实兑现情况；补充后会更新判断。"].filter(Boolean),
-    relationship: { currentState, trend, reciprocity, risks },
-    periods: activityPeriods(summary),
+    relationship: { currentState, trend, reciprocity, risks, activityTrend },
+    periods,
     decision: { recommendation, options, observeWindow: primary.observeWindow, stopCondition: primary.stopCondition },
     personalConnection: { commonPoints: [], fit: "共同点需要结合你的个人资料与对方的聊天、朋友圈内容后生成。", friction: [] },
   };
 }
 
-export function relationshipReportDocument(diagnosis: RelationshipDiagnosis, semantic?: { status?: string; coverage?: { analyzedText?: number; limitation?: string } } | null) {
+/** Merge only source-checked semantic findings; never turn missing data into rejection. */
+export function applySemanticDiagnosis(diagnosis: RelationshipDiagnosis, semantic: SemanticHistoryReport): RelationshipDiagnosis {
+  if (!semantic.summary || !semantic.summaryEvidenceIds.length) return diagnosis;
+  const evidence = semantic.findings.map(item => ({ id: item.id, claim: item.claim, source: "conversation" as const,
+    sourceIds: item.evidence.map(source => source.sourceId), quotes: item.evidence, sample: item.evidence.length,
+    metric: [...new Set(item.evidence.map(source => source.at).filter(Boolean))].join(" · ") }));
+  diagnosis.facts.push(...evidence);
+  diagnosis.hypotheses = [{ id: "hypothesis:relationship", claim: semantic.summary,
+    supportIds: semantic.summaryEvidenceIds, counterIds: semantic.counterEvidenceIds || [],
+    alternatives: semantic.alternatives?.length ? semantic.alternatives : [...new Set(semantic.findings.filter(item => semantic.summaryEvidenceIds.includes(item.id)).map(item => item.alternative))].slice(0, 3),
+    confidence: semantic.confidence || "低", whatToObserve: semantic.observeWindow || "结合下一次真实互动核对判断。" }];
+  diagnosis.relationship.currentState = semantic.summary;
+  diagnosis.relationship.trend = semantic.trend;
+  if (semantic.reciprocity) diagnosis.relationship.reciprocity = semantic.reciprocity;
+  diagnosis.unknowns = [...new Set([...(semantic.unknowns || []), ...diagnosis.unknowns])];
+  if (semantic.action && semantic.actionEvidenceIds.length) {
+    diagnosis.decision.recommendation = semantic.action;
+    diagnosis.decision.observeWindow = semantic.observeWindow || "下一次与这件事相关的真实互动";
+    diagnosis.decision.stopCondition = semantic.stopCondition || "若对方明确拒绝或出现与当前判断相反的新证据，停止推进并重新判断。";
+    // Keep one grounded plan rather than presenting four conflicting generic choices.
+    diagnosis.decision.options = [{ label: "当前建议", action: semantic.action, observeWindow: diagnosis.decision.observeWindow, stopCondition: diagnosis.decision.stopCondition }];
+  }
+  return diagnosis;
+}
+
+export function relationshipReportDocument(diagnosis: RelationshipDiagnosis, semantic?: Partial<SemanticHistoryReport> | null) {
   const voices = diagnosis.coverage.voiceCount;
   return {
     question: diagnosis.questionLabel,
@@ -177,11 +201,12 @@ export function relationshipReportDocument(diagnosis: RelationshipDiagnosis, sem
       claim: fact.claim,
       value: fact.value || "",
       range: fact.metric || (diagnosis.coverage.startDate && diagnosis.coverage.endDate ? `${diagnosis.coverage.startDate} 至 ${diagnosis.coverage.endDate}` : ""),
-      sample: diagnosis.coverage.total,
+      sample: fact.sample ?? (fact.id === "activity:starts" ? Number(fact.metric?.match(/\d+/)?.[0] || 0) : fact.id === "activity:responses" || fact.id === "activity:reply-gap" ? Number(fact.value?.match(/样本 (\d+)/)?.[1] || fact.metric?.match(/样本 (\d+)/)?.[1] || 0) : diagnosis.coverage.total),
+      sourceIds: fact.sourceIds || [], quotes: fact.quotes || [],
     })),
     hypotheses: diagnosis.hypotheses,
     unknowns: diagnosis.unknowns,
-    timeline: diagnosis.periods.length ? diagnosis.periods.map(period => ({ trend: diagnosis.relationship.trend, note: `${period.label} ${period.range}：共 ${period.sample} 条，你 ${period.self}，TA ${period.other}` })) : [{ trend: diagnosis.relationship.trend, note: diagnosis.relationship.currentState }],
+    timeline: semantic?.timeline?.length ? semantic.timeline : diagnosis.periods.map(period => ({ trend: "互动量", note: `${period.label} ${period.range}：共 ${period.sample} 条，你 ${period.self}，TA ${period.other}` })),
     decision: {
       action: diagnosis.decision.recommendation,
       observeFor: diagnosis.decision.observeWindow,

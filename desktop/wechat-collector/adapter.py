@@ -64,7 +64,7 @@ def _assert_target(main, friend, Texts, Tools):
         raise CaptureError("GROUP_NOT_SUPPORTED", "目前只采集你指定的一对一聊天，不采集群聊。")
 
 
-def _open_target(friend, modules):
+def _open_target(friend, modules, search_query=None):
     # Never delegate candidate selection to upstream search_friend: it chooses
     # the first equal name and can fall back to an online phone/ID lookup.
     Navigator, Tools, ui = modules
@@ -75,7 +75,7 @@ def _open_target(friend, modules):
         raise CaptureError("SEARCH_UNREADABLE", "微信搜索框不可读，请关闭弹窗后重试。")
     search = edits[1] if len(edits) == 2 else edits[0]
     search.click_input()
-    search.set_text(friend)
+    search.set_text(search_query or friend)
     try:
         listing = main.child_window(**ui.Lists.SearchResult).wait("ready", timeout=4)
         candidates = [item for item in listing.children(control_type="ListItem")
@@ -251,11 +251,53 @@ def _moments_window(main, window):
     return window
 
 
-def _moments(friend, limit, progress, modules):
+def _resolve_moments_contact(request):
+    """Resolve the selected local contact; never read any message bodies."""
+    from background_reader import _provider_module, _resolve_contact, _contact_display, _duplicate_displays, _contact_metadata_columns, _contact_text
+    provider = _provider_module()
+    if provider is None:
+        raise CaptureError("CONTACT_SEARCH_UNAVAILABLE", "联系人目录暂不可读，请重新连接助手后选择好友。")
+    source = provider.open_authorized_source()
+    try:
+        username = _resolve_contact(source, request["friend"], request.get("contactId"), request.get("accountKey"))
+        conn = source.contacts()
+        row = conn.execute("SELECT username,nick_name,remark FROM contact WHERE username=?", (username,)).fetchone()
+        display = _contact_display(row)
+        duplicate = display in _duplicate_displays(conn, {display})
+        alias = ""
+        if duplicate and "alias" in _contact_metadata_columns(conn):
+            alias = _contact_text(conn.execute("SELECT alias FROM contact WHERE username=?", (username,)).fetchone()[0])
+        source.assert_unchanged()
+        return display, (alias or username) if duplicate else display
+    finally:
+        source.close()
+
+
+def _open_moments_from_chat(main, friend, modules):
+    """Open the already verified chat's album, without upstream's second search."""
+    from pywinauto import Desktop
+    _, Tools, ui = modules
+    pane = main.child_window(auto_id="single_chat_info_view", control_type="Group")
+    if not pane.exists(timeout=.2):
+        main.child_window(**ui.Buttons.ChatInfoButton).click_input()
+    avatar = pane.child_window(title=friend, control_type="Button").wait("ready", timeout=3)
+    buttons = avatar.children(control_type="Button")
+    if not buttons:
+        raise CaptureError("MOMENTS_UNREADABLE", "无法打开所选好友的资料，请关闭微信弹窗后重试。")
+    buttons[0].click_input()
+    profile = Desktop(backend="uia").window(**ui.Windows.PopUpProfileWindow)
+    if not profile.exists(timeout=1):
+        profile = main.window(**ui.Windows.PopUpProfileWindow)
+    link = profile.child_window(**ui.Texts.MomentsText).wait("ready", timeout=3)
+    link.parent().parent().descendants(control_type="Button")[0].click_input()
+    window = Desktop(backend="uia").window(**ui.Windows.MomentsWindow)
+    return _moments_window(main, window)
+
+
+def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=None, search_query=None):
     Navigator, Tools, ui = modules
-    main = _open_target(friend, modules)
-    window, _ = Navigator.open_friend_moments(friend=friend, search_pages=0, is_maximize=False)
-    window = _moments_window(main, window)
+    main = _open_target(friend, modules, search_query=search_query)
+    window = _open_moments_from_chat(main, friend, modules)
     listing = window.child_window(**ui.Lists.MomentsList)
     detail = window.child_window(**ui.Lists.SnsDetailList)
     back = window.child_window(**ui.Buttons.BackButton)
@@ -263,21 +305,32 @@ def _moments(friend, limit, progress, modules):
         raise CaptureError("MOMENTS_UNREADABLE", "朋友圈列表不可读，可能未开放、暂无内容或当前微信版本界面不兼容。")
     Tools.activate_momentsList(listing)
     rows, warnings, seen = [], [], set()
-    idle = 0
-    for _ in range(limit * 5 + 20):
+    idle, image_bytes = 0, 0
+    completion = {"scope": "all-visible" if all_visible else "requested-count", "complete": False,
+                  "stopReason": "scanning", "recordCount": 0, "imageOmittedCount": 0, "unreadableCount": 0}
+    last_publish = time.monotonic()
+    while True:
         listing.type_keys("{DOWN}", pause=0.12, set_foreground=True)
         selected = [item for item in listing.children(control_type="ListItem") if item.has_keyboard_focus()]
         if not selected:
             idle += 1
             if idle >= 5:
+                completion["stopReason"] = "focus-unavailable"
                 break
             continue
         item = selected[0]
-        runtime = tuple(item.element_info.runtime_id or [])
+        # Virtualized lists recycle runtime IDs. Include visible content so
+        # thousands of old posts are not mistaken for the first loaded page.
+        runtime = (tuple(item.element_info.runtime_id or []), item.window_text())
         if runtime in seen:
             idle += 1
-            if idle >= 3:
+            if idle >= 8:
+                completion.update(complete=not completion["unreadableCount"],
+                                  stopReason="unreadable-posts" if completion["unreadableCount"] else "visible-end")
                 break
+            progress(50 if all_visible else min(90, 15 + int(len(rows) / limit * 70)),
+                     f"已读取 {len(rows)} 条朋友圈，正在确认是否还有更早动态…")
+            time.sleep(.5)
             continue
         seen.add(runtime)
         if item.class_name() in ("mmui::AlbumBaseCell", "mmui::AlbumTopCell"):
@@ -285,11 +338,13 @@ def _moments(friend, limit, progress, modules):
         idle = 0
         item.click_input()
         if not detail.exists(timeout=1):
+            completion["unreadableCount"] += 1
             warnings.append("部分朋友圈无法打开详情，已跳过。")
             continue
         try:
             items = detail.children(control_type="ListItem")
             if not items:
+                completion["unreadableCount"] += 1
                 continue
             content_item = items[0]
             raw = content_item.window_text()
@@ -302,22 +357,38 @@ def _moments(friend, limit, progress, modules):
             row = {"kind": "post", "sender": friend, "senderRole": "other", "at": at, "text": content,
                    "source": {"imageType": "visible-ui-preview", "timePrecision": "ui-label" if at else "unknown"}}
             try:
-                row["images"] = [_image(content_item, f"moment-preview-{len(rows)+1}.jpg")]
+                preview = _image(content_item, f"moment-preview-{len(rows)+1}.jpg")
+                size = len(preview["data"])
+                if image_bytes + size <= 20 * 1024 * 1024:
+                    row["images"] = [preview]
+                    image_bytes += size
+                else:
+                    completion["imageOmittedCount"] += 1
+                    row["source"]["previewUnavailable"] = "batch-image-budget"
             except Exception:
                 warnings.append("部分朋友圈详情截图未获取，已保留可读文字。")
             rows.append(row)
-            progress(min(90, 15 + int(len(rows) / limit * 70)), f"已读取 {len(rows)} 条朋友圈")
+            completion["recordCount"] = len(rows)
+            progress(50 if all_visible else min(90, 15 + int(len(rows) / limit * 70)), f"已读取 {len(rows)} 条朋友圈，继续读取更早动态…")
         finally:
             if detail.exists(timeout=0.2):
                 back.click_input()
                 listing.wait("ready", timeout=2)
-        if len(rows) >= limit:
+        if on_rows and (len(rows) == 1 or time.monotonic() - last_publish >= 5):
+            on_rows(rows, warnings, dict(completion))
+            last_publish = time.monotonic()
+        if not all_visible and len(rows) >= limit:
+            completion["stopReason"] = "requested-count"
             break
     if not rows:
         raise CaptureError("NO_VISIBLE_MOMENTS", "没有读到可见朋友圈。可能被限制可见、暂无内容或界面不可读；不会绕过可见范围。")
-    warnings.append("只采集当前账号可见的朋友圈，有多少读多少，直到没有新的可见动态或达到本次条数。分组不可见的不会出现。配图为详情区域预览，可能只显示部分缩略图。")
+    if completion["stopReason"] == "focus-unavailable":
+        warnings.append("微信列表焦点丢失，本次只保留已读取的动态，尚未确认读到可见末尾。请将微信放在前台后重试。")
+    if completion["imageOmittedCount"]:
+        warnings.append(f"已保留所有读到的动态文字；其中 {completion['imageOmittedCount']} 条详情预览超过本次图片容量，未附加图片，不能据此分析画面。")
+    warnings.append("仅采集当前账号可见的朋友圈；可见末尾可能由三天、半年或分组权限决定，不代表对方全部历史。配图为详情区域预览，可能只显示部分缩略图。")
     warnings.append("朋友圈时间保留原界面标签，未出现完整日期的内容不会推测年份。")
-    return rows, warnings
+    return rows, warnings, completion
 
 
 def capture(request, progress, on_partial=None):
@@ -341,12 +412,25 @@ def capture(request, progress, on_partial=None):
         if request["kind"] == "chat":
             rows, warnings = _chat(request["friend"], request["limit"], nickname, first_progress, modules, convert_voices=False)
         else:
-            rows, warnings = _moments(request["friend"], request["limit"], progress, modules)
+            target, search_query = (_resolve_moments_contact(request) if request.get("contactId")
+                                    else (request["friend"], request["friend"]))
+            def publish_moments(rows, warnings, completion):
+                if on_partial is None:
+                    return
+                if _account(Navigator) != (account, nickname):
+                    raise CaptureError("ACCOUNT_CHANGED", "微信账号已变化，已停止；已核对的动态仍可查看。")
+                partial = normalized_capture("moments", request["friend"], account, rows, warnings)
+                partial["coverage"] = completion
+                on_partial(partial)
+            rows, warnings, completion = _moments(target, request["limit"], progress, modules,
+                all_visible=request.get("allVisible", False), on_rows=publish_moments, search_query=search_query)
         progress(50 if two_phase else 95, "正在核对采集账号并整理原文")
         final_account, final_nickname = _account(Navigator)
         if (account, nickname) != (final_account, final_nickname):
             raise CaptureError("ACCOUNT_CHANGED", "采集期间微信账号发生变化，结果已丢弃，请重新采集。")
         batch = normalized_capture(request["kind"], request["friend"], account, rows, warnings)
+        if request["kind"] == "moments":
+            batch["coverage"] = completion
         missing = any(row.get("source", {}).get("mediaKind") == "voice" and row["source"].get("transcriptionStatus") != "visible-text" for row in rows)
         # Default capture releases the desktop after the quick read. Conversion
         # requires an explicit request and a consumer able to retain partials.

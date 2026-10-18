@@ -26,6 +26,9 @@ const fullContext=readCaptureQuestion(owner,fullKey);assert.equal(fullContext.sc
 const fullHistory=captureQuestionHistory(fullContext,[],{mode:'conversation',self:'全部聊天的问题',other:'',subjectId,confirmed:true,requestId:crypto.randomUUID()});
 assert(!fullHistory.some(row=>row.content.includes('本次导入原文')),'full-history handoff must not attach the 40-row excerpt');
 removeCaptureQuestion(owner,fullKey);assert.equal(readCaptureQuestion(owner,fullKey),null);
+const large=createCaptureQuestion({owner,subjectId,friend:'测试人物',records:[],fullHistory:true,historyCount:25001});
+const largeKey=new URL(large.href,'https://example.com').searchParams.get('capture');
+assert.equal(readCaptureQuestion(owner,largeKey).historyCount,25001,'handoff must preserve person and scope; the API explains any processing limit instead of silently dropping them');
 const before=JSON.stringify({draft:'原草稿',requestId:'old-paid-request'});sessionStorage.setItem(`chengzi-chat:${owner}`,before);
 removeCaptureQuestion(owner,key);assert.equal(readCaptureQuestion(owner,key),null);assert.equal(sessionStorage.getItem(`chengzi-chat:${owner}`),before);
 assert.throws(()=>createCaptureQuestion({owner,friend:'测试人物',records:[{speaker:'self',text:'长'.repeat(1800)}]}),/太长/);

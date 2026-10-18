@@ -145,3 +145,9 @@
   .page :global(.conversation-panel) { padding:16px 13px; }.page :global(.analysis-card) { padding:16px 13px; }
 }
 @media(prefers-reduced-motion:reduce) { .uploadTile,.primaryButton,.secondaryButton,.field :is(input,select,textarea) { transition:none; }.uploadTile:hover { transform:none; }.spin { animation:none; } }
+
+/* File selection precedes confirmation on every screen size. */
+.page .workspace { grid-template-columns:minmax(0,1fr); }
+.page .confirmation { position:static; max-height:none; overflow:visible; }
+.page .uploadGrid { grid-template-columns:repeat(4,minmax(0,1fr)); }
+@media(max-width:800px) { .page .uploadGrid { grid-template-columns:repeat(2,minmax(0,1fr)); } }

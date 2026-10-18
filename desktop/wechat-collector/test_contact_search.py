@@ -21,6 +21,24 @@ def fake_selected_capture(conn, request):
 
 
 class ContactSearchTests(unittest.TestCase):
+    def test_public_wechat_id_and_safe_avatar_are_metadata_only(self):
+        source = Source()
+        for name in ("alias", "small_head_url", "big_head_url"):
+            source.contact.execute(f"ALTER TABLE contact ADD COLUMN {name} TEXT")
+        source.contact.execute("UPDATE contact SET alias='public-alias',small_head_url='http://wx.qlogo.cn/mmhead/test' WHERE username='target-user'")
+        source.message_shards = lambda: self.fail("metadata search opened messages")
+        result = search_contacts_from_source("public-alias", source)
+        self.assertEqual(result["contacts"][0]["wechatId"], "public-alias")
+        self.assertEqual(result["contacts"][0]["avatarUrl"], "https://wx.qlogo.cn/mmhead/test")
+        self.assertEqual(result["contacts"][0]["avatarData"], "")
+        self.assertTrue(source.closed)
+
+    def test_avatar_url_does_not_allow_untrusted_host_or_credentials(self):
+        from background_reader import _avatar_url
+        for url in ("https://qlogo.cn.attacker.invalid/avatar", "file:///secret", "javascript:alert(1)",
+                    "https://user:password@wx.qlogo.cn/avatar", "http://127.0.0.1/avatar"):
+            self.assertEqual(_avatar_url(url), "")
+
     def test_partial_name_finds_styled_name_without_opening_messages(self):
         source = Source()
         source.contact.execute("UPDATE contact SET nick_name=?,remark='' WHERE username='target-user'", ("ᨳ雅欣ଓ",))
@@ -28,7 +46,8 @@ class ContactSearchTests(unittest.TestCase):
         result = search_contacts_from_source("雅欣", source)
         self.assertTrue(source.closed)
         self.assertEqual(result["contacts"], [{
-            "contactId": "target-user", "label": "ᨳ雅欣ଓ", "nickname": "ᨳ雅欣ଓ", "remark": ""}])
+            "contactId": "target-user", "label": "ᨳ雅欣ଓ", "nickname": "ᨳ雅欣ଓ", "remark": "",
+            "wechatId": "", "avatarUrl": "", "avatarData": ""}])
         self.assertEqual(result["accountKey"], hashlib.sha256(b"test-account").hexdigest())
         self.assertFalse(result["hasMore"])
 

@@ -7,7 +7,7 @@ import { analyzeLines, requireSettings, reserveBudget } from "@/lib/crush/servic
 import { readScreenshotFromQuick } from "@/lib/crush/screenshot";
 import { loadProfileContext } from "@/lib/profile-context";
 import {personalizeReport} from "@/lib/personal-context-server";
-import {personalConnection} from "@/lib/personal-context";
+import {capturePersonalEvidence,personalConnection} from "@/lib/personal-context";
 import { parseQwenJson, qwenChat, qwenPublicError, type QwenContent } from "@/lib/qwen";
 import { saveAnalysisReport } from "@/lib/saved-reports.mjs";
 import { cleanMomentsReport, MOMENTS_PROMPT, MOMENTS_STATISTICS_PROMPT, MOMENTS_BEHAVIOR_PROMPT, MOMENTS_INTERACTION_PROMPT, MOMENTS_READING_GUIDANCE } from "@/lib/moments-report";
@@ -18,11 +18,11 @@ import { cleanSocialPhotoClues, SOCIAL_PHOTO_GUIDANCE } from "@/lib/social-photo
 import { conversationMemoryLines } from "@/lib/conversation-profile-memory";
 import { conversationMemoryScope, emptyConversationMemory, saveConversationProfileMemory } from "@/lib/conversation-profile-memory-server";
 import { computeChatActivity } from "@/lib/chat-activity";
-import { buildRelationshipDiagnosis, relationshipReportDocument } from "@/lib/relationship-diagnosis";
-import { classify } from "@/lib/crush/provider";
+import { applySemanticDiagnosis, buildRelationshipDiagnosis, relationshipReportDocument } from "@/lib/relationship-diagnosis";
 import { analyzeCaptureSemanticHistory, unavailableCaptureSemanticHistory } from "@/lib/capture-semantic-history";
 import { CaptureFullHistoryError, checkFullCaptureHistory, readFullCaptureHistory } from "@/lib/capture-full-history-server";
 import { riskAwarePresentation } from "@/lib/risk-aware-presentation";
+import { updateSelfArchiveMemory } from "@/lib/self-archive-memory";
 
 export const runtime = "edge";
 const json = (data: unknown, status = 200) => Response.json(data, { status, headers: { "Cache-Control": "no-store" } });
@@ -66,8 +66,11 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
   const history = await readFullCaptureHistory(db, owner, input);
   if (!history.readable.length) throw new CaptureFullHistoryError("已读取全部聊天，但没有可用的文字或语音转写；请先补齐文字再生成完整报告。", 422);
   const chatActivity = computeChatActivity(history.records);
-  let personContext = "";
+  let selfMemoryStatus: string;
+  try { selfMemoryStatus=await updateSelfArchiveMemory(owner,input.libraryId!,input.expectedEpoch!,history.readable,db); } catch { selfMemoryStatus="unavailable"; console.warn("self_archive_memory_update_unavailable"); }
+  let personContext = "", selfContext = "";
   try { if (input.subjectId) personContext = await loadProfileContext(owner, input.subjectId, input.question || "关系状态 投入 变化 朋友圈", 1800); } catch { personContext = ""; }
+  try { selfContext = await loadProfileContext(owner,null,input.question || "关系偏好 沟通 边界",1800,false); } catch { selfContext = ""; }
   // A model segment can fail without discarding the statistics already computed
   // from every imported message. The report says which text was actually read.
   let semanticHistory;
@@ -80,6 +83,7 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
       activity: chatActivity,
       fullHistory: true,
       personContext,
+      selfContext,
     }, qwenChat);
   } catch {
     semanticHistory = unavailableCaptureSemanticHistory(history.readable, history.records.length, 0);
@@ -92,7 +96,7 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
       for (const row of input.photoPreviews.slice(0, 4)) {
         const image = row.images[0];
         content.push({ type: "text", text: `sourceId=${row.localId} 发送侧=${row.senderRole}` });
-        content.push({ type: "image_url", image_url: { url: `data:${image.mime};base64,${image.data}`, detail: "low" } });
+        content.push({ type: "image_url", image_url: { url: `data:${image.mime};base64,${image.data}`, detail: "high" } });
       }
       const raw = await qwenChat([{ role: "user", content }], { vision: true, fast: true, json: true, maxTokens: 700, timeoutMs: 40_000 });
       const parsed = parseQwenJson<{ photos?: Array<{ sourceId?: string; observation?: string }> }>(raw);
@@ -103,24 +107,9 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
     } catch { /* Photos are extra. A vision miss must not discard the text report. */ }
   }
   Object.assign(relationshipDiagnosis, { semanticHistory });
-  if (semanticHistory.summary && semanticHistory.summaryEvidenceIds.length) {
-    relationshipDiagnosis.relationship.currentState = semanticHistory.summary;
-    relationshipDiagnosis.relationship.trend = semanticHistory.trend;
-    if (semanticHistory.reciprocity) relationshipDiagnosis.relationship.reciprocity = semanticHistory.reciprocity;
-  }
-  if (semanticHistory.action && semanticHistory.actionEvidenceIds.length)
-    relationshipDiagnosis.decision.recommendation = semanticHistory.action;
+  applySemanticDiagnosis(relationshipDiagnosis, semanticHistory);
   const anchorIds = new Set([...semanticHistory.summaryEvidenceIds, ...semanticHistory.actionEvidenceIds]);
   const anchor = semanticHistory.findings.filter(item => anchorIds.has(item.id)).flatMap(item => item.evidence)[0];
-  const sentenceSample = history.readable.filter(row => row.senderRole === "self" || row.senderRole === "other").slice(-12);
-  const sentenceLines = sentenceSample.map(row => ({ id: row.localId, speaker: row.senderRole, text: row.text.slice(0, 500), timestampRaw: row.at }));
-  let sentenceAnnotations: unknown[] = [];
-  if (sentenceLines.length) {
-    try {
-      const classified = await classify(sentenceLines, sentenceLines, "qwen");
-      sentenceAnnotations = classified.annotations;
-    } catch { /* The relationship report still stands if one sentence pass fails. */ }
-  }
   const judgment = semanticHistory.summary && semanticHistory.summaryEvidenceIds.length
     ? semanticHistory.summary
     : relationshipDiagnosis.relationship.currentState || `已统计全部 ${history.records.length} 条聊天，并检查 ${history.readable.length} 条可读文字。`;
@@ -129,12 +118,14 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
   const report: Record<string, any> = {
     id: input.requestId, reportId: input.requestId, kind: "chat", subjectId: input.subjectId,
     captureOrigin: true, captureFormat: "full-history", analysisScope: "fullHistory",
-    summary: judgment, lines: sentenceLines, annotations: sentenceAnnotations, chatActivity, relationshipDiagnosis, semanticHistory,
+    summary: judgment, lines: [], annotations: [], chatActivity, relationshipDiagnosis, semanticHistory,
+    profileEvidence: capturePersonalEvidence(history.readable, input.subjectId, input.requestId), selfMemoryStatus,
+    archiveSnapshot: { libraryId: input.libraryId, epoch: input.expectedEpoch, revision: history.revision, total: history.records.length },
     decision: {
       judgment, evidence: anchor?.quote || "", nextStep: semanticHistory.action || relationshipDiagnosis.decision.recommendation,
       replyOptions: [],
     },
-    captureMediaNote: [`判断用的是这次导入的全部可读聊天，加上这个人已经保存的档案摘录。朋友圈原文、没转写的语音、没存进档案的内容，不会自动写进这句判断。`, sentenceLines.length ? `逐句意图仍只解读最近 ${sentenceLines.length} 句，不是全部 ${history.records.length} 条都逐句打分。横条是解释权重，不是喜欢你的概率。` : "", chatActivity.unreadVoices
+    captureMediaNote: [modelComplete ? `已分段核对全部 ${history.readable.length} 条可读聊天，并结合当前人物已保存的资料。` : `已统计全部 ${history.records.length} 条消息；整体语义分析尚未完成。`, `未转写语音和未保存的线下经历不在语义依据内。`, chatActivity.unreadVoices
       ? `${chatActivity.unreadVoices} 条语音没有可读转写，其内容未纳入语义判断；完整统计仍包含这些消息。`
       : "", !modelComplete ? semanticHistory.coverage.limitation : ""].filter(Boolean).join(" ") || undefined,
   };
@@ -237,11 +228,7 @@ export async function POST(request: Request) {
         if (chatActivity) {
           const relationshipDiagnosis = buildRelationshipDiagnosis(chatActivity, input.question, report.lines || []);
           Object.assign(relationshipDiagnosis, { semanticHistory });
-          if (priorityMode === "normal" && semanticHistory.summary && semanticHistory.summaryEvidenceIds.length) {
-            relationshipDiagnosis.relationship.currentState = semanticHistory.summary;
-            relationshipDiagnosis.relationship.trend = semanticHistory.trend;
-            if (semanticHistory.reciprocity) relationshipDiagnosis.relationship.reciprocity = semanticHistory.reciprocity;
-          }
+          if (priorityMode === "normal") applySemanticDiagnosis(relationshipDiagnosis, semanticHistory);
           Object.assign(report, { chatActivity, relationshipDiagnosis, relationshipReport: relationshipReportDocument(relationshipDiagnosis, semanticHistory) });
         } else {
           Object.assign(report, { semanticHistory });

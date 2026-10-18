@@ -6,12 +6,22 @@ import ts from 'typescript';
 const cache = new Map();
 function compiled(file) { return ts.transpileModule(readFileSync(file, 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText; }
 function load(file) { const filename = resolve(file); if (cache.has(filename)) return cache.get(filename); const exports = {}; cache.set(filename, exports); new Function('exports', 'require', compiled(filename))(exports, name => load(resolve(dirname(filename), name) + '.ts')); return exports; }
-const { validateCaptureBatch, mergeCaptureRecords: merge, captureNamespaceKey, captureLibraryId, CAPTURE_LIMITS } = load('lib/desktop-capture.ts');
+const { validateCaptureBatch, splitCaptureBatch, mergeCaptureRecords: merge, captureNamespaceKey, captureLibraryId, CAPTURE_LIMITS } = load('lib/desktop-capture.ts');
 const ns = { ownerId: 'test-owner-a', account: 'wx-account-a', friend: 'test-friend-a', kind: 'chat' };
 const row = (text, extra = {}) => ({ kind: 'text', sender: '小A', senderRole: 'other', at: '', text, source: { label: '微信可见原文', method: 'uia', index: 1, order: 'ui-order' }, ...extra });
 const batch = (records, extra = {}) => ({ version: 1, kind: 'chat', account: ns.account, friend: ns.friend, capturedAt: '2026-10-13T08:00:00.000Z', records, warnings: [], ...extra });
 const initial = records => merge([], batch(records), ns);
 const recapture = (existing, records, extra = {}) => merge(existing, batch(records, { capturedAt: '2026-10-14T08:00:00.000Z', ...extra }), ns);
+
+const fullMoments = batch(Array.from({ length: 2003 }, (_, i) => row(`动态 ${i}`, { kind: 'post' })), {
+  kind: 'moments', coverage: { scope: 'all-visible', complete: true, stopReason: 'visible-end', recordCount: 2003, imageOmittedCount: 0, unreadableCount: 0 },
+});
+const momentChunks = splitCaptureBatch(fullMoments);
+assert.deepEqual(momentChunks.map(item => item.records.length), [1000, 1000, 3]);
+assert.deepEqual(momentChunks.map(item => item.coverage.complete), [false, false, true]);
+assert.equal(momentChunks[2].coverage.recordCount, 2003);
+assert.throws(() => splitCaptureBatch({ ...fullMoments, records: [...fullMoments.records, row('', { kind: 'post' })] }), /空条目/);
+assert.throws(() => splitCaptureBatch({ ...fullMoments, coverage: { ...fullMoments.coverage, stopReason: 'scanning' } }), /范围信息/);
 
 const original = row('  周六一起看展吗？\n我可以买票。 ', { id: 'native-1', at: '昨天 18:00', source: { label: '原窗口', atRaw: '昨天 18:00', index: 8 }, senderRole: 'self' });
 const stable = initial([original]);

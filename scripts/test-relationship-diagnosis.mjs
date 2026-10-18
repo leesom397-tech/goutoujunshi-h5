@@ -1,0 +1,31 @@
+import assert from "node:assert/strict";
+import { computeChatActivity } from "../lib/chat-activity.ts";
+import { applySemanticDiagnosis, buildRelationshipDiagnosis, relationshipReportDocument } from "../lib/relationship-diagnosis.ts";
+import { validatedSynthesis } from "../lib/capture-semantic-history.ts";
+
+const row = (id, at, text = "今天聊聊安排", kind = "text", extra = {}) => ({localId: id, at, text, kind, senderRole: "other", source: {label: "合成资料", method: "uia", ...extra}});
+const records = [row("early", "2026-10-01 12:00"), ...Array.from({length: 12}, (_, index) => row(`late-${index}`, "2026-10-14 12:00"))];
+const diagnosis = buildRelationshipDiagnosis(computeChatActivity(records));
+assert.equal(diagnosis.relationship.trend, "待了解", "higher message volume must not assert romantic warming");
+assert.equal(diagnosis.periods.length, 2);
+assert.equal(diagnosis.periods[0].range, "2026-10-01 至 2026-10-07");
+assert.equal(diagnosis.periods[1].range, "2026-10-08 至 2026-10-14");
+assert.equal(diagnosis.periods[0].sample, 1);
+assert.equal(diagnosis.periods[1].sample, 12);
+const sparse = buildRelationshipDiagnosis(computeChatActivity([row("voice", "", "[语音]", "other", {mediaKind: "voice"})]));
+assert.ok(sparse.relationship.risks.length >= 2);
+assert.doesNotMatch(sparse.decision.recommendation, /停止追加|退出|降低主动|把.*留给对方/);
+
+const findings = [{ id: "h1", claim: "对方提出替代安排", confidence: "中", alternative: "也可能是朋友见面", evidence: [{sourceId: "early", at: "2026-10-01", senderRole: "other", quote: "周六可以"}] }];
+const checked = validatedSynthesis({summary: "出现落实安排的线索", summaryEvidenceIds: ["h1"], counterEvidenceIds: ["fake"], trend: "升温", explanation: "对方回应的重点是具体日期，说明愿意参与安排。", action: "确认具体时间", actionEvidenceIds: ["h1"], observeWindow: "这次商量安排时", stopCondition: "对方明确拒绝时停止推进", unknowns: ["还不知道是否落实"], timeline: [{note: "给出替代日期", evidenceIds: ["h1"]}]}, findings);
+assert.equal(checked.trend, "待了解", "one date cannot establish a trend");
+assert.deepEqual(checked.counterEvidenceIds, []);
+assert.equal(checked.timeline[0].at, "2026-10-01");
+applySemanticDiagnosis(diagnosis, {...checked, findings, status: "complete", coverage: {analyzedText: 13}});
+assert.deepEqual(diagnosis.hypotheses[0].supportIds, ["h1"]);
+assert.equal(diagnosis.decision.observeWindow, "这次商量安排时");
+assert.equal(diagnosis.decision.options.length, 1);
+const document = relationshipReportDocument(diagnosis, {...checked, status: "complete", coverage: {analyzedText: 13}});
+assert.equal(document.decision.stopCondition, "对方明确拒绝时停止推进");
+assert.equal(document.facts.find(item => item.id === "h1").quotes[0].sourceId, "early");
+console.log("Relationship diagnosis: equal calendar windows, no romantic inference from counts, no exit from missing data, grounded evidence and one coherent action passed.");

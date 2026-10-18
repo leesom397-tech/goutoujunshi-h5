@@ -2,10 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { riskAwarePresentation } from "@/lib/risk-aware-presentation";
-import { ArrowRight, ChartNoAxesCombined, Check, CircleHelp, Compass, Copy, Heart, Lightbulb, MessageCircle, Quote, ScanEye, Sparkles } from "lucide-react";
+import { ArrowRight, ChartNoAxesCombined, Check, CircleHelp, Copy, Lightbulb, MessageCircle, Quote, ScanEye, Sparkles } from "lucide-react";
 import type { Json } from "./client";
-import { validScore, visibleSignalProfile } from "./report-data";
-import { activityChart } from "@/lib/chat-activity";
 import styles from "./ReportCard.module.css";
 import readerStyles from "./ReportReader.module.css";
 import {KeyEvidenceList} from "./ReportReadingTools";
@@ -28,35 +26,27 @@ const firstSentence = (value: unknown) => {
 };
 const entries = (value: unknown): unknown[] => Array.isArray(value) ? value.filter(Boolean) : [];
 
-export function ChatReportBrief({ report }: { report: Json }) {
+export function ChatReportBrief({ report, diagnosis }: { report: Json; diagnosis?: Json | null }) {
   const presentation = riskAwarePresentation(report);
-  const decision = presentation.viewReport.decision || {};
-  const lines: Json[] = Array.isArray(report.lines) ? report.lines : [];
-  const annotations: Json[] = Array.isArray(report.annotations) ? report.annotations : [];
-  const signals = visibleSignalProfile(lines);
-  const activityBars = report.chatActivity ? activityChart(report.chatActivity).bars : [];
-  const chartRows = activityBars.some(row => row.count > 0) ? activityBars : signals;
-  const seen = chartRows.filter(row => row.count > 0);
-  const maxSignalCount = Math.max(1, ...chartRows.map(row => row.count));
-  const affinity = report.affinity || decision.affinityPreview;
-  const score = validScore(affinity?.value) ? Math.round(affinity.value) : null;
-  const quote = typeof decision.evidence === "string" ? decision.evidence.match(/“([^”]+)”/)?.[1] || "" : "";
-  const tone = annotations.flatMap(row => {
-    const line = lines.find(item => item.id === row.lineId);
-    return line?.speaker === "other" ? (row.emotion || []).map((item: Json) => item.label).filter(Boolean) : [];
-  }).filter((label: string, index: number, all: string[]) => all.indexOf(label) === index).slice(0, 2);
-  return <section className={`report-brief ${styles.brief}`} aria-label="报告速读">
-    <div className="report-brief-heading"><span><Sparkles size={20} aria-hidden="true"/>先看这 30 秒</span><small>判断 → 依据 → 下一步</small></div>
-    <div className="report-brief-grid">
-      <article className="report-brief-main"><span className="report-brief-number"><Compass size={19} aria-hidden="true"/>01 / 当前判断</span><h3>{firstSentence(decision.interactionInsight?.label) || firstSentence(decision.judgment || decision.possibleIntent) || "先从本轮可见材料判断。"}</h3><p className="report-brief-caption">本轮暂定判断</p></article>
-      <article className="report-brief-evidence"><span className="report-brief-number"><Quote size={19} aria-hidden="true"/>02 / 关键原话</span><KeyEvidenceList report={report} priorityEvidence={presentation.mode!=="normal"?presentation.evidence:undefined}/><div className="report-brief-tags"><MessageCircle size={16} aria-hidden="true"/>{tone.length ? `文字语气：${tone.join("、")}` : "语气要结合上下文核对"}</div></article>
-      <article className="report-brief-action"><span className="report-brief-number"><ArrowRight size={19} aria-hidden="true"/>03 / 下一步</span><p>{firstSentence(decision.nextStep) || "先观察对方真实回应，再决定下一步。"}</p></article>
+  const source = diagnosis || report.relationshipDiagnosis || {};
+  const semantic = report.semanticHistory || source.semanticHistory;
+  const coverage = source.coverage || {};
+  const fullHistory = report.analysisScope === "fullHistory" || report.captureFormat === "full-history";
+  const judgment = presentation.judgment || source.relationship?.currentState || "材料还不足以形成稳定判断。";
+  const trend = semantic?.status === "complete" ? semantic.trend : source.relationship?.trend;
+  const action = presentation.nextStep || source.decision?.recommendation || "结合下一次真实回应，再更新判断。";
+  return <section className={styles.relationshipBrief} aria-label="报告速读" data-report-brief data-risk-priority={presentation.mode}>
+    <header><span><Sparkles size={18}/>{fullHistory ? "完整关系报告" : "这次聊天，先看结论"}</span>{typeof coverage.total === "number" && <small>{coverage.total} 条消息{coverage.startDate && coverage.endDate ? ` · ${coverage.startDate} — ${coverage.endDate}` : ""}</small>}</header>
+    <div className={styles.briefJudgment}>
+      <h2>{presentation.mode !== "normal" && presentation.title ? presentation.title : "当前判断"}</h2>
+      <p>{judgment}</p>
     </div>
-    <div className="report-brief-chart">
-      <div className="report-brief-score"><Heart size={20} aria-hidden="true"/><span>好感与互动信号</span><strong>{score === null ? (report.chatActivity ? report.chatActivity.messages : `${seen.length}/6`) : `${score}/100`}<span>{score === null ? (report.chatActivity ? " 条已统计" : " 类线索") : " 参考指数"}</span></strong><small>{score === null ? "按已导入消息计数，不是喜欢你的概率" : "互动参考，非喜欢你的概率"}</small></div>
-      <div className="report-brief-bars" role="img" aria-label={chartRows.map(row => `${row.label} ${row.count}`).join("；")}>{chartRows.map(row => <div key={row.key}><span>{row.label}</span><i><b style={{ width: `${row.count / maxSignalCount * 100}%` }}/></i><em>{row.count}</em></div>)}</div>
+    <div className={styles.briefEvidence}><h3><Quote size={17}/>关键依据</h3><KeyEvidenceList report={report} priorityEvidence={presentation.mode !== "normal" ? presentation.evidence : undefined}/></div>
+    <div className={styles.briefDirection}>
+      <article><h3><ChartNoAxesCombined size={17}/>关系趋势</h3><p>{trend || "材料不足，暂不判断变化。"}</p>{!semantic || semantic.status !== "complete" ? <small>已完成的统计可在「看见变化」查看；文字解读是否完成见分析范围。</small> : null}</article>
+      <article><h3><ArrowRight size={17}/>下一步</h3><p>{action}</p></article>
     </div>
-    <p className="report-brief-hint"><ScanEye size={17} aria-hidden="true"/>点下方标签，查看对应图表与依据。</p>
+    {semantic?.coverage && <p className={styles.briefCoverage}>已解读 {semantic.coverage.analyzedText} / {semantic.coverage.receivedText} 条可读文字{typeof coverage.voiceCount === "number" && coverage.voiceCount > 0 ? ` · 语音转写 ${coverage.voiceTranscribed || 0} / ${coverage.voiceCount} 条` : ""}{semantic.status !== "complete" ? " · 文字分析尚未全部完成" : ""}</p>}
   </section>;
 }
 

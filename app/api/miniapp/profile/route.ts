@@ -13,6 +13,7 @@ import { cleanCommunicationReading } from "@/lib/communication-reading";
 import { interactionScore } from "@/lib/crush/interaction-score";
 import { conversationEventMetadata, correctConversationEventDate, FeedbackError } from "@/lib/relationship-feedback";
 import { projectPersonSavedAnalysis } from "@/lib/person-saved-insights";
+import { loadSelfArchiveMemory, correctSelfArchiveMemory, backfillSelfArchiveMemory } from "@/lib/self-archive-memory";
 
 export const runtime = "edge";
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
@@ -107,6 +108,7 @@ async function state(owner: string) {
   const signals = latestRelationshipSignals(distinctSignals).map(({ evidenceWindows: _windows, ...signal }) => signal);
   const trends = Array.from(new Set(distinctSignals.map(item => item.subjectId))).map(subjectId => ({ subjectId, points: relationshipTrendPoints([...persistentSignals, ...parsedSignals].filter(item => item.subjectId === subjectId)) }));
   return {
+    selfMemory: await loadSelfArchiveMemory(owner, db),
     enabled: !!profile?.consent_at,
     paused: !!profile?.paused,
     self: profile?.consent_at && !profile.paused ? (() => { try { return recoverProfileFields(JSON.parse(profile.data), facts.results, null) as SelfData; } catch { return {}; } })() : {},
@@ -132,6 +134,7 @@ async function state(owner: string) {
 export async function GET(request: Request) {
   const identity = await miniappOwner(request);
   if (!identity) return json({ error: "登录已过期，请重新登录。" }, 401);
+  try { await backfillSelfArchiveMemory(identity.ownerId); } catch { console.warn("self_archive_memory_backfill_unavailable"); }
   return json(await state(identity.ownerId));
 }
 
@@ -148,7 +151,10 @@ export async function POST(request: Request) {
     const account = typeof body.expectedOwnerId === "string" ? await db.prepare("SELECT public_id FROM coach_credit_accounts WHERE owner_id=?").bind(owner).first<{ public_id: string }>() : null;
     if (!account || body.expectedOwnerId !== account.public_id) return json({ error: "账号已变化，请刷新后再保存。" }, 409);
   }
-  if (body.action === "consent") {
+  if (body.action === "correctSelfMemory" || body.action === "removeSelfMemory") {
+    try { await correctSelfArchiveMemory(owner,body.memoryId,body.itemId,body.value,body.action === "removeSelfMemory",db); }
+    catch(error) { return json({error:error instanceof Error ? error.message : "本人摘要暂时无法更新。"},400); }
+  } else if (body.action === "consent") {
     if (body.enabled === true) {
       await db.prepare("INSERT INTO coach_profiles (owner_id,consent_at,paused,data,updated_at) VALUES (?,?,0,'{}',?) ON CONFLICT(owner_id) DO UPDATE SET consent_at=excluded.consent_at,paused=0,updated_at=excluded.updated_at").bind(owner,now,now).run();
     } else if (body.enabled === false) {

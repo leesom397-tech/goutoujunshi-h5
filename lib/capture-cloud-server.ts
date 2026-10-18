@@ -1,6 +1,7 @@
 import { getD1 } from "@/db";
 import { ensureCreditAccount } from "./account-credits.mjs";
 import { validateCloudCaptureRecord, type CloudCaptureLibrary, type CloudCaptureRecord, type CloudMediaRef } from "./capture-cloud";
+import { updateSelfArchiveMemory } from "./self-archive-memory";
 
 type Database = ReturnType<typeof getD1>;
 type LibraryRow = {id:string;owner_id:string;account:string;friend:string;kind:"chat"|"moments";subject_id:string|null;epoch:number;revision:number;created_at:string;updated_at:string;warnings:string;deleted_at:number|null};
@@ -73,7 +74,10 @@ export async function syncCloudCaptureLibrary(owner:string,body:Record<string,un
   else {const time=messageTime(record.at);statements.push(db.prepare(`INSERT INTO coach_capture_records(library_id,owner_id,epoch,local_id,digest,record_json,sort_known,sort_time,updated_at) SELECT ?,?,?,?,?,?,?,?,? WHERE ${liveSQL} ON CONFLICT(library_id,epoch,local_id) DO NOTHING`).bind(id,owner,row.epoch,record.localId,digest,JSON.stringify(record),time===null?1:0,time??0,Date.now(),id,owner,row.epoch));}attempted.push({id:record.localId,digest,mode:old?"updated":"added"});}
  statements.push(db.prepare("UPDATE coach_capture_libraries SET updated_at=MAX(updated_at,?),revision=revision+1,warnings=?,subject_id=CASE WHEN ? THEN ? ELSE subject_id END WHERE owner_id=? AND id=? AND epoch=? AND deleted_at IS NULL").bind(updatedAt,JSON.stringify(cleanWarnings),subjectSpecified?1:0,subjectId,owner,id,row.epoch));
  const writes=await db.batch(statements);let added=0,updated=0;attempted.forEach((item,index)=>{if(writes[index].meta.changes){if(item.mode==="added")added++;else updated++;}else conflicts.push(item.id);});row=await ownLibrary(owner,id,db);activeLibrary(row,operationEpoch);const result={library:await libraryMetadata(row,db),added,updated,repeated,conflicts,replayed:false};
- await db.prepare(`UPDATE coach_capture_sync_receipts SET result=? WHERE owner_id=? AND request_id=? AND fingerprint=? AND epoch=? AND ${liveSQL}`).bind(JSON.stringify({added,updated,repeated,conflicts}),owner,requestId,fingerprint,row.epoch,id,owner,row.epoch).run();return result;
+ await db.prepare(`UPDATE coach_capture_sync_receipts SET result=? WHERE owner_id=? AND request_id=? AND fingerprint=? AND epoch=? AND ${liveSQL}`).bind(JSON.stringify({added,updated,repeated,conflicts}),owner,requestId,fingerprint,row.epoch,id,owner,row.epoch).run();
+ let selfMemoryStatus="not-applicable";
+ if(kind==='chat')try{selfMemoryStatus=await updateSelfArchiveMemory(owner,id,row.epoch,records.filter(record=>!conflicts.includes(record.localId)),db);}catch{selfMemoryStatus="unavailable";console.warn('self_archive_memory_update_unavailable');}
+ return {...result,selfMemoryStatus};
 }
 export async function linkCloudCaptureReport(owner:string,body:Record<string,unknown>,db:Database=getD1()){
  const row=await writeLibrary(owner,body,db),reportId=uuid(body.reportId,"报告编号"),sourceIds=limitedIds(body.sourceIds,1000),memorySourceIds=limitedIds(body.memorySourceIds??[],1000);if(!sourceIds.length)fail("报告需要对应原文。");
@@ -93,6 +97,7 @@ export async function deleteCloudCaptureLibrary(owner:string,body:Record<string,
   db.prepare("UPDATE coach_capture_libraries SET deleted_at=?,revision=revision+1,subject_id=NULL,warnings='[]' WHERE owner_id=? AND id=? AND epoch=? AND deleted_at IS NULL").bind(Date.now(),owner,row.id,row.epoch),
   db.prepare("DELETE FROM coach_capture_media_chunks WHERE media_id IN(SELECT id FROM coach_capture_media WHERE owner_id=? AND library_id=? AND epoch=?)").bind(owner,row.id,row.epoch),
   ...["coach_capture_media","coach_capture_records","coach_capture_report_links","coach_capture_sync_receipts"].map(table=>db.prepare(`DELETE FROM ${table} WHERE owner_id=? AND library_id=? AND epoch=?`).bind(owner,row.id,row.epoch)),
+  db.prepare("DELETE FROM coach_facts WHERE owner_id=? AND id=? AND field='selfArchiveSummary'").bind(owner,`self-archive:${row.id}:${row.epoch}`),
  ]);return {deleted:true,libraryId:row.id,epoch:row.epoch};
 }
 export async function syncCloudCaptureMedia(owner:string,body:Record<string,unknown>,db:Database=getD1()){

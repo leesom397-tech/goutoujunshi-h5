@@ -1,6 +1,7 @@
 import { getD1 } from "@/db";
 import { recoverProfileFields } from "./profile-fact-fields";
 import { personalConnection, reportPersonalEvidence, uniquePersonalEvidence, type PersonalEvidence } from "./personal-context";
+import { loadSelfArchiveMemory } from "./self-archive-memory";
 
 const fields: Record<string, string> = { interests: "兴趣", strengths: "自述长处", lifestyle: "生活方式", communicationStyle: "沟通偏好", values: "在意的事", goals: "当前目标", preferredRelationship: "期待的关系", boundaries: "边界", relationshipStatus: "婚恋自述", occupation: "职业自述" };
 function parse(value: unknown): Record<string, any> { try { const result = typeof value === "string" ? JSON.parse(value) : value; return result && typeof result === "object" && !Array.isArray(result) ? result : {}; } catch { return {}; } }
@@ -15,6 +16,14 @@ export async function loadPersonalContext(ownerId: string, subjectId?: string | 
   const facts = await db.prepare("SELECT subject_id,field,value,status,evidence,event_meta,created_at FROM coach_facts WHERE owner_id=? AND status='accepted' AND (subject_id IS NULL OR subject_id=?) ORDER BY created_at DESC LIMIT 200").bind(ownerId, scopedSubject).all<{subject_id:string|null;field:string;value:string;status:string;evidence?:string;event_meta?:string|null;created_at?:number}>();
   const self = recoverProfileFields(parse(profile.data), facts.results || [], null);
   const evidence: PersonalEvidence[] = Object.entries(fields).flatMap(([field, label]) => typeof self[field] === "string" && self[field].trim() ? [{id:`self-profile:${field}`,side:"self",source:"self-profile",label:`你已确认保存的${label}`,quote:self[field],field,recordedAt:profile.updated_at,basis:field==="strengths"?"observation":"statement"} as PersonalEvidence] : []);
+  try {
+    const learned = await loadSelfArchiveMemory(ownerId, db);
+    if (learned.status === "disabled") return {authorized:false,self:{},evidence:[] as PersonalEvidence[]};
+    for (const memory of learned.summaries) for (const item of memory.items) {
+      if (Object.hasOwn(self,item.field)) continue;
+      evidence.push({id:memory.id+":"+item.id,side:"self",source:"self-profile",label:item.basis==="correction"?"你已纠正的本人自述":"此前聊天中你的明确自述（可纠正）",quote:item.basis==="correction"?item.value:item.quote,field:item.field,sourceId:item.sourceId,recordedAt:memory.updatedAt,basis:"statement"});
+    }
+  } catch { /* Older installations can still use confirmed profile fields. */ }
   for (const [index, fact] of (facts.results || []).entries()) {
     if (!/^(selfBasic:|subjectBasic:|selfProfileClue$|profileClue$)/.test(fact.field) || fact.status !== "accepted") continue;
     if (fact.subject_id && fact.subject_id !== scopedSubject) continue;

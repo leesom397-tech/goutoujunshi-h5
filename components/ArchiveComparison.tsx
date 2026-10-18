@@ -4,14 +4,15 @@ import { ArrowRight, ChevronDown, CircleHelp, Columns3, HeartHandshake, ListChec
 import type { ArchiveState } from "@/app/archive/types";
 import { buildPersonComparison, comparisonSelection } from "@/lib/person-comparison.mjs";
 import { buildComparisonGuidance, type ComparisonFinding, type ComparisonSource } from "@/lib/comparison-guidance";
+import { reportPersonLabel } from "./report-person-label";
 import styles from "./archive-comparison.module.css";
 
 const basisLabels = { confirmed: "已有资料", report: "报告判断", inference: "相处推测", missing: "尚待了解", pending: "未确认" };
 const brief = (value: string, max = 100) => value.length > max ? value.slice(0, max) + "…" : value;
 function Sources({ rows, compact = false }: { rows: ComparisonSource[]; compact?: boolean }) {
   return rows.length ? <div className={styles.sources}>{rows.map((source, index) => <div key={index} data-side={source.side}>
-    <span><Quote size={14} />{source.side === "self" ? "你" : source.side === "other" ? "对方" : source.label}</span>
-    <p>{compact ? brief(source.quote, 76) : source.quote}</p>{!compact && (source.side === "self" || source.side === "other") ? <small>{source.label}</small> : null}
+    <span><Quote size={14} />{source.side === "self" || source.side === "other" ? reportPersonLabel(source.side) : reportPersonLabel(source.label)}</span>
+    <p>{compact ? brief(source.quote, 76) : source.quote}</p>{!compact && (source.side === "self" || source.side === "other") ? <small>{reportPersonLabel(source.label)}</small> : null}
     {source.reportId && <a href={`/report?id=${encodeURIComponent(source.reportId)}`}>核对原报告 <ArrowRight size={14} /></a>}
   </div>)}</div> : null;
 }
