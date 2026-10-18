@@ -45,7 +45,7 @@ export function ChatActivity({ records = [], summary: supplied, account, friend 
     </div>
     <div className={styles.charts}>
       <div className={styles.card}>
-        <h3><MoveUpRight size={20}/>谁先重新开启聊天</h3>
+        <h3><MoveUpRight size={20}/>{totalStarts ? "谁先重新开启聊天" : "双方留下了多少消息"}</h3>
         <div className={styles.initiation}>
           <svg className={styles.ring} viewBox="0 0 120 120" role="img" aria-label={totalStarts ? `可判断${totalStarts}轮：我先发起${summary.starts.self}次，TA先发起${summary.starts.other}次` : `按消息条数：我 ${summary.self} 条，TA ${summary.other} 条`}>
             <circle cx="60" cy="60" r="46" fill="none" stroke="#eae4dd" strokeWidth="13"/>
@@ -53,9 +53,9 @@ export function ChatActivity({ records = [], summary: supplied, account, friend 
             <text x="60" y="58" textAnchor="middle" className={styles.ringNumber}>{totalStarts || summary.self + summary.other}</text><text x="60" y="77" textAnchor="middle" className={styles.ringLabel}>{totalStarts ? "可判断轮次" : "消息条数"}</text>
           </svg>
           <div className={styles.legend}>
-            <div><i className={styles.selfDot}/><span>我先发起</span><strong>{summary.starts.self}<small> 次{summary.starts.selfPercent === null ? "" : ` · ${summary.starts.selfPercent}%`}</small></strong></div>
-            <div><i className={styles.otherDot}/><span title={otherName}>{otherName}先发起</span><strong>{summary.starts.other}<small> 次{summary.starts.otherPercent === null ? "" : ` · ${summary.starts.otherPercent}%`}</small></strong></div>
-            <p>{summary.starts.unknown ? `${summary.starts.unknown} 轮起点或身份不确定，未计入比例` : "比例仅表示重新开口的次数构成"}</p>
+            <div><i className={styles.selfDot}/><span>{totalStarts?"我先发起":"我"}</span><strong>{totalStarts?summary.starts.self:summary.self}<small>{totalStarts?` 次${summary.starts.selfPercent===null?"":` · ${summary.starts.selfPercent}%`}`:" 条"}</small></strong></div>
+            <div><i className={styles.otherDot}/><span title={otherName}>{otherName}{totalStarts?"先发起":""}</span><strong>{totalStarts?summary.starts.other:summary.other}<small>{totalStarts?` 次${summary.starts.otherPercent===null?"":` · ${summary.starts.otherPercent}%`}`:" 条"}</small></strong></div>
+            <p>{!totalStarts?"尚无可比较的开口轮次，先显示实际消息数":summary.starts.unknown ? `${summary.starts.unknown} 轮起点或身份不确定，未计入比例` : "比例仅表示重新开口的次数构成"}</p>
           </div>
         </div>
         <p className={styles.note}><Clock3 size={14}/>间隔 ≥ {summary.sessionGapHours} 小时记为新一轮；首轮起点未知。这里统计开口行为，不是好感概率。</p>
@@ -71,7 +71,7 @@ export function ChatActivity({ records = [], summary: supplied, account, friend 
         <p className={styles.note}><Clock3 size={14}/>看的是这段时间里的平均间隔，不是某一条回得慢。间隔受导入范围和时间精度影响，也不能单独当成关系结论。</p>
       </div>
       <div className={styles.card}>
-        <h3><ChartNoAxesCombined size={20}/>聊天量怎样变化</h3>
+        <h3><ChartNoAxesCombined size={20}/>{timeline.length?"聊天量怎样变化":"已导入消息对照"}</h3>
         {timeline.length ? <>
           <div className={styles.chartLegend}><span><i className={styles.selfDot}/>我</span><span><i className={styles.otherDot}/>{otherName}</span>{summary.unknown > 0 && <span><i className={styles.unknownDot}/>身份待确认</span>}</div>
           <div className={styles.timeline} role="group" aria-label="按日期查看消息数量">

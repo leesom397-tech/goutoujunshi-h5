@@ -11,7 +11,7 @@ import { readReportLibrarySources } from "./ReportSourceLibrary";
 type SourceLink = NonNullable<Awaited<ReturnType<typeof readReportSources>>>;
 type Selection = { quote?: string; sourceIds?: string[]; label?: string; libraryId?: string; sourceKind?: string };
 type EvidenceContext = { ownerId?: string; reportId?: string; visible: boolean; open: (selection: Selection, trigger: HTMLElement) => void };
-type ProviderProps = { ownerId?: string; reportId?: string; captureOrigin?: boolean; fullHistory?: boolean; historyCount?: number; children: ReactNode };
+type ProviderProps = { ownerId?: string; reportId?: string; captureOrigin?: boolean; fullHistory?: boolean; historyKind?: 'chat' | 'moments'; historyCount?: number; children: ReactNode };
 const Context = createContext<EvidenceContext | null>(null);
 const plain = (value: unknown) => typeof value === "string" ? value.trim() : "";
 const normalized = (value: string) => value.replace(/[\s“”‘’「」『』，。！？：；、,.!?;:'"()（）]/gu, "");
@@ -51,7 +51,7 @@ export function CaptureEvidenceProvider(props: ProviderProps) {
   return <CaptureEvidenceScope {...props}/>;
 }
 
-function CaptureEvidenceScope({ ownerId, reportId, captureOrigin = false, fullHistory = false, historyCount, children }: ProviderProps) {
+function CaptureEvidenceScope({ ownerId, reportId, captureOrigin = false, fullHistory = false, historyKind = 'chat', historyCount, children }: ProviderProps) {
   const [loaded, setLoaded] = useState<{ owner: string; report: string; link: SourceLink | null; error: string } | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null), [search, setSearch] = useState(""), [limit, setLimit] = useState(24);
   const [librarySources,setLibrarySources]=useState<{key:string;link:SourceLink|null;error:string}|null>(null);
@@ -101,7 +101,7 @@ function CaptureEvidenceScope({ ownerId, reportId, captureOrigin = false, fullHi
   const query = normalized(search);
   const shown = query ? scoped.filter(record => normalized(`${record.sender} ${record.at} ${record.text}`).includes(query)) : scoped;
   const isMoments = link?.kind === "moments" || selection?.sourceKind === "moments";
-  const totalLabel = typeof historyCount === "number" && Number.isFinite(historyCount) && historyCount > 0 ? `全部已导入 ${historyCount} 条记录` : "完整聊天报告";
+  const totalLabel = typeof historyCount === "number" && Number.isFinite(historyCount) && historyCount > 0 ? `全部已导入 ${historyCount} 条${historyKind==='moments'?'动态':'记录'}` : historyKind==='moments'?"完整朋友圈报告":"完整聊天报告";
   const close = () => dialog.current?.close();
 
   return <Context.Provider value={{ ownerId, reportId, visible, open }}>
@@ -110,7 +110,7 @@ function CaptureEvidenceScope({ ownerId, reportId, captureOrigin = false, fullHi
     <dialog ref={dialog} className={styles.drawer} aria-labelledby={headingId} data-capture-evidence-dialog onClose={() => { restorePosition(); setSelection(null); }} onClick={event => { if (event.target === event.currentTarget) { const rect = event.currentTarget.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right) close(); } }}>
       <header className={styles.header}><div><span>回看分析依据</span><h2 id={headingId}>{isMoments ? "原始朋友圈动态" : "原始聊天记录"}</h2></div><button type="button" aria-label="关闭原始记录" onClick={close}><X size={22}/></button></header>
       {!sourceReady ? <p className={styles.empty}>正在读取原始记录…</p> : !link || !link.records.length ? <div className={styles.empty}><FileSearch size={30}/><h3>{libraryKey?"这条依据暂时无法打开":"这份报告的原始来源尚未同步"}</h3><p>{sourceError || (libraryKey?"这条原记录已删除或尚未同步。请回到采集电脑核对材料。":"请在采集电脑打开「已导入聊天」，对这份材料启用跨端同步。已删除且未同步的原文无法从报告还原。")}</p><button type="button" onClick={close}>返回报告</button></div> : <>
-        <div className={styles.context}><strong>{selection?.label || "这条判断引用的材料"}</strong>{selection?.quote && <blockquote>{selection.quote}</blockquote>}<p>{matches.length ? `找到 ${matches.length} 条对应原记录${matches.length > 1 ? "，请结合时间与说话人核对" : ""}。` : selection?.quote || selection?.sourceIds?.length ? "未能精确定位这段引用，以下为本次分析关联的原记录。" : fullHistory ? `这里展示报告附带的 ${link.records.length} 条原话依据；完整聊天的分析范围见报告。` : `共 ${link.records.length} 条，按本次分析的材料顺序呈现。`}</p></div>
+        <div className={styles.context}><strong>{selection?.label || "这条判断引用的材料"}</strong>{selection?.quote && <blockquote>{selection.quote}</blockquote>}<p>{matches.length ? `找到 ${matches.length} 条对应原记录${matches.length > 1 ? "，请结合时间与说话人核对" : ""}。` : selection?.quote || selection?.sourceIds?.length ? "未能精确定位这段引用，以下为本次分析关联的原记录。" : fullHistory ? `这里展示报告附带的 ${link.records.length} 条原话依据；完整${isMoments?'朋友圈':'聊天'}的分析范围见报告。` : `共 ${link.records.length} 条，按本次分析的材料顺序呈现。`}</p></div>
         <label className={styles.search}><Search size={18}/><input aria-label="在本次原记录中查找" placeholder="查找文字、说话人或时间" value={search} onChange={event => { setSearch(event.target.value); setLimit(24); }}/></label>
         {link.records.length < link.sourceIds.length && <p className={styles.localNote}>这台设备缺少部分关联原文，以下仅显示仍保存的 {link.records.length} 条。</p>}
         <div className={styles.records}>{shown.slice(0, limit).map(record => <CaptureRecord key={record.localId} record={record} ordinal={link.sourceIds.indexOf(record.localId) + 1} isMoments={isMoments}/>)}</div>

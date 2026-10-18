@@ -8,7 +8,7 @@ import { CaptureFullHistoryError, MAX_FULL_CAPTURE_ROWS } from "./capture-full-h
 
 type Database = ReturnType<typeof getD1>;
 type Snapshot = { libraryId: string; kind: "chat" | "moments"; epoch: number; revision: number; total: number };
-type Library = { id: string; owner_id: string; account: string; subject_id: string | null; kind: "chat" | "moments"; epoch: number; revision: number; deleted_at: number | null };
+type Library = { id: string; owner_id: string; account: string; friend:string; subject_id: string | null; kind: "chat" | "moments"; epoch: number; revision: number; deleted_at: number | null };
 type Media = { id: string; local_id: string; image_index: number; mime: string; sha256: string; chunk_count: number; analysis_json: string; analysis_version: number };
 type VisionCall = (messages: QwenMessage[], options: {vision: true; fast: true; json: true; maxTokens: number; timeoutMs: number}) => Promise<string>;
 export type CaptureSourceCoverage = { libraryId: string; kind: "chat" | "moments"; total: number; textRead: number; imagesExpected: number; imagesAvailable: number; imagesAnalyzed: number; imagesFailed: number; imagesMissing: number; imagesUnreadable: number; imageScope: "synced-preview"; status: "complete" | "partial" };
@@ -44,15 +44,20 @@ export async function verifySupplementalEvidence(db: Database, owner: string, su
 export async function checkRelatedCaptureSnapshots(db: Database, owner: string, input: CaptureAnalysisInput): Promise<Snapshot[]> {
   const requested = input.relatedSnapshots || [];
   if (!requested.length) return [];
-  const base = await db.prepare("SELECT id,owner_id,account,subject_id,kind,epoch,revision,deleted_at FROM coach_capture_libraries WHERE id=? AND owner_id=?").bind(input.libraryId, owner).first<Library>();
+  if (input.kind !== "chat" || requested.length > 20 || new Set(requested.map(row=>row.libraryId)).size !== requested.length || requested.some(row=>row.libraryId===input.libraryId)) throw new CaptureFullHistoryError("联合材料的范围无效，请重新核对。", 409);
+  const base = await db.prepare("SELECT id,owner_id,account,friend,subject_id,kind,epoch,revision,deleted_at FROM coach_capture_libraries WHERE id=? AND owner_id=?").bind(input.libraryId, owner).first<Library>();
   if (!input.subjectId || !base || base.subject_id !== input.subjectId || base.deleted_at !== null) throw new CaptureFullHistoryError("聊天与朋友圈尚未关联到同一个人物，请先重新核对。", 409);
   const result: Snapshot[] = [];
+  let totalMoments = 0;
   for (const request of requested) {
-    const row = await db.prepare("SELECT id,owner_id,account,subject_id,kind,epoch,revision,deleted_at FROM coach_capture_libraries WHERE id=? AND owner_id=?").bind(request.libraryId, owner).first<Library>();
+    const row = await db.prepare("SELECT id,owner_id,account,friend,subject_id,kind,epoch,revision,deleted_at FROM coach_capture_libraries WHERE id=? AND owner_id=?").bind(request.libraryId, owner).first<Library>();
     if (!row || row.deleted_at !== null || row.kind !== "moments" || row.subject_id !== input.subjectId || row.account !== base.account || row.epoch !== request.expectedEpoch) throw new CaptureFullHistoryError("朋友圈来源、账号或人物关联已变化，请重新核对后生成报告。", 409);
+    const contact=(friend:string)=>friend.match(/ · #([a-fA-F0-9]{16})$/)?.[1].toLowerCase();
+    if(contact(base.friend)&&contact(row.friend)&&contact(base.friend)!==contact(row.friend))throw new CaptureFullHistoryError("聊天和朋友圈来自不同的微信联系人，请先核对人物关联。",409);
     const count = await db.prepare("SELECT COUNT(*) AS total FROM coach_capture_records WHERE owner_id=? AND library_id=? AND epoch=?").bind(owner, row.id, row.epoch).first<{total: number}>();
     if (Number(count?.total) !== request.expectedTotal) throw new CaptureFullHistoryError("朋友圈还未完整同步，请等待完成后生成联合报告。", 409);
-    if (request.expectedTotal > MAX_FULL_CAPTURE_ROWS) throw new CaptureFullHistoryError(`这份朋友圈超过 ${MAX_FULL_CAPTURE_ROWS} 条，当前不能一次完整分析；不会只取前几条冒充全部。`, 413);
+    totalMoments += request.expectedTotal;
+    if (totalMoments > MAX_FULL_CAPTURE_ROWS) throw new CaptureFullHistoryError(`关联朋友圈共超过 ${MAX_FULL_CAPTURE_ROWS} 条，当前不能一次完整分析；不会只取前几条冒充全部。`, 413);
     result.push({libraryId: row.id, kind: "moments", epoch: row.epoch, revision: row.revision, total: request.expectedTotal});
   }
   return result;
@@ -70,7 +75,7 @@ export async function assertCaptureSnapshotsCurrent(db: Database, owner: string,
  * retry never confuses a model observation with a user's own original words. */
 export async function readRelatedCaptureEvidence(db: Database, owner: string, input: CaptureAnalysisInput, chat: {records: CloudCaptureRecord[]; revision: number}, qwen: VisionCall) {
   const related = await checkRelatedCaptureSnapshots(db, owner, input);
-  const snapshots: Snapshot[] = [{libraryId: input.libraryId!, kind: "chat", epoch: input.expectedEpoch!, revision: chat.revision, total: chat.records.length}, ...related];
+  const snapshots: Snapshot[] = [{libraryId: input.libraryId!, kind: input.kind, epoch: input.expectedEpoch!, revision: chat.revision, total: chat.records.length}, ...related];
   const sources: Array<{snapshot: Snapshot; records: CloudCaptureRecord[]}> = [{snapshot: snapshots[0], records: chat.records}];
   for (const snapshot of related) {
     const records: CloudCaptureRecord[] = [];

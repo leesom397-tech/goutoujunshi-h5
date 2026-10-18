@@ -184,6 +184,13 @@ export function applySemanticDiagnosis(diagnosis: RelationshipDiagnosis, semanti
     // Keep one grounded plan rather than presenting four conflicting generic choices.
     diagnosis.decision.options = [{ label: "当前建议", action: semantic.action, observeWindow: diagnosis.decision.observeWindow, stopCondition: diagnosis.decision.stopCondition }];
   }
+  if(semantic.actionPlan?.steps.length){
+    const first=semantic.actionPlan.steps[0];
+    diagnosis.decision.recommendation=first.action;
+    diagnosis.decision.observeWindow=first.observeFor;
+    diagnosis.decision.stopCondition=first.stopWhen;
+    diagnosis.decision.options=semantic.actionPlan.steps.map(step=>({label:step.title,action:step.action,observeWindow:step.observeFor,stopCondition:step.stopWhen}));
+  }
   return diagnosis;
 }
 
@@ -208,6 +215,10 @@ export function relationshipReportDocument(diagnosis: RelationshipDiagnosis, sem
     })),
     hypotheses: diagnosis.hypotheses,
     unknowns: diagnosis.unknowns,
+    affinity:semantic?.affinity,
+    changes:semantic?.changeInsights||[],
+    sourceInsights:semantic?.sourceInsights,
+    actionPlan:semantic?.actionPlan,
     timeline: semantic?.timeline?.length ? semantic.timeline : diagnosis.periods.map(period => ({ trend: "互动量", note: `${period.label} ${period.range}：共 ${period.sample} 条，你 ${period.self}，TA ${period.other}` })),
     decision: {
       action: diagnosis.decision.recommendation,

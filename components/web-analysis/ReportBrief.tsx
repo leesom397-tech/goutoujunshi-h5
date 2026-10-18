@@ -33,7 +33,7 @@ export function ReportChapterArt({kind}:{kind:"change"|"next"}) {
   return <div className={visual.chapterArt} data-report-art={kind}><GlassStudy imageSrc={`/images/report-aurora-${kind}-v3.webp`} variant="report"/></div>;
 }
 
-export function ChatReportBrief({ report, diagnosis }: { report: Json; diagnosis?: Json | null }) {
+export function ChatReportBrief({ report, diagnosis, showMetrics=true }: { report: Json; diagnosis?: Json | null; showMetrics?:boolean }) {
   const presentation = riskAwarePresentation(report);
   const source = diagnosis || report.relationshipDiagnosis || {};
   const semantic = report.semanticHistory || source.semanticHistory;
@@ -48,15 +48,15 @@ export function ChatReportBrief({ report, diagnosis }: { report: Json; diagnosis
   return <section className={visual.brief} aria-label="报告速读" data-report-brief data-risk-priority={presentation.mode}>
     <div className={visual.hero}>
       <div className={visual.verdict}>
-        <div className={visual.kicker}><span className={visual.liveDot}/>{fullHistory ? "完整关系报告" : "这次聊天的观察"}</div>
+        <div className={visual.kicker}><span className={visual.liveDot}/>{fullHistory ? report.captureKind==='moments'?"完整朋友圈报告":"完整关系报告" : "这次聊天的观察"}</div>
         <span className={visual.verdictLabel}>{presentation.mode !== "normal" && presentation.title ? presentation.title : "当前判断"}</span>
         <h2>{judgment}</h2>
-        <div className={visual.trend}><ChartNoAxesCombined size={17}/><span>关系趋势</span><strong>{trend || "待了解"}</strong></div>
+        <div className={visual.trend}><ChartNoAxesCombined size={17}/><span>{report.captureKind==='moments'?'动态变化':'关系趋势'}</span><strong>{trend || "待了解"}</strong></div>
         {typeof coverage.total === "number" && <p className={visual.scope}>{coverage.total.toLocaleString("zh-CN")} 条消息{coverage.startDate && coverage.endDate ? ` · ${coverage.startDate} — ${coverage.endDate}` : ""}</p>}
       </div>
       <div className={visual.art} data-report-art="overview"><GlassStudy imageSrc="/images/report-aurora-overview-v3.webp" variant="report"/></div>
     </div>
-    <ReportVisualMetrics report={report}/>
+    {showMetrics&&<ReportVisualMetrics report={report}/>}
     <div className={visual.readingGrid}>
       <div className={visual.evidence} data-brief-evidence><header><span className={visual.chapter}>01</span><h3>判断从这里来</h3><Quote size={23}/></header><KeyEvidenceList report={report} priorityEvidence={presentation.mode !== "normal" ? presentation.evidence : undefined} showReferences={false}/></div>
       <aside className={visual.action}><span className={visual.actionSymbol}><ArrowRight size={25}/></span><span className={visual.actionLabel}>给现在的你</span><h3>下一步，先做这一件事。</h3><p>{action}</p><button type="button" onClick={event=>nextSection(event.currentTarget)}>看看具体怎么做<ArrowRight size={17}/></button><div className={visual.actionContour} aria-hidden="true"/></aside>

@@ -14,9 +14,9 @@ export function intakeReturnTo(value: unknown): string {
     return url.pathname + (params.size ? "?" + params : "");
   } catch { return ""; }
 }
-export function intakeHref(path: "/analyze" | "/capture", options: { mode?: string; kind?: string; method?: string; subjectId?: string; returnTo?: string; targetSelf?: boolean; capture?: boolean } = {}) {
+export function intakeHref(path: "/analyze" | "/capture", options: { mode?: string; kind?: string; method?: string; subjectId?: string; libraryId?: string; returnTo?: string; targetSelf?: boolean; capture?: boolean } = {}) {
   const params = new URLSearchParams();
-  for (const key of ["mode", "kind", "method", "subjectId"] as const) if (options[key]) params.set(key, options[key]!);
+  for (const key of ["mode", "kind", "method", "subjectId", "libraryId"] as const) if (options[key]) params.set(key, options[key]!);
   if (options.targetSelf) params.set("target", "self");
   if (options.capture) params.set("capture", "1");
   const back = intakeReturnTo(options.returnTo); if (back) params.set("returnTo", back);

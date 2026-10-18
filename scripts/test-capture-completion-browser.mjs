@@ -156,7 +156,7 @@ async function run(width,scenario){
       await visibleText('正在保存分析所需资料');
       assert.equal(paid.length,0,'report POST waits for all cloud sync');
       assert.ok(await page.$eval('#capture-confirm',element=>element.checkVisibility()));
-      assert.match(await page.$eval('#capture-confirm',element=>element.innerText),/正在同步这份聊天|正在同步聊天/);
+      assert.match(await page.$eval('#capture-confirm',element=>element.innerText),/正在同步全部材料|正在同步这份聊天|正在同步聊天/);
       assert.equal(syncStarted,true);await noOverflow('sync');
       if(scenario==='success')await page.screenshot({path:`${out}/sync-${width}.png`,fullPage:true});
       syncReleased=true;

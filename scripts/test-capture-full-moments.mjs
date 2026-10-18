@@ -1,0 +1,31 @@
+import assert from 'node:assert/strict';
+import {DatabaseSync} from 'node:sqlite';
+import {readFileSync,readdirSync} from 'node:fs';
+import {build} from 'esbuild';
+const bundle=await build({stdin:{contents:`export * from './lib/capture-analysis-input';export * from './lib/capture-full-history-server';export * from './lib/capture-related-history-server';export * from './lib/person-analysis-navigation';`,resolveDir:process.cwd()},bundle:true,write:false,format:'cjs',platform:'node',logLevel:'silent'});
+const module={exports:{}};new Function('module','exports',bundle.outputFiles[0].text)(module,module.exports);
+const {captureAnalysisInput,readFullCaptureHistory,checkFullCaptureHistory,readRelatedCaptureEvidence,checkRelatedCaptureSnapshots,relatedMomentLibraries}=module.exports;
+const sql=new DatabaseSync(':memory:');for(const name of readdirSync('drizzle').filter(name=>name.endsWith('.sql')).sort())sql.exec(readFileSync('drizzle/'+name,'utf8'));
+const db={prepare(query){return{args:[],bind(...args){this.args=args;return this;},async first(){return sql.prepare(query).get(...this.args)||null;},async all(){return{results:sql.prepare(query).all(...this.args)};},async run(){return{meta:{changes:Number(sql.prepare(query).run(...this.args).changes)}};}};}};
+const owner='moments-contract-fixture',subject=crypto.randomUUID(),chat='cl_'+'a'.repeat(64),moments='cl_'+'b'.repeat(64),older='cl_'+'c'.repeat(64),foreign='cl_'+'d'.repeat(64);
+function library(id,kind,label,account='wx-fixture',person=subject){sql.prepare("INSERT INTO coach_capture_libraries(id,owner_id,account,friend,kind,subject_id,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)").run(id,owner,account,label,kind,person,'2026-10-01','2026-10-01');}
+function rows(id,count,kind='post'){const result=[];for(let i=0;i<count;i++){const row={localId:'row-'+i,kind,senderRole:'other',sender:'合成联系人',at:'2026-10-01',text:'合成动态 '+i+'：周末去了公园。',imageCount:0,source:{label:'synthetic'}};result.push(row);sql.prepare('INSERT INTO coach_capture_records(library_id,owner_id,epoch,local_id,digest,record_json,sort_known,sort_time,updated_at) VALUES(?,?,1,?,?,?,0,1,1)').run(id,owner,row.localId,row.localId,JSON.stringify(row));}return result;}
+library(chat,'chat','新备注 · #1111111111111111');rows(chat,3,'text');
+library(moments,'moments','新备注 · #1111111111111111');const all=rows(moments,1203);
+library(older,'moments','旧备注');rows(older,7);
+library(foreign,'moments','同名 · #2222222222222222');rows(foreign,1);
+const input=captureAnalysisInput({requestId:crypto.randomUUID(),confirmed:true,kind:'moments',analysisScope:'fullHistory',friend:'新备注 · #1111111111111111',subjectId:subject,libraryId:moments,expectedEpoch:1,expectedTotal:1203,records:[]});
+const history=await readFullCaptureHistory(db,owner,input);assert.equal(history.records.length,1203);assert.deepEqual(history.readable,[],'Moments must not masquerade as chat quotes');
+const evidence=await readRelatedCaptureEvidence(db,owner,input,history,()=>assert.fail('no image provider required'));
+assert.equal(evidence.snapshots.length,1);assert.equal(evidence.snapshots[0].kind,'moments');assert.equal(evidence.sourceCoverage[0].total,1203);assert.equal(evidence.supplementalRecords.length,1203);assert.ok(evidence.supplementalRecords.every(row=>row.basis==='caption'&&row.sourceKind==='moments'&&row.libraryId===moments));assert.deepEqual(evidence.supplementalRecords.map(row=>row.sourceLocalId),all.map(row=>row.localId));
+await assert.rejects(checkFullCaptureHistory(db,'other-owner',input),/找不到/);await assert.rejects(checkFullCaptureHistory(db,owner,{...input,kind:'chat'}),/变化/);await assert.rejects(checkFullCaptureHistory(db,owner,{...input,expectedTotal:1202}),/同步/);
+const raw=({historyRecords,activityRecords,photoPreviews,...value})=>({...value,confirmed:true});
+const joint=captureAnalysisInput({...raw(input),kind:'chat',libraryId:chat,expectedTotal:3,relatedSnapshots:[{libraryId:moments,kind:'moments',expectedEpoch:1,expectedTotal:1203},{libraryId:older,kind:'moments',expectedEpoch:1,expectedTotal:7}]});
+assert.equal((await checkRelatedCaptureSnapshots(db,owner,joint)).length,2,'all explicitly related source libraries are accepted');
+await assert.rejects(checkRelatedCaptureSnapshots(db,owner,{...joint,relatedSnapshots:[{libraryId:foreign,kind:'moments',expectedEpoch:1,expectedTotal:1}]}),/不同的微信联系人/);
+assert.throws(()=>captureAnalysisInput({...raw(input),relatedSnapshots:joint.relatedSnapshots}),/联合|关联/);
+assert.throws(()=>captureAnalysisInput({...raw(joint),relatedSnapshots:[joint.relatedSnapshots[0],joint.relatedSnapshots[0]]}),/重复/);
+const summary=(id,friend,patch={})=>({id,kind:'moments',ownerId:owner,account:'wx-fixture',friend,cloud:{subjectId:subject},...patch});
+const match=relatedMomentLibraries({ownerId:owner,account:'wx-fixture',friend:'新备注 · #1111111111111111',cloud:{subjectId:subject}},[summary(moments,'新备注 · #1111111111111111'),summary(older,'旧备注'),summary(foreign,'同名 · #2222222222222222'),summary('other-account','旧备注',{account:'different'}),summary('other-owner','旧备注',{ownerId:'different'})]);
+assert.deepEqual(match.map(row=>row.id),[moments,older]);
+console.log('PASS full Moments: 1203 records paged, every caption preserved as Moments, no invented chat, multiple verified libraries and legacy rename, foreign owner/account/contact and duplicate source rejection. No network/model calls.');

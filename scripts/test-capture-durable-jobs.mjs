@@ -1,7 +1,7 @@
 // Real production route + Durable Object + SQLite credit/report schema.
 // Only Cloudflare storage, provider, auth and unrelated enrichment are synthetic.
 import assert from 'node:assert/strict';
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, mkdirSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { DatabaseSync } from 'node:sqlite';
 import { AsyncLocalStorage } from 'node:async_hooks';
@@ -33,7 +33,8 @@ const fixture = {
     if (providerFailure) return providerFailure(messages, options);
     if (phase === 'images') return JSON.stringify({ readable: true, observation: '合成预览中可见海边步道。' });
     if (phase === 'segments') return JSON.stringify({ findings: detail.rows.slice(0, 2).map(row => ({ claim: '这段原文涉及安排。', confidence: '低', alternative: '日常交流不能证明关系意图。', evidence: [{ sourceId: row.sourceId, quote: row.text.slice(0, 30) }] })) });
-    return JSON.stringify({ summary: '根据这些合成聊天，可以进一步确认实际安排。', explanation: '原话出现了对安排的讨论，但尚没有明确确认赴约的证据，所以可以核实时间，不能把讨论直接当作承诺。', summaryEvidenceIds: detail.findings?.length ? [detail.findings[0].id] : [], action: '确认双方方便的时间。', actionEvidenceIds: detail.findings?.length ? [detail.findings[0].id] : [], observeWindow: '下一次约定', stopCondition: '明确拒绝就停止' });
+    const moments=detail.findings?.filter(item=>item.evidence?.some(source=>source.sourceKind==='moments'))||[];
+    return JSON.stringify({ summary: '根据这些合成聊天，可以进一步确认实际安排。', explanation: '原话出现了对安排的讨论，但尚没有明确确认赴约的证据，所以可以核实时间，不能把讨论直接当作承诺。', summaryEvidenceIds: detail.findings?.length ? [detail.findings[0].id] : [], action: '确认双方方便的时间。', actionEvidenceIds: detail.findings?.length ? [detail.findings[0].id] : [], observeWindow: '下一次约定', stopCondition: '明确拒绝就停止',affinityAssessment:{dimensions:[],unavailableReason:'这些合成原话只泛泛讨论安排，没有足够的具体互动维度。'},actionPlan:{goal:'connection',rationale:'目前只有安排的讨论。',steps:[{title:'确认安排',action:'确认双方方便的时间。',why:'讨论尚未形成明确确认。',evidenceIds:detail.findings?.length?[detail.findings[0].id]:[],observeFor:'下一次相关回应',advanceWhen:'双方确认时间后再安排。',stopWhen:'明确拒绝就停止。'}]},...(moments.length?{sourceInsights:{moments:{summary:'已核对的动态呈现了具体活动线索，不能据此推断恋爱意愿。',evidenceIds:[moments[0].id],unknowns:['不清楚是否与用户共同参与']}}}:{}) });
   },
   budget() { reserveBudgets++; },
 };
@@ -274,6 +275,37 @@ await test('malformed model outputs never become checkpoints or charged partial 
   assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM coach_saved_reports WHERE id=? AND status='done'").get(body.requestId).n, 0);
 });
 
+await test('real route serializes cited affinity, chronological changes, useful next steps and complete Moments fixtures',async()=>{
+  const data=await setup(210),momentsId=await addRelated(data),before=calls.length;
+  const statements={1:'我记得你周末喜欢散步，要不要找个时间一起？',3:'你上次说工作有点累，今天有没有好一些？',5:'我最近也开始每天走一段路，觉得能把心静下来。',181:'下周我们一起走海边那段吧，周六下午两点可以吗？',183:'那就周六两点，到了我发消息给你。',185:'昨天一起走路挺开心的，下次再约。'};
+  for(const item of sql.prepare('SELECT local_id,record_json FROM coach_capture_records WHERE library_id=?').all(data.library)){
+    const row=JSON.parse(item.record_json),i=Number(row.localId.split('-').at(-1));
+    if(statements[i])row.text=statements[i];
+    if(i>=181)row.at='2026-01-10T10:'+String(i-181).padStart(2,'0')+':00.000Z';
+    if(i>=194){row.kind='other';row.text='[语音未转写]';}
+    sql.prepare('UPDATE coach_capture_records SET record_json=?,sort_time=? WHERE library_id=? AND local_id=?').run(JSON.stringify(row),Date.parse(row.at),data.library,row.localId);
+  }
+  providerFailure=(messages,options)=>{
+    const detail=JSON.parse(typeof messages.at(-1).content==='string'?messages.at(-1).content:messages.at(-1).content[0].text);
+    if(options?.vision)return JSON.stringify({readable:true,observation:'图片可见海边步道，仅能判断可见场景。'});
+    if(detail.rows){const selected=detail.rows.filter(row=>Object.values(statements).includes(row.text)||row.sourceKind==='moments').slice(0,8);return JSON.stringify({findings:selected.map((row,index)=>({claim:row.sourceKind==='moments'?`动态或图片中的步道线索${index}`:`原话中的具体互动${index}`,confidence:'中',alternative:'普通朋友相处仍是合理解释。',evidence:[{sourceId:row.sourceId,quote:row.text}]}))});}
+    const chat=detail.findings.filter(item=>item.evidence.some(source=>!source.basis)),moments=detail.findings.filter(item=>item.evidence.some(source=>source.sourceKind==='moments'));
+    const earliest=chat.find(item=>item.evidence.some(source=>source.quote===statements[1])),latest=chat.find(item=>item.evidence.some(source=>source.quote===statements[185]));
+    const cite=(chat[0]||moments[0]).id,actionSource=(latest||moments[0]||chat[0]).id;
+    const dimensions=chat.length?['initiative','engagement','care','openness','intimacy','action'].map((key,i)=>({key,level:i===4?2:i===5?4:3,status:i===4?'ambiguous':'clear',reason:i===4?'原话表达一起活动开心，仍不能区分友情与恋爱意愿。':'这组原话包含具体关心、分享或相处安排。',evidenceIds:[chat[Math.min(i,chat.length-1)].id]})):[];
+    return JSON.stringify({summary:chat.length?'从聊散步到约定和回顾，实际接触有了推进，恋爱意愿尚待确认。':'动态呈现了散步活动，可从具体路线自然聊起。',explanation:chat.length?'早些原话提到一起散步，后面出现了具体时间与活动回顾，实际相处的证据比单纯聊得热闹更充分。\n\n不过，开心地一起活动也可能是朋友相处。对方还没有明确表达恋爱意愿，下一步适合回应具体体验，不宜据此追问关系承诺。':'配文和可见图片都涉及海边步道，支持把散步作为当前可聊的话题。公开动态无法证明对方对用户的态度，也不能据此判断收入、性格或恋爱意愿。',summaryEvidenceIds:[cite],affinityAssessment:{dimensions,unavailableReason:chat.length?'':'本次只有朋友圈，没有双方聊天，不能评价对方对你的好感。'},affinitySignals:chat.length?[{direction:'support',signal:'安排从提议走到具体时间',meaning:'具体安排和活动回顾支持愿意继续接触，但尚不等于恋爱确认。',evidenceIds:[latest.id],alternative:'也可能是舒适的朋友活动。'}]:[],changeInsights:earliest&&latest?[{title:'从讨论活动到出现活动回顾',before:{reading:'之前还在提出一起散步的想法。',evidenceIds:[earliest.id]},after:{reading:'之后出现具体安排，并回顾一起活动的体验。',evidenceIds:[latest.id]},meaning:'接触已经不只停留在口头提议，下一次可顺着共同体验自然推进。',alternative:'朋友之间也可能有同样的活动安排，尚不能确认恋爱意图。'}]:[],actionPlan:{goal:'connection',rationale:chat.length?'已有共同活动和对方愿意继续约的原话。':'已有具体动态话题，可从公开内容开场。',steps:[{title:chat.length?'回应共同体验':'从具体动态开场',action:chat.length?'回应散步时你也喜欢的一个细节，再接住下一次邀约。':'聊动态中的步道路线，先看看对方是否愿意展开。',why:chat.length?'对方已经回顾体验并提到下次，回应这件事比另起无关话题自然。':'配文提供了具体话题，不需要根据照片猜测私人情况。',evidenceIds:[actionSource],observeFor:'下一轮与这个话题有关的真实互动',advanceWhen:'对方也延续话题并愿意共同确认安排时再推进。',stopWhen:'对方明确拒绝或表示不想继续，就停止推进。',reply:chat.length?'我也挺开心的，海边那段走起来很舒服，下次再一起走呀。':'看到你分享海边步道，那段路走起来感觉怎么样？'}]},...(moments.length?{sourceInsights:{moments:{summary:'动态配文记录了海边散步，图片可见步道场景，可以作为生活话题线索。',evidenceIds:[moments[0].id],unknowns:['无法判断是否与用户同行'],...(chat.length?{crossSource:{summary:'聊天和动态都出现散步话题，但日期不同，不能断定是同一次活动。',evidenceIds:[cite,moments[0].id]}}:{})}}}:{})});
+  };
+  await start(data.owner,data.body);const joint=await finish(data.owner);assert.equal(joint.status,'done',joint.error);
+  assert.equal(joint.result.analysisVersion,2);assert.equal(joint.result.affinity.contextCount,194);assert.equal(typeof joint.result.affinity.value,'number');assert.equal(joint.result.affinity.dimensions.length,6);
+  assert.equal(joint.result.semanticHistory.changeInsights.length,1);assert.ok(joint.result.semanticHistory.actionPlan.steps[0].reply);assert.ok(joint.result.semanticHistory.sourceInsights.moments.crossSource);
+  assert.equal(joint.result.sourceCoverage.find(source=>source.kind==='chat').total,210);assert.equal(joint.result.sourceCoverage.find(source=>source.kind==='chat').textRead,194);
+  assert.equal(joint.result.sourceCoverage.find(source=>source.kind==='moments').total,3);assert.equal(calls.slice(before).filter(call=>call.phase==='segments').flatMap(call=>call.detail.rows).filter(row=>row.basis==='chat-original').length,194);
+  const folder='outputs/report-route-fixtures';mkdirSync(folder,{recursive:true});writeFileSync(folder+'/full-person.json',JSON.stringify(joint.result,null,2));
+  const chatOnlyBody={...data.body,requestId:crypto.randomUUID(),relatedSnapshots:[]};await start(data.owner,chatOnlyBody);const chatOnly=await finish(data.owner);assert.equal(chatOnly.status,'done',chatOnly.error);assert.equal(chatOnly.result.sourceCoverage.length,1);assert.match(chatOnly.result.captureMediaNote,/尚未提供朋友圈/);writeFileSync(folder+'/chat-only-210-194.json',JSON.stringify(chatOnly.result,null,2));
+  const momentsBody={...data.body,requestId:crypto.randomUUID(),kind:'moments',libraryId:momentsId,expectedTotal:3,relatedSnapshots:[]};await start(data.owner,momentsBody);const momentOnly=await finish(data.owner);assert.equal(momentOnly.status,'done',momentOnly.error);
+  assert.equal(momentOnly.result.kind,'profile');assert.equal(momentOnly.result.captureKind,'moments');assert.equal(momentOnly.result.chatActivity,undefined);assert.equal(momentOnly.result.affinity,undefined);assert.equal(momentOnly.result.sourceCoverage.length,1);assert.equal(momentOnly.result.sourceCoverage[0].kind,'moments');assert.equal(momentOnly.result.sourceCoverage[0].textRead,3);assert.equal(momentOnly.result.sourceCoverage[0].imagesAnalyzed,3);assert.ok(momentOnly.result.semanticHistory.sourceInsights.moments);writeFileSync(folder+'/moments-only.json',JSON.stringify(momentOnly.result,null,2));
+});
+
 await test('summary-only synthesis retries without losing completed evidence or charging a partial report', async()=>{
   const {owner,body}=await setup(),before=calls.length;await start(owner,body);await alarm(owner);
   providerFailure=messages=>{
@@ -287,6 +319,40 @@ await test('summary-only synthesis retries without losing completed evidence or 
   providerFailure=null;const done=await finish(owner);assert.equal(done.status,'done',done.error);assert.ok(done.result.semanticHistory.explanation);
   assert.equal(calls.slice(before).filter(call=>call.phase==='segments').length,3,'verified segments must not run again after sparse synthesis');
   assert.equal(calls.slice(before).filter(call=>call.phase==='synthesis').length,2);assert.equal(balance(owner),1000-price);assert.equal(creditTask(owner,body.requestId).status,'settled');
+});
+
+await test('standalone full Moments reads beyond ten posts and accounts captions separately from images',async()=>{
+  const data=await setup(2),momentsId=await addRelated(data,17);
+  const body={...data.body,requestId:crypto.randomUUID(),kind:'moments',libraryId:momentsId,expectedTotal:17,relatedSnapshots:[]};
+  const before=calls.length;await start(data.owner,body);const done=await finish(data.owner);assert.equal(done.status,'done',done.error);
+  assert.equal(done.result.sourceCoverage[0].total,17);assert.equal(done.result.sourceCoverage[0].textRead,17);assert.equal(done.result.sourceCoverage[0].imagesAnalyzed,17);
+  const rows=calls.slice(before).filter(call=>call.phase==='segments').flatMap(call=>call.detail.rows);
+  assert.equal(rows.filter(row=>row.basis==='caption').length,17);assert.equal(rows.filter(row=>row.basis==='visual').length,17);assert.equal(rows.filter(row=>row.basis==='chat-original').length,0);
+  assert.equal(done.completedText,0);assert.equal(done.completedCaptions,17);assert.equal(done.completedImages,17);assert.equal(done.result.semanticHistory.affinity.value,null);
+  assert.equal(creditTask(data.owner,body.requestId).amount,credits.CREDIT_PRICES.profile,'standalone Moments charges the displayed profile price');
+  assert.equal(balance(data.owner),1000-credits.CREDIT_PRICES.profile);
+  const same=await start(data.owner,{...body,requestId:crypto.randomUUID()},200);assert.equal(same.status,'done');assert.equal(balance(data.owner),1000-credits.CREDIT_PRICES.profile,'unchanged Moments reuse the report without charging again');
+});
+
+await test('omitted imported Moments interpretation retries rather than delivering a chat-only complete report',async()=>{
+  const data=await setup(2);await addRelated(data,1);await start(data.owner,data.body);await alarm(data.owner);
+  providerFailure=messages=>{const detail=JSON.parse(messages.at(-1).content);if(detail.rows)return JSON.stringify({findings:detail.rows.slice(0,1).map(row=>({claim:'已核对动态原文',evidence:[{sourceId:row.sourceId,quote:row.text}]}))});return JSON.stringify({summary:'只有聊天概括',explanation:'有交流但尚需核实。',summaryEvidenceIds:[detail.findings[0].id],affinityAssessment:{dimensions:[],unavailableReason:'互动维度不足'}});};
+  const retrying=await alarm(data.owner);assert.equal(retrying.status,'retrying');assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM coach_saved_reports WHERE id=? AND status='done'").get(data.body.requestId).n,0);
+  providerFailure=null;const done=await finish(data.owner);assert.equal(done.status,'done',done.error);assert.ok(done.result.semanticHistory.sourceInsights.moments);assert.equal(done.result.sourceCoverage.find(source=>source.kind==='moments').textRead,1);
+});
+
+await test('photos-only Moments preserve image coverage without fabricating captions or chat statistics',async()=>{
+  const data=await setup(2),momentsId=await addRelated(data,1);
+  const row=JSON.parse(sql.prepare('SELECT record_json FROM coach_capture_records WHERE library_id=?').get(momentsId).record_json);row.text='[图片]';sql.prepare('UPDATE coach_capture_records SET record_json=? WHERE library_id=?').run(JSON.stringify(row),momentsId);
+  const body={...data.body,requestId:crypto.randomUUID(),kind:'moments',libraryId:momentsId,expectedTotal:1,relatedSnapshots:[]};await start(data.owner,body);const done=await finish(data.owner);
+  assert.equal(done.status,'done',done.error);assert.equal(done.completedText,0);assert.equal(done.completedCaptions,0);assert.equal(done.completedImages,1);assert.equal(done.result.sourceCoverage[0].textRead,0);assert.equal(done.result.sourceCoverage[0].imagesAnalyzed,1);
+  assert.equal(done.result.chatActivity,undefined);assert.equal(done.result.affinity,undefined);assert.equal(done.result.semanticHistory.affinity.value,null);assert.ok(done.result.semanticHistory.sourceInsights.moments);assert.ok(done.result.semanticHistory.findings.every(finding=>finding.evidence.every(source=>source.basis==='visual')));
+});
+
+await test('an older running report contract stops before model work and releases its reservation once',async()=>{
+  const {owner,body}=await setup(2);await start(owner,body);const storage=states.get(owner).storage,job=await storage.get('job:'+body.requestId);job.manifest.analysisVersion=1;await storage.put('job:'+body.requestId,job);
+  const before=calls.length,done=await alarm(owner);assert.equal(done.status,'error');assert.match(done.error,/分析方式已更新/);assert.equal(calls.length,before);assert.equal(balance(owner),1000);assert.equal(creditTask(owner,body.requestId).status,'released');
+  await alarm(owner);assert.equal(balance(owner),1000);assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM coach_saved_reports WHERE id=? AND status='done'").get(body.requestId).n,0);
 });
 
 await test('persistent ungrounded synthesis refunds and never caches or saves a complete report',async()=>{

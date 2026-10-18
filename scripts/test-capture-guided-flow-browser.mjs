@@ -65,7 +65,11 @@ try{
   await page.setViewport({width:390,height:844});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'mobile has no horizontal scroll');
   await page.screenshot({path:output+'/contact-mobile.png',fullPage:true});
-  await click('导入全部可见朋友圈');await contains('这份材料共保存');await contains('2003');
+  await click('导入全部可见朋友圈');await contains('下一步，生成完整朋友圈报告');await contains('2003');
+  await page.evaluate(()=>[...document.querySelectorAll('#capture-preview button')].find(e=>e.querySelector('strong')?.textContent==='生成完整朋友圈报告').click());await contains('确认材料与费用');
+  assert.match(await page.$eval('#capture-confirm',e=>e.innerText),/全部 2003 条朋友圈/);
+  assert.equal(await page.$eval('#capture-confirm',e=>[...e.querySelectorAll('button')].find(button=>button.textContent.includes('确认并生成报告')).disabled),true,'full Moments still requires explicit consent');
+  await page.click('[aria-label="返回报告准备"]');
   const captureCall=calls.find(row=>row.kind==='moments');assert.equal(captureCall.allVisible,true);assert.equal(captureCall.contactId,'wxid_internal_b');assert.equal(captureCall.accountKey,accountKey);assert.equal(contactCreated,true);assert.equal(await page.$('dialog[open]'),null,'automatic contact profile never opens avatar choice');
   await page.waitForFunction(()=>!document.body.textContent.includes('已读取 1001 条'));
   await click('导入情况与同步');await contains('已采集到可见末尾');

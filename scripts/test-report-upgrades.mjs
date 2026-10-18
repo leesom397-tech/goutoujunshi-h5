@@ -40,8 +40,10 @@ const {reportContextSnapshot,reportFreshness}=load("lib/report-freshness");
 const snapshot=await reportContextSnapshot(db,"owner","person");assert.equal(snapshot.version,1);assert.deepEqual(snapshot.libraryIds,["lib-chat"]);
 sqlite.prepare("UPDATE coach_subjects SET data=json_set(data,'$.relationshipHistory',json(?)),updated_at=9 WHERE id='person'").run(JSON.stringify([{reportId,nextStep:"确认具体时间",updatedAt:3}]));
 assert.deepEqual(await reportContextSnapshot(db,"owner","person"),snapshot,"report history never invalidates itself");
-const saved={analysisScope:"fullHistory",archiveSnapshot:{libraryId:"lib-chat",epoch:1,revision:2,total:1},contextSnapshot:snapshot};
+const saved={analysisScope:"fullHistory",analysisVersion:2,archiveSnapshot:{libraryId:"lib-chat",epoch:1,revision:2,total:1},contextSnapshot:snapshot};
 assert.equal((await reportFreshness(db,"owner","person",saved)).status,"current");
+assert.equal((await reportFreshness(db,"owner","person",{...saved,analysisVersion:undefined})).analysisUpdated,true,"old complete report must not block the improved analysis through indefinite reuse");
+assert.equal((await reportFreshness(db,"owner","person",{...saved,analysisVersion:undefined})).status,"changed");
 sqlite.exec("INSERT INTO coach_capture_libraries VALUES('lib-new','owner','person',1,1,NULL)");
 assert.equal((await reportFreshness(db,"owner","person",saved)).newLibraries,1);
 sqlite.exec("DELETE FROM coach_capture_libraries WHERE id='lib-new'; UPDATE coach_subjects SET data=json_set(data,'$.city','成都') WHERE id='person'");
@@ -157,8 +159,10 @@ const handoff=JSON.parse([...memory.values()].at(-1));assert.deepEqual(handoff.o
 assert.match(handoff.summary,/Generated interpretation/);assert.ok(!handoff.originalQuotes.some(row=>row.text.includes("Generated")));assert.equal(handoff.reportId,reportId);
 client.followup({reportId,analysisScope:"fullHistory",lines:[],semanticHistory:{summary:"generated",findings:[{quote:"not report.lines"}]}},"owner");
 assert.deepEqual(JSON.parse([...memory.values()].at(-1)).originalQuotes,[]);
-assert.equal((await reportFreshness(db,"owner","person",{analysisScope:"fullHistory",archiveSnapshot:{libraryId:"lib-chat"}})).status,"unknown","missing legacy versions must not claim a confirmed change");
-console.log("PASS quote provenance handoff and legacy unknown freshness.");
+const legacy=await reportFreshness(db,"owner","person",{analysisScope:"fullHistory",archiveSnapshot:{libraryId:"lib-chat"}});
+assert.equal(legacy.status,"changed");assert.equal(legacy.analysisUpdated,true,"legacy reports may offer the newer interpretation without asserting material changes");
+assert.equal(legacy.added,0,"unknown prior count must not claim newly imported records");assert.equal(legacy.profileChanged,false);
+console.log("PASS quote provenance handoff and explicit legacy analysis upgrade.");
 
 {
  const old={...earlier,report:{...earlier.report,analysisScope:"fullHistory",archiveSnapshot:{libraryId:"same"},relationshipDiagnosis:{question:"next"},semanticHistory:{...earlier.report.semanticHistory,status:"complete",action:"先问对方哪天方便。"}}};

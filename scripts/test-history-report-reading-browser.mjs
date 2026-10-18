@@ -56,7 +56,9 @@ try{for(const width of [1440,390]){
  assert.equal(await page.$eval('[data-history-insights]',node=>!!node.closest("dialog,details")),false);
  assert.equal(await page.$$eval("[data-affinity-signals] article",nodes=>nodes.length),2);
  assert.equal(await page.$("[data-history-affinity]"),null,"do not invent a numeric score");
- assert.equal(await page.$$eval("[data-message-composition]",nodes=>nodes.length),1,"full-history lines=[] retains actual data chart");
+ assert.equal(await page.$$eval("[data-history-entry]",nodes=>nodes.length),1,"full-history has shallow named entries");
+ assert.match(await page.$eval('[data-new-sentence-analysis]',node=>node.getAttribute('href')),/subjectId=person-reading.*focus=intent/);
+ assert.equal(await page.$('[data-message-composition]'),null,"stats are shown once in changes rather than duplicated above the reading");
  await shot("overview");await shot("reasoning","[data-history-reading]");
  await page.$eval('nav[aria-label="判断线索分页"] button:last-child',node=>node.click());
  assert.match(await page.$eval('[data-history-findings]',node=>node.textContent),/双方都倾向于提前说明安排/);
@@ -83,11 +85,12 @@ try{for(const width of [1440,390]){
  if(width>760)assert.equal(await page.$eval('[data-chat-activity]',node=>{const cards=[...node.querySelectorAll('h3')].slice(0,3).map(h=>h.parentElement.getBoundingClientRect());return Math.abs(cards[0].top-cards[2].top)<2&&cards[2].left>cards[0].right&&cards[1].top>=cards[0].bottom;}),true,"no empty desktop column beside charts");
  await shot("activity","[data-chat-activity]");
  // Older saved full reports gain the same reading paths without inventing new analysis.
- report={...full,sourceCoverage:[],mediaEvidence:[],semanticHistory:{...semantic,profileInsights:undefined,sourceInsights:undefined,affinitySignals:undefined,findings:findings.slice(0,4)}};
+ report={...full,sourceCoverage:[],mediaEvidence:[],affinity:{value:68,contextCount:40,dimensions:[{key:"initiative",label:"主动性",value:65}]},semanticHistory:{...semantic,profileInsights:undefined,sourceInsights:undefined,affinitySignals:undefined,findings:findings.slice(0,4)}};
  await page.goto(origin+"/report?id="+reportId+"&focus=affinity",{waitUntil:"networkidle0"});await page.waitForSelector("[data-history-insights]");
  assert.match(await page.$eval("[data-history-insights]",node=>node.textContent),/支持与相反线索/);
+ assert.match(await page.$eval('[data-open-affinity]',node=>node.textContent),/需更新完整评估/);assert.equal(await page.$('[data-history-affinity]'),null,"old partial score must not masquerade as a full-history score");assert.equal(await page.$('[data-history-affinity-dimensions]'),null);
  await select("人物解读");assert.match(await page.$eval("[data-profile-insights]",node=>node.textContent),/旧报告没有保存独立的人物解读/);
- await select("朋友圈与图片");assert.match(await page.$eval("[data-history-moments]",node=>node.textContent),/未导入朋友圈到这份报告/);
+ await select("朋友圈与图片");assert.match(await page.$eval("[data-history-moments]",node=>node.textContent),/旧报告未记录朋友圈范围/);
  assert.equal(await page.$("[data-history-images]"),null);await shot("legacy","[data-history-reading]");
  assert.equal(requests.some(request=>request.method!=="GET"),false,"reading never invokes analysis or charging");assert.deepEqual(errors,[]);await ctx.close();
  }console.log("PASS 1440/390: full-history lines=[] exposes reasoning, real signals, original quotes, bounded evidence pages, profile, Moments cross-source and image findings, exact Moments source, visible real activity charts; old reports remain honest; no paid writes/overflow.");

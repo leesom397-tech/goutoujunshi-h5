@@ -18,8 +18,7 @@ export function captureAnalysisInput(value: unknown): CaptureAnalysisInput {
   if (typeof v.requestId !== "string" || !uuid.test(v.requestId)) throw Error("分析编号无效。");
   const fullHistory = v.analysisScope === "fullHistory";
   if (v.analysisScope !== undefined && v.analysisScope !== "selected" && !fullHistory) throw Error("分析范围不正确。");
-  if (fullHistory && v.kind !== "chat") throw Error("完整历史报告目前只支持聊天记录。");
-  if (!Array.isArray(v.records) || (fullHistory ? v.records.length !== 0 : !v.records.length || v.records.length > CAPTURE_ANALYSIS_LIMIT[v.kind])) throw Error(fullHistory ? "完整报告由已同步的整份聊天生成，无需勾选逐句材料。" : "本批材料数量不正确，请分批分析。");
+  if (!Array.isArray(v.records) || (fullHistory ? v.records.length !== 0 : !v.records.length || v.records.length > CAPTURE_ANALYSIS_LIMIT[v.kind])) throw Error(fullHistory ? "完整报告由已同步的整份材料生成，无需逐条勾选。" : "本批材料数量不正确，请分批分析。");
   const str = (s: unknown, max: number) => typeof s === "string" && s.length <= max ? s.trim() : "";
   const friend = str(v.friend, 100);
   if (!friend) throw Error("请填写这份材料对应的好友。");
@@ -27,8 +26,8 @@ export function captureAnalysisInput(value: unknown): CaptureAnalysisInput {
   if (v.subjectId && !uuid.test(subjectId || "")) throw Error("人物编号不正确。");
   const libraryId = fullHistory ? str(v.libraryId, 67) : null;
   const expectedTotal = fullHistory ? v.expectedTotal : null, expectedEpoch = fullHistory ? v.expectedEpoch : null;
-  if (fullHistory && (!/^cl_[a-f0-9]{64}$/.test(libraryId || "") || !Number.isSafeInteger(expectedTotal) || Number(expectedTotal) < 1 || !Number.isSafeInteger(expectedEpoch) || Number(expectedEpoch) < 1)) throw Error("请先把这个人的完整聊天同步到资料库，再生成报告。");
-  if (fullHistory && (v.historyRecords !== undefined || v.activityRecords !== undefined)) throw Error("完整报告直接读取已同步的聊天，请更新页面后重试。");
+  if (fullHistory && (!/^cl_[a-f0-9]{64}$/.test(libraryId || "") || !Number.isSafeInteger(expectedTotal) || Number(expectedTotal) < 1 || !Number.isSafeInteger(expectedEpoch) || Number(expectedEpoch) < 1)) throw Error("请先把这个人的完整材料同步到资料库，再生成报告。");
+  if (fullHistory && (v.historyRecords !== undefined || v.activityRecords !== undefined)) throw Error("完整报告直接读取已同步的材料，请更新页面后重试。");
   if (v.relatedSnapshots !== undefined && (!fullHistory || !Array.isArray(v.relatedSnapshots))) throw Error("联合资料范围不正确。");
   const relatedSnapshots: RelatedCaptureSnapshot[] = ((v.relatedSnapshots || []) as unknown[]).map(raw => {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw Error("朋友圈资料范围不正确。");
@@ -36,7 +35,8 @@ export function captureAnalysisInput(value: unknown): CaptureAnalysisInput {
     if (row.kind !== "moments" || typeof row.libraryId !== "string" || !/^cl_[a-f0-9]{64}$/.test(row.libraryId) || !Number.isSafeInteger(row.expectedTotal) || Number(row.expectedTotal) < 1 || !Number.isSafeInteger(row.expectedEpoch) || Number(row.expectedEpoch) < 1) throw Error("请先同步这份朋友圈再生成联合报告。");
     return {libraryId: row.libraryId, kind: "moments", expectedTotal: Number(row.expectedTotal), expectedEpoch: Number(row.expectedEpoch)};
   });
-  if (relatedSnapshots.length > 1 || relatedSnapshots.length && !subjectId) throw Error("请先把聊天与朋友圈关联到同一个人物，再生成联合报告。");
+  if (relatedSnapshots.length > 20 || relatedSnapshots.length && (!subjectId || v.kind !== "chat")) throw Error("请把聊天与朋友圈关联到同一个人物；一次最多关联20份朋友圈资料。");
+  if (new Set(relatedSnapshots.map(row=>row.libraryId)).size !== relatedSnapshots.length || relatedSnapshots.some(row=>row.libraryId===libraryId)) throw Error("联合资料有重复来源，请重新核对。");
   let imageBytes = 0, imageCount = 0, textSize = 0;
   const records = v.records.map((raw): CaptureAnalysisRow => {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw Error("原始条目格式不正确。");

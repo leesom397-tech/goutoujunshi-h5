@@ -1,9 +1,10 @@
 import type { getD1 } from "@/db";
 import { dimensions, selfFields, subjectFields } from "./profile";
+import { CAPTURE_REPORT_VERSION } from "./capture-report-version";
 type Snapshot = { libraryId?: string; epoch?: number; revision?: number; total?: number };
 type LibraryState = { id: string; epoch: number; revision: number; deleted_at: number | null; subject_id: string | null; total: number };
 export type ReportContextSnapshot = { version: 1; libraryIds: string[]; profileFingerprint: string };
-export type ReportFreshness = { status: "current" | "changed" | "removed" | "unknown"; added: number; checkedAt: number; newLibraries?: number; profileChanged?: boolean };
+export type ReportFreshness = { status: "current" | "changed" | "removed" | "unknown"; added: number; checkedAt: number; newLibraries?: number; profileChanged?: boolean; analysisUpdated?: boolean };
 // Some older subject profiles also keep confirmed basic fields such as age and
 // occupation. Use the real editor fields without dropping those extensions.
 const fields = [...new Set<string>([...selfFields,...subjectFields])].sort();
@@ -58,14 +59,15 @@ export async function reportFreshness(db: ReturnType<typeof getD1>, owner: strin
  try {
   const states=await Promise.all(snapshots.map(snapshot=>db.prepare("SELECT l.id,l.epoch,l.revision,l.deleted_at,l.subject_id,(SELECT COUNT(*) FROM coach_capture_records r WHERE r.owner_id=l.owner_id AND r.library_id=l.id AND r.epoch=l.epoch) AS total FROM coach_capture_libraries l WHERE l.id=? AND l.owner_id=?").bind(snapshot.libraryId||"",owner).first<LibraryState>()));
   if(states.some(state=>!state||state.deleted_at!==null||subject&&state.subject_id!==subject))return {status:"removed",added:0,checkedAt};
-  const added=states.reduce((sum,state,index)=>sum+Math.max(0,Number(state!.total)-(Number(snapshots[index].total)||0)),0);
+  const added=states.reduce((sum,state,index)=>sum+(Number.isFinite(snapshots[index].total)?Math.max(0,Number(state!.total)-Number(snapshots[index].total)):0),0);
   const context=await reportContextSnapshot(db,owner,subject),before=report.contextSnapshot as ReportContextSnapshot|undefined;
   const valid=before?.version===1&&Array.isArray(before.libraryIds)&&typeof before.profileFingerprint==="string";
   const newLibraries=context?context.libraryIds.filter(id=>!(valid?before!.libraryIds:snapshots.map(row=>row.libraryId)).includes(id)).length:0;
   const profileChanged=!!(valid&&context&&before!.profileFingerprint!==context.profileFingerprint);
-  const changed=states.some((state,index)=>Number.isFinite(snapshots[index].epoch)&&state!.epoch!==snapshots[index].epoch||Number.isFinite(snapshots[index].revision)&&state!.revision!==snapshots[index].revision||Number.isFinite(snapshots[index].total)&&Number(state!.total)!==snapshots[index].total)||newLibraries>0||profileChanged;
+  const analysisUpdated=report.analysisVersion!==CAPTURE_REPORT_VERSION;
+  const changed=states.some((state,index)=>Number.isFinite(snapshots[index].epoch)&&state!.epoch!==snapshots[index].epoch||Number.isFinite(snapshots[index].revision)&&state!.revision!==snapshots[index].revision||Number.isFinite(snapshots[index].total)&&Number(state!.total)!==snapshots[index].total)||newLibraries>0||profileChanged||analysisUpdated;
   // Old reports can detect additional libraries, but cannot certify unchanged profile context.
   const known=snapshots.every(snapshot=>Number.isFinite(snapshot.revision))&&!!(context&&valid);
-  return {status:changed?"changed":known?"current":"unknown",added,checkedAt,newLibraries,profileChanged};
+  return {status:changed?"changed":known?"current":"unknown",added,checkedAt,newLibraries,profileChanged,analysisUpdated};
  }catch{return {status:"unknown",added:0,checkedAt};}
 }

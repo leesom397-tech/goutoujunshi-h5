@@ -18,10 +18,14 @@ export function capturePersonSearchHref(value = "") {
 
 // A display name alone is not an identity. Legacy libraries require an explicit
 // shared archive assignment; current imports carry the exact contact namespace.
-export function relatedMomentLibraries(chat: Pick<SyncedLibrarySummary, "ownerId" | "account" | "friend" | "cloud">, libraries: SyncedLibrarySummary[]) {
-  return libraries.filter(row => row.kind === "moments" && row.ownerId === chat.ownerId && row.account === chat.account && row.friend === chat.friend
-    && !(chat.cloud?.subjectId && row.cloud?.subjectId && chat.cloud.subjectId !== row.cloud.subjectId)
-    && (/ · #[a-fA-F0-9]{16}$/.test(chat.friend) || !!chat.cloud?.subjectId && row.cloud?.subjectId === chat.cloud.subjectId));
+export function relatedMomentLibraries(chat: Pick<SyncedLibrarySummary, "ownerId" | "account" | "friend" | "cloud"> & {subjectId?:string}, libraries: SyncedLibrarySummary[]) {
+  const subjectId=chat.subjectId||chat.cloud?.subjectId;
+  const exactContact=(friend:string)=>friend.match(/ · #([a-fA-F0-9]{16})$/)?.[1].toLowerCase();
+  return libraries.filter(row => row.kind === "moments" && row.ownerId === chat.ownerId && row.account === chat.account && !row.cloud?.retired
+    && !(subjectId && row.cloud?.subjectId && subjectId !== row.cloud.subjectId)
+    && !(exactContact(chat.friend)&&exactContact(row.friend)&&exactContact(chat.friend)!==exactContact(row.friend))
+    && (!!subjectId && row.cloud?.subjectId === subjectId
+      || !!exactContact(chat.friend)&&exactContact(row.friend)===exactContact(chat.friend)));
 }
 
 export type AnalysisFocus = "affinity" | "intent" | "reply";

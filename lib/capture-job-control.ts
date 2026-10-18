@@ -25,6 +25,7 @@ export function checkpointedCaptureModel(qwen: typeof qwenChat, checkpoint: Capt
     if (calls >= 2) { await Promise.allSettled([...inFlight]); throw new CaptureJobYield(); }
     calls++;
     const count = Array.isArray(detail.rows) ? detail.rows.filter((row: any) => row.basis === "chat-original").length : 0;
+    const captionCount = Array.isArray(detail.rows) ? detail.rows.filter((row: any) => row.basis === "caption").length : 0;
     const run = (async () => {
       await checkpoint("progress", {phase, segment: detail.segment || null});
       let text: string;
@@ -35,8 +36,8 @@ export function checkpointedCaptureModel(qwen: typeof qwenChat, checkpoint: Capt
       let parsed: any;
       try { parsed = JSON.parse(text.replace(/^\s*```(?:json)?\s*|\s*```\s*$/g, "")); } catch { throw new CaptureJobRetry("本段结果需要重新核对。"); }
       if (phase === "segments" && !Array.isArray(parsed?.findings) || phase === "images" && (typeof parsed?.readable !== "boolean" || typeof parsed?.observation !== "string") || phase === "synthesis" && typeof parsed?.summary !== "string") throw new CaptureJobRetry("本段结果需要重新核对。");
-      if (phase === "synthesis" && !hasCompleteHistorySynthesis(parsed, Array.isArray(detail.findings) ? detail.findings : [])) throw new CaptureJobRetry("综合判断与推理尚未生成完整，正在补全；已核对的原文会保留。");
-      await checkpoint(key, {text, phase, count});
+      if (phase === "synthesis" && !hasCompleteHistorySynthesis(parsed, Array.isArray(detail.findings) ? detail.findings : [],detail.fullHistory===true)) throw new CaptureJobRetry("综合判断与推理尚未生成完整，正在补全；已核对的原文会保留。");
+      await checkpoint(key, {text, phase, count,captionCount});
       return text;
     })();
     inFlight.add(run);

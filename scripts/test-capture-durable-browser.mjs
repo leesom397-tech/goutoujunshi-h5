@@ -89,6 +89,16 @@ try {
       await page.goto(origin + path, { waitUntil: "networkidle0" }); await checkPanel(page, "done");
       results.push({ width, path, completedFromPolling: true, leaveAndReturn: true, reportOpensWithoutSubmission: true });
     }
+    fixture.fixture.current = {...job("running"),kind:"moments",totalCount:37,completedText:0,completedCaptions:24,completedImages:3};
+    await page.goto(origin + "/relationship", {waitUntil:"networkidle0"});
+    await page.waitForSelector('[data-capture-analysis="running"]');
+    const momentsProgress=await page.$eval('[data-capture-analysis]',node=>({text:node.textContent,value:node.querySelector('progress').value,max:node.querySelector('progress').max,label:node.querySelector('progress').getAttribute('aria-label')}));
+    assert.match(momentsProgress.text,/正在梳理全部朋友圈/);assert.match(momentsProgress.text,/24 条动态文字、3 张图片/);
+    assert.equal(momentsProgress.value,24);assert.equal(momentsProgress.max,37);assert.equal(momentsProgress.label,"已核对的朋友圈文字");
+    fixture.fixture.current={...fixture.fixture.current,status:"done",phase:"complete"};
+    await page.reload({waitUntil:"networkidle0"});await page.waitForSelector('[data-capture-analysis="done"]');
+    assert.match(await page.$eval('[data-capture-analysis]',node=>node.textContent),/完整朋友圈报告已保存/);
+    results.push({width,momentsCaptionAndImageProgress:true});
     fixture.fixture.current = { status: "none" };
     await page.goto(origin + "/capture?method=computer&kind=chat&intent=person", { waitUntil: "networkidle0" });
     if (width === 390) {

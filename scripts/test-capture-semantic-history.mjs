@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { analyzeCaptureSemanticHistory, chunkCaptureHistory, hasCompleteHistorySynthesis, validatedChunkFindings, validatedSynthesis } from "../lib/capture-semantic-history.ts";
+import { build } from "esbuild";
+const compiled=await build({entryPoints:["lib/capture-semantic-history.ts"],bundle:true,write:false,format:"cjs",platform:"node",logLevel:"silent"});
+const compiledModule={exports:{}};new Function("module","exports",compiled.outputFiles[0].text)(compiledModule,compiledModule.exports);
+const { analyzeCaptureSemanticHistory, chunkCaptureHistory, hasCompleteHistorySynthesis, validatedHistoryAffinity, validatedChunkFindings, validatedSynthesis }=compiledModule.exports;
 
 const row = (index, text = `第${index}条消息：周末见面以后继续聊安排。`) => ({
   localId: `real-source-${index}`, kind: "text", senderRole: index % 2 ? "other" : "self",
@@ -125,11 +128,38 @@ const rich=await analyzeCaptureSemanticHistory({historyRecords:all.slice(0,240),
  // previously silently contradicted the earlier profile/Moments guidance.
  const schema=messages[0].content.split("只返回 JSON ").at(-1).split("。summary")[0];
  assert.match(schema,/affinitySignals:/);assert.match(schema,/profileInsights:/);assert.match(schema,/sourceInsights:/);
- return JSON.stringify({summary:"有继续接触的线索，但关系意愿尚待确认。",summaryEvidenceIds:[chat.id],explanation:deepExplanation,affinitySignals:[makeSignal("uncertain","接触意愿与恋爱意愿还不能等同",[chat.id])],profileInsights:[{dimension:"投入与行动",reading:"有具体安排的讨论，材料尚未包含兑现结果。",evidenceIds:[chat.id],alternative:"也可能是朋友相约"}],sourceInsights:{moments:{summary:"动态里分享了散步生活记录。",evidenceIds:[moment.id],unknowns:["不清楚是否与用户同行"],crossSource:{summary:"聊天和动态出现相近话题，不能据此断定已经共同赴约。",evidenceIds:[chat.id,moment.id]}}}});
+ return JSON.stringify({summary:"有继续接触的线索，但关系意愿尚待确认。",summaryEvidenceIds:[chat.id],explanation:deepExplanation,affinityAssessment:{dimensions:[],unavailableReason:"仅有安排讨论，维度不足。"},affinitySignals:[makeSignal("uncertain","接触意愿与恋爱意愿还不能等同",[chat.id])],profileInsights:[{dimension:"投入与行动",reading:"有具体安排的讨论，材料尚未包含兑现结果。",evidenceIds:[chat.id],alternative:"也可能是朋友相约"}],sourceInsights:{moments:{summary:"动态里分享了散步生活记录。",evidenceIds:[moment.id],unknowns:["不清楚是否与用户同行"],crossSource:{summary:"聊天和动态出现相近话题，不能据此断定已经共同赴约。",evidenceIds:[chat.id,moment.id]}}}});
 });
 assert.equal(rich.status,"complete");assert.equal(rich.coverage.analyzedText,240);assert.equal(rich.coverage.supplementalAnalyzed,3);
 assert.equal(rich.coverage.sources["moments-library"].captions,3);
 assert.equal(rich.explanation,deepExplanation);assert.equal(rich.affinitySignals.length,1);assert.equal(rich.profileInsights.length,1);
 assert.ok(rich.sourceInsights.moments.crossSource);assert.equal(calls.filter(call=>call.payload.rows).length,2);
 assert.ok(calls.at(-1).options.maxTokens>=7000,"rich structured sections must have enough output budget alongside the reasoning");
-console.log("Capture semantic history passed: all rows processed, independent source passes, grounded affinity/profile/Moments/cross-source insights, no photo/self-only romance inference or numeric score, honest coverage and failures.");
+const ratedKeys=["initiative","engagement","care"],rated=ratedKeys.map((key,i)=>({key,level:i===2?2:3,status:"ambiguous",reason:"对方具体提出安排，仍可能是朋友相处。",evidenceIds:["chat"]}));
+const rubric=validatedHistoryAffinity({value:99,dimensions:rated},evidenceFindings,675);
+assert.equal(rubric.value,66,"weighted reference index is derived from cited rubric levels, never the model's suggested overall score");
+assert.equal(rubric.contextCount,675);assert.equal(rubric.coverageWeight,55);assert.equal(rubric.valueScope,"partial");assert.equal(rubric.status,"ambiguous");
+assert.equal(rubric.dimensions.find(d=>d.key==="action").value,null,"absent opportunity is not scored zero");
+assert.equal(validatedHistoryAffinity({dimensions:rated.slice(0,2)},evidenceFindings).value,null);
+assert.equal(validatedHistoryAffinity({dimensions:rated.map(d=>({...d,evidenceIds:["photo"]}))},evidenceFindings).value,null,"public photos cannot establish private interest");
+assert.equal(validatedHistoryAffinity({dimensions:rated.map(d=>({...d,level:0}))},evidenceFindings).value,0,"genuine evidenced zero remains a valid rating");
+assert.equal(validatedHistoryAffinity({dimensions:rated.map(d=>({...d,level:7}))},evidenceFindings).value,null);
+const later={id:"later",claim:"对方明确提出边界",confidence:"高",alternative:"不猜测隐藏意图",evidence:[{sourceId:"c2",senderRole:"other",at:"2026-10-04",quote:"我只想做普通朋友，请不要追求我。"}]};
+const boundary=validatedHistoryAffinity({dimensions:rated,boundary:{active:true,reason:"后来明确说只做朋友。",evidenceIds:["later"]}},[...evidenceFindings,later]);
+assert.equal(boundary.value,25);assert.equal(boundary.boundaryApplied,true);assert.deepEqual(boundary.boundaryEvidenceIds,["later"]);
+assert.equal(validatedHistoryAffinity({dimensions:rated,boundary:{active:true,reason:"伪造限制",evidenceIds:["fake"]}},evidenceFindings).boundaryApplied,false);
+const change={title:"从讨论安排到明确朋友边界",before:{reading:"先前讨论散步安排。",evidenceIds:["chat"]},after:{reading:"之后明确只做普通朋友。",evidenceIds:["later"]},meaning:"后来的明确表达限制了前面邀约可以被解释的范围。",alternative:"此前散步可能本来就是朋友活动。"};
+const step={title:"回应边界",action:"明确回应已听见对方只做朋友的期待，并停止追求。",why:"后来的表达比先前普通邀约更明确。",evidenceIds:["later"],observeFor:"本次回应之后的实际往来",advanceWhen:"仅在双方愿意的普通朋友范围内交流。",stopWhen:"对方不愿继续联系时停止。",reply:"明白，我尊重你的想法，不会继续追求。"};
+const structured=validatedSynthesis({changeInsights:[change,{...change,title:"反向编造时间",before:change.after,after:change.before},{...change,title:"同一依据不能制造变化",after:change.before}],actionPlan:{goal:"risk",rationale:"明确边界已经出现。",steps:[step,{...step,title:"重复步骤"},{...step,action:"没有依据的建议",evidenceIds:["fake"]}]}},[...evidenceFindings,later]);
+assert.equal(structured.changeInsights.length,1);assert.equal(structured.changeInsights[0].before.at,"2026-10-01");assert.equal(structured.changeInsights[0].after.at,"2026-10-04");
+assert.equal(structured.actionPlan.goal,"risk");assert.equal(structured.actionPlan.steps.length,1);assert.equal(structured.actionPlan.steps[0].reply,step.reply);
+assert.equal(hasCompleteHistorySynthesis({summary:"有活动线索",explanation:"只能判断可见活动，不能判断关系意愿。",summaryEvidenceIds:["chat"]},evidenceFindings),false,"known Moments evidence must not disappear from a completed report");
+assert.equal(hasCompleteHistorySynthesis({summary:"有活动线索",explanation:"只能判断可见活动。",summaryEvidenceIds:["photo"],sourceInsights:{moments:{summary:"图片可见步道，仅是可见场景。",evidenceIds:["photo"]}}},[evidenceFindings[2]]),true,"photos-only Moments may have bounded visual descriptions");
+const detailedBase={summary:"有具体安排",explanation:"有讨论但尚不能确定关系意愿。",summaryEvidenceIds:["chat"]};
+assert.equal(hasCompleteHistorySynthesis(detailedBase,[evidenceFindings[0]],true),false,"full reports must explicitly evaluate or decline the affinity index");
+const explicitInsufficient={...detailedBase,affinityAssessment:{dimensions:[],unavailableReason:"当前只出现一个具体安排维度，不能合成总值。"}};
+assert.equal(hasCompleteHistorySynthesis(explicitInsufficient,[evidenceFindings[0]],true),true,"insufficient evidence is a complete assessment state, not a retry loop");
+assert.equal(hasCompleteHistorySynthesis({...explicitInsufficient,action:"确认安排",actionEvidenceIds:["chat"]},[evidenceFindings[0]],true),false,"a grounded proposed action must not lose its usable plan");
+assert.equal(hasCompleteHistorySynthesis({...explicitInsufficient,action:"确认安排",actionEvidenceIds:["chat"],actionPlan:{goal:"connection",steps:[{...step,evidenceIds:["chat"]}]}},[evidenceFindings[0]],true),true);
+assert.equal(hasCompleteHistorySynthesis({...detailedBase,affinityAssessment:{dimensions:[{...rated[0],level:90}]}},[evidenceFindings[0]],true),false);
+console.log("Capture semantic history passed: all source rows, verified rubric reference ratings, meaningful chronology and action plans, required Moments sections, genuine evidence and honest incomplete states.");
