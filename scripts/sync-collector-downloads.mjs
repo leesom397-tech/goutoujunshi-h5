@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const RELEASE_ROOT = 'https://github.com/leesom397-tech/goutoujunshi-h5/releases/download/';
-const LEGACY_RELEASES = new Map([['1.2.4', 'collector-1.2.5'], ['1.2.5', 'collector-1.2.5']]);
+const LEGACY_RELEASES = new Map([['1.2.4', 'collector-1.2.5'], ['1.2.5', 'collector-1.2.5'], ['1.2.6', 'collector-1.2.6']]);
 
 function compareVersions(left, right) {
   const a = left.split('.').map(Number), b = right.split('.').map(Number);
@@ -19,7 +19,7 @@ function assetUrlAllowed(file, index) {
   const version = /^(?:ChengziWeChatCollector-Setup-|chengzi-wechat-collector-(?:windows-)?|manifest-)(\d+\.\d+\.\d+)[.-]/.exec(file.name)?.[1];
   if (version && compareVersions(version, index.version) > 0) return false;
   if (file.url === `${RELEASE_ROOT}${index.tag}/${file.name}`) return true;
-  // Only the explicitly versioned, immutable 1.2.4/1.2.5 files may reuse the
+  // Only explicitly pinned, immutable older-version files may reuse the
   // previously published release. Generic aliases and new files stay pinned
   // to the current tag, preventing an old installer from silently returning.
   const legacyTag = version && compareVersions(version, index.version) < 0 && LEGACY_RELEASES.get(version);

@@ -232,7 +232,7 @@ class TwoPhaseCaptureTest(unittest.TestCase):
         request = {"kind": "chat", "friend": "好友", "limit": 2}
         if include_voice is not None:
             request["includeVoice"] = include_voice
-        with patch.dict("sys.modules", self.modules), patch("adapter.sys.platform", "win32"), \
+        with patch.dict("sys.modules", self.modules), patch("adapter.sys.platform", "win32"), patch("adapter._prepare_capture_ui"), \
              patch("adapter._account", side_effect=accounts or [("synthetic_account", "本人")] * 3), \
              patch("adapter._chat", side_effect=read):
             return capture(request, lambda *args: None, on_partial=partial if callback else None)
@@ -388,21 +388,19 @@ class BridgeTest(unittest.TestCase):
         self.state.code_created -= 601
         self.assertEqual(self.request("POST", "/pair", {"code": self.state.code})[0], 410)
 
-    def test_not_ready_preserves_specific_bounded_health_message(self):
+    def test_ui_not_ready_still_allows_explicit_worker_preparation(self):
         token = self.pair()
         message = "微信已打开，但当前账号的界面文字暂不可读取。"
         self.state.health_provider = lambda: {"ready": False, "message": message}
         status, payload, _ = self.request("POST", "/capture", {"kind": "chat", "friend": "虚构", "limit": 5}, token)
-        self.assertEqual(status, 409)
-        self.assertEqual(payload["error"], {"code": "WECHAT_NOT_READY", "message": message})
-        self.assertEqual(self.state.jobs, {})
+        self.assertEqual(status, 202)
+        self.assertIn("jobId", payload)
+        self.state.cancel_active()
         for invalid in (None, {}, "   ", "长" * 1000):
             self.state.health_provider = lambda value=invalid: {"ready": False, "message": value}
-            with self.assertRaises(BridgeError) as result:
-                self.state.start({"kind": "chat", "friend": "虚构", "limit": 5})
-            self.assertEqual(result.exception.code, "WECHAT_NOT_READY")
-            self.assertTrue(0 < len(result.exception.message) <= 500)
-            self.assertNotIn("登录", result.exception.message)
+            health = self.state.health()
+            self.assertTrue(0 < len(health["uiMessage"]) <= 500)
+            self.assertEqual(health["message"], health["uiMessage"])
 
     def test_preflight_and_body_limit(self):
         status, _, headers = self.request("OPTIONS", "/capture", headers={"Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "authorization, content-type", "Access-Control-Request-Private-Network": "true"})

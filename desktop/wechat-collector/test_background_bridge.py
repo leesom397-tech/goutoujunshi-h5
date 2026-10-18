@@ -49,7 +49,11 @@ class BackgroundBridgeTest(unittest.TestCase):
             self.assertTrue(health["capabilities"]["backgroundVoice"])
             self.assertEqual(health["backgroundMaxRows"], 1000)
             self.assertEqual(health["backgroundStatus"], "components-ready")
-            self.assertIn("导入时", health["message"])
+            self.assertEqual(health["message"], "synthetic UI unavailable")
+            self.assertEqual(health["uiMessage"], "synthetic UI unavailable")
+            self.assertFalse(health["uiReady"])
+            self.assertEqual(health["momentsMessage"], "synthetic UI unavailable")
+            self.assertTrue(health["capabilities"]["uiCapturePreparation"])
             self.assertIn("核对", health["backgroundMessage"])
             self.assertIsNone(state.active)
 
@@ -84,12 +88,14 @@ class BackgroundBridgeTest(unittest.TestCase):
     def test_background_works_when_ui_unavailable_and_is_explicit(self):
         state = self.state()
         try:
-            with self.assertRaises(BridgeError):
-                state.start({"kind": "chat", "friend": "合成联系人", "limit": 10})
             start = state.start({"kind": "chat", "friend": "合成联系人", "limit": 10, "mode": "background"})
             job = self.wait(state, start["jobId"], "completed")
             self.assertEqual(job["result"], {"mode": "background", "includeVoice": False})
             self.assertEqual(job["partialRevision"], 1)
+            state.cancel_active()
+            ui = state.start({"kind": "chat", "friend": "合成联系人", "limit": 10})
+            self.assertEqual(self.wait(state, ui["jobId"], "completed")["result"]["mode"], "ui",
+                             "an explicit UI capture must not silently switch to background collection")
         finally:
             state.cancel_active()
 

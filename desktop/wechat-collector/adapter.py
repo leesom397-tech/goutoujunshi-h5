@@ -251,6 +251,26 @@ def _moments_window(main, window):
     return window
 
 
+def _prepare_capture_ui():
+    from compatibility import prepare_capture_ui
+    status = prepare_capture_ui()
+    if not status.get("ready"):
+        raise CaptureError(status.get("uiCode") or "WECHAT_NOT_READY",
+                           status.get("message") or "微信界面当前不可读，尚未开始采集。")
+
+
+def _moments_at_visible_end(listing):
+    """Repeated focus alone may be a stuck keyboard, not the album's end."""
+    try:
+        scroll = listing.iface_scroll
+        if not scroll.CurrentVerticallyScrollable:
+            return True
+        percent = float(scroll.CurrentVerticalScrollPercent)
+        return 99.9 <= percent <= 100
+    except Exception:
+        return False
+
+
 def _resolve_moments_contact(request):
     """Resolve the selected local contact; never read any message bodies."""
     from background_reader import _provider_module, _resolve_contact, _contact_display, _duplicate_displays, _contact_metadata_columns, _contact_text
@@ -325,8 +345,10 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
         if runtime in seen:
             idle += 1
             if idle >= 8:
-                completion.update(complete=not completion["unreadableCount"],
-                                  stopReason="unreadable-posts" if completion["unreadableCount"] else "visible-end")
+                at_end = _moments_at_visible_end(listing)
+                completion.update(complete=at_end and not completion["unreadableCount"],
+                                  stopReason="unreadable-posts" if completion["unreadableCount"] else
+                                  "visible-end" if at_end else "navigation-stalled")
                 break
             progress(50 if all_visible else min(90, 15 + int(len(rows) / limit * 70)),
                      f"已读取 {len(rows)} 条朋友圈，正在确认是否还有更早动态…")
@@ -369,6 +391,9 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
                 completion["imageOmittedCount"] += 1
                 row["source"]["previewUnavailable"] = "capture-unavailable"
                 warnings.append("部分朋友圈详情截图未获取，已保留可读文字。")
+            if not content.strip() and not row.get("images"):
+                completion["unreadableCount"] += 1
+                continue
             rows.append(row)
             completion["recordCount"] = len(rows)
             progress(50 if all_visible else min(90, 15 + int(len(rows) / limit * 70)), f"已读取 {len(rows)} 条朋友圈，继续读取更早动态…")
@@ -386,6 +411,8 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
         raise CaptureError("NO_VISIBLE_MOMENTS", "没有读到可见朋友圈。可能被限制可见、暂无内容或界面不可读；不会绕过可见范围。")
     if completion["stopReason"] == "focus-unavailable":
         warnings.append("微信列表焦点丢失，本次只保留已读取的动态，尚未确认读到可见末尾。请将微信放在前台后重试。")
+    if completion["stopReason"] == "navigation-stalled":
+        warnings.append("朋友圈列表没有继续向下，且未确认到达可见末尾；已保留读到的内容，请检查微信窗口后继续采集。")
     if completion["imageOmittedCount"]:
         warnings.append(f"已保留所有读到的动态文字；其中 {completion['imageOmittedCount']} 条详情预览因容量或截图不可用未附加图片，不能据此分析画面。")
     warnings.append("仅采集当前账号可见的朋友圈；可见末尾可能由三天、半年或分组权限决定，不代表对方全部历史。配图为详情区域预览，可能只显示部分缩略图。")
@@ -403,6 +430,8 @@ def capture(request, progress, on_partial=None):
         from pyweixin import Uielements as ui
         GlobalConfig.close_weixin = False
         GlobalConfig.is_maximize = False
+        progress(2, "正在准备微信采集窗口")
+        _prepare_capture_ui()
         progress(5, "正在核对当前微信账号")
         account, nickname = _account(Navigator)
         canonical_account = account

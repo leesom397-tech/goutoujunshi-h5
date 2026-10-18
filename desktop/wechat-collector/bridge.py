@@ -97,13 +97,21 @@ class CollectorState:
             except (ImportError, OSError, RuntimeError):
                 pass
         capabilities = {**health.get("capabilities", {}), "deferredVoice": True,
-                        "momentsAllVisible": True, "momentsContacts": True, "personBundle": True}
+                        "momentsAllVisible": True, "momentsContacts": True, "personBundle": True,
+                        "uiCapturePreparation": True}
         if background:
             capabilities.update(backgroundChat=bool(background.get("ready")),
                                 backgroundVoice=bool(background.get("voiceReady")),
                                 backgroundContacts=bool(background.get("ready")))
         capabilities["backgroundHistory"] = bool(capabilities.get("backgroundChat"))
         result = {"version": VERSION, "protocol": 1, **health, "capabilities": capabilities}
+        ui_message = health.get("message")
+        ui_message = ui_message.strip()[:500] if isinstance(ui_message, str) else ""
+        result.update(uiReady=bool(health.get("ready")),
+                      uiMessage=ui_message or "微信界面当前不可读取，请显示微信窗口后重试。",
+                      momentsMessage=ui_message if health.get("ready") else
+                      ui_message or "朋友圈需要可读取的微信界面，后台聊天组件就绪不代表朋友圈可采集。")
+        result["message"] = result["uiMessage"]
         result["backgroundMaxRows"] = BACKGROUND_MAX_ROWS if capabilities.get("backgroundChat") else 0
         result["backgroundPageSize"] = MAX_PAGE_SIZE if capabilities["backgroundHistory"] else 0
         result["momentsMaxRows"] = 2000
@@ -111,7 +119,7 @@ class CollectorState:
             result["backgroundModelReady"] = bool(background.get("modelReady"))
             result["backgroundStatus"] = str(background.get("status") or "unavailable")[:80]
             result["backgroundMessage"] = str(background.get("message") or "")[:300]
-            if background.get("ready"):
+            if background.get("ready") and health.get("ready"):
                 result["message"] = "后台组件已就绪，导入时将核对当前账号和本机材料。"
         return result
 
@@ -259,10 +267,9 @@ class CollectorState:
                 raise BridgeError(409, "BACKGROUND_NOT_READY", health.get("backgroundMessage") or "当前助手暂不能后台读取聊天。")
             if mode == "background" and include_voice and not capable.get("backgroundVoice"):
                 raise BridgeError(409, "BACKGROUND_VOICE_NOT_READY", "后台语音组件尚未就绪，请更新或重启本机助手。")
-            if mode == "ui" and not health.get("ready"):
-                message = health.get("message")
-                message = message.strip()[:500] if isinstance(message, str) else ""
-                raise BridgeError(409, "WECHAT_NOT_READY", message or "微信界面暂不可读取，请查看本机助手的兼容性提示后重试。")
+            # /health is a read-only snapshot. A tray/minimized window may
+            # become readable after the explicitly requested worker restores
+            # it. That worker must recheck UIA before reading account/contact.
             job_id = secrets.token_urlsafe(18)
             ctx = mp.get_context("spawn")
             parent, child = ctx.Pipe(duplex=False)
@@ -316,6 +323,11 @@ class CollectorState:
                                        message=(f"已读取 {len(msg['partial'].get('records', []))} 条朋友圈，继续查找更早动态…"
                                                 if job.get("kind") == "moments" else "文字已导入，正在补全语音…可随时停止。"))
                         elif msg.get("type") == "result":
+                            if job.get("kind") == "moments" and not msg["result"].get("records"):
+                                message = "本次没有采集到朋友圈内容。请检查微信是否显示该好友的动态后重试；没有生成新的分析材料。"
+                                job.update(status="failed", message=message,
+                                           error={"code": "NO_VISIBLE_MOMENTS", "message": message})
+                                return
                             coverage = msg["result"].get("coverage", {})
                             message = (f"已读到当前账号可见末尾，共 {len(msg['result'].get('records', []))} 条朋友圈。"
                                        if job.get("kind") == "moments" and coverage.get("complete") else
