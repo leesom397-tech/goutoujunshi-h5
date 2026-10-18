@@ -1,6 +1,6 @@
 .trigger { display:flex; align-items:center; justify-content:space-between; gap:16px; width:100%; min-height:64px; padding:16px 0; border:0; border-bottom:1px solid #eaded4; border-radius:0; background:transparent; color:#272421; text-align:left; font:inherit; cursor:pointer; }
 .trigger strong { font-size:16px; font-weight:600; }
-.trigger small { display:block; margin-top:4px; color:#796b62; font-size:13px; line-height:1.65; }
+.trigger small { display:block; margin-top:4px; color:#68594e; font-size:14px; line-height:1.65; }
 .trigger > svg { flex:none; color:#b66c53; }
 .trigger:hover { background:#fff5ed; }
 .trigger:focus-visible,.header button:focus-visible { outline:2px solid #b66c53; outline-offset:3px; }

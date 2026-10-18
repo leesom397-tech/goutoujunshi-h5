@@ -29,6 +29,10 @@ const firstSentence = (value: unknown) => {
 };
 const entries = (value: unknown): unknown[] => Array.isArray(value) ? value.filter(Boolean) : [];
 
+export function ReportChapterArt({kind}:{kind:"change"|"next"}) {
+  return <div className={visual.chapterArt} data-report-art={kind}><GlassStudy imageSrc={`/images/report-aurora-${kind}-v3.webp`} variant="report"/></div>;
+}
+
 export function ChatReportBrief({ report, diagnosis }: { report: Json; diagnosis?: Json | null }) {
   const presentation = riskAwarePresentation(report);
   const source = diagnosis || report.relationshipDiagnosis || {};
@@ -44,13 +48,13 @@ export function ChatReportBrief({ report, diagnosis }: { report: Json; diagnosis
   return <section className={visual.brief} aria-label="报告速读" data-report-brief data-risk-priority={presentation.mode}>
     <div className={visual.hero}>
       <div className={visual.verdict}>
-        <div className={visual.kicker}><span className={visual.liveDot}/>{fullHistory ? "完整关系报告" : "这次聊天的观察"}<span className={visual.edition}>关系观察</span></div>
+        <div className={visual.kicker}><span className={visual.liveDot}/>{fullHistory ? "完整关系报告" : "这次聊天的观察"}</div>
         <span className={visual.verdictLabel}>{presentation.mode !== "normal" && presentation.title ? presentation.title : "当前判断"}</span>
         <h2>{judgment}</h2>
         <div className={visual.trend}><ChartNoAxesCombined size={17}/><span>关系趋势</span><strong>{trend || "待了解"}</strong></div>
         {typeof coverage.total === "number" && <p className={visual.scope}>{coverage.total.toLocaleString("zh-CN")} 条消息{coverage.startDate && coverage.endDate ? ` · ${coverage.startDate} — ${coverage.endDate}` : ""}</p>}
       </div>
-      <div className={visual.art} data-report-art><GlassStudy imageSrc="/images/relationship-glass-v1.webp"/><div className={visual.artCaption}><span/><p>从原话，看见关系的脉络。</p></div></div>
+      <div className={visual.art} data-report-art="overview"><GlassStudy imageSrc="/images/report-aurora-overview-v3.webp" variant="report"/></div>
     </div>
     <ReportVisualMetrics report={report}/>
     <div className={visual.readingGrid}>

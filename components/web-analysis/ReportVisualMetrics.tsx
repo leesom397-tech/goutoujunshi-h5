@@ -28,7 +28,7 @@ export function ReportVisualMetrics({ report }: { report: unknown }) {
   const selectedIndex = Math.max(0, days.findIndex(day => day.date === selectedDate));
   const activeIndex = selectedDate && days.some(day => day.date === selectedDate) ? selectedIndex : Math.max(0, days.length - 1);
   const selected = days[activeIndex];
-  const plot = { left: 29, right: chartWidth - 20, top: 15, bottom: 143 };
+  const plot = { left: 46, right: chartWidth - 20, top: 15, bottom: 143 };
   const max = Math.max(1, ...days.flatMap(day => [day.self, day.other, day.unknown]));
   const x = (index: number) => plot.left + index / Math.max(1, days.length - 1) * (plot.right - plot.left);
   const y = (value: number) => plot.bottom - value / max * (plot.bottom - plot.top);

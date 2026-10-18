@@ -13,20 +13,23 @@ uniform vec2 resolution;
 uniform float time;
 uniform float materialAspect;
 uniform float materialWidth;
+uniform float reportStyle;
 uniform sampler2D material;
 void main(){
  vec2 uv=gl_FragCoord.xy/resolution;
  float ratio=resolution.x/resolution.y;
  float crop=ratio<1.2?ratio/materialAspect:1.;
+ vec2 framing=mix(vec2(crop,1.),vec2(min(1.,ratio/materialAspect),min(1.,materialAspect/ratio)),reportStyle);
+ float strength=mix(1.,.3,reportStyle);
  float field=uv.x;
  float depth=smoothstep(.08,.48,field);
  float motion=time*.5625;
  float glide=.012*sin(field*12.+motion*.62)+.006*sin(field*23.-motion*.41);
  float lift=.047*sin(field*11.-motion*.55)+.019*sin(field*22.+motion*.38);
  // Overscan keeps both ends filled as neighbouring ribs rise and settle.
- vec2 tex=vec2((uv.x-.5)*crop*.95+.5,uv.y*.85+.075);
- tex.x+=glide*crop*depth;
- tex.y+=lift*(.45+.55*depth);
+ vec2 tex=(uv-.5)*framing*vec2(.95,.85)+.5;
+ tex.x+=glide*framing.x*depth*strength;
+ tex.y+=lift*framing.y*(.45+.55*depth)*strength;
  vec3 col=texture2D(material,tex).rgb;
  float stepX=1.3/materialWidth;
  vec3 left=texture2D(material,tex-vec2(stepX,0.)).rgb;
@@ -44,7 +47,7 @@ void main(){
  gl_FragColor=vec4(clamp(col,0.,1.),1.);
 }`;
 
-export function GlassStudy({imageSrc="/images/aurora-fluted-light-v5.webp"}:{imageSrc?:string}={}) {
+export function GlassStudy({imageSrc="/images/aurora-fluted-light-v5.webp",variant="home"}:{imageSrc?:string;variant?:"home"|"report"}={}) {
  const canvas = useRef<HTMLCanvasElement>(null);
  const [ready,setReady]=useState(false);
  const [paused,setPaused]=useState<boolean|null>(null);
@@ -72,6 +75,7 @@ export function GlassStudy({imageSrc="/images/aurora-fluted-light-v5.webp"}:{ima
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
   gl.uniform1i(gl.getUniformLocation(program,'material'),0);
+  gl.uniform1f(gl.getUniformLocation(program,'reportStyle'),variant==='report'?1:0);
   const asset=new Image();let disposed=false,loaded=false;
   let visible=true,elapsed=0,previous=0,lastDraw=0,raf=0,dirty=true,lost=false;
   const resize=()=>{const rect=node.getBoundingClientRect();const scale=Math.min(window.devicePixelRatio||1,2,1800/Math.max(rect.width,1));const width=Math.max(1,Math.round(rect.width*scale)),height=Math.max(1,Math.round(rect.height*scale));if(node.width!==width||node.height!==height){node.width=width;node.height=height;}gl.viewport(0,0,node.width,node.height);dirty=true;if(loaded&&!lost)draw();};
@@ -89,9 +93,9 @@ export function GlassStudy({imageSrc="/images/aurora-fluted-light-v5.webp"}:{ima
   asset.onload=()=>{if(disposed||lost)return;gl.bindTexture(gl.TEXTURE_2D,texture);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);gl.texImage2D(gl.TEXTURE_2D,0,gl.RGB,gl.RGB,gl.UNSIGNED_BYTE,asset);gl.uniform1f(gl.getUniformLocation(program,'materialAspect'),asset.naturalWidth/asset.naturalHeight);gl.uniform1f(gl.getUniformLocation(program,'materialWidth'),asset.naturalWidth);loaded=true;resize();draw();setReady(true);wake();};
   asset.src=imageSrc;
   return()=>{disposed=true;asset.onload=null;gl.deleteTexture(texture);cancelAnimationFrame(raf);observer.disconnect();intersection.disconnect();media.removeEventListener('change',change);document.removeEventListener('visibilitychange',visibility);node.removeEventListener('webglcontextlost',contextLost);node.removeEventListener('glass-resume',resume);gl.deleteBuffer(buffer);gl.deleteProgram(program);gl.deleteShader(vs);gl.deleteShader(fs);};
- },[imageSrc]);
+ },[imageSrc,variant]);
  const toggle=()=>{pauseRef.current=!isPaused;setPaused(!isPaused);canvas.current?.dispatchEvent(new Event('glass-resume'));};
- return <div className={styles.study} style={{'--glass-material':`url("${imageSrc}")`} as CSSProperties} data-glass-ready={ready} data-motion={isPaused?"paused":"playing"} data-motion-explicit={paused!==null}>
+ return <div className={styles.study} style={{'--glass-material':`url("${imageSrc}")`} as CSSProperties} data-glass-variant={variant} data-glass-ready={ready} data-motion={isPaused?"paused":"playing"} data-motion-explicit={paused!==null}>
   <img className={styles.fallback} src={imageSrc} alt="" aria-hidden="true" fetchPriority="high"/>
   <canvas ref={canvas} className={`${styles.canvas} ${ready?styles.ready:''}`} aria-hidden="true"/>
   <div className={styles.fallbackRibs} aria-hidden="true">{Array.from({length:36},(_,index)=><i key={index} style={{'--rib':index} as CSSProperties}/>)}</div>

@@ -24,7 +24,7 @@ import { ChatActivity } from "@/components/ChatActivity";
 import { RelationshipDiagnosisPanel } from "./RelationshipDiagnosisPanel";
 import { buildRelationshipDiagnosis } from "@/lib/relationship-diagnosis";
 import { ConversationMemoryReview } from "@/components/ConversationMemoryReview";
-import { ChatReportBrief } from "./ReportBrief";
+import { ChatReportBrief, ReportChapterArt } from "./ReportBrief";
 import { ReportDetails } from "./ReportDetails";
 import {ReplyDifference} from "./ReportReadingTools";
 import {reportReadingScope,reportLineKey,readReportPosition,saveReportPosition} from "@/lib/report-reading-position";
@@ -136,6 +136,7 @@ export function ChatReport({report,account,styleReportIds,preview=false,publicEx
     </div>
    </>}
    {active==='change'&&<>
+    <ReportChapterArt kind="change"/>
     <RelationshipJourney embedded context={journey} currentReportId={report.reportId||report.id}/>
     <RelationshipChanges diagnosis={diagnosis} semantic={semantic}/>
     {!preview&&!publicExample&&<ReportFollowUp report={actionReport} owner={account?.account?.userId}/>}
@@ -144,6 +145,7 @@ export function ChatReport({report,account,styleReportIds,preview=false,publicEx
     {hasCurrentLines&&<ReportDetails title="本次上传中的回应与边界" description="只统计当前上传的行为线索"><InteractionEvidence report={report} owner={publicExample?undefined:account?.account?.userId}/></ReportDetails>}
    </>}
    {active==='next'&&<>
+    <ReportChapterArt kind="next"/>
     <section className={reportStyles.nextAction}><header><span>把判断变成行动</span><h2>接下来先做这一件<ArrowRight size={23}/></h2></header><p>{action}</p><dl>{observe&&<div><dt><CalendarDays size={17}/>观察窗口</dt><dd>{observe}</dd></div>}{stop&&<div><dt><Flag size={17}/>何时重新判断</dt><dd>{stop}</dd></div>}</dl></section>
     {options.length>0&&<section className="wa-card" id="replies"><h2><Send size={21}/>需要回复时，可以这样说</h2><Replies key={`${account?.account?.userId}:${report.id}`} options={options} report={report} account={account} styleReportIds={styleReportIds} publicExample={publicExample}/>{decision.replyReview&&<div className={readerStyles.interpretation}><strong>对原回复的回顾</strong><p>{decision.replyReview}</p></div>}</section>}
     {presentation.mode==='normal'&&alternatives.length>0&&<ReportDetails title="如果情况变化，还有哪些选择" description="比较其他做法及适用条件"><div className={reportStyles.actionOptions}>{alternatives.slice(0,4).map((option,index)=><article key={option.label||index}><h3>{option.label}</h3><p>{option.action}</p><dl><div><dt>观察</dt><dd>{option.observeWindow}</dd></div><div><dt>停止条件</dt><dd>{option.stopCondition}</dd></div></dl></article>)}</div></ReportDetails>}

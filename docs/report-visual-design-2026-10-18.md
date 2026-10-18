@@ -1,24 +1,31 @@
-# 关系报告视觉改版
+# 关系报告抽象光影系列
 
-目标：把报告从连续文字框改为结论、真实图表、证据与行动的阅读顺序。保留详细内容和原文定位，三个阅读部分不增加首页入口。
+## 当前使用资源
 
-## 视觉规则
+使用内置 `image_gen`，按用户反馈重新生成三张雾面抽象光影，保留规整沟纹和清晰的纹理层次，改变满屏细竖线的构图。没有复用首页原图。生成原件保存在 Codex generated_images，以下为项目内 WebP，仅转换格式，未程序修改画面。
 
-- 编辑式版面：暖白 `#FFF9F3`、陶土 `#B66E55`、深绿 `#244C46`；沿用思源黑体与现有中文字体回退。
-- 首屏结论与关系主题图片同列，互动数据独立成图，原话按时间与人物呈现。
-- 取消层层外框；主要行动用深绿，引用入口采用低干扰的文字动作。
-- 消息构成环图、每日双方活动图只来自 `chatActivity`，日期不足不画关系趋势，不生成好感概率。
-- 风险按实际表达分类计数；默认收起，展开可查看时间、原话、随后回应和核实动作。
-- 图片沿用首页 `GlassStudy` 光影组件，可暂停，尊重减少动态效果设置；离开视口停止动画。修复尺寸观察器清空离屏 canvas 的黑底问题。
+- `public/images/report-aurora-overview-v3.webp`：看清现状。
+- `public/images/report-aurora-change-v3.webp`：看见变化。
+- `public/images/report-aurora-next-v3.webp`：决定下一步。
 
-## 图片来源与生成提示
+图像为装饰，不表示测量数据或关系结论。复用 GlassStudy 的暂停、减少动态效果和离开视口停止机制；报告变体使用等比例裁切，并将折射位移减至首页的30%，避免宽横幅把画面拉扁。无WebGL时保留静态原图。文字在独立实色区，手机先显示结论。
 
-使用内置 `image_gen`，新生成装饰插画，未编辑用户聊天图片。项目资源为 `public/images/relationship-glass-v1.webp`（159,864 字节）；仅转为 WebP 降低下载体积。图片是装饰，不表示任何用户关系的测量结果。
+正文至少16px，重要辅助文字14px，图表次要标签至少13px。首页删除重复流程解释与入口，资料背书保持第二块。
 
-提示：
+## 最终生成提示集（内置工具）
 
-> A refined 3D editorial illustration for a Chinese relationship insights report. Two elegant translucent glass ribbons arc toward each other with one delicate intersection: warm amber-peach fluted glass and muted sage-green frosted glass. Warm ivory plaster surface, subtle concentric arcs, believable caustic light and soft architectural shadow. Main sculpture central-right, empty low-contrast area at left. High-end design-journal art direction, tactile materials, generous breathing space. Palette ivory #FFF9F3, clay #B66E55, deep sage #244C46. No lettering, charts, symbols, heart icons, people, logos, UI mockup, neon, or purple. Decorative artwork, not a scientific chart.
+### overview
 
-## 验证范围
+Create a new original abstract artwork for a premium Chinese relationship-insight interface. Landscape 3:2 composition. Art direction: quiet luminous optical abstraction, matte iridescent color fields, tactile ordered refraction. Refined warm ivory, restrained dusty coral and apricot, warm amber highlights. Deep rich color should occupy a deliberate focal region, balanced by generous creamy space. Texture must be clearly visible yet orderly: evenly spaced straight vertical channels of consistent width across selected regions, with subtle fine surface grain. NOT an all-over wallpaper of hundreds of thin stripes: use broad sculptural LIGHT fields with a strong memorable composition, the channels are a secondary material texture, like a graphic optical art print. Soft rounded transitions, crisp controlled details, luminosity without harsh reflections. Entirely abstract, no actual glass objects, ribbons, products, room, floor, shadows, studio scene, hearts, figures, text, logos or diagram. Related to the homepage's abstract fluted light but fresh, more composed, more spacious and art directed. Avoid noisy wispy streaks, orange-only blandness, rainbow/neon, purple, photorealism. Composition A: a single oversized coral-red luminous circular arc, cropped dramatically at the lower-right edge, meets a pale apricot convex color field in the upper-left. Wide warm ivory air above. The arc is a diffuse field of refracted color rather than an object. A distinct zone of perfectly regular vertical fluting crosses the right half; keep some broad soft unfluted light areas so the whole image is not stripes. A touch of muted warm rose enriches the depth.
 
-使用合成聊天验证图表计数、日期选择、回复方向、原文定位与桌面/手机布局；测试不证明真实关系判断准确率。新版助手和全量历史功能来自同日功能发布 `20391e7`，本次视觉修改继续沿用其数据链路。
+### change
+
+Create a new original abstract artwork for a premium Chinese relationship-insight interface. Landscape 3:2 composition. Art direction: quiet luminous optical abstraction, matte iridescent color fields, tactile ordered refraction. Refined warm ivory, restrained dusty coral and apricot, warm amber highlights. Deep rich color should occupy a deliberate focal region, balanced by generous creamy space. Texture must be clearly visible yet orderly: evenly spaced straight vertical channels of consistent width across selected regions, with subtle fine surface grain. NOT an all-over wallpaper of hundreds of thin stripes: use broad sculptural LIGHT fields with a strong memorable composition, the channels are a secondary material texture, like a graphic optical art print. Soft rounded transitions, crisp controlled details, luminosity without harsh reflections. Entirely abstract, no actual glass objects, ribbons, products, room, floor, shadows, studio scene, hearts, figures, text, logos or diagram. Related to the homepage's abstract fluted light but fresh, more composed, more spacious and art directed. Avoid noisy wispy streaks, orange-only blandness, rainbow/neon, purple, photorealism. Composition B: three expansive overlapping, gently sloping planes of translucent blush, amber and pale champagne light form an elegant diagonal rhythm across the central third. Large pale ivory space upper-left and lower-right. Regular vertical fluting is strongly visible in just a broad center band, with soft matte light elsewhere. Graphic layered depth rather than literal glass. Muted coral gives a defined focal center. No chart-like rising curve, no arrow.
+
+### next
+
+Create a new original abstract artwork for a premium Chinese relationship-insight interface. Landscape 3:2 composition. Art direction: quiet luminous optical abstraction, matte iridescent color fields, tactile ordered refraction. Refined warm ivory, restrained dusty coral and apricot, warm amber highlights. Deep rich color should occupy a deliberate focal region, balanced by generous creamy space. Texture must be clearly visible yet orderly: evenly spaced straight vertical channels of consistent width across selected regions, with subtle fine surface grain. NOT an all-over wallpaper of hundreds of thin stripes: use broad sculptural LIGHT fields with a strong memorable composition, the channels are a secondary material texture, like a graphic optical art print. Soft rounded transitions, crisp controlled details, luminosity without harsh reflections. Entirely abstract, no actual glass objects, ribbons, products, room, floor, shadows, studio scene, hearts, figures, text, logos or diagram. Related to the homepage's abstract fluted light but fresh, more composed, more spacious and art directed. Avoid noisy wispy streaks, orange-only blandness, rainbow/neon, purple, photorealism. Composition C: a quiet off-center oval pool of warm creamy light surrounded by two broad complementary fields: terracotta-rose toward the bottom left and very muted sage-grey toward the far right. Amber rim-light is purely abstract color. Geometrically regular vertical channels in a sparse band at the right, matte iridescent haze in the rest, calm spacious optical depth. Strong asymmetric negative space, not a doorway, tunnel or physical object.
+
+## 已停用版本
+
+写实玻璃丝带 `relationship-glass-v1.webp` 当前代码不引用，仅留存以兼容旧客户端缓存。满屏细纹的v2三张已被用户否定，未发布；已移除其项目文件，原件保留在生成目录。
