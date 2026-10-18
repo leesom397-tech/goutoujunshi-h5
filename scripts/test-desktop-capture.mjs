@@ -124,9 +124,10 @@ try {
   const page = await browser.newPage();
   await page.setRequestInterception(true); page.on('request', request => request.respond({ status: 200, contentType: 'text/html', body: '<!doctype html><title>Capture vault test</title>' }));
   await page.goto('http://capture-vault.test');
-  const results = await page.evaluate(async ({ pure, vault, payload }) => {
-    const capture = {}, storage = {};
-    new Function('exports', pure)(capture);
+  const results = await page.evaluate(async ({ pure, vault, material, payload }) => {
+    const capture = {}, storage = {}, roles = {};
+    new Function('exports', material)(roles);
+    new Function('exports', 'require', pure)(capture, () => roles);
     new Function('exports', 'require', vault)(storage, () => capture);
     const checks = [], expect = (value, description) => { if (!value) throw new Error(description); checks.push(description); };
     const first = await storage.saveCaptureBatch('owner-a', payload);
@@ -168,6 +169,6 @@ try {
     await storage.removeCaptureLibrary('owner-a', first.library.id);
     expect(await storage.getCaptureLibrary('owner-a', first.library.id) === null && await storage.readReportSources('owner-a', 'report-1') === null, 'deletion removes originals and report link together');
     return checks;
-  }, { pure: compiled('lib/desktop-capture.ts'), vault: compiled('lib/desktop-capture-vault.ts'), payload: batch(context) });
+  }, { material: compiled('lib/capture-material.ts'), pure: compiled('lib/desktop-capture.ts'), vault: compiled('lib/desktop-capture-vault.ts'), payload: batch(context) });
   console.log(`PASS real IndexedDB: ${results.length} checks for isolation, retry/pending, evidence order, concurrent writes and deletion`);
 } finally { await browser.close(); }
