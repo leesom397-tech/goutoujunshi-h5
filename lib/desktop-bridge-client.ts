@@ -1,7 +1,8 @@
-// Credentials stay in browser sessions (same-account tabs can reconnect).
-// Nothing is sent to the website's server or persisted in localStorage.
+// Already paired credentials stay owner scoped in this browser (IndexedDB and
+// tab sessionStorage), expire with the original helper session, and are checked
+// via /session before reuse. Nothing is sent to the website server or localStorage.
 export const DESKTOP_BRIDGE = "http://127.0.0.1:17863";
-export type BridgeHealth = { version: string; ready: boolean; message?: string; backgroundMessage?: string; backgroundStatus?: string; backgroundModelReady?: boolean; backgroundMaxRows?: number; backgroundPageSize?: number; momentsMaxRows?: number; capabilities: { chat: boolean; moments: boolean; momentsAllVisible?: boolean; momentsContacts?: boolean; personBundle?: boolean; deferredVoice?: boolean; backgroundChat?: boolean; backgroundVoice?: boolean; backgroundHistory?: boolean } };
+export type BridgeHealth = { version: string; ready: boolean; message?: string; uiReady?:boolean; uiMessage?:string; momentsMessage?:string; backgroundMessage?: string; backgroundStatus?: string; backgroundModelReady?: boolean; backgroundMaxRows?: number; backgroundPageSize?: number; momentsMaxRows?: number; capabilities: { chat: boolean; moments: boolean; uiCapturePreparation?:boolean; momentsAllVisible?: boolean; momentsContacts?: boolean; personBundle?: boolean; deferredVoice?: boolean; backgroundChat?: boolean; backgroundVoice?: boolean; backgroundHistory?: boolean } };
 export class BridgeError extends Error { constructor(message: string, public status=0, public code="") { super(message); } }
 export async function bridgeRequest<T>(path: string, options: { token?: string; body?: unknown; signal?: AbortSignal; timeoutMs?: number } = {}): Promise<T> {
   if (!/^\/(?:health|session|pair(?:\/handoff)?|contacts\/search|capture|jobs\/[a-zA-Z0-9_-]+(?:\/cancel)?)$/.test(path)) throw Error("采集请求地址无效。");

@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
 import puppeteer from 'puppeteer-core';
 import {mkdir} from 'node:fs/promises';
+import {build} from 'esbuild';
 const origin=process.env.INTAKE_TEST_ORIGIN||'http://127.0.0.1:8798';
 const output=process.env.QA_OUTPUT||'D:/Temp/chengzi-flow-qa';await mkdir(output,{recursive:true});
 const browser=await puppeteer.launch({headless:true,executablePath:process.env.CHROME_PATH||'C:/Program Files/Google/Chrome/Application/chrome.exe',args:['--no-sandbox'],defaultViewport:{width:1440,height:1000}});
 const context=await browser.createBrowserContext(),pages=[],calls=[],errors=[];
 const owner='synthetic-connection-owner',subject='11111111-1111-4111-8111-111111111111',token='synthetic-session-token-'.repeat(2),handoff='A'.repeat(43);
 let paired=false;
+let failNextSession=false;
+const sessions=await build({entryPoints:['lib/capture-connection-session.ts'],bundle:true,write:false,format:'iife',globalName:'SessionFixture',platform:'browser',logLevel:'silent'});
 const headers={'Access-Control-Allow-Origin':origin,'Access-Control-Allow-Methods':'GET,POST,OPTIONS','Access-Control-Allow-Headers':'Content-Type,Authorization','Access-Control-Allow-Private-Network':'true'};
 async function tab(label,scope=owner){
  const page=await context.newPage();pages.push(page);page.on('pageerror',e=>errors.push(label+': '+e.message));
@@ -19,7 +22,10 @@ async function tab(label,scope=owner){
    else if(url.pathname==='/health')value={version:'1.2.6',ready:true,capabilities:{chat:true,moments:true,backgroundChat:true,backgroundHistory:true,momentsAllVisible:true,momentsContacts:true,personBundle:true,deferredVoice:true}};
    else if(url.pathname==='/pair/handoff'){
     assert.deepEqual(JSON.parse(request.postData()),{handoff});assert.equal(paired,false,'one-time handoff redeemed exactly once');paired=true;value={token,expiresIn:28800};
+   }else if(url.pathname==='/pair'){
+    assert.deepEqual(JSON.parse(request.postData()),{code:'AABBCCDD'});paired=true;value={token,expiresIn:28800};
    }else if(url.pathname==='/session'){
+    if(failNextSession){failNextSession=false;await request.abort('failed');return;}
     const valid=paired&&request.headers().authorization==='Bearer '+token;
     if(request.headers().authorization==='Bearer synthetic-stale-session')value={connected:false};
     else {status=valid?200:401;value=valid?{connected:true,expiresIn:28800}:{error:{code:'TOKEN_INVALID',message:'合成会话无效'}};}
@@ -77,11 +83,41 @@ try{
  assert.equal(await original.evaluate(()=>document.body.innerText.includes('助手已连接')),false,'disconnect survives reload');
  const resumed=await tab('resumed');await resumed.goto(origin+'/capture?method=desktop',{waitUntil:'networkidle0'});await connected(resumed);
  await resumed.close();await helper.close();
- const clean=await tab('after-close');await clean.goto(origin+'/capture?method=desktop',{waitUntil:'networkidle0'});await disconnected(clean);await delay(2400);
- assert.equal(await clean.evaluate(()=>document.body.innerText.includes('助手已连接')),false,'closed tabs do not offer sessions');
+ const clean=await tab('after-close');await clean.goto(origin+path,{waitUntil:'networkidle0'});await connected(clean);
+ assert.equal(clean.url(),origin+path,'recovery without a paired tab keeps the current person and source');
+ assert.ok(calls.some(c=>c.tab==='after-close'&&c.path==='/session'&&c.authorization==='Bearer '+token),'cached existing grant revalidated without another capture tab');
+ assert.equal(calls.some(c=>c.tab==='after-close'&&c.path.startsWith('/pair')),false,'cache recovery never creates a new session');
+ await clean.addScriptTag({content:sessions.outputFiles[0].text});
+ const expiry=await clean.evaluate(owner=>SessionFixture.readCaptureConnectionSession(owner).then(row=>row.expiresAt),owner);await clean.close();
+ failNextSession=true;const retry=await tab('network-retry');await retry.goto(origin+path,{waitUntil:'networkidle0'});await disconnected(retry);
+ await retry.waitForFunction(()=>document.querySelector('[role="alert"]')?.textContent.includes('未能连接本机助手'));
+ await retry.evaluate(()=>[...document.querySelectorAll('button')].find(button=>button.textContent==='连接已打开的助手').click());await connected(retry);
+ await retry.addScriptTag({content:sessions.outputFiles[0].text});
+ assert.equal(await retry.evaluate(owner=>SessionFixture.readCaptureConnectionSession(owner).then(row=>row.expiresAt),owner),expiry,'network retry never extends existing session expiry');
+ await retry.evaluate(()=>SessionFixture.clearCaptureConnectionSessions());await disconnected(retry);await disconnected(original);
+ const fresh=await tab('manual-existing');await fresh.setViewport({width:390,height:844});await fresh.goto(origin+path,{waitUntil:'networkidle0'});await disconnected(fresh);
+ await fresh.evaluate(()=>[...document.querySelectorAll('button')].find(button=>button.textContent==='连接已打开的助手').click());
+ await fresh.waitForFunction(()=>document.body.innerText.includes('助手已打开。输入助手窗口的 8 位连接码'));
+ assert.equal(await fresh.$eval('#capture-code',element=>element.checkVisibility()),true,'button exposes an actual supported 1.2.6 pairing path');
+ assert.equal(calls.some(c=>c.tab==='manual-existing'&&c.path.startsWith('/pair')),false,'first-time health discovery does not fabricate pairing');
+ await fresh.type('#capture-code','AABBCCDD');await fresh.evaluate(()=>document.querySelector('#capture-code').parentElement.querySelector('button').click());await connected(fresh);
+ assert.equal(fresh.url(),origin+path,'manual code pairs on original page without helper restart or a second tab');
+ assert.equal(calls.filter(c=>c.tab==='manual-existing'&&c.path==='/pair'&&c.method==='POST').length,1);
+ assert.equal(await fresh.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'390px manual connection layout');
+ await fresh.addScriptTag({content:sessions.outputFiles[0].text});
+ const oldGrant=await fresh.evaluate(owner=>new Promise((resolve,reject)=>{const request=indexedDB.open('chengzi-capture-connection:v1',1);request.onsuccess=()=>{const db=request.result,read=db.transaction('sessions').objectStore('sessions').get(owner);read.onsuccess=()=>{db.close();resolve(read.result);};read.onerror=reject;};}),owner);
+ const dormant=await tab('dormant-old-tab');await dormant.goto(origin+'/workspace',{waitUntil:'networkidle0'});await dormant.evaluate(({owner,oldGrant})=>sessionStorage.setItem(`chengzi-capture:${owner}:connection`,JSON.stringify({...oldGrant.connection,revision:oldGrant.revision})),{owner,oldGrant});
+ await fresh.evaluate(()=>SessionFixture.clearCaptureConnectionSessions());await disconnected(fresh);
+ // Simulate an old IDB write finishing after logout; the nonsecret revision
+ // marker must still prevent restoration when physical cleanup was delayed.
+ await fresh.evaluate(({owner,oldGrant})=>new Promise(resolve=>{const request=indexedDB.open('chengzi-capture-connection:v1',1);request.onsuccess=()=>{const db=request.result,tx=db.transaction('sessions','readwrite');tx.objectStore('sessions').put(oldGrant,owner);tx.oncomplete=()=>{db.close();resolve();};};}),{owner,oldGrant});
+ const afterLogout=await tab('after-logout');await afterLogout.goto(origin+path,{waitUntil:'networkidle0'});await disconnected(afterLogout);await delay(2200);
+ assert.equal(calls.some(c=>c.tab==='after-logout'&&c.path==='/session'),false,'logout removes persistent and live-tab recovery grants');
+ await dormant.goto(origin+path,{waitUntil:'networkidle0'});await disconnected(dormant);await delay(2200);
+ assert.equal(calls.some(c=>c.tab==='dormant-old-tab'&&c.path==='/session'),false,'a non-capture tab cannot restore its pre-logout sessionStorage grant');
  const stored=await original.evaluate(()=>Object.values(localStorage).join('\n'));assert.equal(stored.includes(token),false,'helper credential never enters localStorage');
  assert.equal(calls.some(c=>c.path.startsWith('/api/')&&(c.body.includes(token)||c.authorization.includes(token)||c.body.includes(handoff))),false,'credential never sent to website APIs');
  assert.equal(calls.some(c=>c.path==='/capture'||c.path.includes('/analyze')&&c.method==='POST'),false,'connection never starts private capture or paid analysis');
  assert.deepEqual(errors,[]);
- console.log('PASS browser helper 1.2.6 handoff: current tab auto-connect, complete person context in new tab, same-owner session validation, other-owner isolation, 1440/390 layout, disconnect/reload pause, closed-tab cleanup; no real capture/provider/API writes');
+ console.log('PASS helper 1.2.6: handoff, owner isolation, all paired tabs closed recovery, original TTL, network retry, real existing-helper code pairing on current page, logout revocation, 1440/390; no private capture or paid calls');
 }finally{await context.close();await browser.close();}

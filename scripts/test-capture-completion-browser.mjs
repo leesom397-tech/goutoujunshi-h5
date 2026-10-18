@@ -10,12 +10,12 @@ const out=process.env.CAPTURE_COMPLETION_OUTPUT||'outputs/capture-completion';
 await mkdir(out,{recursive:true});
 const owner='completion-synthetic-owner',subject='11111111-1111-4111-8111-111111111111';
 const friend='合成小欣（同事）',search='合成小欣',account='completion-wechat';
-const selected={contactId:'synthetic-work-contact',accountKey:'c'.repeat(64)};
+const selected={contactId:'synthetic-work-contact',accountKey:Buffer.from(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(account))).toString('hex')};
 const avatar='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aXGkAAAAASUVORK5CYII=';
 const taskId='22222222-2222-4222-8222-222222222222';
 const ua='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36';
 const bundle=await build({entryPoints:['lib/desktop-capture-vault.ts'],bundle:true,write:false,format:'iife',globalName:'CompletionVault',platform:'browser',logLevel:'silent'});
-const browser=await puppeteer.launch({headless:true,executablePath:process.env.CHROME_PATH||'C:/Program Files/Google/Chrome/Application/chrome.exe',args:['--no-sandbox']});
+const browser=await puppeteer.launch({headless:true,executablePath:process.env.CHROME_PATH||'C:/Program Files/Google/Chrome/Application/chrome.exe',userDataDir:'D:/Temp/chengzi-completion-browser',args:['--no-sandbox']});
 const results=[];
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 
@@ -52,7 +52,7 @@ async function run(width,scenario){
       if(url.pathname==='/session')value={connected:true};
       else if(url.pathname==='/health')value={version:'1.2.6-synthetic',ready:true,capabilities:{chat:true,moments:true,backgroundChat:true,backgroundHistory:true,backgroundVoice:false,momentsAllVisible:true,momentsContacts:true,personBundle:true}};
       else if(url.pathname==='/contacts/search'){
-        searches.push(body);assert.equal(body.query,search,'contactSearch URL reaches helper search unchanged');
+        searches.push(body);if(searches.length===1)assert.equal(body.query,search,'contactSearch URL reaches initial helper search unchanged');else assert.ok([search,friend].includes(body.query),'refresh only searches the selected source contact');
         value={accountKey:selected.accountKey,contacts:[{contactId:'synthetic-school-contact',label:search+'（同学）',nickname:search,remark:search+'（同学）',wechatId:'synthetic_school'},{contactId:selected.contactId,label:friend,nickname:search,remark:friend,wechatId:'synthetic_work',avatarData:avatar}]};
       }else if(url.pathname==='/capture'){
         assert.ok(bindings.length,'precise person binding completes before helper capture');
@@ -62,7 +62,7 @@ async function run(width,scenario){
         const id='completion-job-'+(captures.length+1);captures.push(body);jobs.set(id,body);value={jobId:id};
       }else if(url.pathname.startsWith('/jobs/')){
         const job=jobs.get(url.pathname.split('/')[2]);assert.ok(job);
-        if(job.kind==='moments')value=scenario==='moments-fail'?{status:'failed',error:'合成朋友圈读取中断，聊天已经保留。'}:{status:'done',result:{version:1,kind:'moments',account,friend,capturedAt:'2026-10-18T00:00:00Z',warnings:[],records:moments,coverage:{scope:'all-visible',complete:true,stopReason:'visible-end',recordCount:3,imageOmittedCount:0,unreadableCount:0}}};
+        if(job.kind==='moments')value=scenario==='moments-fail'?{status:'failed',error:'合成朋友圈读取中断，聊天已经保留。'}:{status:'done',result:{version:1,kind:'moments',account,friend,capturedAt:new Date().toISOString(),warnings:[],records:moments,coverage:{scope:'all-visible',complete:true,stopReason:'visible-end',recordCount:3,imageOmittedCount:0,unreadableCount:0}}};
         else {
           const offset=job.cursor?Number(job.cursor.slice(2)):0,count=Math.min(500,rows.length-offset),more=offset+count<rows.length;
           value=scenario==='chat-fail'&&offset>0?{status:'failed',error:'合成第二页读取中断，已保存的聊天仍可使用。'}:{status:'done',result:{version:1,kind:'chat',account,friend,capturedAt:'2026-10-18T00:00:00Z',warnings:[],records:rows.slice(offset,offset+count),history:{version:1,direction:job.direction,count,hasMore:more,nextCursor:more?'c_'+(offset+count):null,snapshot:'completion-snapshot',complete:!more}}};
@@ -121,6 +121,13 @@ async function run(width,scenario){
     await page.evaluate(()=>[...document.querySelectorAll('[aria-label="选择要导入的微信联系人"] button')].find(button=>button.textContent.includes('synthetic_work')).click());
     await noOverflow('contact');
     await click('导入这个人的全部资料');
+    if(scenario==='moments-fail'){
+      await page.waitForSelector('[data-moments-result="failed"]',{visible:true});await visibleText('合成朋友圈读取中断');
+      const saved=await persisted();assert.equal(saved.find(row=>row.kind==='chat').total,675);assert.equal(saved.find(row=>row.kind==='moments'),undefined);assert.equal(paid.length,0);assert.equal(cloud.size,0);
+      assert.equal(await page.$eval('[aria-label="导入操作"]',element=>element.checkVisibility()),true);assert.equal(await page.$eval('#capture-preview',element=>element.checkVisibility()),false);
+      await page.screenshot({path:`${out}/moments-fail-${width}.png`,fullPage:true});assert.deepEqual(errors,[]);assert.deepEqual(blocked,[]);console.log(`PASS completion ${width} moments-fail: chat retained; failed Moments stays at current capture step with no report/payment.`);return;
+    }
+    if(scenario!=='chat-fail'){await page.waitForSelector('[data-moments-result="complete"]',{visible:true});assert.equal(paid.length,0);await click('确认本次结果，继续报告');}
     await visibleText('下一步，生成完整关系报告');
     await page.waitForFunction(()=>document.querySelector('#capture-preview')?.checkVisibility()&&!document.querySelector('aside[aria-label="导入操作"]')?.checkVisibility());
     const saved=await persisted(),chat=saved.find(row=>row.kind==='chat');
