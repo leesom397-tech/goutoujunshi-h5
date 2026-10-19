@@ -60,6 +60,30 @@ class Album:
 
 
 class MomentsCaptureTests(unittest.TestCase):
+    def test_profile_popup_waits_in_same_process_without_premature_child_fallback(self):
+        import sys
+        from adapter import _open_moments_from_chat
+        click = Mock()
+        button = SimpleNamespace(is_visible=lambda: True, is_enabled=lambda: True, click_input=click)
+        container = SimpleNamespace(descendants=lambda **kw: [button])
+        link = SimpleNamespace(exists=lambda **kw: True, is_visible=lambda: True,
+                               parent=lambda: SimpleNamespace(parent=lambda: container))
+        profile = SimpleNamespace(wait=Mock(), child_window=lambda **kw:
+            SimpleNamespace(exists=lambda **kw: True) if "auto_id" in kw else link)
+        pane = SimpleNamespace(exists=lambda **kw: True, is_visible=lambda: True,
+            child_window=lambda **kw: SimpleNamespace(wait=lambda *a, **kw:
+                SimpleNamespace(children=lambda **kw: [SimpleNamespace(click_input=Mock())])))
+        main = SimpleNamespace(process_id=lambda: 123, child_window=lambda **kw: pane)
+        desktop = SimpleNamespace(window=Mock(return_value=profile))
+        ui = SimpleNamespace(Windows=SimpleNamespace(MomentsWindow={"title":"album"}),
+                             Texts=SimpleNamespace(MomentsText={"title":"朋友圈"}))
+        with patch.dict(sys.modules,{"pywinauto":SimpleNamespace(Desktop=lambda **kw:desktop)}), patch("adapter._moments_window",return_value=main):
+            self.assertIs(_open_moments_from_chat(main,"好友",(None,None,ui)),main)
+        self.assertEqual(desktop.window.call_args_list[0].kwargs,
+                         {"class_name":"mmui::ProfileUniquePop","process":123,"visible_only":True})
+        profile.wait.assert_called_once_with("visible",timeout=8)
+        click.assert_called_once()
+
     def test_bundle_uses_database_account_identity_and_retains_selected_label(self):
         import sys
         modules = {"pythoncom": SimpleNamespace(CoInitialize=lambda: None, CoUninitialize=lambda: None),

@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const RELEASE_ROOT = 'https://github.com/leesom397-tech/goutoujunshi-h5/releases/download/';
-const LEGACY_RELEASES = new Map([['1.2.4', 'collector-1.2.5'], ['1.2.5', 'collector-1.2.5'], ['1.2.6', 'collector-1.2.6'], ['1.2.7', 'collector-1.2.7']]);
+const LEGACY_RELEASES = new Map([['1.2.4', 'collector-1.2.5'], ['1.2.5', 'collector-1.2.5'], ['1.2.6', 'collector-1.2.6'], ['1.2.7', 'collector-1.2.7'], ['1.2.8', 'collector-1.2.8']]);
 
 function compareVersions(left, right) {
   const a = left.split('.').map(Number), b = right.split('.').map(Number);

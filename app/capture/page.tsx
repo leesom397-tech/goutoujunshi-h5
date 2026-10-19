@@ -1127,7 +1127,7 @@ export default function CapturePage() {
   const backgroundVoice = health?.capabilities.backgroundChat === true && health?.capabilities.backgroundVoice === true;
   const databaseVoiceUnavailable = localDatabase && !backgroundVoice;
   const fullHistory = health?.capabilities.backgroundHistory === true;
-  const helperNeedsUpdate = !!health?.version && new Intl.Collator("en",{numeric:true}).compare(health.version,"1.2.8") < 0;
+  const helperNeedsUpdate = !!health?.version && new Intl.Collator("en",{numeric:true}).compare(health.version,"1.2.9") < 0;
   const importLabel = historyState?.complete ? "补充新聊天" : historyState ? "继续导入全部聊天" : "导入这个人的全部聊天";
   const activityNotice=library?.kind==="chat"&&library.records.length>20000 ? prepareChatActivityUpload(library.records,{account:library.account}).notice : "";
   const readableRecordCount = library?.records.filter(row => row.kind === "text" && row.senderRole !== "unknown" && row.text.trim()).length || 0;
@@ -1169,12 +1169,12 @@ export default function CapturePage() {
               <p className={styles.connectLead}>{supplementMoments && selectedContact ? `为「${contactDisplayName(selectedContact.label)}」补充朋友圈。连接后继续这一步，已有聊天会保留。` : "助手已在运行，直接连接。首次使用再下载。"}</p>
               <button className={`${ui.primary} ${styles.downloadInstaller}`} disabled={!owner||locked} onClick={()=>void connectOpenedAssistant()}>{busy?<LoaderCircle size={18}/>:<Link2 size={18}/>}连接已打开的助手</button>
               {connectionHint&&<p role="status">{connectionHint}</p>}
-              <a className={`${ui.secondary} ${styles.downloadInstaller}`} href="/downloads/ChengziWeChatCollector-Setup-1.2.8.exe" download onClick={()=>{discoveryPaused.current=false;remember(scopeKey("auto-connect-paused"),null);rememberConnectionEntry();connectionDiscovery.current?.refresh();}}><Download size={18}/>下载 Windows 助手</a>
+              <a className={`${ui.secondary} ${styles.downloadInstaller}`} href="/downloads/ChengziWeChatCollector-Setup-1.2.9.exe" download onClick={()=>{discoveryPaused.current=false;remember(scopeKey("auto-connect-paused"),null);rememberConnectionEntry();connectionDiscovery.current?.refresh();}}><Download size={18}/>下载 Windows 助手</a>
               <small>Windows 10 / 11 · 无需解压、输入命令</small>
               <details className={styles.installHelp}><summary>安装遇到 Windows 提示？</summary><p>安装包尚未完成代码签名，Windows 可能显示“无法识别的应用”。请核对下载地址为 coach.lovetalk.love；无法确认来源时取消安装。</p></details>
               <details className={styles.pair} open={pairExpanded} onToggle={event=>setPairExpanded(event.currentTarget.open)}><summary>使用助手连接码</summary><label htmlFor="capture-code">输入助手窗口的 8 位连接码</label><div><input id="capture-code" inputMode="text" autoCapitalize="characters" autoComplete="off" maxLength={8} value={code} onChange={e => setCode(e.target.value)} placeholder="8 位连接码" disabled={locked}/><button className={ui.secondary} disabled={!owner || locked || !/^[a-f0-9]{8}$/i.test(code.trim())} onClick={() => void connect()}>{busy ? <LoaderCircle size={17}/> : <Link2 size={17}/>}连接</button></div></details>
             </>}
-            {connected && helperNeedsUpdate && <div className={styles.connectionWaiting}><strong>更新助手，修复朋友圈采集状态</strong><a className={ui.secondary} href="/downloads/ChengziWeChatCollector-Setup-1.2.8.exe" download><Download size={17}/>下载 1.2.8</a></div>}
+            {connected && helperNeedsUpdate && <div className={styles.connectionWaiting}><strong>更新助手，修复朋友圈采集状态</strong><a className={ui.secondary} href="/downloads/ChengziWeChatCollector-Setup-1.2.9.exe" download><Download size={17}/>下载 1.2.9</a></div>}
           </div>}
           {(method === "window" || method === "desktop" && connected && !selectedContact && !jobId) && <>
             {method === "window" && kindPicker}

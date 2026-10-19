@@ -335,18 +335,44 @@ def _open_moments_from_chat(main, friend, modules):
     from pywinauto import Desktop
     _, Tools, ui = modules
     pane = main.child_window(auto_id="single_chat_info_view", control_type="Group")
-    if not pane.exists(timeout=.2):
+    if not pane.exists(timeout=.2) or not pane.is_visible():
         main.child_window(**ui.Buttons.ChatInfoButton).click_input()
     avatar = pane.child_window(title=friend, control_type="Button").wait("ready", timeout=3)
     buttons = avatar.children(control_type="Button")
     if not buttons:
         raise CaptureError("MOMENTS_UNREADABLE", "无法打开所选好友的资料，请关闭微信弹窗后重试。")
     buttons[0].click_input()
-    profile = Desktop(backend="uia").window(**ui.Windows.PopUpProfileWindow)
-    if not profile.exists(timeout=1):
-        profile = main.window(**ui.Windows.PopUpProfileWindow)
-    link = profile.child_window(**ui.Texts.MomentsText).wait("ready", timeout=3)
-    link.parent().parent().descendants(control_type="Button")[0].click_input()
+    # The profile is a separate top-level popup on 4.1.15. Do not switch
+    # permanently to a main-window child just because it is still opening.
+    profile = Desktop(backend="uia").window(class_name="mmui::ProfileUniquePop",
+                                               process=main.process_id(), visible_only=True)
+    try:
+        profile.wait("visible", timeout=8)
+    except Exception:
+        raise CaptureError("PROFILE_OPEN_TIMEOUT", "已找到好友，但资料卡尚未打开。请关闭微信遮挡弹窗后重试；本次没有开始读取朋友圈。") from None
+    if not profile.child_window(auto_id="right_v_view.nickname_button_view.display_name_text", title=friend, control_type="Text").exists(timeout=1):
+        raise CaptureError("FRIEND_MISMATCH", "打开的资料卡与所选好友不一致，已停止读取。")
+    link = profile.child_window(**ui.Texts.MomentsText)
+    for attempt in range(3):
+        if link.exists(timeout=.6) and link.is_visible():
+            break
+        # WeChat preserves the profile's scroll position across openings.
+        # Restore only this selected contact's detail viewport, never the chat.
+        scroll = profile.child_window(class_name="mmui::GradientMaskScrollView")
+        if scroll.exists(timeout=.2):
+            from pywinauto import mouse
+            rect = scroll.rectangle()
+            mouse.scroll(coords=(rect.left + rect.width() // 2, rect.top + rect.height() // 2), wheel_dist=8)
+            time.sleep(.5)
+        else:
+            time.sleep(.3)
+    if not link.exists(timeout=.5) or not link.is_visible():
+        raise CaptureError("MOMENTS_ENTRY_UNAVAILABLE", "已打开所选好友资料，但未找到可点击的朋友圈入口。本次未开始读取；请确认这位好友资料中是否显示朋友圈。")
+    buttons = link.parent().parent().descendants(control_type="Button")
+    visible_buttons = [button for button in buttons if button.is_visible() and button.is_enabled()]
+    if not visible_buttons:
+        raise CaptureError("MOMENTS_ENTRY_UNAVAILABLE", "朋友圈入口尚未加载完成，已停止本次尝试。请稍后重试，已保存资料不会删除。")
+    visible_buttons[0].click_input()
     window = Desktop(backend="uia").window(**ui.Windows.MomentsWindow)
     return _moments_window(main, window)
 
