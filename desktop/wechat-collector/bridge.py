@@ -46,7 +46,9 @@ def _capture_process(conn, request):
                 if len(json.dumps(batch, ensure_ascii=False).encode("utf-8")) > MAX_RESULT:
                     raise ValueError("RESULT_TOO_LARGE")
                 conn.send({"type": "partial", "partial": batch})
-            result = capture(request, lambda progress, message: conn.send({"type": "progress", "progress": progress, "message": message}), on_partial=partial)
+            def emit_progress(value, message, **meta):
+                conn.send({"type": "progress", "progress": value, "message": message, **meta})
+            result = capture(request, emit_progress, on_partial=partial)
             if len(json.dumps(result, ensure_ascii=False).encode("utf-8")) > MAX_RESULT:
                 raise ValueError("RESULT_TOO_LARGE")
             conn.send({"type": "result", "result": result})
@@ -281,6 +283,8 @@ class CollectorState:
             proc = ctx.Process(target=self.capture_target, args=(child, payload), daemon=True)
             job = {"jobId": job_id, "mode": mode, "kind": kind, "allVisible": all_visible,
                    "status": "running", "progress": 0, "partialRevision": 0,
+                   "phase": "preparing", "recordCount": 0, "pinnedCount": 0,
+                   "lastAction": "start",
                    "message": "正在检查本机聊天与语音" if mode == "background" else "正在连接微信界面", "updated": time.monotonic(), "process": proc}
             self.jobs[job_id], self.active = job, job_id
             self.local_message = "正在后台导入，可以继续使用电脑；可随时停止" if mode == "background" else "采集中，请暂时不要操作微信；可随时停止"
@@ -317,9 +321,19 @@ class CollectorState:
                             return
                         job["updated"] = time.monotonic()
                         if msg.get("type") == "progress":
-                            job.update(progress=max(0, min(99, int(msg.get("progress", 0)))), message=str(msg.get("message", ""))[:100])
+                            job.update(progress=max(0, min(99, int(msg.get("progress", 0)))),
+                                       phase=str(msg.get("phase") or job.get("phase") or "working")[:50],
+                                       recordCount=int(msg.get("recordCount", job.get("recordCount", 0)) or 0),
+                                       pinnedCount=int(msg.get("pinnedCount", job.get("pinnedCount", 0)) or 0),
+                                       lastAction=str(msg.get("lastAction") or job.get("lastAction") or "")[:80],
+                                       message=str(msg.get("message", ""))[:100])
                         elif msg.get("type") == "partial":
+                            coverage = msg["partial"].get("coverage", {}) or {}
                             job.update(partial=msg["partial"], partialRevision=job.get("partialRevision", 0) + 1,
+                                       phase=str(coverage.get("phase") or job.get("phase") or "reading")[:50],
+                                       recordCount=int(coverage.get("recordCount", len(msg["partial"].get("records", []))) or 0),
+                                       pinnedCount=int(coverage.get("pinnedCount", job.get("pinnedCount", 0)) or 0),
+                                       lastAction=str(coverage.get("lastAction") or job.get("lastAction") or "")[:80],
                                        message=(f"已读取 {len(msg['partial'].get('records', []))} 条朋友圈，继续查找更早动态…"
                                                 if job.get("kind") == "moments" else "文字已导入，正在补全语音…可随时停止。"))
                         elif msg.get("type") == "result":
@@ -358,7 +372,7 @@ class CollectorState:
                     return
             with self.lock:
                 if job["status"] == "running":
-                    message = ("朋友圈读取长时间没有新进展，已停止；已读取的动态仍可导入，请检查微信窗口后重试。" if job.get("kind") == "moments" else
+                    message = (f"朋友圈采集在{job.get('phase', '当前阶段')}阶段长时间没有新进展，已停止；已读取 {job.get('recordCount', 0)} 条动态，仍可导入，请检查微信窗口后重试。" if job.get("kind") == "moments" else
                                "本次语音补全已到时限，已核对的文字仍可导入。" if job.get("partial") else
                                "后台读取超时，请确认电脑微信已登录后重试。" if job.get("mode") == "background" else
                                "微信界面未在三分钟内完成读取，请确认窗口可见后重试。")

@@ -6,7 +6,9 @@ from types import SimpleNamespace
 from unittest.mock import patch, Mock
 import re
 
-from adapter import _moments, _resolve_moments_contact, _open_moments_source, _prepare_capture_ui, capture, CaptureError
+from adapter import (_moments, _resolve_moments_contact, _open_moments_source,
+                     _visible_moment_cells, _viewport_has_trailing_space,
+                     _prepare_capture_ui, _advance_moments_list, capture, CaptureError)
 from compatibility import prepare_capture_ui
 from background_reader import BackgroundCaptureError
 from bridge import CollectorState, BridgeError
@@ -40,6 +42,7 @@ class Album:
         self.no_focus = no_focus
         self.stuck_at = stuck_at
         self.scroll_proof = scroll_proof
+        self.detail_open = False
         self.element_info = SimpleNamespace(runtime_id=[1234])
     def process_id(self): return 123
     def wrapper_object(self): return self
@@ -56,19 +59,110 @@ class Album:
         # Recycle every runtime ID, like virtualized WeChat albums.
         return [SimpleNamespace(element_info=SimpleNamespace(runtime_id=[1]),
                 window_text=lambda: f"动态 {self.index}", class_name=lambda: "mmui::AlbumCell",
-                has_keyboard_focus=lambda: True, click_input=lambda: None)]
+                has_keyboard_focus=lambda: True,
+                click_input=lambda: setattr(self, "detail_open", True))]
 
 
 class MomentsCaptureTests(unittest.TestCase):
+    def test_recycled_rows_outside_viewport_are_not_clicked_and_geometry_proves_end(self):
+        def rect(top, bottom):
+            return SimpleNamespace(left=0, right=100, top=top, bottom=bottom)
+        def cell(top, bottom):
+            return SimpleNamespace(class_name=lambda: "mmui::AlbumContentCell",
+                                   rectangle=lambda: rect(top, bottom), is_visible=lambda: True)
+        rows = [cell(5, 25), cell(101, 131)]
+        listing = SimpleNamespace(rectangle=lambda: rect(0, 100), children=lambda **kwargs: rows)
+        self.assertEqual(_visible_moment_cells(listing), rows[:1])
+        self.assertFalse(_viewport_has_trailing_space(listing))
+        rows[:] = [cell(5, 25), cell(30, 75)]
+        self.assertTrue(_viewport_has_trailing_space(listing))
+
+    def test_pinned_album_returns_to_ordinary_feed_without_marking_feed_as_pinned(self):
+        class TwoLists:
+            def __init__(self):
+                self.mode, self.index, self.detail_open = "normal", -1, False
+                self.element_info = SimpleNamespace(runtime_id=[42])
+            def exists(self, **kwargs): return True
+            def is_visible(self): return True
+            def wait(self, *_args, **_kwargs): return self
+            def type_keys(self, *_args, **_kwargs):
+                count = 2 if self.mode == "pinned" else 3
+                self.index = min(count - 1, self.index + 1)
+            @property
+            def iface_scroll(self):
+                count = 2 if self.mode == "pinned" else 3
+                return SimpleNamespace(CurrentVerticalScrollPercent=100 if self.index >= count - 1 else 0)
+            def children(self, **kwargs):
+                def open_pinned(): self.mode, self.index = "pinned", 0
+                top = SimpleNamespace(class_name=lambda: "mmui::AlbumTopCell",
+                    window_text=lambda: "置顶", click_input=open_pinned)
+                label = f"{self.mode} {max(self.index, 0)}"
+                post = SimpleNamespace(class_name=lambda: "mmui::AlbumContentCell",
+                    window_text=lambda: label, click_input=lambda: setattr(self, "detail_open", True))
+                return ([top] if self.mode == "normal" else []) + [post]
+            def back(self):
+                if self.detail_open: self.detail_open = False
+                else: self.mode, self.index = "normal", 0
+        listing = TwoLists()
+        detail = SimpleNamespace(exists=lambda **kwargs: listing.detail_open,
+            is_visible=lambda: listing.detail_open,
+            children=lambda **kwargs: [SimpleNamespace(window_text=lambda:
+                f"好友 {listing.mode} {listing.index} 2026年10月18日")])
+        back = SimpleNamespace(click_input=listing.back)
+        window = SimpleNamespace(child_window=lambda **kwargs:
+            {"album": listing, "detail": detail, "back": back}[kwargs["auto_id"]])
+        ui = SimpleNamespace(Lists=SimpleNamespace(MomentsList={"auto_id":"album"},
+            SnsDetailList={"auto_id":"detail"}), Buttons=SimpleNamespace(BackButton={"auto_id":"back"}),
+            Regex_Patterns=SimpleNamespace(Snsdetail_Timestamp_pattern=re.compile(r"2026年10月18日")))
+        main = SimpleNamespace(handle=1, process_id=lambda: 123)
+        with patch("adapter._open_target", return_value=main), patch("adapter._open_moments_from_chat", return_value=window), \
+             patch("adapter._ensure_foreground"), patch("adapter._image", return_value={"data":"a", "mime":"image/jpeg"}), patch("adapter.time.sleep"):
+            rows, _, coverage = _moments("好友", 10, lambda *_args, **_kwargs: None,
+                (None, SimpleNamespace(activate_momentsList=lambda *_args: None), ui), all_visible=True)
+        posts = [row for row in rows if row.get("kind") == "post"]
+        self.assertEqual(len(posts), 5)
+        self.assertEqual(sum(row["source"]["pinned"] for row in posts), 2)
+        self.assertEqual(coverage["pinnedCount"], 2)
+        self.assertTrue(coverage["complete"])
+
+    def test_scroll_advances_with_mouse_when_keyboard_path_is_stuck(self):
+        import sys
+        class WheelAlbum:
+            def __init__(self):
+                self.index = 0
+                self.element_info = SimpleNamespace(runtime_id=[99])
+            def children(self, **kwargs):
+                return [SimpleNamespace(
+                    element_info=SimpleNamespace(runtime_id=[self.index]),
+                    class_name=lambda: "mmui::AlbumCell",
+                    window_text=lambda: f"动态 {self.index}",
+                    is_visible=lambda: True)]
+            def descendants(self, **kwargs): return []
+            def rectangle(self): return SimpleNamespace(left=0, top=0, width=lambda: 100, height=lambda: 100)
+            def click_input(self): return None
+            def type_keys(self, *_args, **_kwargs): return None
+            @property
+            def iface_scroll(self):
+                return SimpleNamespace(CurrentVerticalScrollPercent=self.index * 10)
+        album = WheelAlbum()
+        fake_mouse = SimpleNamespace(scroll=lambda **kwargs: setattr(album, "index", album.index + 1))
+        fake_pywinauto = SimpleNamespace(mouse=fake_mouse)
+        with patch.dict(sys.modules, {"pywinauto": fake_pywinauto}):
+            self.assertTrue(_advance_moments_list(album))
+        self.assertEqual(album.index, 1)
+
     def test_profile_popup_waits_in_same_process_without_premature_child_fallback(self):
         import sys
         from adapter import _open_moments_from_chat
-        click = Mock()
-        button = SimpleNamespace(is_visible=lambda: True, is_enabled=lambda: True, click_input=click)
-        container = SimpleNamespace(descendants=lambda **kw: [button])
+        click, wrong_click = Mock(), Mock()
+        wrong = SimpleNamespace(is_visible=lambda: True, is_enabled=lambda: True,
+                                class_name=lambda: "mmui::OtherButton", click_input=wrong_click)
+        button = SimpleNamespace(is_visible=lambda: True, is_enabled=lambda: True,
+                                 class_name=lambda: "mmui::ProfileDetailValueSnsView", click_input=click)
+        container = SimpleNamespace(descendants=lambda **kw: [wrong, button])
         link = SimpleNamespace(exists=lambda **kw: True, is_visible=lambda: True,
                                parent=lambda: SimpleNamespace(parent=lambda: container))
-        profile = SimpleNamespace(wait=Mock(), child_window=lambda **kw:
+        profile = SimpleNamespace(wait=Mock(), descendants=lambda **kw: [SimpleNamespace(window_text=lambda: "好友 微信号 W-test")], child_window=lambda **kw:
             SimpleNamespace(exists=lambda **kw: True) if "auto_id" in kw else link)
         pane = SimpleNamespace(exists=lambda **kw: True, is_visible=lambda: True,
             child_window=lambda **kw: SimpleNamespace(wait=lambda *a, **kw:
@@ -76,13 +170,18 @@ class MomentsCaptureTests(unittest.TestCase):
         main = SimpleNamespace(process_id=lambda: 123, child_window=lambda **kw: pane)
         desktop = SimpleNamespace(window=Mock(return_value=profile))
         ui = SimpleNamespace(Windows=SimpleNamespace(MomentsWindow={"title":"album"}),
-                             Texts=SimpleNamespace(MomentsText={"title":"朋友圈"}))
-        with patch.dict(sys.modules,{"pywinauto":SimpleNamespace(Desktop=lambda **kw:desktop)}), patch("adapter._moments_window",return_value=main):
-            self.assertIs(_open_moments_from_chat(main,"好友",(None,None,ui)),main)
+                             Texts=SimpleNamespace(MomentsText={"title":"朋友圈"}),
+                             Lists=SimpleNamespace(MomentsList={"title":"sns"}))
+        with patch.dict(sys.modules,{"pywinauto":SimpleNamespace(Desktop=lambda **kw:desktop)}), patch("adapter._moments_window",return_value=main), patch("adapter._ensure_foreground"):
+            self.assertIs(_open_moments_from_chat(main,"好友",(None,None,ui),expected_identifier="W-test"),main)
         self.assertEqual(desktop.window.call_args_list[0].kwargs,
                          {"class_name":"mmui::ProfileUniquePop","process":123,"visible_only":True})
-        profile.wait.assert_called_once_with("visible",timeout=8)
         click.assert_called_once()
+        wrong_click.assert_not_called()
+        with patch.dict(sys.modules,{"pywinauto":SimpleNamespace(Desktop=lambda **kw:desktop)}), patch("adapter._ensure_foreground"):
+            with self.assertRaises(CaptureError) as mismatch:
+                _open_moments_from_chat(main,"好友",(None,None,ui),expected_identifier="W-another")
+        self.assertEqual(mismatch.exception.code, "MOMENTS_OWNER_UNVERIFIED")
 
     def test_bundle_uses_database_account_identity_and_retains_selected_label(self):
         import sys
@@ -109,9 +208,10 @@ class MomentsCaptureTests(unittest.TestCase):
 
     def run_album(self, count, limit=10, all_visible=True, no_focus=False, stuck_at=None, scroll_proof=True, through_capture=False, changed_at=None):
         album = Album(count, no_focus, stuck_at, scroll_proof)
-        detail = SimpleNamespace(exists=lambda **kwargs: True,
+        detail = SimpleNamespace(exists=lambda **kwargs: album.detail_open,
+            is_visible=lambda: album.detail_open,
             children=lambda **kwargs: [SimpleNamespace(window_text=lambda: f"好友 动态 {album.index} 2026年10月18日")])
-        back = SimpleNamespace(click_input=lambda: None)
+        back = SimpleNamespace(click_input=lambda: setattr(album, "detail_open", False))
         window = SimpleNamespace(child_window=lambda **kwargs: {"album": album, "detail": detail, "back": back}[kwargs["auto_id"]])
         ui = SimpleNamespace(Lists=SimpleNamespace(MomentsList={"auto_id": "album"}, SnsDetailList={"auto_id": "detail"}),
              Buttons=SimpleNamespace(BackButton={"auto_id": "back"}),
@@ -120,14 +220,14 @@ class MomentsCaptureTests(unittest.TestCase):
         ui.Texts = None
         main = SimpleNamespace(handle=321, process_id=lambda: 123)
         partials, progress = [], []
-        with patch("adapter._open_target", return_value=main), patch("adapter._assert_target"), patch("adapter._open_moments_from_chat", return_value=window), \
+        with patch("adapter._open_target", return_value=main), patch("adapter._assert_target"), patch("adapter._ensure_foreground"), patch("adapter._open_moments_from_chat", return_value=window), \
              patch("adapter._image", return_value={"data": "test", "mime": "image/jpeg"}), patch("adapter.time.sleep"):
             if through_capture:
                 import sys
                 source = Source()
                 source.contact.execute("UPDATE contact SET remark='好友'")
                 opened = False
-                def open_album(*args):
+                def open_album(*args, **kwargs):
                     nonlocal opened
                     opened = True
                     return window
