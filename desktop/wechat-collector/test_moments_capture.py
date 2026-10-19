@@ -7,7 +7,7 @@ from unittest.mock import patch, Mock
 import re
 
 from adapter import (_moments, _resolve_moments_contact, _open_moments_source,
-                     _visible_moment_cells, _viewport_has_trailing_space,
+                     _visible_moment_cells, _viewport_has_trailing_space, _cell_scan_key,
                      _prepare_capture_ui, _advance_moments_list, capture, CaptureError)
 from compatibility import prepare_capture_ui
 from background_reader import BackgroundCaptureError
@@ -70,12 +70,19 @@ class MomentsCaptureTests(unittest.TestCase):
         def cell(top, bottom):
             return SimpleNamespace(class_name=lambda: "mmui::AlbumContentCell",
                                    rectangle=lambda: rect(top, bottom), is_visible=lambda: True)
-        rows = [cell(5, 25), cell(101, 131)]
+        rows = [cell(0, 60), cell(101, 131)]
         listing = SimpleNamespace(rectangle=lambda: rect(0, 100), children=lambda **kwargs: rows)
-        self.assertEqual(_visible_moment_cells(listing), rows[:1])
+        self.assertEqual(_visible_moment_cells(listing), [])
         self.assertFalse(_viewport_has_trailing_space(listing))
-        rows[:] = [cell(5, 25), cell(30, 75)]
+        rows[:] = [cell(0, 100)]
+        self.assertEqual(_visible_moment_cells(listing), rows)
+        rows[:] = [cell(30, 75)]
         self.assertTrue(_viewport_has_trailing_space(listing))
+        first = SimpleNamespace(class_name=lambda: "mmui::AlbumContentCell", window_text=lambda: "同一条动态",
+                                rectangle=lambda: rect(10, 40))
+        moved = SimpleNamespace(class_name=lambda: "mmui::AlbumContentCell", window_text=lambda: "同一条动态",
+                                rectangle=lambda: rect(50, 80))
+        self.assertEqual(_cell_scan_key(first), _cell_scan_key(moved))
 
     def test_pinned_album_returns_to_ordinary_feed_without_marking_feed_as_pinned(self):
         class TwoLists:

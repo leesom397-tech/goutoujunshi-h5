@@ -521,7 +521,7 @@ def _resolve_moments_contact(request, source=None):
             source.close()
 
 
-def _open_moments_from_chat(main, friend, modules, expected_identifier=None):
+def _open_moments_from_chat(main, friend, modules, expected_identifier=None, _retry=0):
     """Open the already verified chat's album, without upstream's second search."""
     from pywinauto import Desktop
     _, Tools, ui = modules
@@ -628,6 +628,13 @@ def _open_moments_from_chat(main, friend, modules, expected_identifier=None):
                 return album
         except Exception:
             continue
+    if _retry < 1:
+        # Some WeChat builds close the profile on the first click without
+        # opening the embedded album. Reopen the verified contact card and
+        # resolve a fresh Moments button rather than clicking stale wrappers.
+        time.sleep(.35)
+        return _open_moments_from_chat(main, friend, modules,
+                                       expected_identifier=expected_identifier, _retry=_retry + 1)
     raise CaptureError("MOMENTS_ENTRY_UNAVAILABLE", "朋友圈入口没有打开，请保持微信窗口可见后重试。") from None
 
 
@@ -651,7 +658,7 @@ def _visible_moment_cells(listing):
         # Qt/UIA may report a recycled cell as visible even when its click
         # centre is outside the scroll viewport. Clicking it can hit the app
         # underneath or a different post.
-        if bounds and rect and not (bounds[1] <= (rect[1] + rect[3]) / 2 <= bounds[3]):
+        if bounds and rect and not (bounds[1] + 48 <= (rect[1] + rect[3]) / 2 <= bounds[3] - 32):
             continue
         if _is_visible(cell):
             cells.append(cell)
@@ -671,6 +678,16 @@ def _viewport_has_trailing_space(listing):
     rects = [_control_rect(cell) for cell in posts]
     rects = [rect for rect in rects if rect]
     return bool(rects and max(rect[3] for rect in rects) <= bounds[3] - 16)
+
+
+def _cell_scan_key(cell):
+    """Keep a post marked as visited while Qt moves/recycles its wrapper."""
+    label = _normalized_label(_safe_text(cell))
+    try:
+        kind = cell.class_name()
+    except Exception:
+        kind = ""
+    return kind, label if label else _control_rect(cell)
 
 
 def _viewport_fingerprint(listing):
@@ -899,7 +916,7 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
                 return None
             post_keys.add(post_key)
             rows.append(row)
-            completion["recordCount"] = len(rows)
+            completion["recordCount"] = moment_count()
             if pinned:
                 completion["pinnedCount"] += 1
             return row
@@ -951,7 +968,7 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
             cells = _visible_moment_cells(listing)
             fresh = []
             for cell in cells:
-                key = (_normalized_label(_safe_text(cell)), _control_rect(cell))
+                key = _cell_scan_key(cell)
                 if key not in pinned_seen:
                     fresh.append((cell, key))
             if fresh:
@@ -967,7 +984,7 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
                     if pinned_attempts[key] >= 3:
                         pinned_seen.add(key)
                         completion["unreadableCount"] += 1
-                        warnings.append("一条置顶动态无法打开，已保留其他已读内容。")
+                        warnings.append(f"一条置顶动态无法打开（{error.code}），已保留其他已读内容。")
                 report(50 if all_visible else min(90, 15 + int(moment_count() / max(limit, 1) * 70)),
                        f"已读取置顶 {completion['pinnedCount']} 条朋友圈", "read_pinned")
                 if on_rows and moment_count() and (moment_count() == 1 or time.monotonic() - last_publish >= 5):
@@ -1018,7 +1035,7 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
         cells = _visible_moment_cells(listing)
         fresh = []
         for cell in cells:
-            key = (_normalized_label(_safe_text(cell)), _control_rect(cell))
+            key = _cell_scan_key(cell)
             if key not in normal_seen:
                 fresh.append((cell, key))
         if fresh:
