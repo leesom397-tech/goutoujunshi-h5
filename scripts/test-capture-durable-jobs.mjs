@@ -363,6 +363,31 @@ await test('standalone full Moments reads beyond ten posts and accounts captions
   const same=await start(data.owner,{...body,requestId:crypto.randomUUID()},200);assert.equal(same.status,'done');assert.equal(balance(data.owner),1000-credits.CREDIT_PRICES.profile,'unchanged Moments reuse the report without charging again');
 });
 
+await test('persistent Moments synthesis failure publishes a grounded degraded report',async()=>{
+  const data=await setup(2),momentsId=await addRelated(data,3);
+  const body={...data.body,requestId:crypto.randomUUID(),kind:'moments',libraryId:momentsId,expectedTotal:3,relatedSnapshots:[]};
+  // Let all image/caption segments finish normally; only the final prose pass
+  // is unavailable. The durable object should switch to its one bounded
+  // evidence-only pass after three transient synthesis failures.
+  providerFailure=(messages,options)=>{
+    const detail=JSON.parse(typeof messages.at(-1).content==='string'?messages.at(-1).content:messages.at(-1).content[0].text);
+    if(options?.vision)return JSON.stringify({readable:true,observation:'动态预览中可见海边步道。'});
+    if(detail.rows)return JSON.stringify({findings:detail.rows.slice(0,2).map(row=>({claim:'已核对动态线索。',confidence:'低',alternative:'公开记录仍需结合实际沟通。',evidence:[{sourceId:row.sourceId,quote:row.text}]}))});
+    throw Error('SYNTHETIC_SYNTHESIS_TIMEOUT');
+  };
+  await start(data.owner,body);
+  const degraded=await finish(data.owner);
+  assert.equal(degraded.status,'done',degraded.error);
+  assert.equal(degraded.result.degradedSynthesis,true);
+  assert.equal(degraded.result.semanticHistory.status,'unavailable');
+  assert.match(degraded.result.semanticHistory.explanation,/没有在时限内返回完整结果/);
+  assert.ok(degraded.result.semanticHistory.findings.length,'verified findings remain available');
+  assert.equal(balance(data.owner),1000-credits.CREDIT_PRICES.profile);
+  providerFailure=null;
+  const fresh=await start(data.owner,{...body,requestId:crypto.randomUUID()});
+  assert.equal(fresh.reused,undefined,'degraded reports must not be reused as complete analysis');
+});
+
 await test('omitted imported Moments interpretation retries rather than delivering a chat-only complete report',async()=>{
   const data=await setup(2);await addRelated(data,1);await start(data.owner,data.body);await alarm(data.owner);
   providerFailure=messages=>{const detail=JSON.parse(messages.at(-1).content);if(detail.rows)return JSON.stringify({findings:detail.rows.slice(0,1).map(row=>({claim:'已核对动态原文',evidence:[{sourceId:row.sourceId,quote:row.text}]}))});return JSON.stringify({summary:'只有聊天概括',explanation:'有交流但尚需核实。',summaryEvidenceIds:[detail.findings[0].id],affinityAssessment:{dimensions:[],unavailableReason:'互动维度不足'}});};

@@ -117,6 +117,14 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
     if (isCaptureJobControl(error)) throw error;
     semanticHistory = unavailableCaptureSemanticHistory(history.readable, momentsOnly?0:history.records.length, 0);
   }
+  // The degraded checkpoint intentionally contains enough bounded fields for
+  // the report renderer, but it is not a completed relationship synthesis.
+  // Keep that distinction in the semantic status/coverage so the UI and later
+  // retries never present the evidence-only fallback as a full conclusion.
+  if (job?.manifest?.allowDegraded === true) {
+    semanticHistory.status = "unavailable";
+    semanticHistory.coverage.limitation = [semanticHistory.coverage.limitation, "综合判断未完成；当前仅展示已核对的原文与图片依据。"].filter(Boolean).join(" ");
+  }
   const modelComplete = semanticHistory.status === "complete" && semanticHistory.coverage.analyzedText === history.readable.length;
   for (const coverage of related.sourceCoverage) {
     coverage.textRead = coverage.kind === "chat" ? semanticHistory.coverage.analyzedText : semanticHistory.coverage.sources?.[coverage.libraryId]?.captions || 0;
