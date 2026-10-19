@@ -98,9 +98,11 @@ export default function CapturePage() {
   const [contactRetry,setContactRetry]=useState(0);
   const [allVisibleMoments,setAllVisibleMoments]=useState(true);
   const [idleSeconds,setIdleSeconds]=useState(0), [analysisSeconds,setAnalysisSeconds]=useState(0);
+  const [captureElapsed,setCaptureElapsed]=useState(0);
   const lastProgressAt=useRef(Date.now());
   useEffect(()=>{lastProgressAt.current=Date.now();setIdleSeconds(0);},[jobId,note,jobMessage,progress,library?.records.length,library?.updatedAt]);
   useEffect(()=>{if(!jobId)return;const timer=setInterval(()=>setIdleSeconds(Math.floor((Date.now()-lastProgressAt.current)/1000)),2000);return()=>clearInterval(timer);},[jobId]);
+  useEffect(()=>{if(!busy&&!jobId){setCaptureElapsed(0);return;}const started=Date.now(),timer=setInterval(()=>setCaptureElapsed(Math.floor((Date.now()-started)/1000)),1000);return()=>clearInterval(timer);},[busy,jobId]);
   useEffect(()=>{setAnalysisSeconds(0);if(!analyzing)return;const started=Date.now(),timer=setInterval(()=>setAnalysisSeconds(Math.floor((Date.now()-started)/1000)),1000);return()=>clearInterval(timer);},[analyzing]);
   useEffect(()=>{
     if(!revealReportAfterImport.current || busy || personImport!=="idle" || jobId || !library)return;
@@ -1148,6 +1150,8 @@ export default function CapturePage() {
   const showJobStatus = !momentsResultOnly&&(!!jobId || jobPhase === "checking" || jobPhase === "failed" || jobPhase === "missing");
   const jobProgressValue = kind === "moments" && jobPhase === "running" || jobPhase === "checking" || jobPhase === "running" && progress <= 0 ? undefined : Math.min(100, Math.max(0, progress));
   const jobStatusText = subjectBusy ? "正在关联微信好友，接下来读取朋友圈或聊天…" : busy ? note || jobMessage : jobMessage || (jobPhase === "done" ? "导入已完成，点击保存最后一页。" : jobPhase === "running" ? "本机任务仍在运行，已保存的内容可以继续查看。" : "正在核对本机导入任务…");
+  const captureCount = currentMomentsAttempt?.received ?? library?.records.length ?? 0;
+  const captureSpeed = captureElapsed > 2 ? (captureCount / captureElapsed).toFixed(1) : "—";
   const openSyncGuide = () => { if (syncGuide.current) { syncGuide.current.open = true; syncGuide.current.scrollIntoView({block:"center",behavior:"smooth"}); } };
   const kindPicker = <div className={styles.kinds} aria-label="采集内容">{([{key:"chat",label:"聊天记录",Icon:MessageSquare},{key:"moments",label:"朋友圈",Icon:Images}] as const).map(({key,label,Icon}) => <button disabled={locked || !!receipt} aria-pressed={kind === key} key={key} onClick={() => { if(key === kind)return; setKind(key); setLimit(key === "chat" ? 40 : 10); setLibrary(null); setSelected([]); setStats(null); setReportId(""); setConsent(false); setSubject(""); setNote(""); setError(""); }}><Icon size={18}/>{label}</button>)}</div>;
   return <div className={ui.page}><WebNav guideReady={!!owner && !account.loading}/><FirstUseTour owner={owner} page="capture" method={method} ready={!account.loading} auto={method !== "desktop" && !locked && !jobId && !receipt && !library}/><main className={`${ui.wrap} ${styles.page}`}>
@@ -1274,6 +1278,7 @@ export default function CapturePage() {
         </section> : null}
       </div>
     </div>
+    {busy && jobId && <div className={styles.captureShield} role="dialog" aria-modal="true" aria-label="正在采集，请稍候" onKeyDown={e=>{if(e.key!=="Escape")e.preventDefault();}}><div className={styles.captureShieldCard}><LoaderCircle className={styles.spin} size={26}/><div><strong>正在读取微信资料</strong><p>{jobStatusText || "请保持微信窗口打开并置于前台。"}</p><small>已用时 {Math.floor(captureElapsed/60)} 分 {captureElapsed%60} 秒 · 已读 {captureCount} 条 · {captureSpeed} 条/秒</small><small>总条数以微信实际可见内容为准，正在确认是否还有更早记录。</small></div><button type="button" className={ui.secondary} onClick={()=>void cancel()} disabled={analyzing}><Square size={15}/>停止采集</button></div></div>}
     {image && <div className={styles.imageModal} role="dialog" aria-modal="true" aria-label="来源截图" onClick={() => setImage(null)}><button onClick={() => setImage(null)} aria-label="关闭来源截图"><X size={23}/></button><img src={image} alt="来源截图完整预览" onClick={e => e.stopPropagation()}/></div>}
   </main></div>;
 }

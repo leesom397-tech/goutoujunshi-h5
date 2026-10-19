@@ -72,7 +72,7 @@ class MomentsCaptureTests(unittest.TestCase):
             SimpleNamespace(exists=lambda **kw: True) if "auto_id" in kw else link)
         pane = SimpleNamespace(exists=lambda **kw: True, is_visible=lambda: True,
             child_window=lambda **kw: SimpleNamespace(wait=lambda *a, **kw:
-                SimpleNamespace(children=lambda **kw: [SimpleNamespace(click_input=Mock())])))
+                SimpleNamespace(click_input=Mock(), children=lambda **kw: [SimpleNamespace(click_input=Mock())])))
         main = SimpleNamespace(process_id=lambda: 123, child_window=lambda **kw: pane)
         desktop = SimpleNamespace(window=Mock(return_value=profile))
         ui = SimpleNamespace(Windows=SimpleNamespace(MomentsWindow={"title":"album"}),

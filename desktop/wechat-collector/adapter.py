@@ -280,6 +280,15 @@ def _moments_at_visible_end(listing):
         return False
 
 
+def _control_is_visible(control):
+    """UIA controls in older WeChat builds may not expose is_visible()."""
+    try:
+        value = getattr(control, "is_visible", None)
+        return bool(value() if callable(value) else value) if value is not None else True
+    except Exception:
+        return True
+
+
 def _open_moments_source(request, visible_account):
     """Keep one authorized account snapshot; verification must not navigate UI."""
     from background_reader import _provider_module, _contact_metadata_columns
@@ -341,7 +350,7 @@ def _open_moments_from_chat(main, friend, modules):
     buttons = avatar.children(control_type="Button")
     if not buttons:
         raise CaptureError("MOMENTS_UNREADABLE", "无法打开所选好友的资料，请关闭微信弹窗后重试。")
-    buttons[0].click_input()
+    avatar.click_input()
     # The profile is a separate top-level popup on 4.1.15. Do not switch
     # permanently to a main-window child just because it is still opening.
     profile = Desktop(backend="uia").window(class_name="mmui::ProfileUniquePop",
@@ -410,7 +419,7 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
         if signature:
             rows.append({"kind": "text", "sender": friend, "senderRole": "other", "text": signature,
                          "source": {"materialRole": "profile-signature"}})
-    idle, image_bytes = 0, 0
+    idle, image_bytes, recovery_attempts = 0, 0, 0
     completion = {"scope": "all-visible" if all_visible else "requested-count", "complete": False,
                   "stopReason": "scanning", "recordCount": 0, "imageOmittedCount": 0, "unreadableCount": 0}
     last_publish = time.monotonic()
@@ -418,17 +427,44 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
         return sum(row.get("kind") == "post" for row in rows)
     while True:
         assert_view()
+        # WeChat virtualizes/recreates sns_list while older posts load. Never
+        # keep using a stale UIA wrapper after that replacement.
+        try:
+            current_lists = [item for item in main.descendants(control_type="List")
+                             if getattr(item.element_info, "automation_id", "") == "sns_list"
+                             and _control_is_visible(item)]
+            if len(current_lists) == 1:
+                listing = current_lists[0]
+                try:
+                    listing.wait("ready", timeout=1)
+                except Exception:
+                    pass
+        except (AttributeError, TypeError):
+            # Synthetic/older wrappers do not provide descendants; retain the
+            # verified listing instead of treating this as a navigation error.
+            current_lists = [listing]
+        except Exception:
+            recovery_attempts += 1
+            if recovery_attempts >= 20:
+                completion["stopReason"] = "navigation-stalled"
+                break
+            time.sleep(.35)
+            continue
         listing.type_keys("{DOWN}", pause=0.12, set_foreground=True)
         selected = [item for item in listing.children(control_type="ListItem") if item.has_keyboard_focus()]
         if not selected:
             # Returning from details may remove keyboard focus entirely. Read
             # an unseen visible cell before scrolling the actual list viewport.
-            selected = [cell for cell in listing.children(control_type="ListItem")
-                        if cell.class_name() not in ("mmui::AlbumBaseCell", "mmui::AlbumTopCell")
-                        and cell.window_text() not in seen]
+            visible_cells = [cell for cell in listing.children(control_type="ListItem")
+                             if cell.class_name() not in ("mmui::AlbumBaseCell", "mmui::AlbumTopCell")
+                             and _control_is_visible(cell)]
+            # A recreated list may have no keyboard focus. Inspect the last
+            # visible content cell directly; post_keys removes overlap after
+            # the detail is read, so same-text posts are not lost here.
+            selected = [visible_cells[-1]] if visible_cells else []
             if not selected:
-                idle += 1
-                if idle >= 5:
+                recovery_attempts += 1
+                if recovery_attempts >= 20:
                     if pinned_mode:
                         back.click_input()
                         listing.wait("ready", timeout=3)
@@ -439,20 +475,31 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
                     completion["stopReason"] = "navigation-stalled"
                     break
                 try:
+                    # Re-focus the current list and use both keyboard and mouse
+                    # paths. WeChat 4.1.15 does not expose ScrollPattern.
+                    listing.type_keys("{PAGEDOWN}", pause=.1, set_foreground=True)
                     from pywinauto import mouse
                     rect = listing.rectangle()
-                    mouse.scroll(coords=(rect.left + rect.width() // 2, rect.top + rect.height() // 2), wheel_dist=-4)
-                    time.sleep(.6)
+                    mouse.scroll(coords=(rect.left + rect.width() // 2, rect.top + rect.height() // 2), wheel_dist=-5)
+                    time.sleep(.45)
                 except Exception:
                     pass
                 continue
         item = selected[0]
+        recovery_attempts = 0
         # Virtualized lists recycle runtime IDs. Include visible content so
         # thousands of old posts are not mistaken for the first loaded page.
         runtime = item.window_text()
         if runtime in seen:
-            idle += 1
-            if idle >= 8:
+            alternatives = [cell for cell in listing.children(control_type="ListItem")
+                            if cell.class_name() not in ("mmui::AlbumBaseCell", "mmui::AlbumTopCell")
+                            and _control_is_visible(cell) and cell.window_text() not in seen]
+            if alternatives:
+                item = alternatives[-1]
+                runtime = item.window_text()
+            else:
+                idle += 1
+            if runtime in seen and idle >= 8:
                 if pinned_mode:
                     back.click_input()
                     listing.wait("ready", timeout=3)
@@ -469,8 +516,8 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
                      f"已读取 {moment_count()} 条朋友圈，正在确认是否还有更早动态…")
             time.sleep(.5)
             continue
-        seen.add(runtime)
         if item.class_name() == "mmui::AlbumTopCell":
+            seen.add(runtime)
             if not pinned_handled and item.window_text().strip() in ("置顶", "置頂", "Pinned"):
                 pinned_handled = pinned_mode = True
                 item.click_input()
@@ -478,6 +525,7 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
                 seen.clear()
             continue
         if item.class_name() == "mmui::AlbumBaseCell":
+            seen.add(runtime)
             continue
         idle = 0
         item.click_input()
@@ -515,13 +563,18 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
                 warnings.append("部分朋友圈详情截图未获取，已保留可读文字。")
             if not content.strip() and not row.get("images"):
                 completion["unreadableCount"] += 1
+                seen.add(runtime)
                 continue
             assert_view()
             post_key = (at, content)
             if content and post_key in post_keys:
+                seen.add(runtime)
                 continue
             post_keys.add(post_key)
             rows.append(row)
+            # Mark only after a detail was read and accepted. A transient
+            # open failure must be retried after the list is reactivated.
+            seen.add(runtime)
             completion["recordCount"] = len(rows)
             progress(50 if all_visible else min(90, 15 + int(len(rows) / limit * 70)), f"已读取 {moment_count()} 条朋友圈，继续读取更早动态…")
         finally:
