@@ -15,3 +15,8 @@ export function momentsOutcome(batch:CaptureBatch,attempt:MomentsAttempt,interim
  const complete=received>=attempt.received&&!!coverage&&coverage.recordCount===received&&coverage.unreadableCount===0&&coverage.imageOmittedCount===0&&(attempt.allVisible?coverage.scope==='all-visible'&&coverage.complete&&coverage.stopReason==='visible-end':coverage.complete||coverage.scope==='requested-count'&&coverage.stopReason==='requested-count');
  return {status:complete?'complete':'partial',received,coverage,...counts,detail:complete?attempt.allVisible?'已确认采集到这位好友的可见末尾。':'所选数量已采集，未代表全部朋友圈。':`这次读到 ${scope}，但尚未确认采集完整。${coverage?.stopReason==='navigation-stalled'?'微信列表未能继续翻页。':''}${coverage?.unreadableCount?`有 ${coverage.unreadableCount} 条未能读取。`:''}${coverage?.imageOmittedCount?`有 ${coverage.imageOmittedCount} 张配图未保存。`:''}已读原文会保留，可继续重试。`};
 }
+
+/** Only final, source-verified batches may continue; incomplete coverage stays explicit. */
+export function canContinueMoments(attempt:MomentsAttempt|null|undefined){
+ return !!attempt && (attempt.status==='complete'||attempt.status==='partial') && attempt.received>0 && !!attempt.libraryId;
+}

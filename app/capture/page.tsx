@@ -29,7 +29,7 @@ import { captureContactKey, contactFromCaptureLibrary, type CaptureContact } fro
 import { selectCaptureMemory } from "@/lib/capture-memory-selection";
 import { ChatActivity } from "@/components/ChatActivity";
 import { prepareChatActivityUpload } from "@/lib/chat-activity";
-import {momentsOutcome,momentsEntryKey,type MomentsAttempt} from '@/lib/capture-moments-outcome';
+import {canContinueMoments,momentsOutcome,momentsEntryKey,type MomentsAttempt} from '@/lib/capture-moments-outcome';
 import { CaptureCloudError, listSyncedCaptureLibraries, openSyncedCaptureLibrary, syncCaptureLibrary, deleteCloudCaptureLibrary, linkSyncedReportSources, type SyncedLibrarySummary } from "@/lib/capture-cloud-client";
 import ui from "@/components/AuroraUI.module.css";
 import styles from "./capture.module.css";
@@ -58,6 +58,7 @@ const stored = <T,>(key: string): T | null => { try { return JSON.parse(sessionS
 const remember = (key: string, value: unknown) => { if (value === null) sessionStorage.removeItem(key); else sessionStorage.setItem(key, JSON.stringify(value)); };
 
 export default function CapturePage() {
+  const retryingMoments = useRef(false);
   const account = useAccount(), owner: string = account.account?.account?.userId || "";
   const generation = useRef(0), abort = useRef<AbortController | null>(null), token = useRef(""), recordList = useRef<HTMLDivElement | null>(null), openingLibrary = useRef(0), syncGuide = useRef<HTMLDetailsElement | null>(null), currentLibrary = useRef<CaptureLibrary | null>(null);
   const requestedSubject = useRef(""), personChosen = useRef(false), autoSyncedKey = useRef("");
@@ -818,6 +819,29 @@ export default function CapturePage() {
     }
     finally { if (ticket === generation.current) {setBusy(false);setHistoryRunning(false);setVoiceEnriching(false);} }
   }
+  async function retryMoments(){
+    if(!owner||analyzing||cloudBusy||retryingMoments.current)return;
+    retryingMoments.current=true;
+    const previous=stored<StoredCaptureJob>(scopeKey("job"));
+    const ticket=++generation.current;
+    abort.current?.abort();
+    setBusy(true);setError("");setJobMessage("正在结束旧任务并重新检查微信…");
+    try{
+      if(previous?.jobId){
+        try{
+          const stopped=await bridgeRequest<Job>(`/jobs/${encodeURIComponent(previous.jobId)}/cancel`,{token:token.current,body:{}});
+          if(stopped.partial)await accept(stopped.partial,owner,ticket,true);
+        }catch(cause){
+          if(!(cause instanceof BridgeError && cause.status===404))throw cause;
+        }
+      }
+      if(ticket!==generation.current)return;
+      remember(scopeKey("job"),null);setJobId("");setJobPhase("idle");setBusy(false);
+      const status=await bridgeRequest<BridgeHealth>("/health");setHealth(status);
+      if(status.uiCode==='WECHAT_LOGIN_REQUIRED'||status.uiCode==='WECHAT_NOT_RUNNING')throw Error("请先完成微信登录，再点重新连接并重试。已保存资料不会删除。");
+      await capture(false,false,false,false,"moments");
+    }catch(cause){if(ticket===generation.current){setBusy(false);setJobPhase("failed");setError(message(cause));setShowImportControls(true);}}finally{retryingMoments.current=false;}
+  }
   async function cancel() {
     personStopped.current=true;
     if (!jobId) return;
@@ -899,7 +923,7 @@ export default function CapturePage() {
   async function restoreCompletedPersonPair(completed:CaptureLibrary|undefined,identity:Partial<Pick<CaptureContact,"contactId"|"accountKey">>|null|undefined,scope:string,ticket:number){
     if(personImporting.current)return;
     const attempt=stored<MomentsAttempt>(`chengzi-capture:${scope}:moments-attempt`);
-    if(attempt?.status!=='complete'||attempt.received<=0||attempt.libraryId!==completed?.id)return;
+    if(!canContinueMoments(attempt)||attempt!.libraryId!==completed?.id)return;
     const verified=await verifiedPersonPairChat(completed,identity,scope,ticket);
     if(!verified||!completed||ticket!==generation.current)return;
     const {chat,plan}=verified;
@@ -910,12 +934,12 @@ export default function CapturePage() {
   }
   async function confirmMomentsResult(){
     const attempt=stored<MomentsAttempt>(scopeKey('moments-attempt')),ticket=generation.current;
-    if(!attempt||attempt.status!=='complete'||!attempt.received||!attempt.libraryId||locked)return;
+    if(!attempt||!canContinueMoments(attempt)||!attempt.libraryId||locked)return;
     setBusy(true);setError('');
     try{const completed=await getCaptureLibrary(owner,attempt.libraryId);if(!completed||completed.kind!=='moments')throw Error('本次保存的朋友圈暂时无法打开，请重试。');
       const restored=await restoreCompletedPersonPair(completed,attempt,owner,ticket);if(ticket!==generation.current)return;
       if(!restored){if(supplementMoments)throw Error('原聊天的关联信息暂不可用。朋友圈已经保存，请从原报告重新打开补充入口。');setLibrary(completed);currentLibrary.current=completed;setKind('moments');selectPending(completed);setShowImportControls(false);}
-      updateMomentsAttempt(null);setNote('本次采集结果已确认。下一步确认材料与费用后生成报告。');
+      updateMomentsAttempt(null);setNote(attempt.status==='partial'?'已选择用保存的资料继续分析；尚未确认采集完整，报告会标明覆盖范围。':'本次采集结果已确认。下一步确认材料与费用后生成报告。');
     }catch(cause){setError(message(cause));setShowImportControls(true);}finally{if(ticket===generation.current)setBusy(false);}
   }
   function savePersonPair(chat:CaptureLibrary,moments:CaptureLibrary,person=subject){
@@ -1164,13 +1188,13 @@ export default function CapturePage() {
               <p>{kind === "chat" ? "文字先导入，语音自动补齐。" : "采集到可见末尾，期间请保持微信在前台。"}</p>{!jobId && !supplementMoments && <button className={styles.refreshLibraries} disabled={locked} onClick={()=>setSelectedContact(null)}>重新选择好友</button>}
               {kind === "moments" && !jobId && <details className={styles.rangeOptions}><summary>调整采集范围</summary><label className={styles.field}>采集范围<select value={allVisibleMoments ? "all" : String(limit)} disabled={locked} onChange={e=>{setAllVisibleMoments(e.target.value === "all");if(e.target.value!=="all")setLimit(Number(e.target.value));}}><option value="all">全部可见朋友圈</option>{[5,10,20,50].map(n=><option key={n} value={n}>最近 {n} 条</option>)}</select></label></details>}
               {error && error!==currentMomentsAttempt?.detail && <p className={styles.importError} role="alert">{error}</p>}
-              {currentMomentsAttempt&&<section className={styles.momentsResult} data-moments-result={currentMomentsAttempt.status} aria-live="polite"><h3>{currentMomentsAttempt.status==='running'?'本次正在采集':currentMomentsAttempt.status==='complete'?'本次朋友圈已保存，请确认':currentMomentsAttempt.status==='empty'?'本次没有读到动态':currentMomentsAttempt.status==='partial'?'本次只完成了部分采集':currentMomentsAttempt.status==='stale'?'未收到本次任务的有效结果':'本次采集未完成'}</h3><p role={['failed','stale'].includes(currentMomentsAttempt.status)?'alert':'status'}>{currentMomentsAttempt.detail}</p><dl><div><dt>本次读到动态</dt><dd>{currentMomentsAttempt.momentCount ?? currentMomentsAttempt.received} 条</dd></div><div><dt>新增保存</dt><dd>{currentMomentsAttempt.added} 条</dd></div><div><dt>已有重复</dt><dd>{currentMomentsAttempt.repeated} 条</dd></div></dl>{!!currentMomentsAttempt.profileMaterialCount&&<p>另有 {currentMomentsAttempt.profileMaterialCount} 项封面／签名资料，不计入动态。</p>}{currentMomentsAttempt.total>0&&<small>资料库累计 {currentMomentsAttempt.total} 条，不代表本次采集条数。</small>}{currentMomentsAttempt.status==='complete'?<button type="button" className={ui.primary} disabled={locked} onClick={()=>void confirmMomentsResult()}>确认本次结果，继续报告<ArrowRight size={17}/></button>:currentMomentsAttempt.status!=='running'&&<button type="button" className={ui.primary} disabled={locked||!!jobId} onClick={()=>void capture()}><RefreshCw size={17}/>重试本次朋友圈采集</button>}{currentMomentsAttempt.status!=='running'&&currentMomentsAttempt.status!=='complete'&&<><a className={ui.secondary} data-moments-fallback="screenshots" href={intakeHref('/analyze',{mode:'moments',subjectId:subject,returnTo})}>改用朋友圈截图分析<Images size={17}/></a><small>单独分析上传的动态，保留当前人物。不会自动合并进原报告。</small></>}</section>}
+              {currentMomentsAttempt&&<section className={styles.momentsResult} data-moments-result={currentMomentsAttempt.status} aria-live="polite"><h3>{currentMomentsAttempt.status==='running'?'本次正在采集':currentMomentsAttempt.status==='complete'?'本次朋友圈已保存，请确认':currentMomentsAttempt.status==='empty'?'本次没有读到动态':currentMomentsAttempt.status==='partial'?'本次只完成了部分采集':currentMomentsAttempt.status==='stale'?'未收到本次任务的有效结果':'本次采集未完成'}</h3><p role={['failed','stale'].includes(currentMomentsAttempt.status)?'alert':'status'}>{currentMomentsAttempt.detail}</p><dl><div><dt>本次读到动态</dt><dd>{currentMomentsAttempt.momentCount ?? currentMomentsAttempt.received} 条</dd></div><div><dt>新增保存</dt><dd>{currentMomentsAttempt.added} 条</dd></div><div><dt>已有重复</dt><dd>{currentMomentsAttempt.repeated} 条</dd></div></dl>{!!currentMomentsAttempt.profileMaterialCount&&<p>另有 {currentMomentsAttempt.profileMaterialCount} 项封面／签名资料，不计入动态。</p>}{currentMomentsAttempt.total>0&&<small>资料库累计 {currentMomentsAttempt.total} 条，不代表本次采集条数。</small>}{canContinueMoments(currentMomentsAttempt)&&<button type="button" className={ui.primary} disabled={locked} onClick={()=>void confirmMomentsResult()}>{currentMomentsAttempt.status==='partial'?'用已保存资料继续分析':'确认本次结果，继续报告'}<ArrowRight size={17}/></button>}{currentMomentsAttempt.status!=='running'&&currentMomentsAttempt.status!=='complete'&&<button type="button" className={ui.primary} disabled={locked||!!jobId} onClick={()=>void retryMoments()}><RefreshCw size={17}/>重试本次朋友圈采集</button>}{currentMomentsAttempt.status!=='running'&&currentMomentsAttempt.status!=='complete'&&<><a className={ui.secondary} data-moments-fallback="screenshots" href={intakeHref('/analyze',{mode:'moments',subjectId:subject,returnTo})}>改用朋友圈截图分析<Images size={17}/></a><small>单独分析上传的动态，保留当前人物。不会自动合并进原报告。</small></>}</section>}
               {historyState && kind === "chat" && <small>{historyState.complete ? "上次完整导入已完成，本次检查新增记录。" : `已保存 ${library?.records.length || historyState.count} 条，可中断后继续。`}</small>}
               <p className={styles.readyCaption}>导入即同意保存你有权提供的资料并启用人物档案；按所选微信好友自动关联，默认使用微信头像。</p>
               {kind === "chat" && !jobId && <><button className={`${ui.primary} ${styles.full}`} disabled={locked || !!receipt} onClick={()=>void importPerson()}><Download size={18}/>导入这个人的全部资料</button><small>聊天、语音与全部可见朋友圈 · 朋友圈采集时需保持微信在前台</small></>}<button hidden={!!jobId || !!currentMomentsAttempt && currentMomentsAttempt.status!=="running"} className={`${kind === "chat" ? styles.refreshLibraries : ui.primary} ${styles.full}`} disabled={!owner || locked || !!receipt || !!jobId } onClick={() => void capture()}>{busy || subjectBusy ? <LoaderCircle className={styles.spin} size={18}/> : <Download size={18}/>} {busy || subjectBusy ? jobId ? "正在导入…" : "正在准备导入…" : kind === "chat" ? `只${importLabel}` : allVisibleMoments ? "导入全部可见朋友圈" : "开始采集朋友圈"}</button>
             </div>}
             {kind === "chat" && !jobId && <details ref={syncGuide} className={styles.syncGuide}><summary><Smartphone size={17}/>电脑上的聊天不全？先同步手机记录</summary><p>手机和电脑登录同一微信，连接同一网络。</p><ol><li>手机微信打开「我 → 设置 → 聊天记录管理」。</li><li>选择「导入与导出 → 导出到电脑」。</li><li>选择这位好友，等待传输完成，再回来导入。</li></ol><p>不同微信版本名称可能不同。仅用于恢复的「备份到电脑」不能直接读取。</p><button className={ui.secondary} disabled={!selectedContact || locked || !!receipt || !!jobId} onClick={()=>void capture(false,false,false,true)}>已同步，重新核对全部</button></details>}
-            {showJobStatus && <div className={styles.job} data-job-phase={jobPhase}><p role="status">{personImport!=="idle" ? `${personImport==="chat"?"1 / 2 · 聊天":"2 / 2 · 朋友圈"} · ` : ""}{jobStatusText}</p><progress max={100} value={jobProgressValue} aria-label="当前采集进度"/><p className={styles.progressDetail}>{currentMomentsAttempt ? `本次已读到 ${currentMomentsAttempt.received} 条 · 新增 ${currentMomentsAttempt.added} 条` : `已保存 ${library?.records.length || 0} 条`}{idleSeconds >= 90 ? ` · ${Math.floor(idleSeconds / 60)} 分钟没有新进度` : ""}</p>{idleSeconds >= 90 && <p className={styles.warning}>助手暂未返回新进度。可以暂停后继续，或先查看已保存材料。</p>}{!busy && (jobPhase === "done" ? <button className={ui.secondary} onClick={() => void capture(true)} disabled={!connected}>保存已完成内容</button> : jobPhase === "failed" || jobPhase === "missing" ? <button className={ui.secondary} onClick={() => void capture(false)} disabled={!connected}>重试导入</button> : <button className={ui.secondary} onClick={() => void capture(true)} disabled={!connected}>继续导入</button>)}{jobId && <button className={ui.secondary} onClick={() => void cancel()} disabled={analyzing}><Square size={15}/>{historyRunning?"暂停导入":"停止采集"}</button>}{library && <button className={ui.secondary} disabled={analyzing} onClick={async()=>{await cancel();setShowImportControls(false);}}>先查看已保存的 {library.records.length} 条<ArrowRight size={16}/></button>}</div>}
+            {showJobStatus && <div className={styles.job} data-job-phase={jobPhase}><p role="status">{personImport!=="idle" ? `${personImport==="chat"?"1 / 2 · 聊天":"2 / 2 · 朋友圈"} · ` : ""}{jobStatusText}</p><progress max={100} value={jobProgressValue} aria-label="当前采集进度"/><p className={styles.progressDetail}>{currentMomentsAttempt ? `本次已读到 ${currentMomentsAttempt.received} 条 · 新增 ${currentMomentsAttempt.added} 条` : `已保存 ${library?.records.length || 0} 条`}{idleSeconds >= 90 ? ` · ${Math.floor(idleSeconds / 60)} 分钟没有新进度` : ""}</p>{idleSeconds >= 30 && <><p className={styles.warning}>助手暂未返回新进度。若微信已退出，请先重新登录；已保存资料会保留。</p>{kind==="moments"&&<button className={ui.secondary} disabled={analyzing||cloudBusy} onClick={()=>void retryMoments()}>重新连接并重试<RefreshCw size={16}/></button>}</>}{!busy && (jobPhase === "done" ? <button className={ui.secondary} onClick={() => void capture(true)} disabled={!connected}>保存已完成内容</button> : jobPhase === "failed" || jobPhase === "missing" ? <button className={ui.secondary} onClick={() => void capture(false)} disabled={!connected}>重试导入</button> : <button className={ui.secondary} onClick={() => void capture(true)} disabled={!connected}>继续导入</button>)}{jobId && <button className={ui.secondary} onClick={() => void cancel()} disabled={analyzing}><Square size={15}/>{historyRunning?"暂停导入":"停止采集"}</button>}{library && <button className={ui.secondary} disabled={analyzing} onClick={async()=>{await cancel();setShowImportControls(false);}}>先查看已保存的 {library.records.length} 条<ArrowRight size={16}/></button>}</div>}
           </>}
           {method === "window" && <label className={styles.field}>当前微信号<input value={wechatAccount} disabled={locked} maxLength={100} onChange={e => setWechatAccount(e.target.value)} placeholder="用于区分本机材料"/></label>}
           {method === "library" && <p className={styles.muted}>打开一份材料，接着生成报告或提问。</p>}

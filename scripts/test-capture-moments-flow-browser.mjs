@@ -31,10 +31,11 @@ async function scenario(width,name){
      else if(url.pathname==='/pair/handoff')value={token:'fixture-token',expiresIn:3600};
      else if(url.pathname==='/health')value={version:name==='old-helper'?'1.2.5':name==='prepared-helper'?'1.2.7':'1.2.6',ready:!['unready','prepared-helper','legacy-components'].includes(name),message:name==='legacy-components'?'后台组件已就绪，导入时将核对当前账号和本机材料。':'请先打开电脑微信并保持在前台。',backgroundStatus:name==='legacy-components'?'components-ready':undefined,momentsMessage:name==='no-moments'?'微信朋友圈界面当前不可读取，已保留所选好友。':undefined,momentsMaxRows:2000,capabilities:{chat:true,moments:!['no-moments','legacy-components'].includes(name),uiCapturePreparation:name==='prepared-helper',momentsAllVisible:name!=='old-helper',momentsContacts:true,personBundle:true,backgroundChat:true,backgroundHistory:true,backgroundVoice:false}};
      else if(url.pathname==='/contacts/search')value={accountKey,contacts:[{contactId,label:friend,nickname:friend,remark:friend,wechatId:'synthetic_xin'}]};
+     else if(url.pathname==='/jobs/moments-fixture/cancel'){value={status:'cancelled'};}
      else if(url.pathname==='/capture'){
        captures.push(body);assert.equal(body.kind,'moments');assert.equal(body.allVisible,true);assert.equal(body.contactId,contactId);assert.equal(body.accountKey,accountKey);await wait(900);
        if(name==='start-error'){status=409;value={error:{code:'WECHAT_NOT_READY',message:'合成测试：朋友圈窗口无法打开，请检查微信。'}};}else value={jobId:'moments-fixture'};
-     }else if(url.pathname==='/jobs/moments-fixture'){jobPolls++;const failed=captures.length===1&&badOutcome,returned=failed==='empty'?[]:failed==='partial'?posts.slice(0,5):posts;value=reloadTask&&!reloaded?{status:'running',progress:50,message:'合成测试：正在读取朋友圈'}:failed==='job-error'?{status:'failed',error:'合成测试：本次窗口读取失败'}:{status:'done',result:{version:1,kind:'moments',friend:wrongSource?'另一位好友 · #fedcba9876543210':reportEntry?'合成新备注 · #0123456789abcdef':friend,account,capturedAt:failed==='stale'?'2020-01-01T00:00:00Z':new Date().toISOString(),warnings:[],records:returned,coverage:{scope:'all-visible',complete:failed!=='partial',stopReason:failed==='partial'?'focus-unavailable':'visible-end',recordCount:returned.length,imageOmittedCount:0,unreadableCount:0}}};}
+     }else if(url.pathname==='/jobs/moments-fixture'){jobPolls++;const failed=captures.length===1&&badOutcome,returned=failed==='empty'?[]:failed==='partial'?posts.slice(0,5):posts;value=name==='stalled-retry'&&captures.length===1?{status:'running',progress:5,message:'合成测试：等待微信重新登录'}:reloadTask&&!reloaded?{status:'running',progress:50,message:'合成测试：正在读取朋友圈'}:failed==='job-error'?{status:'failed',error:'合成测试：本次窗口读取失败'}:{status:'done',result:{version:1,kind:'moments',friend:wrongSource?'另一位好友 · #fedcba9876543210':reportEntry?'合成新备注 · #0123456789abcdef':friend,account,capturedAt:failed==='stale'?'2020-01-01T00:00:00Z':new Date().toISOString(),warnings:[],records:returned,coverage:{scope:'all-visible',complete:failed!=='partial',stopReason:failed==='partial'?'focus-unavailable':'visible-end',recordCount:returned.length,imageOmittedCount:0,unreadableCount:0}}};}
      else throw Error('unexpected helper '+url.pathname);
    }else{
      if(url.pathname==='/api/auth/session')value={loggedIn:true,user:{id:owner}};
@@ -99,6 +100,13 @@ async function scenario(width,name){
    await click('导入全部可见朋友圈');await text('正在准备导入…');
    assert.equal(await page.$eval('[data-job-phase="checking"]',element=>element.checkVisibility()),true,'preparing status visible immediately, before helper request');
    if(reloadTask){await page.waitForFunction(owner=>JSON.parse(sessionStorage.getItem(`chengzi-capture:${owner}:job`)||'null')?.jobId==='moments-fixture',{},owner);reloaded=true;await page.reload({waitUntil:'networkidle0'});}
+   if(name==='stalled-retry'){
+     await page.waitForFunction(()=>[...document.querySelectorAll('button')].some(button=>button.textContent.includes('重新连接并重试')),{timeout:45000});
+     await click('重新连接并重试');
+     await page.waitForSelector('[data-moments-result="complete"]',{visible:true});
+     assert.equal(captures.length,2,'one retry replaces the stalled task once');
+     assert.equal(paid.length,0);
+   }
    if(badOutcome){
      const outcome=badOutcome==='job-error'?'failed':badOutcome;
      await page.waitForSelector(`[data-moments-result="${outcome}"]`,{visible:true});assert.equal(paid.length,0);assert.equal(captures.length,1);assert.equal(await page.$$eval('[data-moments-result] button',nodes=>nodes.some(node=>node.textContent.includes('继续报告'))),false);
@@ -110,6 +118,14 @@ async function scenario(width,name){
      if(oldExisting){await page.addScriptTag({content:vault.outputFiles[0].text});const original=await page.evaluate(async owner=>(await FixtureVault.listCaptureLibraries(owner)).find(row=>row.kind==='moments'),owner);assert.equal(original.total,37,'old 37 rows remain but do not turn this empty attempt into success');}
      if(outcome==='empty'){await page.reload({waitUntil:'networkidle0'});await page.waitForSelector('[data-moments-result="empty"]',{visible:true});assert.equal(captures.length,1,'refresh never restarts or claims success');}
      await page.screenshot({path:`${output}/${name}-${width}.png`,fullPage:true});
+     if(name==='partial'||name==='report-partial-continue'){
+       await click('用已保存资料继续分析');
+       await text(reportEntry?'下一步，生成完整关系报告':'下一步，生成完整朋友圈报告');
+       assert.equal(paid.length,0,'partial confirmation never starts paid analysis');
+       assert.equal(captures.length,1,'partial confirmation never recollects');
+       assert.match(await page.$eval('#capture-preview',element=>element.innerText),/5 条朋友圈/);
+       assert.equal(await page.$('[data-moments-result]'),null,'confirmed partial result leaves import step');
+     }
      if(name==='empty'||name==='report-partial'){await click('重试本次朋友圈采集');await page.waitForSelector('[data-moments-result="complete"]',{visible:true});assert.equal(captures.length,2);assert.equal(paid.length,0);assert.equal(await page.$eval('[aria-label="导入操作"]',node=>node.checkVisibility()),true);}
      if(name==='report-job-error'){await Promise.all([page.waitForNavigation({waitUntil:'networkidle0'}),page.$eval('[data-moments-fallback="screenshots"]',link=>link.click())]);assert.equal(new URL(page.url()).searchParams.get('mode'),'moments');assert.equal(new URL(page.url()).searchParams.get('subjectId'),person);await page.waitForSelector('input[type="file"]');await text('朋友圈');assert.equal(paid.length,0);}
      assert.deepEqual(errors,[]);console.log(`PASS ${width} ${name}: current ${outcome} result stays at capture with real counts; no old library substitution/automatic report/payment; retry/refresh safe.`);return;
@@ -139,11 +155,11 @@ async function scenario(width,name){
      const confirm=()=>page.$eval('#capture-confirm',element=>[...element.querySelectorAll('button')].find(button=>button.textContent.includes('确认并生成报告')).disabled);assert.equal(await confirm(),true);
      await page.click('#capture-confirm input[type="checkbox"]');assert.equal(paid.length,0,'consent does not automatically charge');
      await page.evaluate(()=>[...document.querySelectorAll('#capture-confirm button')].find(button=>button.textContent.includes('确认并生成报告')).click());
-     await page.waitForSelector('[data-capture-analysis="queued"]',{visible:true,timeout:45000});assert.equal(paid.length,1);assert.equal(cloud.get('moments').rows.size,37);assert.equal(captures.length,1);
+     await page.waitForSelector('[data-capture-analysis="queued"]',{visible:true,timeout:45000});assert.equal(paid.length,1);assert.equal(cloud.get('moments').rows.size,37);assert.equal(captures.length,name==='stalled-retry'?2:1);
    }
    assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),'no horizontal overflow');assert.deepEqual(errors,[]);
    await page.screenshot({path:`${output}/${name}-${width}.png`,fullPage:true});console.log(`PASS Moments ${width} ${name}: immediate feedback, explicit errors or all-source report.`);
  }catch(error){await writeFile(`${output}/failure-${name}-${width}.json`,JSON.stringify({error:error.message,errors,captures,paid,visible:await page.evaluate(()=>document.body?.innerText || "[document body unavailable]").catch(()=>"[page unavailable]")},null,2));throw error;}
  finally{await context.close();}
 }
-try{for(const width of [1440,390])for(const name of ['success','residual-plan','duplicate','unready','legacy-components','no-moments','prepared-helper','old-helper','start-error','recover-missing','report-recover','report-reconnect','report-reload','report-wrong-contact','report-wrong-contact-reload','report-phone','empty','partial','stale','job-error','old-empty','report-old-empty','report-partial','report-stale','report-job-error'])if((name!=='report-phone'||width===390)&&(!process.env.CAPTURE_MOMENTS_SCENARIO||process.env.CAPTURE_MOMENTS_SCENARIO.split(',').includes(name)))await scenario(width,name);}finally{await browser.close();stop();}
+try{for(const width of [1440,390])for(const name of ['success','stalled-retry','residual-plan','duplicate','unready','legacy-components','no-moments','prepared-helper','old-helper','start-error','recover-missing','report-recover','report-reconnect','report-reload','report-wrong-contact','report-wrong-contact-reload','report-phone','empty','partial','stale','job-error','old-empty','report-old-empty','report-partial','report-partial-continue','report-stale','report-job-error'])if((name!=='report-phone'||width===390)&&(!process.env.CAPTURE_MOMENTS_SCENARIO||process.env.CAPTURE_MOMENTS_SCENARIO.split(',').includes(name)))await scenario(width,name);}finally{await browser.close();stop();}

@@ -41,7 +41,8 @@ function EvidenceQuotes({report,findings,limit=2}:{report:Json;findings:Json[];l
 }
 function riskItems(report:Json){
  const {semantic,findings}=data(report),assessment=semantic.riskAssessment;
- if(Array.isArray(assessment?.items))return rows(assessment.items).map(item=>({...item,evidence:referenced(item.evidenceIds,findings)} as Json)).filter(item=>item.subject==='other'&&item.evidence.length);
+ const assessedItems=rows(assessment?.items).map(item=>({...item,evidence:referenced(item.evidenceIds,findings)} as Json)).filter(item=>item.subject==='other'&&item.evidence.length);
+ if(assessedItems.length)return assessedItems;
  return relationshipRiskReview(report).signals.filter(item=>item.sources?.length).map((item,index)=>({id:`saved-risk-${index}`,title:item.title,subject:'other',meaning:item.reading,alternative:item.alternative,evidence:[{evidence:item.sources!.flatMap(source=>[{...source,senderRole:'other',sourceKind:'chat'},...(source.response?[{...source.response,senderRole:'self',sourceKind:'chat',libraryId:source.libraryId}]:[])])}],resolution:{status:'unknown',reading:'这份报告未保存后来是否已澄清的判断，请结合后续原话核对。'},verify:{action:item.action},timeRange:{start:item.firstAt,end:item.lastAt}} as Json));
 }
 function RiskVerification({report}:{report:Json}){
