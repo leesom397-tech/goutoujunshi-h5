@@ -4,6 +4,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.PERSONAL_TOPICS = void 0;
 exports.uniquePersonalEvidence = uniquePersonalEvidence;
 exports.reportPersonalEvidence = reportPersonalEvidence;
+exports.capturePersonalEvidence = capturePersonalEvidence;
 exports.personalConnection = personalConnection;
 exports.extractQuickSelfProfile = extractQuickSelfProfile;
 const object = (value) => value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -43,6 +44,10 @@ function reportPersonalEvidence(input, options = {}) {
     const report = object(input), reportId = text(options.reportId || report.reportId || report.id, 100), subjectId = text(options.subjectId || report.subjectId, 100);
     const meta = { ...(reportId ? { reportId } : {}), ...(subjectId ? { subjectId } : {}), ...(options.recordedAt ? { recordedAt: options.recordedAt } : {}) };
     const evidence = [];
+    // Full-history reports keep selected, attributed profile evidence separately
+    // from the new-upload-only sentence annotations.
+    if (report.analysisScope === "fullHistory")
+        evidence.push(...uniquePersonalEvidence(list(report.profileEvidence)).filter(item => item.source === "chat" && (!item.subjectId || item.subjectId === subjectId)));
     for (const [index, item] of list(report.lines).entries()) {
         const line = object(item);
         // The parser's canonical mapping is self/other. Unknown, raw left/right or an
@@ -99,6 +104,25 @@ exports.PERSONAL_TOPICS = [
     { id: "growth", label: "共同成长", match: /共同成长|一起成长|共同进步|一起进步|互相支持/ },
     { id: "planning", label: "提前安排", match: /提前(?:约|安排|说|告诉|计划)|约好时间|确定时间/ },
 ];
+/** Scan the whole archive for explicit personal statements. Keep a bounded set
+ * per topic and speaker, rather than taking the latest N messages as a profile. */
+function capturePersonalEvidence(rows, subjectId, reportId) {
+    const buckets = new Map();
+    for (const row of rows) {
+        if (!["self", "other"].includes(row.senderRole) || !/(?:我|自己|本人)/.test(row.text) || /[？?]|假如|假设|如果|转发|引用|朋友说|她说|他说|开玩笑/.test(row.text))
+            continue;
+        const topics = exports.PERSONAL_TOPICS.filter(topic => topic.match.test(row.text)).map(topic => topic.id);
+        if (/我.{0,12}(?:期待|希望|想要|不能接受|不接受|不喜欢|联系频率|长期关系|结婚|谈恋爱)/.test(row.text))
+            topics.push("expectations");
+        for (const topic of topics) {
+            const key = row.senderRole + ":" + topic;
+            const values = buckets.get(key) || [];
+            values.push({ id: `archive-profile:${row.localId}`, side: row.senderRole, source: "chat", label: `${row.at || "日期未知"} · ${row.senderRole === "self" ? "你的原话" : "对方原话"}`, quote: row.text, sourceId: row.localId, ...(subjectId ? { subjectId } : {}), ...(reportId ? { reportId } : {}), basis: "statement" });
+            buckets.set(key, values.slice(-2));
+        }
+    }
+    return uniquePersonalEvidence([...buckets.values()].flat());
+}
 function topicStance(item, match) {
     if (item.basis === "observation")
         return "unknown";

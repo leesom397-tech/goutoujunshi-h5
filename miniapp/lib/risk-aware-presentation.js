@@ -63,6 +63,10 @@ function riskAwarePresentation(report) {
     if (!originalOptions.length && text(chat ? decision.replyDraft : original.questions?.[0]))
         originalOptions.push({ text: text(chat ? decision.replyDraft : original.questions[0]), originalIndex: null });
     const replies = originalOptions.filter(row => text(row.text)).map(row => ({ ...row, text: text(row.text), style: text(row.style), reason: text(row.reason), adjusted: false })).sort((a, b) => (b.weight ?? -1) - (a.weight ?? -1));
+    // Historical excerpts can be old or subsequently resolved. Keep them visible
+    // for verification without projecting one old request into today's reply.
+    if (original.analysisScope === "fullHistory" || original.captureFormat === "full-history")
+        return { mode: "normal", review, priority: null, title: text(decision.interactionInsight?.label), judgment: text(decision.judgment || original.summary), evidence: text(decision.evidence), nextStep: text(decision.nextStep), replyOptions: replies, viewReport: original };
     const safetyOrder = { threat: 0, credentials: 1, privacy: 1, money: 2 };
     const safeSignal = review.signals.filter(signal => directSafety(signal)).sort((a, b) => safetyOrder[directSafety(a)] - safetyOrder[directSafety(b)])[0];
     const expectation = review.signals.find(signal => signal.kind === "expectation");
