@@ -4,13 +4,15 @@ const PATH = '/api/miniapp/capture/library';
 const PENDING = 'chengzi_cloud_analysis_v1';
 const modal = options => new Promise(resolve => wx.showModal({ ...options, success: value => resolve(value.confirm), fail: () => resolve(false) }));
 Page({
-  data: { loading: true, loadingPage: false, error: '', libraries: [], library: null, records: [], selectedCount: 0, webLinked: true, showGuide: false, busy: false, price: null, ownerId: '', nextCursor: null, pageNumber: 1, hasPrevious: false, linking: false, mediaBusy: '', notice: '', latestReportId: '', latestReportKind: '' },
+  data: { loading: true, loadingPage: false, error: '', libraries: [], library: null, records: [], selectedCount: 0, webLinked: true, showGuide: false, busy: false, fullTaskRunning: false, price: null, ownerId: '', nextCursor: null, pageNumber: 1, hasPrevious: false, linking: false, mediaBusy: '', notice: '', latestReportId: '', latestReportKind: '' },
   onLoad(options = {}) { this._requestedId = options.id || ''; this._selected = {}; this._cursors = ['']; this._tempFiles = []; this._generation = 0; this._unloaded = false; this.load(); },
   onShow() {
     if (this._awaitingLink) { this._awaitingLink = false; this.load(); return; }
     if (this._token && !this.sessionCurrent()) this.load();
+    else if(this._token)this.refreshFullTask();
   },
-  onUnload() { this._unloaded = true; this._generation++; this.clearMedia(); },
+  onHide(){clearTimeout(this._taskTimer);},
+  onUnload() { clearTimeout(this._taskTimer);this._unloaded = true; this._generation++; this.clearMedia(); },
   onPullDownRefresh() { Promise.resolve(this.load()).finally(() => wx.stopPullDownRefresh()); },
   sessionCurrent() { try { const value = wx.getStorageSync(api.STORAGE); return value?.token === this._token && value.expiresAt > Date.now(); } catch { return false; } },
   current(generation) { return !this._unloaded && this._generation === generation && this.sessionCurrent(); },
@@ -25,8 +27,18 @@ Page({
       if (this._unloaded || generation !== this._generation) return;
       this._token = session.token;
       const response = await api.request(PATH, 'GET', null, this._token);
+      const cursors=new Set();
+      while(response.nextCursor){
+        if(!this.current(generation))return;
+        if(cursors.has(response.nextCursor))throw Error('资料分页异常，请重新读取。');
+        cursors.add(response.nextCursor);
+        const next=await api.request(PATH+'?cursor='+encodeURIComponent(response.nextCursor),'GET',null,this._token);
+        if(next.ownerId!==response.ownerId)throw Error('账号已变化，请重新读取资料。');
+        response.libraries=[...(response.libraries||[]),...(next.libraries||[])];response.nextCursor=next.nextCursor;
+      }
       if (!this.current(generation)) return;
       this.setData({ libraries: (response.libraries || []).map(libraryView.presentLibrary), ownerId: response.ownerId, webLinked: response.webLinked !== false, listCursor: response.nextCursor || null });
+      void this.refreshFullTask();
       const requested = this._requestedId; this._requestedId = '';
       if (requested && response.libraries?.some(item => item.id === requested)) await this.openLibraryId(requested);
     } catch (error) { if (!this._unloaded && generation === this._generation) this.setData({ error: error.message || '资料暂时没有取回，请重试。' }); }
@@ -97,6 +109,53 @@ Page({
     finally { this.setData({ linking: false }); }
   },
   async analyze() {
+    return this.analyzeAll();
+  },
+  async analyzeAll() {
+    if(this.data.busy || this.data.fullTaskRunning || !this.data.library || !Number.isFinite(this.data.price) || !this.sessionCurrent())return;
+    const library=this.data.library,generation=this._generation,ownerId=this.data.ownerId;
+    const related=this.data.libraries.filter(row=>library.kind==='chat' && library.subjectId && row.subjectId===library.subjectId && row.kind==='moments' && row.total>0);
+    if(related.length>20){this.setData({error:'关联朋友圈资料过多，请先在电脑整理后再分析。'});return;}
+    const confirmed=await modal({title:'生成完整关系报告',content:`分析全部 ${library.total} 条已同步资料${related.length?'，并结合 '+related.length+' 份朋友圈':''}。本次 ${this.data.price} 积分。完成后自动保存，可离开页面。`,confirmText:'确认分析'});
+    if(!confirmed||!this.current(generation)||this.data.library?.id!==library.id)return;
+    this.setData({busy:true,error:'',notice:'正在建立完整分析任务…'});
+    try{
+      const payload={expectedOwnerId:ownerId,confirmed:true,analysisScope:'fullHistory',kind:library.kind,friend:library.friend,subjectId:library.subjectId||null,libraryId:library.id,expectedTotal:library.total,expectedEpoch:library.epoch,records:[],question:'panorama',relatedSnapshots:related.map(row=>({libraryId:row.id,kind:'moments',expectedTotal:row.total,expectedEpoch:row.epoch}))};
+      const signature=libraryView.fingerprint(JSON.stringify(payload));
+      const pending=wx.getStorageSync(PENDING);
+      const requestId=pending?.signature===signature&&libraryView.idPattern.test(pending.requestId)?pending.requestId:await api.newId();
+      if(!this.current(generation))return;
+      wx.setStorageSync(PENDING,{signature,requestId,ownerId,libraryId:library.id});
+      await api.request('/api/miniapp/settings','POST',{consent:true,allowImageProcessing:true,selfSide:'right'},this._token);
+      const result=await api.request('/api/miniapp/capture/analyze','POST',{...payload,requestId},this._token);
+      if(!this.current(generation))return;
+      this._fullTask=result.taskId||requestId;
+      this._openWhenDone=true;
+      this.setData({notice:'已开始基于全部资料分析，可离开此页，回来查看进度。'});
+      await this.refreshFullTask();
+    }catch(error){this._openWhenDone=false;if(this.current(generation))this.setData({error:error.message||'任务未建立，请重试。'});}
+    finally{if(this.current(generation))this.setData({busy:false});}
+  },
+  async refreshFullTask(){
+    if(!this.sessionCurrent())return;
+    const generation=this._generation;
+    try{
+      const task=await api.request('/api/miniapp/capture/analyze'+(this._fullTask?'?taskId='+encodeURIComponent(this._fullTask):''),'GET',null,this._token);
+      if(!this.current(generation)||task.status==='none'||task.status==='removed')return;
+      this._fullTask=task.taskId;
+      if(task.status==='done'){
+        const openWhenDone=this._openWhenDone===true;
+        this._openWhenDone=false;
+        this.setData({latestReportId:task.taskId,latestReportKind:'fullHistory',notice:'完整报告已保存。',fullTaskRunning:false});
+        if(openWhenDone)this.openReport();
+      }else if(task.status==='error')this.setData({error:task.error||'本次分析未完成。',notice:task.creditTaskStatus==='released'?'本次积分已退回。':'正在核对结算。',fullTaskRunning:false});
+      else{
+        this.setData({notice:`正在分析 ${task.friend||'这位好友'}：已核对 ${task.completedText||0} 条聊天、${task.completedCaptions||0} 条动态、${task.completedImages||0} 张图片。可离开此页。`,fullTaskRunning:true});
+        clearTimeout(this._taskTimer);this._taskTimer=setTimeout(()=>this.refreshFullTask(),4000);
+      }
+    }catch(error){if(this.current(generation))this.setData({notice:'暂时无法读取后台进度，请点“刷新进度”。任务仍保留。'});}
+  },
+  async analyzeSelectedLegacy() {
     if (this.data.busy || !this.data.library || !Number.isFinite(this.data.price) || !this.sessionCurrent()) return;
     const library = this.data.library, generation = this._generation, ownerId = this.data.ownerId;
     let records;
@@ -137,7 +196,7 @@ Page({
   openReport(event) {
     const reportId = event?.currentTarget?.dataset?.id || this.data.latestReportId;
     if (!libraryView.idPattern.test(reportId)) return;
-    const kind = this.data.library?.kind || this.data.latestReportKind;
+    const kind = this.data.latestReportKind==='fullHistory'?'fullHistory':this.data.library?.kind || this.data.latestReportKind;
     wx.navigateTo({ url: (kind === 'moments' ? '/pages/social-profile/index?reportId=' : '/pages/report/index?id=') + reportId });
   },
   clearMedia() { for (const path of this._tempFiles || []) { try { wx.getFileSystemManager().unlink({ filePath: path, fail() {} }); } catch { /* Already cleared. */ } } this._tempFiles = []; },

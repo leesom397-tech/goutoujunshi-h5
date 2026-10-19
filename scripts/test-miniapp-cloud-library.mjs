@@ -30,8 +30,9 @@ const api = {
     if (path === '/api/miniapp/capture/library' && method === 'GET') return { ownerId: 'public-a', webLinked: true, libraries: [library] };
     if (path.includes('/capture/library?id=')) { const params = new URL('https://x' + path).searchParams, cursor = Number(params.get('cursor') || 161); const batch = [...rows].reverse().filter(row => row.seq < cursor).slice(0, Number(params.get('limit')) || 100); return { ownerId: foreign ? 'foreign-owner' : 'public-a', library, records: foreign ? [{ ...rows[0], localId: 'foreign-private' }] : batch, nextCursor: batch.at(-1)?.seq > 1 ? String(batch.at(-1).seq) : null }; }
     if (path.startsWith('/api/miniapp/report?')) { const error = new Error('不存在'); error.status = 404; throw error; }
-    if (path === '/api/miniapp/capture/analyze') { if (analysisFailure) { analysisFailure = false; throw Error('模拟网络中断'); } return { reportId, kind: 'chat' }; }
-    if (method === 'POST' && body.action === 'link-report') return { ownerId: 'public-a', library: { ...library, reportLinks: [{ reportId, sourceIds: body.sourceIds }] }, linked: true };
+    if (path === '/api/miniapp/settings') return { consent: true };
+    if (path.startsWith('/api/miniapp/capture/analyze?')) return { taskId: reportId, status: 'done', kind: 'chat', friend: library.friend, totalCount: library.total, completedText: library.total, completedCaptions: 0, completedImages: 0 };
+    if (path === '/api/miniapp/capture/analyze') { if (method === 'POST' && analysisFailure) { analysisFailure = false; throw Error('模拟网络中断'); } return { taskId: reportId, status: 'done', kind: 'chat' }; }
     throw Error('未预期的接口 ' + path);
   }
 };
@@ -54,16 +55,16 @@ await page.nextPage(); assert.equal(page.data.records[0].seq, 111); assert.equal
 page.toggleRecord({ currentTarget: { dataset: { id: 'row-111' } } }); assert.equal(page.data.selectedCount, 2);
 await page.previousPage(); assert.equal(page.data.records.find(row => row.localId === 'row-160').selected, true);
 foreign = true; await page.retryPage(); assert.match(page.data.error, /账号已变化/); assert.equal(page.data.records.length, 0); assert.equal(page.data.library, null); foreign = false;
-await page.load(); await page.openLibraryId(library.id); page.toggleRecord({ currentTarget: { dataset: { id: 'row-160' } } }); await page.nextPage(); page.toggleRecord({ currentTarget: { dataset: { id: 'row-111' } } });
+await page.load(); await page.openLibraryId(library.id);
 await page.analyze(); assert.match(page.data.error, /模拟网络中断/);
-const firstRequest = requests.find(row => row.path.endsWith('/capture/analyze'));
-assert.equal(firstRequest.body.confirmed, true); assert.equal(firstRequest.body.records.length, 2); assert.deepEqual(firstRequest.body.records.map(row => row.localId), ['row-111', 'row-160']);
+const firstRequest = requests.find(row => row.method === 'POST' && row.path.endsWith('/capture/analyze'));
+assert.equal(firstRequest.body.confirmed, true); assert.equal(firstRequest.body.analysisScope, 'fullHistory'); assert.equal(firstRequest.body.records.length, 0); assert.equal(firstRequest.body.libraryId, library.id); assert.equal(firstRequest.body.expectedTotal, library.total);
 await page.analyze();
 assert.equal(newIds, 1, 'network retry must reuse the original request id');
-assert.equal(new Set(requests.filter(row => row.path.endsWith('/capture/analyze')).map(row => row.body.requestId)).size, 1);
+assert.equal(new Set(requests.filter(row => row.method === 'POST' && row.path.endsWith('/capture/analyze')).map(row => row.body.requestId)).size, 1);
 assert.equal(nav.at(-1), '/pages/report/index?id=' + reportId);
 assert.equal(page.data.latestReportId, reportId);
-const linked = requests.find(row => row.body?.action === 'link-report'); assert.equal(linked.body.expectedOwnerId, 'public-a'); assert.deepEqual(linked.body.sourceIds, ['row-111', 'row-160']);
+assert.equal(page.data.latestReportKind, 'fullHistory'); assert.equal(page.data.fullTaskRunning, false);
 storage.set('session', { token: 'different-account', expiresAt: Date.now() + 60000 });
 const before = requests.length; await page.analyze(); assert.equal(requests.length, before, 'account switch cannot send the old selection');
 
@@ -71,6 +72,7 @@ const before = requests.length; await page.analyze(); assert.equal(requests.leng
 const routeSource = ts.transpileModule(readFileSync('app/api/web/capture/analyze/route.ts', 'utf8'), { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS } }).outputText;
 const route = { exports: {} }; let authenticated = true;
 new Function('require', 'module', 'exports', routeSource)(name => {
+  if (name === 'cloudflare:workers') return { env: {} };
   if (name.endsWith('/miniapp-auth')) return { miniappOwner: async () => authenticated ? { ownerId: 'test-owner' } : null };
   if (name.endsWith('/capture-analysis-input')) return { captureAnalysisInput() { throw Error('INPUT_VALIDATION_REACHED'); } };
   return {};

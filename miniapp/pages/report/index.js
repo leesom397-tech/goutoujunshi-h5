@@ -1,3 +1,4 @@
+const {historyReport}=require('../../lib/history-report');
 const api = require("../../lib/api");
 const {riskAwarePresentation,riskReplyAllowed}=require("../../lib/risk-aware-presentation");
 const followupContext = require("../../lib/followup-context");
@@ -93,6 +94,7 @@ function present(report) {
     unknowns: Array.isArray(diagnosis.unknowns) ? diagnosis.unknowns.slice(0, 3) : [],
   } : null;
   return {
+    fullHistory:historyReport(report),
     isImported: !!report.isImported, isRiskAnalysis: !!report.isRiskAnalysis, riskAlerts: report.riskAlerts || [], riskQuestions: report.riskQuestions || [], hasRiskAlerts: !!report.riskAlerts?.length, hasRiskQuestions: !!report.riskQuestions?.length, importObservations: report.importObservations || [], importBatches: report.importBatches || [],
     trend: '待对照历史', trendLoading: false,
     trendNote: report.subjectId ? '正在准备对照已归档的独立互动。' : '本次未关联人物，暂不对照历史。',
