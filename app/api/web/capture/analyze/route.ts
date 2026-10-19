@@ -74,7 +74,12 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
   const previousContext = job ? await job.checkpoint("context") : null;
   if (!previousContext) await reserveBudget(owner, "deep");
   const validateContext = job ? () => assertReportContextCurrent(db,owner,input.subjectId,job.manifest.contextSnapshot) : undefined;
-  const model = job ? checkpointedCaptureModel(qwenChat, job.checkpoint, validateContext) : qwenChat;
+  const model = job ? checkpointedCaptureModel(qwenChat, job.checkpoint, validateContext, {
+    // A Moments-only report can still be delivered from verified segment
+    // findings when the final prose call repeatedly times out. Chat reports
+    // keep the strict retry/refund contract until their synthesis is valid.
+    allowDegradedSynthesis: job.manifest?.allowDegraded === true && (input.kind === "moments" || !!input.relatedSnapshots?.length),
+  }) : qwenChat;
   const history = await readFullCaptureHistory(db, owner, input);
   const participants=await loadReportParticipants(db,owner,input.subjectId,{archiveSnapshot:{libraryId:input.libraryId}});
   const momentsOnly=input.kind==="moments";
@@ -226,7 +231,7 @@ export async function POST(request: Request) {
       let totalCount = input.records.length, sourceIds = input.records.map(r => r.localId);
       if (input.analysisScope === "fullHistory") {
         const full = await fullHistoryAnalysis(identity.ownerId, input, db, internal ? {manifest,checkpoint:(key,update)=>jobStore(identity.ownerId).checkpoint(identity.ownerId,input.requestId,(env as any).WECHAT_CALLBACK_TOKEN,key,update)} : undefined);
-        result = {...full.report,sourceIds:full.sourceIds}; totalCount = full.totalCount; sourceIds = full.sourceIds;
+        result = {...full.report,sourceIds:full.sourceIds,...(manifest?.allowDegraded===true ? {degradedSynthesis:true} : {})}; totalCount = full.totalCount; sourceIds = full.sourceIds;
       } else if (input.kind === "chat") {
         await requireSettings(identity.ownerId);
         const context = await loadProfileContext(identity.ownerId, input.subjectId);
