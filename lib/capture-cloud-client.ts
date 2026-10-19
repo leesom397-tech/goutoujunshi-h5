@@ -239,10 +239,24 @@ export async function linkSyncedReportSources(owner:string,reportId:string,input
   await linkReportSources(owner,reportId,input);
   const library=await getCaptureLibrary(owner,input.libraryId);
   if(!library?.cloud?.enabled)return {cloudError:""};
-  try{
-    await syncCaptureLibrary(owner,library);
+  // The full-history path has already synchronized the complete library (and
+  // its media) immediately before analysis. Re-running syncCaptureLibrary
+  // here used to walk every image again just to attach a report link, making
+  // the user wait through a second "逐张保存图片" pass. Link the report
+  // against the verified cloud epoch directly; if that epoch changed, keep
+  // the report and surface a non-blocking retry notice instead of re-uploading
+  // all media in the critical path.
+  try {
+    await request(owner, "", {
+      action: "link-report", confirmed: true, reportId,
+      libraryId: library.cloud.id, expectedEpoch: library.cloud.epoch,
+      sourceIds: input.sourceIds, memorySourceIds: input.memorySourceIds || [],
+      createdAt: new Date().toISOString(),
+    });
     return {cloudError:""};
-  }catch(error){return {cloudError:"报告已保存，原文跨端同步尚未完成。请回到已导入聊天继续同步，无需重新分析。"};}
+  } catch {
+    return {cloudError:"报告已保存，原文关联尚未同步完成。请回到已导入材料点击“继续同步”，无需重新分析。"};
+  }
 }
 export async function deleteCloudCaptureLibrary(owner:string, library:CaptureLibrary):Promise<void>{
   if(!library.cloud)return;

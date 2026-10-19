@@ -138,7 +138,7 @@ export async function runHistoryImport(options: HistoryImportOptions): Promise<H
   const notify = (message: string) => options.onProgress?.({ message, pageCount: progress.pages, readCount: progress.count,
     added: totals.added, updatedVoice: totals.updatedVoice, complete: progress.complete });
   const persist = () => writeHistoryProgress(progress);
-  const save = async (value: HistoryBatch, interim: boolean, afterCancel = false) => {
+  const save = async (value: HistoryBatch, interim: boolean, afterCancel = false): Promise<HistoryAcceptResult> => {
     if (!afterCancel) checkAbort(options.signal);
     // Account binding is checkpoint metadata and is persisted before accepting
     // a page, so a later retry cannot silently switch the account.
@@ -149,6 +149,7 @@ export async function runHistoryImport(options: HistoryImportOptions): Promise<H
     totals.added += accepted.added; totals.updatedVoice += accepted.updatedVoice;
     totals.total = accepted.total; totals.libraryId = accepted.libraryId;
     if (!afterCancel) checkAbort(options.signal);
+    return accepted;
   };
   active.add(scope);
   try {
@@ -209,15 +210,26 @@ export async function runHistoryImport(options: HistoryImportOptions): Promise<H
             throw invalid("助手已结束这项任务，但没有返回可保存的原文。请重新导入；已保存的内容不会删除。");
           }
           const result = inspect(job.result);
-          const duplicate = result.records.find(record => seenRecordIds.has(record.id));
+          const duplicate = result.records.find(record => seenRecordIds.has(record.id!));
           if (duplicate) {
             progress.pendingJob = null;
             persist();
             options.onJob?.(null);
             throw invalid("本机助手重复返回了已经读取的聊天，已停止继续循环；已保存的内容可以继续使用，请重新连接助手后重试。");
           }
-          await save(result, false);
-          for (const record of result.records) seenRecordIds.add(record.id);
+          const accepted = await save(result, false);
+          // A normal history pass must advance by adding at least one new
+          // record. If an entire non-voice page is already present, the
+          // helper has ignored its cursor and would otherwise keep replaying
+          // old history. Voice enrichment intentionally revisits old rows to
+          // upgrade transcripts, so it is exempt from this guard.
+          if (options.includeVoice !== true && result.records.length > 0 && accepted.added === 0) {
+            progress.pendingJob = null;
+            persist();
+            options.onJob?.(null);
+            throw invalid("本机助手返回的历史页与已保存内容重复，已停止继续读取；已保存的聊天可以继续使用，请重新连接助手后重试。");
+          }
+          for (const record of result.records) seenRecordIds.add(record.id!);
           const next = result.history.nextCursor;
           progress = { ...progress, account: result.account, cursor: next, since: null, snapshot: result.history.snapshot,
             count: progress.count + result.history.count, pages: progress.pages + 1,
