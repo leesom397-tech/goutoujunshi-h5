@@ -1278,7 +1278,7 @@ export default function CapturePage() {
         </section> : null}
       </div>
     </div>
-    {busy && jobId && <div className={styles.captureShield} role="dialog" aria-modal="true" aria-label="正在采集，请稍候" onKeyDown={e=>{if(e.key!=="Escape")e.preventDefault();}}><div className={styles.captureShieldCard}><LoaderCircle className={styles.spin} size={26}/><div><strong>正在读取微信资料</strong><p>{jobStatusText || "请保持微信窗口打开并置于前台。"}</p><small>已用时 {Math.floor(captureElapsed/60)} 分 {captureElapsed%60} 秒 · 已读 {captureCount} 条 · {captureSpeed} 条/秒</small><small>总条数以微信实际可见内容为准，正在确认是否还有更早记录。</small></div><button type="button" className={ui.secondary} onClick={()=>void cancel()} disabled={analyzing}><Square size={15}/>停止采集</button></div></div>}
+    {busy && jobId && !voiceEnriching && <div className={styles.captureShield} role="dialog" aria-modal="true" aria-label="正在采集，请稍候" onKeyDown={e=>{if(e.key!=="Escape")e.preventDefault();}}><div className={styles.captureShieldCard}><LoaderCircle className={styles.spin} size={26}/><div><strong>正在读取微信资料</strong><p>{jobStatusText || "请保持微信窗口打开并置于前台。"}</p><small>已用时 {Math.floor(captureElapsed/60)} 分 {captureElapsed%60} 秒 · 已读 {captureCount} 条 · {captureSpeed} 条/秒</small><small>总条数以微信实际可见内容为准，正在确认是否还有更早记录。</small></div><button type="button" className={ui.secondary} onClick={()=>void cancel()} disabled={analyzing}><Square size={15}/>停止采集</button></div></div>}
     {image && <div className={styles.imageModal} role="dialog" aria-modal="true" aria-label="来源截图" onClick={() => setImage(null)}><button onClick={() => setImage(null)} aria-label="关闭来源截图"><X size={23}/></button><img src={image} alt="来源截图完整预览" onClick={e => e.stopPropagation()}/></div>}
   </main></div>;
 }

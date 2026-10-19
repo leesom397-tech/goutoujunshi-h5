@@ -130,6 +130,9 @@ export async function runHistoryImport(options: HistoryImportOptions): Promise<H
   const pollMs = options.pollMs ?? 1000;
   if (!Number.isFinite(pollMs) || pollMs < 0 || pollMs > 60_000) throw invalid();
   const totals: HistoryAcceptResult = { added: 0, updatedVoice: 0, total: 0, libraryId: "" };
+  // A broken provider must not be able to keep returning the same messages
+  // behind changing cursor metadata forever.
+  const seenRecordIds = new Set<string>();
   let pendingIdentity: string | null = null;
   const seenCursors = new Set<string>(progress.cursor ? [progress.cursor] : []);
   const notify = (message: string) => options.onProgress?.({ message, pageCount: progress.pages, readCount: progress.count,
@@ -206,7 +209,15 @@ export async function runHistoryImport(options: HistoryImportOptions): Promise<H
             throw invalid("助手已结束这项任务，但没有返回可保存的原文。请重新导入；已保存的内容不会删除。");
           }
           const result = inspect(job.result);
+          const duplicate = result.records.find(record => seenRecordIds.has(record.id));
+          if (duplicate) {
+            progress.pendingJob = null;
+            persist();
+            options.onJob?.(null);
+            throw invalid("本机助手重复返回了已经读取的聊天，已停止继续循环；已保存的内容可以继续使用，请重新连接助手后重试。");
+          }
           await save(result, false);
+          for (const record of result.records) seenRecordIds.add(record.id);
           const next = result.history.nextCursor;
           progress = { ...progress, account: result.account, cursor: next, since: null, snapshot: result.history.snapshot,
             count: progress.count + result.history.count, pages: progress.pages + 1,
