@@ -25,7 +25,7 @@ function data(report:Json){
  const semantic=report.semanticHistory||report.relationshipDiagnosis?.semanticHistory||{};
  const coverage=rows(report.sourceCoverage),momentLibraries=new Set([...coverage,...rows(report.relatedSnapshots)].filter(row=>row.kind==="moments").map(row=>row.libraryId));
  const isMoment=(item:Json)=>item.sourceKind==="moments"||item.kind==="moments"||momentLibraries.has(item.libraryId)&&!!item.libraryId;
- const findings=rows(semantic.findings).filter((item,index,all)=>text(item.claim)&&sources(item).length&&all.findIndex(other=>norm(other.claim)===norm(item.claim))===index);
+ const findings=rows(semantic.findings).filter((item,index,all)=>text(item.claim)&&sources(item).length&&all.findIndex(other=>item.id?other.id===item.id:other.subject===item.subject&&norm(other.claim)===norm(item.claim)&&JSON.stringify(sources(other))===JSON.stringify(sources(item)))===index);
  return {semantic,coverage,findings,isMoment};
 }
 function SourceLinks({findings}:{findings:Json[]}){
@@ -75,14 +75,15 @@ export function HistoryReportEntry({report,onSelect}:{report:Json;onSelect:(sect
 
 export function HistoryReportReading({report,diagnosis,section,onSectionChange}:{report:Json;diagnosis?:Json|null;section?:string;onSectionChange?:(section:string)=>void}){
  const [local,setLocal]=useState(report.captureKind==="moments"?"moments":"interaction"),id=useId(),root=useRef<HTMLElement>(null),active=section||local;
- const sections=report.captureKind==="moments"?[{id:"moments",label:"朋友圈与图片",Icon:Images},{id:"profile",label:"人物解读",Icon:UserRound}]:[{id:"interaction",label:"好感与推理",Icon:Heart},{id:"profile",label:"人物解读",Icon:UserRound},{id:"moments",label:"朋友圈与图片",Icon:Images}];
+ const sections=report.captureKind==="moments"?[{id:"moments",label:"朋友圈与图片",Icon:Images},{id:"profile",label:"人物解读",Icon:UserRound}]:[{id:"interaction",label:"好感与推理",Icon:Heart},{id:"profile",label:"人物解读",Icon:UserRound},{id:"moments",label:"朋友圈与图片",Icon:Images},{id:"risk",label:"风险与边界",Icon:ShieldCheck}];
  function select(next:string){setLocal(next);onSectionChange?.(next);if((root.current?.getBoundingClientRect().top??0)<100)root.current?.scrollIntoView({block:"start",behavior:"instant"});}
  return <section ref={root} className={styles.reading} aria-label="完整报告解读" data-history-reading>
   <div className={styles.sectionTabs} style={{gridTemplateColumns:`repeat(${sections.length},minmax(0,1fr))`}} role="tablist" aria-label="选择详细解读">{sections.map(({id:key,label,Icon},index)=><button key={key} type="button" role="tab" id={`${id}-tab-${key}`} aria-controls={`${id}-panel`} aria-selected={active===key} tabIndex={active===key?0:-1} onClick={()=>select(key)} onKeyDown={event=>{if(!["ArrowRight","ArrowLeft","Home","End"].includes(event.key))return;event.preventDefault();const next=event.key==="Home"?0:event.key==="End"?sections.length-1:(index+(event.key==="ArrowRight"?1:-1)+sections.length)%sections.length;select(sections[next].id);document.getElementById(`${id}-tab-${sections[next].id}`)?.focus({preventScroll:true});}}><Icon size={19}/><span>{label}</span></button>)}</div>
   <div id={`${id}-panel`} role="tabpanel" aria-labelledby={`${id}-tab-${active}`}>
    {active==="interaction"&&<HistoryReportInsights report={report} diagnosis={diagnosis}/>}
    {active==="profile"&&<HistoryProfileInsights report={report}/>}
-   {active==="moments"&&<HistoryMomentsInsights report={report}/>}
+   {active==="moments"&&<HistoryMomentsInsights report={report}/> }
+   {active==="risk"&&<><RiskVerification report={report}/><RiskResponsePaths report={report}/></>}
   </div>
  </section>;
 }
@@ -150,11 +151,14 @@ function SavedActionReading({report,findings}:{report:Json;findings:Json[]}){
 }
 
 function HistoryProfileInsights({report}:{report:Json}){
- const {semantic,findings}=data(report);
+ const {semantic,findings}=data(report),[page,setPage]=useState(0),root=useRef<HTMLElement>(null);
  const profile:Json[]=rows(semantic.profileInsights).map(item=>({...item,evidence:referenced(item.evidenceIds,findings)} as Json)).filter(item=>text(item.dimension)&&text(item.reading)&&item.evidence.length&&norm(item.reading)!==norm(semantic.explanation)&&norm(item.reading)!==norm(semantic.summary));
- return <section className={styles.section} data-profile-insights>
+ const pages=Math.max(1,Math.ceil(profile.length/3)),current=Math.min(page,pages-1);
+ function turn(next:number){setPage(next);requestAnimationFrame(()=>root.current?.scrollIntoView({block:"start",behavior:"instant"}));}
+ return <section ref={root} className={styles.section} data-profile-insights>
   <header className={styles.heading}><div><span><UserRound size={18}/>从双方表达理解相处</span><h2>{reportIdentity(report).other}与你：人物解读</h2></div></header>
-  {profile.length>0?<div className={styles.profileReadings}>{profile.map((item,index)=><article key={item.dimension+index}><small>{item.subject==='self'?'关于你':item.subject==='other'?`关于${reportIdentity(report).other}`:item.subject==='interaction'?'关于双方互动':'原报告未标记人物归属，请结合下方发言人核对'}</small><h3>{item.dimension}</h3><p>{item.reading}</p><EvidenceQuotes report={report} findings={item.evidence} limit={1}/>{text(item.alternative)&&<p className={styles.alternative}>另一种可能：{item.alternative}</p>}</article>)}</div>:<><p className={styles.empty}>{Array.isArray(semantic.profileInsights)?"现有材料还不足以形成独立的人物解读。":"这份旧报告没有保存独立的人物解读。"}下面保留已有线索，不把它们推断成固定性格。</p><RelationshipDiagnosisPanel report={report} semanticHistory={{findings,unknowns:semantic.unknowns}} hideCoverage hideFacts pageSize={3}/></>}
+  {profile.length>0?<div className={styles.profileReadings}>{profile.slice(current*3,(current+1)*3).map((item,index)=><article key={item.dimension+index}><small>{item.subject==='self'?'关于你':item.subject==='other'?`关于${reportIdentity(report).other}`:item.subject==='interaction'?'关于双方互动':'原报告未标记人物归属，请结合下方发言人核对'}</small><h3>{item.dimension}</h3><p>{item.reading}</p><EvidenceQuotes report={report} findings={item.evidence} limit={1}/>{text(item.alternative)&&<p className={styles.alternative}>另一种可能：{item.alternative}</p>}</article>)}</div>:<><p className={styles.empty}>{Array.isArray(semantic.profileInsights)?text(semantic.profileUnavailableReason)||"现有材料还不足以形成独立的人物解读。":"这份旧报告没有保存独立的人物解读。"}下面保留已有线索，不把它们推断成固定性格。</p><RelationshipDiagnosisPanel report={report} semanticHistory={{findings,unknowns:semantic.unknowns}} hideCoverage hideFacts pageSize={3}/></>}
+  {pages>1&&<nav className={styles.pager} aria-label="人物解读分页"><button disabled={!current} onClick={()=>turn(current-1)}>上一组</button><span>{current+1} / {pages}</span><button disabled={current===pages-1} onClick={()=>turn(current+1)}>下一组</button></nav>}
  </section>;
 }
 

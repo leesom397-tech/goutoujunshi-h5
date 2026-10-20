@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { clearCaptureConnectionSessions } from "@/lib/capture-connection-session";
+import { announceAccountChange } from '@/lib/web-account-session';
 
 export default function LogoutPage() {
   const [error, setError] = useState("");
@@ -21,6 +22,7 @@ export default function LogoutPage() {
           const response = await fetch("/api/auth/logout", { method: "POST", signal: AbortSignal.timeout(8000) });
           if (!response.ok) throw new Error("退出未完成，请重试。");
           serverLoggedOut.current = true;
+          announceAccountChange(true);
         }
         if (cleanupFailed) { if (active) setCleanupPending(true); return; }
         if ("caches" in window) await caches.delete("lovetalk-local-share-v1").catch(() => false);

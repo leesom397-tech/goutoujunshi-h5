@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { ArrowRight, LockKeyhole, X } from "lucide-react";
 import { PhoneRegisterForm } from "@/components/PhoneRegisterForm";
 import styles from "./AnalysisAuthGate.module.css";
+import { announceAccountChange } from '@/lib/web-account-session';
 
 type Props = {
   open: boolean;
@@ -93,6 +94,7 @@ function AuthDialog({ onClose, returnTo, contextLabel = "当前分析", onSucces
       });
       const data = await response.json() as { error?: string };
       if (!response.ok) throw Error(data.error || "登录失败，请检查账号密码。");
+      announceAccountChange();
       await complete();
     } catch (cause) {
       if (active.current) setError(cause instanceof Error ? cause.message : "网络异常，请稍后重试。");

@@ -5,6 +5,8 @@ import { createPortal } from "react-dom";
 import {usePathname} from "next/navigation";
 import {TOUR_EVENT} from "./FirstUseTour";
 import type { WorkspaceData } from "@/components/WorkspaceDashboard";
+import { useAccount } from '@/components/web-analysis/client';
+import { webAccountStore } from '@/lib/web-account-session';
 
 const tools = [
   { title: "分析一个人的全部资料", hint: "完整分析 / 全部聊天 / 朋友圈 / 关系报告 / 选人", href: "/relationship", icon: Users },
@@ -24,32 +26,24 @@ const tools = [
 ];
 export function QuickSearch() {
   const pathname=usePathname();
-  const [open, setOpen] = useState(false), [query, setQuery] = useState(""), [data, setData] = useState<WorkspaceData | null>(null), [status, setStatus] = useState(""), [loggedIn, setLoggedIn] = useState(false), [admin, setAdmin] = useState(false), [identityRevision, setIdentityRevision] = useState(0);
+  const [open, setOpen] = useState(false), [query, setQuery] = useState(""), [data, setData] = useState<WorkspaceData | null>(null), [status, setStatus] = useState("");
+  const identity = useAccount(), owner = identity.account?.account?.userId || '', loggedIn = !!owner && !identity.unauthorized, admin = identity.account?.admin === true;
   const dialog = useRef<HTMLDialogElement>(null), field = useRef<HTMLInputElement>(null);
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") { event.preventDefault(); setOpen(value => !value); }
     };
-    const recheck = () => { setData(null); setAdmin(false); setLoggedIn(false); setIdentityRevision(value => value + 1); };
-    document.addEventListener("keydown", handler); window.addEventListener("focus", recheck);
-    return () => { document.removeEventListener("keydown", handler); window.removeEventListener("focus", recheck); };
+    document.addEventListener("keydown", handler);
+    return () => { document.removeEventListener("keydown", handler); };
   }, []);
   useEffect(() => {
-    if (!open) { setQuery(""); setData(null); setStatus(""); setLoggedIn(false); setAdmin(false); return; }
+    if (!open) { setQuery(""); setData(null); setStatus(""); return; }
     dialog.current?.showModal(); field.current?.focus();
-    const controller = new AbortController();
-    fetch("/api/auth/session", { cache: "no-store", signal: controller.signal }).then(response => response.json() as Promise<{ loggedIn?: boolean }>).then(async session => {
-      if (controller.signal.aborted) return;
-      setLoggedIn(!!session.loggedIn);
-      if (session.loggedIn) {
-        const response = await fetch("/api/account/credits", { cache: "no-store", signal: controller.signal });
-        const value = await response.json() as { admin?: boolean }; if (!controller.signal.aborted) setAdmin(response.ok && !!value.admin);
-      }
-    }).catch(() => {});
     const previous = document.body.style.overflow; document.body.style.overflow = "hidden";
-    return () => { controller.abort(); document.body.style.overflow = previous; };
-  }, [open, identityRevision]);
+    return () => { document.body.style.overflow = previous; };
+  }, [open]);
   useEffect(() => {
+    setData(null); setStatus('');
     if (!open || !loggedIn) return;
     const controller = new AbortController(); setData(null); setStatus("正在查找你的记录…");
     const timer = setTimeout(() => {
@@ -58,10 +52,10 @@ export function QuickSearch() {
       fetch("/api/web/workspace?q=" + encodeURIComponent(generic ? "" : raw), { cache: "no-store", signal: controller.signal }).then(async response => {
         const value = await response.json() as WorkspaceData & { error?: string }; if (!response.ok) throw Object.assign(Error(value.error || "暂时无法读取记录。"), { status: response.status });
         if (!controller.signal.aborted) { setData(value); setStatus(""); }
-      }).catch(cause => { if (!controller.signal.aborted) { setStatus(cause.message); if (cause.status === 401) { setData(null); setLoggedIn(false); setAdmin(false); } } });
+      }).catch(cause => { if (!controller.signal.aborted) { setStatus(cause.message); if (cause.status === 401) webAccountStore.invalidate({ loggedOut: true }); } });
     }, query ? 200 : 0);
     return () => { clearTimeout(timer); controller.abort(); };
-  }, [open, loggedIn, query]);
+  }, [open, loggedIn, owner, query]);
   const term = query.trim().toLocaleLowerCase(), matches = (value: string) => value.toLocaleLowerCase().includes(term);
   const features = [...(loggedIn && ["/capture","/analyze"].includes(pathname) ? [{title:"重看本页操作引导",hint:"帮助 / 使用 / 引导 / 怎么操作",href:"#operation-guide",icon:CircleHelp}] : []), ...tools, ...(admin ? [{ title: "会员管理后台", hint: "后台 / 管理员 / 会员 / 调整积分", href: "/admin/credits", icon: ShieldCheck }] : [])].filter(item => term ? matches(item.title + item.hint) : ["问成子", "分析一个人的全部资料", "人物档案与趋势", "人物对照", "分析记录", "添加材料"].includes(item.title));
   const people = data?.people.filter(person => !term || matches(person.label + person.stage)).slice(0, 6) || [];

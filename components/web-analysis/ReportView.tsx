@@ -160,7 +160,7 @@ export function ChatReport({report,account,styleReportIds,preview=false,publicEx
     {hasCurrentLines&&<AffinityOverview report={report}/>}
     <ChatReportBrief report={report} diagnosis={diagnosis} showMetrics={!fullHistory}/>
     {decision.partial&&<p className="wa-status">部分材料未识别；下方依据只覆盖可读内容。</p>}
-    <RiskReview report={report} summaryOnly={fullHistory&&goal==='risk'}/>
+    <RiskReview report={report} summaryOnly={fullHistory}/>
     {fullHistory&&goal==='risk'&&<HistoryReportEntry report={report} onSelect={openHistory}/>}
     {fullHistory&&<HistoryReportReading report={report} diagnosis={diagnosis} section={historySection} onSectionChange={setHistorySection}/>}
     <div className={reportStyles.detailLinks}><h2><BookOpen size={19}/>深入读这份报告</h2><ReportCoverage report={report}/>

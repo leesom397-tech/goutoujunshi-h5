@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
+import {resolve,dirname} from 'node:path';
 import ts from 'typescript';
-const exports = {};
-new Function('exports', ts.transpileModule(readFileSync('lib/desktop-capture.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText)(exports);
+const cache=new Map();
+function load(file){const path=resolve(file);if(cache.has(path))return cache.get(path);const value={};cache.set(path,value);new Function('exports','require',ts.transpileModule(readFileSync(path,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2020}}).outputText)(value,name=>load(resolve(dirname(path),name)+'.ts'));return value;}
+const exports = load('lib/desktop-capture.ts');
 const {mergeCaptureRecords:merge}=exports;
 const ns={ownerId:'synthetic-owner',account:'wxid_synthetic',friend:'合成联系人',kind:'chat'};
 const batch=(records,at='2026-10-15T08:00:00Z')=>({version:1,kind:'chat',account:ns.account,friend:ns.friend,capturedAt:at,records,warnings:[]});
@@ -17,6 +19,11 @@ assert.deepEqual(update.records.map(r=>r.localId),initial.records.map(r=>r.local
 assert.equal(update.records[1].source.voiceAvailability,'available','sync refreshed availability without duplication');
 assert.equal(update.records[0].firstCapturedAt,initial.records[0].firstCapturedAt);
 const rescan=merge(update.records,batch([voice('a'),voice('b','message_1.db','missing-local')],'2026-10-15T08:02:00Z'),ns);
+const terminal={...voice('b','message_1.db','missing-local'),source:{...voice('b','message_1.db','missing-local').source,transcriptionStatus:'failed',transcriptionError:'missing-local'}};
+const ended=merge(update.records,batch([terminal]),ns);
+assert.equal(ended.added,0);assert.equal(ended.records[1].source.transcriptionStatus,'failed','failed voice replaces pending placeholder');
+assert.equal(ended.records[1].source.transcriptionError,'missing-local');
+assert.equal(ended.records[0].source.transcriptionStatus,'visible-text','successful voice stays complete');
 assert.equal(rescan.added,0);assert.equal(rescan.records[0].text,update.records[0].text,'fast scan never erases cached transcript');
 assert.equal(rescan.records[0].source.transcriptCapturedAt,'2026-10-15T08:01:00Z');
 const final=merge(rescan.records,batch([done(voice('a'),'合成测试语音第一条。'),done(voice('b','message_1.db'),'合成测试语音第二条。')],'2026-10-15T08:03:00Z'),ns);

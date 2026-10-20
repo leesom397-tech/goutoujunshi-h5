@@ -4,6 +4,7 @@ import { ArrowRight, LockKeyhole } from "lucide-react";
 import { AuthArtwork } from "@/components/AuthArtwork";
 import authStyles from "@/components/AuthShell.module.css";
 import { BrandMark } from "@/components/BrandMark";
+import { announceAccountChange } from '@/lib/web-account-session';
 function returnPath(): string {
   const value = new URLSearchParams(window.location.search).get("return_to") || "/workspace";
   if (!value.startsWith("/") || value.startsWith("//") || value.includes("\\")) return "/workspace";
@@ -22,6 +23,7 @@ export default function LoginPage() {
       const response = await fetch("/api/auth/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ username, password }) });
       const data = await response.json() as { error?: string };
       if (!response.ok) throw new Error(data.error || "登录失败，请检查账号密码。");
+      announceAccountChange();
       window.location.assign(returnPath());
     } catch (cause) { setError(cause instanceof Error ? cause.message : "网络异常，请稍后重试。"); setBusy(false); }
   }

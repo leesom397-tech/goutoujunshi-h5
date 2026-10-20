@@ -1,9 +1,10 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import ui from "@/components/AuroraUI.module.css";
 import {PersonAvatarChoice} from "@/components/PersonAvatarChoice";
 import { fetchWebJson } from '@/lib/web-api-request.mjs';
 import { CREDIT_PRICES } from '@/lib/account-credits.mjs';
+import { webAccountStore, watchAccountSession } from '@/lib/web-account-session';
 export type Json = Record<string, any>;
 export class WebError extends Error { constructor(message: string, public status = 0, public details: Json = {}) { super(message); } }
 export async function api(path: string, body?: Json, signal?: AbortSignal): Promise<Json> {
@@ -15,28 +16,11 @@ export async function api(path: string, body?: Json, signal?: AbortSignal): Prom
 }
 export const message = (error: unknown) => error instanceof Error ? error.message : "暂时无法完成，请稍后重试。";
 export function useAccount() {
-  const [loading, setLoading] = useState(true);
-  const [account, setAccount] = useState<Json | null>(null), [people, setPeople] = useState<Json[]>([]), [error, setError] = useState(""), [unauthorized, setUnauthorized] = useState(false);
-  const generation = useRef(0), mounted = useRef(true), owner = useRef<string | null>(null);
-  async function refresh() {
-    const current = ++generation.current;
-    const active = () => mounted.current && current === generation.current;
-    setLoading(true);
-    try {
-      const session = await api("/api/auth/session"); if (!active()) return;
-      if (!session.loggedIn) {
-        setAccount({ prices: CREDIT_PRICES, account: null }); setUnauthorized(true); setPeople([]); setError(""); owner.current = null; return;
-      }
-      const value = await api("/api/account/credits"); if (!active()) return;
-      if (owner.current !== value.account?.userId) { setPeople([]); owner.current = value.account?.userId || null; }
-      setAccount(value); setUnauthorized(false); setError("");
-      const profile = await api("/api/web/profile").catch(e => { if (e instanceof WebError && e.status === 401) throw e; return null; }); if (active() && profile) setPeople(profile.enabled && !profile.paused ? profile.subjects || [] : []);
-    } catch (e) { if (!active()) return; setError(message(e)); const loggedOut = e instanceof WebError && e.status === 401; setUnauthorized(loggedOut); if (loggedOut) { setAccount(null); setPeople([]); owner.current = null; } }
-    finally { if (active()) setLoading(false); }
-  }
-  useEffect(() => { mounted.current = true; void refresh(); const focus = () => { if (!document.hidden) void refresh(); }; window.addEventListener("focus", focus); window.addEventListener("chengzi:credits-changed", focus); return () => { mounted.current = false; generation.current++; window.removeEventListener("focus", focus); window.removeEventListener("chengzi:credits-changed", focus); }; }, []);
-  return { account, people, error, unauthorized, loading, refresh };
+  const snapshot = useSyncExternalStore(webAccountStore.subscribe, webAccountStore.getSnapshot, webAccountStore.getServerSnapshot) as { account: Json | null; people: Json[]; error: string; refreshError: string; unauthorized: boolean; loading: boolean; refreshing: boolean };
+  useEffect(watchAccountSession, []);
+  return { ...snapshot, refresh: refreshAccount };
 }
+const refreshAccount = () => webAccountStore.refresh({ force: true });
 export function ErrorNotice({ error }: { error: string }) { return error ? <p className="wa-error" role="alert">{error}</p> : null; }
 export function AccountNotice({ state }: { state: ReturnType<typeof useAccount> }) {
   if (state.unauthorized) return <section className={`${ui.panel} ${ui.notice}`}><h2>登录后开始</h2><p>使用你的网页账号查看积分与人物档案。</p><a className={ui.primary} href={`/login?return_to=${encodeURIComponent(typeof window !== "undefined" ? window.location.pathname + window.location.search : "/analyze")}`}>登录账号</a></section>;

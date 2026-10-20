@@ -129,6 +129,78 @@ class HistoryPagingTests(unittest.TestCase):
         self.assertEqual(batch["history"]["count"], 2)
         self.assertEqual(batch["records"][-1]["source"]["voiceAvailability"], "missing-local")
 
+    def test_voice_only_enrichment_reads_requested_refs_without_replaying_history(self):
+        refs = []
+        for index in range(13):
+            server = 880_000 + index
+            self.template.add(self.tables[0], 8_000 + index, server, mtype=34, sequence=20_000 + index,
+                              text='<msg><voicemsg voicelength="6000"/></msg>')
+            self.template.add_audio(server, data=f"voice-{index}".encode(), label=f"voice_{index}.db")
+            refs.append({"messageShard": "message_0.db", "messageId": str(server)})
+        calls = []
+        batch = self.capture({"mode": "background", "pageSize": 100, "includeVoice": True,
+                              "voiceOnly": True, "voiceIds": refs}, transcribe=lambda blob, key: calls.append(key) or "定向转写")
+        self.assertTrue(batch["history"]["complete"])
+        self.assertEqual(batch["history"]["count"], 13)
+        self.assertEqual(len(batch["records"]), 13)
+        self.assertEqual(len(calls), 13)
+        self.assertTrue(all(row["source"]["transcriptionStatus"] == "visible-text" for row in batch["records"]))
+
+    def test_voice_only_local_id_fallback_missing_audio_is_terminal(self):
+        self.template.add(self.tables[0], 8000, 0, mtype=34, sequence=20_000)
+        refs = [{"messageShard": "message_0.db", "messageId": "8000", "localId": "8000"}]
+        with patch("background_reader._read_history_page", side_effect=AssertionError("must not replay")):
+            batch = self.capture({"mode": "background", "includeVoice": True, "voiceOnly": True, "voiceIds": refs})
+        self.assertEqual(len(batch["records"]), 1)
+        source = batch["records"][0]["source"]
+        self.assertEqual(source["messageId"], "8000")
+        self.assertEqual(source["transcriptionStatus"], "failed")
+        self.assertEqual(source["voiceAvailability"], "missing-local")
+        self.assertTrue(any("本机缺少音频" in warning for warning in batch["warnings"]))
+
+    def test_voice_only_does_not_export_text_or_wrong_local_reference(self):
+        self.template.add(self.tables[0], 8000, 880000, mtype=34, sequence=20_000)
+        for ref in ({"messageId": "100000"}, {"messageId": "880000", "localId": "99"},
+                    {"messageId": "880000", "messageShard": "missing.db"}):
+            with self.subTest(ref=ref), self.assertRaises(BackgroundCaptureError) as error:
+                self.capture({"mode": "background", "includeVoice": True, "voiceOnly": True,
+                              "voiceIds": [{"messageShard": "message_0.db", **ref}]})
+            self.assertEqual(error.exception.code, "VOICE_MESSAGE_MISSING")
+
+    def test_voice_only_rejects_cursor_duplicate_and_unbounded_references(self):
+        refs = [{"messageShard": "message_0.db", "messageId": "880000"}]
+        base = {**REQUEST, "mode": "background", "includeVoice": True, "voiceOnly": True, "voiceIds": refs}
+        for extra in ({"cursor": "old"}, {"since": "old"}, {"voiceIds": refs * 2},
+                      {"voiceIds": [{"messageShard": "message_0.db", "messageId": str(n)} for n in range(501)]},
+                      {"voiceIds": [{**refs[0], "localId": "../secret"}]}):
+            with self.subTest(extra=list(extra)), self.assertRaises(BackgroundCaptureError):
+                _validate_request({**base, **extra})
+
+    def test_voice_only_transcription_progress_and_failure_are_explicit(self):
+        refs = []
+        for n in range(2):
+            self.template.add(self.tables[0], 8000 + n, 880000 + n, mtype=34, sequence=20_000 + n)
+            self.template.add_audio(880000 + n, label=f"voice_{n}.db")
+            refs.append({"messageShard": "message_0.db", "messageId": str(880000 + n)})
+        events = []
+        def transcribe(blob, key):
+            raise BackgroundCaptureError("ASR_EMPTY", "no speech")
+        batch = capture_from_source({**REQUEST, "mode": "background", "includeVoice": True,
+                                     "voiceOnly": True, "voiceIds": refs}, events.append, None, self.source(), transcribe)
+        self.assertTrue(all(row["source"]["transcriptionStatus"] == "failed" for row in batch["records"]))
+        self.assertTrue(all(row["source"]["voiceAvailability"] == "transcribe-failed" for row in batch["records"]))
+        self.assertEqual(events[-1]["message"], "正在转写语音 2/2 条")
+
+    def test_voice_only_uses_only_requested_message_shards(self):
+        source = self.source()
+        shard = source.messages[0]
+        source.add((shard[1], self.tables[0][1]), 8000, 880000, mtype=34, sequence=20_000)
+        source.selected_message_shards = lambda labels: [shard] if labels == {shard[0]} else []
+        with patch.object(source, "message_shards", side_effect=AssertionError("unrelated shards opened")):
+            batch = self.capture({"mode": "background", "includeVoice": True, "voiceOnly": True,
+                                  "voiceIds": [{"messageShard": shard[0], "messageId": "880000"}]}, source=source)
+        self.assertEqual(len(batch["records"]), 1)
+
     def test_account_and_contact_cursor_misuse_rejected_before_message_read(self):
         first = self.capture()
         for field in ("cursor", "since"):

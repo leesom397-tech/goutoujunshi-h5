@@ -218,17 +218,28 @@ async function performSync(owner:string, library:CaptureLibrary, options:SyncOpt
   }
   if(!state)throw Error("同步状态未建立，请重试。");
   const imageJobs=library.records.flatMap(row=>(row.images||[]).map((img,index)=>({row,index,img})));
-  let completedImages=0,saveAck:Promise<unknown>=Promise.resolve();options.onProgress?.(0,imageJobs.length,"images");
-  await concurrentMap(imageJobs,async({row,index,img})=>{
+  let completedImages=0,unflushedImages=0,saveAck:Promise<unknown>=Promise.resolve();options.onProgress?.(0,imageJobs.length,"images");
+  const flushImages=()=>{
+    if(!unflushedImages)return saveAck;
+    unflushedImages=0;
+    const acknowledged={...mediaDigests};
+    saveAck=saveAck.then(async()=>{state={...state!,mediaDigests:acknowledged};await setCaptureCloudState(owner,library.id,state);});
+    return saveAck;
+  };
+  try{await concurrentMap(imageJobs,async({row,index,img})=>{
     const hash=await digest(bytesFromBase64(img.data)),key=JSON.stringify([row.localId,index]);if(mediaDigests[key]===hash){options.onProgress?.(++completedImages,imageJobs.length,"images");return;}
     const chunks=Math.ceil(img.data.length/400000);
     for(let n=0;n<chunks;n++){
       const result=await request<{ownerId:string;ready:boolean}>(owner,"",{action:"sync-media",libraryId:state!.id,expectedEpoch:state!.epoch,localId:row.localId,index,mime:img.mime,name:img.name,sha256:hash,chunkIndex:n,chunkCount:chunks,data:img.data.slice(n*400000,(n+1)*400000)});
       if(n===chunks-1&&!result.ready)throw Error("图片尚未完整同步，请继续同步。");
     }
-    saveAck=saveAck.then(async()=>{mediaDigests[key]=hash;state={...state!,mediaDigests:{...mediaDigests}};await setCaptureCloudState(owner,library.id,state);});await saveAck;
+    // One IndexedDB library write used to clone every saved picture after
+    // each individual upload. Batch ACKs, and flush settled workers on both
+    // success and failure so retries reuse all verified uploads.
+    mediaDigests[key]=hash;unflushedImages++;
+    if(unflushedImages>=8)await flushImages();
     options.onProgress?.(++completedImages,imageJobs.length,"images");
-  });
+  });}finally{await flushImages();await saveAck;}
   let completedReports=0;options.onProgress?.(0,library.reportLinks.length,"reports");
   for(const link of library.reportLinks){await request(owner,"",{action:"link-report",libraryId:state.id,expectedEpoch:state.epoch,...link});options.onProgress?.(++completedReports,library.reportLinks.length,"reports");}
   const current=await getCaptureLibrary(owner,library.id);if(!current)throw Error("本机材料已被删除，同步已停止。");

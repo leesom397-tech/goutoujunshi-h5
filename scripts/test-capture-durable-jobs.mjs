@@ -31,10 +31,10 @@ const fixture = {
     const phase = options?.vision ? 'images' : Array.isArray(detail.rows) ? 'segments' : 'synthesis';
     calls.push({ phase, detail, owner: alarmOwner.getStore() });
     if (providerFailure) return providerFailure(messages, options);
-    if (phase === 'images') return JSON.stringify({ readable: true, observation: '合成预览中可见海边步道。' });
+    if (phase === 'images') return JSON.stringify({images:detail.images.map(image=>({mediaId:image.mediaId,readable:true,observation:'合成预览中可见海边步道。'}))});
     if (phase === 'segments') return JSON.stringify({ findings: detail.rows.slice(0, 2).map(row => ({ claim: '这段原文涉及安排。', confidence: '低', alternative: '日常交流不能证明关系意图。', evidence: [{ sourceId: row.sourceId, quote: row.text.slice(0, 30) }] })) });
     const moments=detail.findings?.filter(item=>item.evidence?.some(source=>source.sourceKind==='moments'))||[];
-    return JSON.stringify({ riskAssessment:{status:'no_supported_signal',summary:'合成日常安排没有可核验的风险原话，不能据此保证不存在风险。',items:[]},summary: '根据这些合成聊天，可以进一步确认实际安排。', explanation: '原话出现了对安排的讨论，但尚没有明确确认赴约的证据，所以可以核实时间，不能把讨论直接当作承诺。', summaryEvidenceIds: detail.findings?.length ? [detail.findings[0].id] : [], action: '确认双方方便的时间。', actionEvidenceIds: detail.findings?.length ? [detail.findings[0].id] : [], observeWindow: '下一次约定', stopCondition: '明确拒绝就停止',affinityAssessment:{dimensions:[],unavailableReason:'这些合成原话只泛泛讨论安排，没有足够的具体互动维度。'},actionPlan:{goal:'connection',rationale:'目前只有安排的讨论。',steps:[{title:'确认安排',action:'确认双方方便的时间。',why:'讨论尚未形成明确确认。',evidenceIds:detail.findings?.length?[detail.findings[0].id]:[],observeFor:'下一次相关回应',advanceWhen:'双方确认时间后再安排。',stopWhen:'明确拒绝就停止。'}]},...(moments.length?{sourceInsights:{moments:{summary:'已核对的动态呈现了具体活动线索，不能据此推断恋爱意愿。',evidenceIds:[moments[0].id],unknowns:['不清楚是否与用户共同参与']}}}:{}) });
+    return JSON.stringify({ profileUnavailableReason:'这些合成原话仅讨论安排，没有独立人物画像依据。',riskAssessment:{status:'no_supported_signal',summary:'合成日常安排没有可核验的风险原话，不能据此保证不存在风险。',items:[]},summary: '根据这些合成聊天，可以进一步确认实际安排。', explanation: '原话出现了对安排的讨论，但尚没有明确确认赴约的证据，所以可以核实时间，不能把讨论直接当作承诺。', summaryEvidenceIds: detail.findings?.length ? [detail.findings[0].id] : [], action: '确认双方方便的时间。', actionEvidenceIds: detail.findings?.length ? [detail.findings[0].id] : [], observeWindow: '下一次约定', stopCondition: '明确拒绝就停止',affinityAssessment:{dimensions:[],unavailableReason:'这些合成原话只泛泛讨论安排，没有足够的具体互动维度。'},actionPlan:{goal:'connection',rationale:'目前只有安排的讨论。',steps:[{title:'确认安排',action:'确认双方方便的时间。',why:'讨论尚未形成明确确认。',evidenceIds:detail.findings?.length?[detail.findings[0].id]:[],observeFor:'下一次相关回应',advanceWhen:'双方确认时间后再安排。',stopWhen:'明确拒绝就停止。'}]},...(moments.length?{sourceInsights:{moments:{summary:'已核对的动态呈现了具体活动线索，不能据此推断恋爱意愿。',evidenceIds:[moments[0].id],unknowns:['不清楚是否与用户共同参与']}}}:{}) });
   },
   budget() { reserveBudgets++; },
 };
@@ -223,8 +223,8 @@ await test('changed related snapshots stop before any vision provider call', asy
 
 await test('image and text work share the two-call alarm budget and preserve complete source coverage', async () => {
   const fixture = await setup(); await addRelated(fixture); const before = calls.length; await start(fixture.owner, fixture.body);
-  const first = await alarm(fixture.owner); assert.equal(first.status, 'queued', first.error); assert.equal(first.completedImages, 2); assert.equal(first.completedText, 0);
-  const done = await finish(fixture.owner); assert.equal(done.status, 'done', done.error); assert.equal(done.completedImages, 3); assert.equal(done.completedText, 675); assert.equal(calls.length - before, 8);
+  const first = await alarm(fixture.owner); assert.equal(first.status, 'queued', first.error); assert.equal(first.completedImages, 3); assert.equal(first.completedText, 250);
+  const done = await finish(fixture.owner); assert.equal(done.status, 'done', done.error); assert.equal(done.completedImages, 3); assert.equal(done.completedText, 675); assert.equal(calls.length - before, 6);
   const segments=calls.slice(before).filter(call=>Array.isArray(call.detail.rows));
   assert.equal(segments.length,4,'three chat segments and one independent Moments evidence pass');
   const momentsSegment=segments.filter(call=>call.detail.rows.every(row=>row.sourceKind==='moments'));
@@ -287,13 +287,13 @@ await test('real route serializes cited affinity, chronological changes, useful 
   }
   providerFailure=(messages,options)=>{
     const detail=JSON.parse(typeof messages.at(-1).content==='string'?messages.at(-1).content:messages.at(-1).content[0].text);
-    if(options?.vision)return JSON.stringify({readable:true,observation:'图片可见海边步道，仅能判断可见场景。'});
+    if(options?.vision)return JSON.stringify({images:detail.images.map(image=>({mediaId:image.mediaId,readable:true,observation:'图片可见海边步道，仅能判断可见场景。'}))});
     if(detail.rows){const selected=detail.rows.filter(row=>Object.values(statements).includes(row.text)||row.sourceKind==='moments').slice(0,8);return JSON.stringify({findings:selected.map((row,index)=>({claim:row.sourceKind==='moments'?`动态或图片中的步道线索${index}`:`原话中的具体互动${index}`,confidence:'中',alternative:'普通朋友相处仍是合理解释。',evidence:[{sourceId:row.sourceId,quote:row.text}]}))});}
     const chat=detail.findings.filter(item=>item.evidence.some(source=>!source.basis)),moments=detail.findings.filter(item=>item.evidence.some(source=>source.sourceKind==='moments'));
     const earliest=chat.find(item=>item.evidence.some(source=>source.quote===statements[1])),latest=chat.find(item=>item.evidence.some(source=>source.quote===statements[185]));
     const cite=(chat[0]||moments[0]).id,actionSource=(latest||moments[0]||chat[0]).id;
     const dimensions=chat.length?['initiative','engagement','care','openness','intimacy','action'].map((key,i)=>({key,level:i===4?2:i===5?4:3,status:i===4?'ambiguous':'clear',reason:i===4?'原话表达一起活动开心，仍不能区分友情与恋爱意愿。':'这组原话包含具体关心、分享或相处安排。',evidenceIds:[chat[Math.min(i,chat.length-1)].id]})):[];
-    return JSON.stringify({summary:chat.length?'从聊散步到约定和回顾，实际接触有了推进，恋爱意愿尚待确认。':'动态呈现了散步活动，可从具体路线自然聊起。',explanation:chat.length?'早些原话提到一起散步，后面出现了具体时间与活动回顾，实际相处的证据比单纯聊得热闹更充分。\n\n不过，开心地一起活动也可能是朋友相处。对方还没有明确表达恋爱意愿，下一步适合回应具体体验，不宜据此追问关系承诺。':'配文和可见图片都涉及海边步道，支持把散步作为当前可聊的话题。公开动态无法证明对方对用户的态度，也不能据此判断收入、性格或恋爱意愿。',summaryEvidenceIds:[cite],affinityAssessment:{dimensions,unavailableReason:chat.length?'':'本次只有朋友圈，没有双方聊天，不能评价对方对你的好感。'},affinitySignals:chat.length?[{direction:'support',signal:'安排从提议走到具体时间',meaning:'具体安排和活动回顾支持愿意继续接触，但尚不等于恋爱确认。',evidenceIds:[latest.id],alternative:'也可能是舒适的朋友活动。'}]:[],changeInsights:earliest&&latest?[{title:'从讨论活动到出现活动回顾',before:{reading:'之前还在提出一起散步的想法。',evidenceIds:[earliest.id]},after:{reading:'之后出现具体安排，并回顾一起活动的体验。',evidenceIds:[latest.id]},meaning:'接触已经不只停留在口头提议，下一次可顺着共同体验自然推进。',alternative:'朋友之间也可能有同样的活动安排，尚不能确认恋爱意图。'}]:[],actionPlan:{goal:'connection',rationale:chat.length?'已有共同活动和对方愿意继续约的原话。':'已有具体动态话题，可从公开内容开场。',steps:[{title:chat.length?'回应共同体验':'从具体动态开场',action:chat.length?'回应散步时你也喜欢的一个细节，再接住下一次邀约。':'聊动态中的步道路线，先看看对方是否愿意展开。',why:chat.length?'对方已经回顾体验并提到下次，回应这件事比另起无关话题自然。':'配文提供了具体话题，不需要根据照片猜测私人情况。',evidenceIds:[actionSource],observeFor:'下一轮与这个话题有关的真实互动',advanceWhen:'对方也延续话题并愿意共同确认安排时再推进。',stopWhen:'对方明确拒绝或表示不想继续，就停止推进。',reply:chat.length?'我也挺开心的，海边那段走起来很舒服，下次再一起走呀。':'看到你分享海边步道，那段路走起来感觉怎么样？'}]},...(moments.length?{sourceInsights:{moments:{summary:'动态配文记录了海边散步，图片可见步道场景，可以作为生活话题线索。',evidenceIds:[moments[0].id],unknowns:['无法判断是否与用户同行'],...(chat.length?{crossSource:{summary:'聊天和动态都出现散步话题，但日期不同，不能断定是同一次活动。',evidenceIds:[cite,moments[0].id]}}:{})}}}:{})});
+    return JSON.stringify({riskAssessment:{status:'no_supported_signal',summary:'这些原话尚未出现足以核实的风险信号。',items:[]},profileInsights:[{subject:'other',dimension:'生活与兴趣',reading:'对方多次提到散步，从一般话题转为具体路线与活动体验，可作为自然聊天切入点，不能由此确定关系意愿。',evidenceIds:[cite],alternative:'也可能是普通朋友之间的共同兴趣。'}],summary:chat.length?'从聊散步到约定和回顾，实际接触有了推进，恋爱意愿尚待确认。':'动态呈现了散步活动，可从具体路线自然聊起。',explanation:chat.length?'早些原话提到一起散步，后面出现了具体时间与活动回顾，实际相处的证据比单纯聊得热闹更充分。\n\n不过，开心地一起活动也可能是朋友相处。对方还没有明确表达恋爱意愿，下一步适合回应具体体验，不宜据此追问关系承诺。':'配文和可见图片都涉及海边步道，支持把散步作为当前可聊的话题。公开动态无法证明对方对用户的态度，也不能据此判断收入、性格或恋爱意愿。',summaryEvidenceIds:[cite],affinityAssessment:{dimensions,unavailableReason:chat.length?'':'本次只有朋友圈，没有双方聊天，不能评价对方对你的好感。'},affinitySignals:chat.length?[{direction:'support',signal:'安排从提议走到具体时间',meaning:'具体安排和活动回顾支持愿意继续接触，但尚不等于恋爱确认。',evidenceIds:[latest.id],alternative:'也可能是舒适的朋友活动。'}]:[],changeInsights:earliest&&latest?[{title:'从讨论活动到出现活动回顾',before:{reading:'之前还在提出一起散步的想法。',evidenceIds:[earliest.id]},after:{reading:'之后出现具体安排，并回顾一起活动的体验。',evidenceIds:[latest.id]},meaning:'接触已经不只停留在口头提议，下一次可顺着共同体验自然推进。',alternative:'朋友之间也可能有同样的活动安排，尚不能确认恋爱意图。'}]:[],actionPlan:{goal:'connection',rationale:chat.length?'已有共同活动和对方愿意继续约的原话。':'已有具体动态话题，可从公开内容开场。',steps:[{title:chat.length?'回应共同体验':'从具体动态开场',action:chat.length?'回应散步时你也喜欢的一个细节，再接住下一次邀约。':'聊动态中的步道路线，先看看对方是否愿意展开。',why:chat.length?'对方已经回顾体验并提到下次，回应这件事比另起无关话题自然。':'配文提供了具体话题，不需要根据照片猜测私人情况。',evidenceIds:[actionSource],observeFor:'下一轮与这个话题有关的真实互动',advanceWhen:'对方也延续话题并愿意共同确认安排时再推进。',stopWhen:'对方明确拒绝或表示不想继续，就停止推进。',reply:chat.length?'我也挺开心的，海边那段走起来很舒服，下次再一起走呀。':'看到你分享海边步道，那段路走起来感觉怎么样？'}]},...(moments.length?{sourceInsights:{moments:{summary:'动态配文记录了海边散步，图片可见步道场景，可以作为生活话题线索。',evidenceIds:[moments[0].id],unknowns:['无法判断是否与用户同行'],...(chat.length?{crossSource:{summary:'聊天和动态都出现散步话题，但日期不同，不能断定是同一次活动。',evidenceIds:[cite,moments[0].id]}}:{})}}}:{})});
   };
   await start(data.owner,data.body);const joint=await finish(data.owner);assert.equal(joint.status,'done',joint.error);
   assert.equal(joint.result.analysisVersion,CAPTURE_REPORT_VERSION);assert.equal(joint.result.affinity.contextCount,194);assert.equal(typeof joint.result.affinity.value,'number');assert.equal(joint.result.affinity.dimensions.length,6);
@@ -363,29 +363,28 @@ await test('standalone full Moments reads beyond ten posts and accounts captions
   const same=await start(data.owner,{...body,requestId:crypto.randomUUID()},200);assert.equal(same.status,'done');assert.equal(balance(data.owner),1000-credits.CREDIT_PRICES.profile,'unchanged Moments reuse the report without charging again');
 });
 
-await test('persistent Moments synthesis failure publishes a grounded degraded report',async()=>{
+await test('persistent Moments synthesis failure refunds without publishing a generic partial report',async()=>{
   const data=await setup(2),momentsId=await addRelated(data,3);
   const body={...data.body,requestId:crypto.randomUUID(),kind:'moments',libraryId:momentsId,expectedTotal:3,relatedSnapshots:[]};
-  // Let all image/caption segments finish normally; only the final prose pass
-  // is unavailable. The durable object should switch to its one bounded
-  // evidence-only pass after three transient synthesis failures.
   providerFailure=(messages,options)=>{
     const detail=JSON.parse(typeof messages.at(-1).content==='string'?messages.at(-1).content:messages.at(-1).content[0].text);
-    if(options?.vision)return JSON.stringify({readable:true,observation:'动态预览中可见海边步道。'});
+    if(options?.vision)return JSON.stringify({images:detail.images.map(image=>({mediaId:image.mediaId,readable:true,observation:'动态预览中可见海边步道。'}))});
     if(detail.rows)return JSON.stringify({findings:detail.rows.slice(0,2).map(row=>({claim:'已核对动态线索。',confidence:'低',alternative:'公开记录仍需结合实际沟通。',evidence:[{sourceId:row.sourceId,quote:row.text}]}))});
     throw Error('SYNTHETIC_SYNTHESIS_TIMEOUT');
   };
   await start(data.owner,body);
-  const degraded=await finish(data.owner);
-  assert.equal(degraded.status,'done',degraded.error);
-  assert.equal(degraded.result.degradedSynthesis,true);
-  assert.equal(degraded.result.semanticHistory.status,'unavailable');
-  assert.match(degraded.result.semanticHistory.explanation,/没有在时限内返回完整结果/);
-  assert.ok(degraded.result.semanticHistory.findings.length,'verified findings remain available');
-  assert.equal(balance(data.owner),1000-credits.CREDIT_PRICES.profile);
+  const failed=await finish(data.owner);
+  assert.equal(failed.status,'error');
+  assert.equal(balance(data.owner),1000);
+  assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM coach_saved_reports WHERE id=? AND status='done'").get(body.requestId).n,0);
+  const readCalls=calls.filter(call=>call.owner===data.owner&&call.phase!=='synthesis').length;
   providerFailure=null;
-  const fresh=await start(data.owner,{...body,requestId:crypto.randomUUID()});
-  assert.equal(fresh.reused,undefined,'degraded reports must not be reused as complete analysis');
+  await start(data.owner,{...body,requestId:crypto.randomUUID()});
+  const complete=await finish(data.owner);
+  assert.equal(complete.status,'done',complete.error);
+  assert.equal(complete.result.semanticHistory.status,'complete');
+  assert.equal(complete.completedImages,3,'cached image work remains visible in the retry progress');
+  assert.equal(calls.filter(call=>call.owner===data.owner&&call.phase!=='synthesis').length,readCalls,'retry reuses every completed image and segment');
 });
 
 await test('omitted imported Moments interpretation retries rather than delivering a chat-only complete report',async()=>{
@@ -561,6 +560,22 @@ await test('sparse legacy synthesis cache is replaced while concise grounded rea
   assert.match(await model(messages,options),/尚无兑现证据/);assert.equal(providerCalls,1,'validated new synthesis is reused');
   const noFindings=checkpointedCaptureModel(async()=>JSON.stringify({summary:'目前没有可靠观察。'}),async()=>null);
   assert.match(await noFindings([{role:'user',content:JSON.stringify({findings:[]})}],options),/没有可靠观察/);
+});
+
+await test('image batches reject missing duplicate and foreign IDs before checkpointing',async()=>{
+  const images=[{mediaId:'image-a'},{mediaId:'image-b'}];
+  const messages=[{role:'user',content:[{type:'text',text:JSON.stringify({images})}]}];
+  const observation=mediaId=>({mediaId,readable:true,observation:'合成图片可见步道。'});
+  for(const invalid of [[observation('image-a')],[observation('image-a'),observation('image-a')],[observation('image-a'),observation('foreign-image')]]){
+    const cache=new Map();
+    const model=checkpointedCaptureModel(async()=>JSON.stringify({images:invalid}),async(key,value)=>{if(value&&key!=='progress')cache.set(key,value);return cache.get(key);});
+    await assert.rejects(model(messages,{vision:true}),error=>error instanceof CaptureJobRetry);
+    assert.equal(cache.size,0,'malformed batch cannot become reusable evidence');
+  }
+  const cache=new Map();let calls=0;
+  const model=checkpointedCaptureModel(async()=>{calls++;return JSON.stringify({images:[observation('image-b'),observation('image-a')]});},async(key,value)=>{if(value&&key!=='progress')cache.set(key,value);return cache.get(key);});
+  await model(messages,{vision:true});await model(messages,{vision:true});
+  assert.equal(calls,1);assert.equal([...cache.values()][0].imageCount,2,'progress counts images instead of provider calls');
 });
 
 await test('edited person context between alarms stops the frozen analysis and releases credits once', async()=>{

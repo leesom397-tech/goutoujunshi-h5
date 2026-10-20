@@ -1,4 +1,5 @@
 "use client";
+import { announceAccountChange } from '@/lib/web-account-session';
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ArrowRight } from "lucide-react";
 import "./phone-register-form.css";
@@ -54,8 +55,7 @@ export function PhoneRegisterForm({ onSuccess, onLogin, onBusyChange, compact = 
       const data = await response.json() as { ok?: boolean; error?: string; loginRequired?: boolean };
       if (!response.ok || !data.ok) throw Error(data.error || "注册失败，请重试。");
       if (data.loginRequired) { setLoginRequired(true); setNotice("注册成功，请使用注册名和密码登录。"); setPassword(""); setConfirm(""); setCode(""); }
-      else if (onSuccess) onSuccess();
-      else window.location.assign(destination());
+      else { announceAccountChange(); if (onSuccess) onSuccess(); else window.location.assign(destination()); }
     } catch (cause) { setError(cause instanceof Error ? cause.message : "网络异常，请重试。"); }
     finally { inFlight.current = false; setBusy(false); }
   }

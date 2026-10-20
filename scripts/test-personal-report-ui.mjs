@@ -93,3 +93,20 @@ const enumLabels = render({personalConnection:{version:1,sources:[{...self,label
 assert.doesNotMatch(enumLabels, /<small>(self|other|unknown)<\/small>/);
 assert.match(enumLabels, /self is an English word/);assert.match(enumLabels, /other is an English word/);
 console.log("PASS report labels: self/other/unknown are localized; source names and English quotes remain unchanged.");
+
+// Exercise the actual global-report sections, including two different findings
+// with an identical title. Both IDs must remain resolvable for later sections.
+const {HistoryReportReading,HistoryActionReading}=load("components/web-analysis/HistoryReportInsights.tsx");
+const globalReport={analysisScope:'fullHistory',analysisQuestion:'panorama',captureKind:'chat',participants:{other:{label:'合成对象'}},sourceCoverage:[{libraryId:'moments',kind:'moments',total:1,textRead:1,imagesExpected:1,imagesAnalyzed:1}],mediaEvidence:[{libraryId:'moments',sourceId:'post-1',mediaId:'photo-1',kind:'moments',observation:'图片可见海边步道。'}],semanticHistory:{status:'complete',findings:[
+ {id:'self',claim:'表达了要求',subject:'self',evidence:[{sourceId:'chat-self',senderRole:'self',quote:'我会自行处理账户。'}]},
+ {id:'risk',claim:'表达了要求',subject:'other',evidence:[{sourceId:'chat-other',senderRole:'other',quote:'把验证码发给我。'}]},
+ {id:'moment',claim:'公开记录步道活动',subject:'other',evidence:[{sourceId:'post-1',libraryId:'moments',sourceKind:'moments',basis:'caption',senderRole:'other',quote:'今天去海边走走。'}]}
+ ],profileInsights:[{subject:'other',dimension:'边界与相处',reading:'提出索取账号验证码，需要先明确账号边界。',evidenceIds:['risk'],alternative:'也可能是不清楚流程。'}],sourceInsights:{moments:{summary:'公开动态记录海边散步，可作生活话题线索。',evidenceIds:['moment']}},riskAssessment:{status:'signals',summary:'有一项账号边界表达需要核实。',items:[{subject:'other',title:'索取验证码',meaning:'此要求涉及账号访问权限。',evidenceIds:['risk'],resolution:{reading:'后续尚未有明确更正。',evidenceIds:[]},alternative:'也可能对流程不了解。',verify:{action:'自行确认官方流程，不分享验证码。',question:'你确认不需要我的验证码吗？',outcomes:[{when:'接受自行操作',nextStep:'保持边界。'},{when:'坚持索取',nextStep:'停止操作。'}]}}]},actionPlan:{goal:'risk',steps:[{title:'保持账号边界',action:'自行确认官方流程。',why:'对方索取了验证码。',evidenceIds:['risk'],observeFor:'本次操作前',advanceWhen:'接受你自行操作',stopWhen:'仍然坚持索取'}]}}};
+const renderSection=section=>renderToStaticMarkup(React.createElement(HistoryReportReading,{report:globalReport,section}));
+const globalRisk=renderSection('risk');
+for(const phrase of ['风险与边界','索取验证码','此要求涉及账号访问权限','把验证码发给我','后续尚未有明确更正','接受自行操作','坚持索取'])assert.ok(globalRisk.includes(phrase),phrase+' is visible in global analysis');
+assert.ok(renderSection('profile').includes('提出索取账号验证码'),'same-title findings from different speakers retain their own citations');
+for(const phrase of ['公开动态记录海边散步','今天去海边走走','图片可见海边步道'])assert.ok(renderSection('moments').includes(phrase),phrase+' remains visible');
+const globalAction=renderToStaticMarkup(React.createElement(HistoryActionReading,{report:globalReport}));
+for(const phrase of ['自行确认官方流程','本次操作前','接受你自行操作','仍然坚持索取'])assert.ok(globalAction.includes(phrase));
+console.log('PASS global report UI: risk, quotes, competing interpretations, conditional actions and Moments image analysis remain visible with exact subject/source mapping.');

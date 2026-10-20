@@ -179,6 +179,34 @@ class DatabaseSourceTests(unittest.TestCase):
         with self.assertRaises(BackgroundCaptureError):
             EncryptedSnapshot(self.path, self.key)
 
+    def test_appended_wal_transactions_do_not_restart_frozen_import(self):
+        page = encrypt_page(self.raw[4096:8192], 2, self.key, self.salt)
+        wal = Path(str(self.path) + "-wal")
+        wal.write_bytes(wal_bytes([(2, 2, page)]))
+        snapshot = EncryptedSnapshot(self.path, self.key)
+        try:
+            wal.write_bytes(wal_bytes([(2, 2, page), (2, 2, page)]))
+            snapshot.assert_unchanged()
+            self.assertEqual(self.query(snapshot), [("original",)])
+            changed = bytearray(wal.read_bytes())
+            changed[100] ^= 1
+            wal.write_bytes(changed)
+            with self.assertRaises(BackgroundCaptureError) as error:
+                snapshot.assert_unchanged()
+            self.assertEqual(error.exception.code, "SOURCE_CHANGED")
+        finally:
+            snapshot.close()
+
+    def test_new_wal_keeps_original_database_snapshot(self):
+        snapshot = EncryptedSnapshot(self.path, self.key)
+        try:
+            page = encrypt_page(self.raw[4096:8192], 2, self.key, self.salt)
+            Path(str(self.path) + "-wal").write_bytes(wal_bytes([(2, 2, page)]))
+            snapshot.assert_unchanged()
+            self.assertEqual(self.query(snapshot), [("original",)])
+        finally:
+            snapshot.close()
+
     def test_source_changed_before_snapshot_seal_rejected(self):
         snapshot = EncryptedSnapshot(self.path, self.key)
         try:

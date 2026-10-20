@@ -40,7 +40,7 @@ const {reportContextSnapshot,reportFreshness}=load("lib/report-freshness");
 const snapshot=await reportContextSnapshot(db,"owner","person");assert.equal(snapshot.version,1);assert.deepEqual(snapshot.libraryIds,["lib-chat"]);
 sqlite.prepare("UPDATE coach_subjects SET data=json_set(data,'$.relationshipHistory',json(?)),updated_at=9 WHERE id='person'").run(JSON.stringify([{reportId,nextStep:"确认具体时间",updatedAt:3}]));
 assert.deepEqual(await reportContextSnapshot(db,"owner","person"),snapshot,"report history never invalidates itself");
-const saved={analysisScope:"fullHistory",analysisVersion:3,archiveSnapshot:{libraryId:"lib-chat",epoch:1,revision:2,total:1},contextSnapshot:snapshot};
+const saved={analysisScope:"fullHistory",analysisVersion:load("lib/capture-report-version").CAPTURE_REPORT_VERSION,archiveSnapshot:{libraryId:"lib-chat",epoch:1,revision:2,total:1},contextSnapshot:snapshot};
 assert.equal((await reportFreshness(db,"owner","person",saved)).status,"current");
 assert.equal((await reportFreshness(db,"owner","person",{...saved,analysisVersion:undefined})).analysisUpdated,true,"old complete report must not block the improved analysis through indefinite reuse");
 assert.equal((await reportFreshness(db,"owner","person",{...saved,analysisVersion:undefined})).status,"changed");

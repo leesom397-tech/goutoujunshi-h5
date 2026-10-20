@@ -148,7 +148,7 @@ class BackgroundReaderTests(unittest.TestCase):
         self.assertEqual(item["source"]["durationSeconds"], 6)
         self.assertEqual(item["text"], "[语音]")
         self.assertEqual(item["source"]["voiceAvailability"], "missing-local")
-        self.assertEqual(item["source"]["transcriptionStatus"], "not-transcribed")
+        self.assertEqual(item["source"]["transcriptionStatus"], "failed")
 
     def test_other_contacts_voice_not_attached_on_same_server_id(self):
         source = Source()
@@ -212,7 +212,7 @@ class BackgroundReaderTests(unittest.TestCase):
             raise BackgroundCaptureError("decode-failed", "test")
         batch, _, _ = self.run_capture(source, voice=True, transcribe=transcribe)
         self.assertEqual(batch["records"][0]["source"]["voiceAvailability"], "decode-failed")
-        self.assertEqual(batch["records"][0]["source"]["transcriptionStatus"], "not-transcribed")
+        self.assertEqual(batch["records"][0]["source"]["transcriptionStatus"], "failed")
 
     def test_asr_failure_has_explicit_failed_status(self):
         source = Source()
@@ -224,7 +224,7 @@ class BackgroundReaderTests(unittest.TestCase):
         item = batch["records"][0]
         self.assertEqual(item["kind"], "other")
         self.assertEqual(item["source"]["voiceAvailability"], "transcribe-failed")
-        self.assertEqual(item["source"]["transcriptionStatus"], "not-transcribed")
+        self.assertEqual(item["source"]["transcriptionStatus"], "failed")
 
     def test_undecodable_text_is_not_passed_as_analyzable_text(self):
         source = Source()

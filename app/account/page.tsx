@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
+import { useAccount } from '@/components/web-analysis/client';
 import { Copy, RefreshCw, ArrowRight, Fingerprint, Wallet, Settings2, History, Headphones, UserRound, UsersRound, Smartphone, ShieldCheck, LogOut } from "lucide-react";
 import { WebNav } from "@/components/WebNav";
 import { AuroraPageHero } from "@/components/AuroraPageHero";
@@ -9,26 +10,9 @@ import styles from "./AccountPage.module.css";
 
 type State = { account: CreditAccount; prices: Record<string, number>; user: { name: string }; admin: boolean };
 export default function AccountPage() {
-  const [state, setState] = useState<State | null>(null);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [signedOut, setSignedOut] = useState(false);
+  const identity = useAccount(), state = identity.account as State | null, error = identity.error, loading = identity.loading, signedOut = identity.unauthorized;
   const [notice, setNotice] = useState("");
-  const loadGeneration = useRef(0);
-  async function load() {
-    const generation = ++loadGeneration.current;
-    setLoading(true); setError(""); setState(null); setNotice(""); setSignedOut(false);
-    try {
-      const response = await fetch("/api/account/credits", { cache: "no-store" });
-      const data = await response.json() as State & { error?: string; code?: string };
-      if (generation !== loadGeneration.current) return;
-      if (response.status === 401 || data.code === "AUTH_IDENTITY_UNAVAILABLE") { setSignedOut(true); setState(null); return; }
-      if (!response.ok) throw Error(data.error || "暂时无法读取账户。");
-      setState(data); setSignedOut(false);
-    } catch (cause) { if (generation === loadGeneration.current) setError(cause instanceof Error ? cause.message : "网络异常，请重试。"); }
-    finally { if (generation === loadGeneration.current) setLoading(false); }
-  }
-  useEffect(() => { void load(); const refresh = () => { if (!document.hidden) void load(); }; window.addEventListener("focus", refresh); return () => { loadGeneration.current++; window.removeEventListener("focus", refresh); }; }, []);
+  async function load() { setNotice(''); await identity.refresh(); }
   async function copy(text: string) {
     try { await navigator.clipboard.writeText(text); setNotice("已复制，可以粘贴给客服。"); }
     catch { setNotice("请长按或选中文字复制。"); }
