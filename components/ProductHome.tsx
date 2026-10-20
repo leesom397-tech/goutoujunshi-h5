@@ -1,6 +1,6 @@
 "use client";
-import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowUpRight, ArrowRight, MessageCircle, BookOpen, ScanLine, Images, ScanFace, AudioLines, Users, Heart, Download, ChevronDown, X } from "lucide-react";
+import { type ReactNode } from "react";
+import { ArrowUpRight, ArrowRight, MessageCircle, BookOpen, ScanLine, Images, ScanFace, AudioLines, Users, Heart, Download, ChevronDown } from "lucide-react";
 import { knowledgeManifest, knowledgeVolume } from "@/lib/knowledge-public";
 import { knowledgeOrigin } from "@/lib/knowledge-origins";
 import { GlassStudy } from "./GlassStudy";
@@ -16,20 +16,6 @@ const features = [
   { href: "/support", icon: Download, title: "帮助与下载", text: "下载或更新微信助手" },
 ];
 export function ProductHome({ onStart, signedIn = false, afterHero }: { onStart: (href: string) => void; signedIn?: boolean; afterHero?: ReactNode }) {
-  const [moreOpen,setMoreOpen] = useState(false);
-  const dialog = useRef<HTMLDialogElement>(null), moreButton = useRef<HTMLButtonElement>(null);
-  useEffect(() => {
-    if (!moreOpen) return;
-    dialog.current?.showModal();
-    const overflow = document.documentElement.style.overflow;
-    document.documentElement.style.overflow = "hidden";
-    return () => { document.documentElement.style.overflow = overflow; };
-  }, [moreOpen]);
-  function closeMore() {
-    dialog.current?.close();
-    setMoreOpen(false);
-    moreButton.current?.focus({preventScroll:true});
-  }
   return <div className={styles.page}>
     <section className={styles.hero}>
       <div className={styles.heroCopy}>
@@ -38,19 +24,17 @@ export function ProductHome({ onStart, signedIn = false, afterHero }: { onStart:
         <p className={styles.heroDescription}>从一句聊天，到一段关系。</p>
         <div className={styles.actions}>
           <button type="button" data-home-start className={styles.startButton} onClick={() => onStart("/relationship")}>开始分析<ArrowRight size={20}/></button>
-          <button type="button" ref={moreButton} className={styles.moreButton} aria-haspopup="dialog" aria-expanded={moreOpen} aria-controls="home-more-ways" onClick={() => setMoreOpen(true)}>更多方式<ChevronDown size={18}/></button>
+          <a className={styles.moreButton} href="#home-more-ways">更多方式<ChevronDown size={18}/></a>
         </div>
       </div>
       <div className={styles.art}><GlassStudy/></div>
     </section>
     {afterHero}
     <KnowledgeEvidence/>
-    {moreOpen && <dialog ref={dialog} id="home-more-ways" className={styles.moreDialog} aria-labelledby="home-more-title" onClose={closeMore} onClick={event => {if(event.target===event.currentTarget)closeMore();}}>
-      <div className={styles.moreSurface}>
-        <header><div><h2 id="home-more-title">更多方式</h2><p>选一个眼下想解决的问题。</p></div><button type="button" onClick={closeMore} aria-label="关闭更多方式"><X size={22}/></button></header>
-        <nav className={styles.grid} aria-label="选择分析或交流方式">{features.map(({href,icon:Icon,title,text})=><a className={styles.tool} data-feature-entry href={href} key={href}><span className={styles.icon}><Icon size={23} strokeWidth={1.6}/></span><span className={styles.toolCopy}><strong>{title}</strong><span>{text}</span></span><ArrowUpRight className={styles.toolArrow} size={18}/></a>)}</nav>
-      </div>
-    </dialog>}
+    <section id="home-more-ways" className={styles.tools} aria-labelledby="home-more-title" tabIndex={-1}>
+      <header><h2 id="home-more-title">更多方式</h2></header>
+      <nav className={styles.grid} aria-label="选择分析或交流方式">{features.map(({href,icon:Icon,title,text})=><a className={styles.tool} data-feature-entry href={href} key={href}><span className={styles.icon}><Icon size={23} strokeWidth={1.6}/></span><span className={styles.toolCopy}><strong>{title}</strong><span>{text}</span></span><ArrowUpRight className={styles.toolArrow} size={18}/></a>)}</nav>
+    </section>
     <nav className={styles.utilities} aria-label="更多信息"><a href="/archive?tab=self">我的资料<ArrowUpRight size={14}/></a><a href="/library">资料与依据<ArrowUpRight size={14}/></a><a href="/support">帮助与下载<ArrowUpRight size={14}/></a>{!signedIn && <a href="/login?return_to=%2Fworkspace">登录</a>}</nav>
   </div>;
 }

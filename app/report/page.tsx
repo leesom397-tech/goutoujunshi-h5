@@ -10,7 +10,7 @@ import "@/components/web-analysis/web-analysis.css";
 import styles from "./ReportPage.module.css";
 import { AnalysisCard, ConversationPanel, RiskResult } from "@/components/MaterialReport";
 import { intakeHref, intakeReturnTo } from "@/components/web-analysis/intake-navigation";
-import { personAnalysisHref, withCaptureQuestion } from "@/lib/person-analysis-navigation";
+import { personAnalysisHref, withAnalysisFocus, withCaptureQuestion } from "@/lib/person-analysis-navigation";
 import { reportIdentity, reportGoal } from "@/components/web-analysis/report-context";
 export default function ReportPage() {
   const account = useAccount(), owner = account.account?.account?.userId;
@@ -26,7 +26,7 @@ export default function ReportPage() {
   const readerHasHeading = !!current && !current.report.riskAnalysis && !current.report.importAnalysis && (kind === "chat" || fullMoments);
   const returnTo = current ? intakeReturnTo('/report?id=' + (current.report.reportId || current.report.id)) : '';
   const continueTarget = fullMoments ? intakeHref('/capture',{kind:'moments',method:'library',subjectId:current?.subjectId || current?.report.subjectId || '',libraryId:current?.report.archiveSnapshot?.libraryId || '',returnTo}) : current?.report.analysisScope === "fullHistory" ? current.report.archiveSnapshot?.libraryId ? intakeHref('/capture',{kind:'chat',method:'library',subjectId:current.subjectId || current.report.subjectId || '',libraryId:current.report.archiveSnapshot.libraryId,returnTo}) : personAnalysisHref(current?.subjectId || current?.report.subjectId || '') : current?.report.riskAnalysis ? "/risk" : current?.report.importAnalysis ? "/import" : intakeHref('/analyze',{mode:kind,subjectId:current?.subjectId || current?.report.subjectId || '',targetSelf:!!current?.targetSelf,returnTo});
-  const continueHref = withCaptureQuestion(continueTarget,current?.report.analysisQuestion||current?.report.relationshipDiagnosis?.question||(current&&reportGoal(current.report)==='risk'?'risk':undefined));
+  const continueHref = withAnalysisFocus(withCaptureQuestion(continueTarget,current?.report.analysisQuestion||current?.report.relationshipDiagnosis?.question||(current&&reportGoal(current.report)==='risk'?'risk':undefined)),continueTarget.startsWith("/analyze") ? initialFocus : undefined);
   async function load() {
     const ticket = ++generation.current, scope = owner; if (!scope) return;
     setLoading(true); setError(""); setSaved(null);

@@ -132,6 +132,7 @@ export function ChatReport({report,account,styleReportIds,preview=false,publicEx
  const diagnosis=report.relationshipDiagnosis||(report.chatActivity?buildRelationshipDiagnosis(report.chatActivity,undefined,Array.isArray(report.lines)?report.lines:[]):null);
  const semantic=report.semanticHistory||diagnosis?.semanticHistory;
  const fullHistory=report.analysisScope==='fullHistory'||report.captureFormat==='full-history';
+ const affinityFirst=!fullHistory&&initialFocus==='affinity'&&presentation.mode==='normal';
  const momentOnly=fullHistory&&report.captureKind==='moments';
  const identity=reportIdentity(report),goal=reportGoal(report);
  const hasCurrentLines=!fullHistory&&!report.sentenceSampleNote&&Array.isArray(report.lines)&&report.lines.length>0;
@@ -148,8 +149,9 @@ export function ChatReport({report,account,styleReportIds,preview=false,publicEx
   <div className={reportStyles.participantScope} data-report-participants><span>{momentOnly?'完整朋友圈报告':fullHistory?'完整关系报告':'本次聊天报告'}</span><strong>{momentOnly?identity.other:identity.direction}</strong><small data-report-source-scope>{reportSourceSummary(report)}<CaptureEvidence label="查看原话依据"/></small></div>
   <ReportReader key={readingScope||report.reportId||report.id||"chat-report"} storageKey={readingScope} initialSection={initialFocus==='reply'?'next':initialFocus==='intent'&&!fullHistory?'change':initialFocus==='affinity'||initialFocus==='intent'?'status':undefined} items={!fullHistory?screenshotSections:momentOnly?fullMomentsSections:chatSections}>{active=><>
    {active==='status'&&<>
+    {affinityFirst&&<AffinityOverview report={report}/>}
     <ChatReportBrief report={report} diagnosis={diagnosis} showMetrics={fullHistory&&!momentOnly}/>
-    {!fullHistory&&<AffinityOverview report={report}/>}
+    {!fullHistory&&!affinityFirst&&<AffinityOverview report={report}/>}
     {decision.partial&&<p className="wa-status">部分材料未识别；下方依据只覆盖可读内容。</p>}
     <RiskReview report={report} summaryOnly={fullHistory}/>
     {fullHistory&&<HistoryReportReading report={report} diagnosis={diagnosis} section={historySection} onSectionChange={setHistorySection}/>}
