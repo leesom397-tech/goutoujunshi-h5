@@ -14,7 +14,7 @@
     "pages/account/index"
   ],
   "window": {
-    "navigationBarTitleText": "成子关系决策智能体",
+    "navigationBarTitleText": "成子关系分析",
     "navigationBarBackgroundColor": "#fffaf4",
     "navigationBarTextStyle": "black",
     "backgroundColor": "#fffaf4"

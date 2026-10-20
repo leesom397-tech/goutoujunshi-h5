@@ -1,5 +1,5 @@
 {
-  "description": "成子关系决策智能体小程序",
+  "description": "成子关系决策智能体：聊天截图、朋友圈与社交资料分析，生成关系报告和沟通建议",
   "miniprogramRoot": "./",
   "projectname": "lovetalk-coach",
   "appid": "wx1ffabe1071a6244c",
