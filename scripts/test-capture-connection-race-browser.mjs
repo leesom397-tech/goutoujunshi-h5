@@ -23,7 +23,8 @@ try{for(const lateStatus of [401,200]){
     }else if(url.pathname==='/pair'){assert.deepEqual(JSON.parse(request.postData()),{code:'AABBCCDD'});value={token:newToken,expiresIn:28800};}
     else throw Error('unexpected helper operation '+url.pathname);
    }else if(url.origin===origin&&url.pathname.startsWith('/api/')){
-    if(url.pathname==='/api/auth/session')value={loggedIn:true};
+    if(url.pathname==='/api/web/account-context')value={account:{userId:owner,balance:100},people:[],prices:{analysisSmall:20,profile:30}};
+    else if(url.pathname==='/api/auth/session')value={loggedIn:true};
     else if(url.pathname==='/api/account/credits')value={account:{userId:owner,balance:100},prices:{analysisSmall:20,profile:30}};
     else if(url.pathname==='/api/web/profile')value={enabled:true,subjects:[]};
     else if(url.pathname==='/api/web/capture/library')value={ownerId:owner,libraries:[]};

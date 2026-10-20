@@ -9,8 +9,8 @@ import { creditResponse } from "./lib/credit-response.mjs";
 import { createVoiceTurnGuard } from "./lib/voice-turn-guard.mjs";
 import { requestOwner, webOwner, isWebApi, browserRequestAllowed } from "./lib/request-identity.mjs";
 import { legacyCreditPolicy, legacyCreditResponse } from "./lib/web-credit-policy.mjs";
-import { authCookie } from './lib/web-native-auth.mjs';
-import { withWebIdentityScope } from './lib/web-identity-state.mjs';
+import { authCookie, upgradeVerifiedLegacyResponse } from './lib/web-native-auth.mjs';
+import { withWebIdentityScope, currentIdentityScope } from './lib/web-identity-state.mjs';
 export { SocialProfileJobs };
 
 // Independent serialization domains: one cursor per客服, one analysis stream per end-user.
@@ -27,7 +27,10 @@ export class WechatCoordinator extends DurableObject {
 }
 const worker = {
   async fetch(request,env,ctx){
-    return withWebIdentityScope(authCookie(request), () => worker.handleFetch(request,env,ctx));
+    return withWebIdentityScope(authCookie(request), async () => {
+      const response = await worker.handleFetch(request,env,ctx);
+      return upgradeVerifiedLegacyResponse(request, response, env, currentIdentityScope()?.verifiedLegacyIdentity);
+    });
   },
   async handleFetch(request,env,ctx){
     const path = new URL(request.url).pathname;
@@ -89,6 +92,7 @@ const worker = {
       const now=Date.now();
       await env.DB.prepare("DELETE FROM coach_credit_receipts WHERE expires_at<=?").bind(now).run();
       await env.DB.prepare("DELETE FROM coach_web_sessions WHERE expires_at<=?").bind(now).run();
+      await env.DB.prepare("DELETE FROM coach_web_legacy_sessions WHERE expires_at<=?").bind(now).run();
       await env.DB.prepare("DELETE FROM coach_web_auth_attempts WHERE expires_at<=?").bind(now).run();
       await env.DB.prepare("UPDATE coach_credit_tasks SET status='released',updated_at=? WHERE status='reserved' AND (created_at<? OR (feature IN ('chat','voice') AND created_at<?))").bind(now,now-25*3600000,now-600000).run();
       await env.DB.prepare("UPDATE coach_crush_threads SET advice_data=(SELECT json_group_array(json(value)) FROM json_each(coach_crush_threads.advice_data) WHERE json_extract(value,'$.receivedAt')>?) WHERE EXISTS (SELECT 1 FROM json_each(coach_crush_threads.advice_data) WHERE json_extract(value,'$.receivedAt')<=?)").bind(now-7*86400000,now-7*86400000).run();

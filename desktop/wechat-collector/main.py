@@ -8,6 +8,52 @@ from bridge import BridgeError, CollectorState, server_for
 from pairing import open_connection_page
 
 
+def connection_code_controls(tk, root, state):
+    """A local copy action must never rotate pairing or touch an active capture."""
+    row = tk.Frame(root, bg="#fff8f1")
+    row.pack(pady=6)
+    code = tk.StringVar(value=state.code)
+    copy_text = tk.StringVar(value="复制连接码")
+    reset_timer = None
+
+    def reset_feedback():
+        nonlocal reset_timer
+        if reset_timer is not None:
+            root.after_cancel(reset_timer)
+            reset_timer = None
+        copy_text.set("复制连接码")
+
+    def copy_code(_event=None):
+        nonlocal reset_timer
+        reset_feedback()
+        with state.lock:
+            current = state.code
+        code.set(current)
+        try:
+            root.clipboard_clear()
+            root.clipboard_append(current)
+            root.update_idletasks()
+        except tk.TclError:
+            copy_text.set("未复制，请重试")
+        else:
+            copy_text.set("已复制")
+        reset_timer = root.after(1800, reset_feedback)
+        return "break"
+
+    value = tk.Label(row, textvariable=code, font=("Consolas", 24, "bold"),
+                     bg="#fff8f1", fg="#ad6148", cursor="hand2", takefocus=True,
+                     highlightthickness=1, highlightbackground="#fff8f1", highlightcolor="#ad6148")
+    value.pack(side="left", padx=(0, 14))
+    value.bind("<Button-1>", copy_code)
+    value.bind("<Return>", copy_code)
+    value.bind("<space>", copy_code)
+    tk.Button(row, textvariable=copy_text, command=copy_code,
+              font=("Microsoft YaHei UI", 11), bg="#fff8f1", fg="#944b34",
+              activebackground="#fae4d8", activeforeground="#703822",
+              padx=12, pady=6, width=14).pack(side="left")
+    return code, reset_feedback
+
+
 def main():
     parser = argparse.ArgumentParser(description="成子电脑微信采集助手")
     modes = parser.add_mutually_exclusive_group()
@@ -67,8 +113,7 @@ def main():
                                activebackground="#94513c", activeforeground="white", padx=30, pady=10)
     connect_button.pack(pady=(18, 6))
     tk.Label(root, text="备用连接码 · 网页未自动连接时使用", font=("Microsoft YaHei UI", 10), bg="#fff8f1", fg="#756151").pack(pady=(8, 0))
-    code = tk.StringVar(value=state.code)
-    tk.Label(root, textvariable=code, font=("Consolas", 24, "bold"), bg="#fff8f1", fg="#ad6148").pack(pady=6)
+    code, reset_copy_feedback = connection_code_controls(tk, root, state)
     status = tk.StringVar(value=state.local_message)
     tk.Label(root, textvariable=status, wraplength=500, font=("Microsoft YaHei UI", 11), bg="#fff8f1", fg="#322921").pack(pady=8)
     tk.Label(root, text="手机记录可先通过微信「导出到电脑」同步指定聊天。\n连接成功后，在网页选择联系人并点击导入。\n后台聊天与语音不占用微信窗口；朋友圈仍需微信前台。\n分析前会请你确认导入的材料。", justify="left", font=("Microsoft YaHei UI", 10), bg="#fff8f1", fg="#756151").pack(pady=12)
@@ -76,6 +121,7 @@ def main():
     buttons.pack(pady=10)
     def rotate():
         state.rotate()
+        reset_copy_feedback()
         code.set(state.code)
     def cancel():
         with state.lock:
@@ -98,7 +144,9 @@ def main():
             state._prune()
             connect_button.configure(state="disabled" if state.active else "normal",
                                      text="导入中 · 完成后可重新连接" if state.active else "打开网页并连接")
-        code.set(state.code)
+        if code.get() != state.code:
+            reset_copy_feedback()
+            code.set(state.code)
         status.set(state.local_message)
         root.after(500, tick)
     root.protocol("WM_DELETE_WINDOW", close)

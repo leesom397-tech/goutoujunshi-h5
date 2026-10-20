@@ -39,6 +39,16 @@ await test('native DB failure is transient, expired session stays null and never
 });
 await test('cross-site request rejected before account service',async()=>{globalThis.fetch=async()=>{calls++;throw Error('unexpected');};assert.equal(await webOwner(new Request('https://coach.test/api/web/profile',{method:'POST',headers:{Cookie:cookie,Origin:'https://other.test'}}),{}),null);assert.equal(calls,0);});
 await test('GET retries exact transient auth signal once',async()=>{const fetcher=async()=>{calls++;return calls===1?Response.json({code:'AUTH_IDENTITY_UNAVAILABLE'},{status:503}):Response.json({account:{userId:'synthetic'}});};const {response,data}=await fetchWebJson('/api/account/credits',{method:'GET'},fetcher);assert.equal(response.status,200);assert.equal(data.account.userId,'synthetic');assert.equal(calls,2);});
+await test('server exhausted auth budget is not silently retried by the browser',async()=>{
+ const result=await fetchWebJson('/api/web/account-context',{method:'GET'},async()=>{calls++;return Response.json({code:'AUTH_IDENTITY_UNAVAILABLE',retryable:true,automaticRetry:false},{status:503});});
+ assert.equal(calls,1);assert.equal(result.response.status,503);assert.equal(result.data.retryable,true,'explicit user retry remains available');
+});
+await test('legacy verification retries share one eight-second server budget',async()=>{
+ const realNow=Date.now,realTimeout=AbortSignal.timeout;let time=0;const durations=[];
+ Date.now=()=>time;AbortSignal.timeout=ms=>{durations.push(ms);return new AbortController().signal;};
+ try{globalThis.fetch=async()=>{calls++;time+=6000;throw Error('synthetic timeout');};await assert.rejects(readWebIdentity(headers(),{}),unavailable);assert.equal(calls,2);assert.deepEqual(durations,[6000,2000]);}
+ finally{Date.now=realNow;AbortSignal.timeout=realTimeout;}
+});
 await test('writes, explicit401 and other503 do not automatically retry',async()=>{for(const [method,status,code]of[['POST',503,'AUTH_IDENTITY_UNAVAILABLE'],['GET',401,''],['GET',503,'OTHER']]){calls=0;await fetchWebJson('/test',{method},async()=>{calls++;return Response.json({code},{status});});assert.equal(calls,1);}});
 await test('aborted GET retry stops and persistent failure has a fixed limit',async()=>{const controller=new AbortController();await assert.rejects(fetchWebJson('/test',{method:'GET',signal:controller.signal},async()=>{calls++;controller.abort();return Response.json({code:'AUTH_IDENTITY_UNAVAILABLE'},{status:503});}));assert.equal(calls,1);calls=0;const result=await fetchWebJson('/test',{method:'GET'},async()=>{calls++;return Response.json({code:'AUTH_IDENTITY_UNAVAILABLE'},{status:503});});assert.equal(result.response.status,503);assert.equal(calls,2);});
 await test('stalled reads stop at the deadline without replaying writes',async()=>{const keepAlive=setTimeout(()=>{},100);try{await assert.rejects(fetchWebJson('/test',{method:'GET'},(_path,options)=>new Promise((_resolve,reject)=>options.signal.addEventListener('abort',()=>reject(options.signal.reason),{once:true})),5),error=>error.name==='TimeoutError');let signal;await fetchWebJson('/test',{method:'POST'},async(_path,options)=>{signal=options.signal;return Response.json({ok:true});},1);assert.equal(signal,undefined);}finally{clearTimeout(keepAlive);}});

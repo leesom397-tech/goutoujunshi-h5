@@ -21,6 +21,7 @@ export default function SupportPage() {
     <nav className={styles.actions} aria-label="继续使用"><a className={styles.primary} href={capturePersonSearchHref()}><Link2 size={19}/>已安装，连接助手<ArrowRight size={18}/></a><a href="/analyze?mode=chat">手机上先分析截图<ArrowRight size={17}/></a></nav>
     <section className={styles.questions} aria-labelledby="support-questions"><h2 id="support-questions">遇到问题</h2>
       <details><summary>助手开着，网页没有连上</summary><p>打开导入页，点击“连接助手”。如仍未连接，展开手动连接并填写助手窗口里的连接码。</p><a href={capturePersonSearchHref()}>回到导入页<ArrowRight size={16}/></a></details>
+      <details><summary>Chrome 提示“此文件不常被下载”</summary><p>这是浏览器的下载信誉提示，重复下载不会消除。当前安装包尚未配置发布者数字签名；文件能正常下载，也不代表浏览器已验证它的安全性。</p><p>如果暂时不安装，可以先上传聊天截图分析，也可以联系客服了解安装包进展。</p><a href="/analyze?mode=chat">先分析聊天截图<ArrowRight size={16}/></a><a href="https://support.google.com/chrome/answer/6261569?hl=zh-Hans" target="_blank" rel="noreferrer">查看 Chrome 官方说明<ArrowRight size={16}/></a></details>
       <details><summary>下载或安装没有完成</summary><p>从本页重新下载当前版本。如果窗口提示下载校验失败，先检查网络，再点“重试”。</p><a href={collectorInstallerHref} download><Download size={17}/>重新下载安装程序</a></details>
       <details><summary>在手机上怎么使用</summary><p>手机可直接上传截图、提问和查看已同步的报告。完整读取电脑微信记录需要在 Windows 电脑安装助手，并登录同一个网页账号。</p></details>
     </section>

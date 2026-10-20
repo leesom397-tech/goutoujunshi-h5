@@ -10,7 +10,7 @@ import styles from "./AccountPage.module.css";
 
 type State = { account: CreditAccount; prices: Record<string, number>; user: { name: string }; admin: boolean };
 export default function AccountPage() {
-  const identity = useAccount(), state = identity.account as State | null, error = identity.error, loading = identity.loading, signedOut = identity.unauthorized;
+  const identity = useAccount(), state = identity.account as State | null, error = identity.error || identity.refreshError, loading = identity.loading || identity.refreshing, signedOut = identity.unauthorized;
   const [notice, setNotice] = useState("");
   async function load() { setNotice(''); await identity.refresh(); }
   async function copy(text: string) {
@@ -21,7 +21,7 @@ export default function AccountPage() {
   return <main className={ui.page}><WebNav /><section className={`${ui.wrap} ${styles.content}`}><AuroraPageHero eyebrow="我的账户" title="账户与积分" description={state ? `当前登录：${state.user.name}` : "你的分析权限、余额和使用记录"}><div className={styles.headingActions}>{state?.admin && <a className={ui.primary} href="/admin/credits">管理后台 <ArrowRight size={16}/></a>}<button className={ui.secondary} disabled={loading} onClick={() => void load()}><RefreshCw size={16} />刷新</button></div></AuroraPageHero>
     {loading && !state && <p role="status">正在读取账户…</p>}
     {signedOut && <div className={styles.panel}><p>登录后查看自己的用户编号、积分与开通状态。如果刚才提示账号校验连不上，直接重新登录即可，已保存的资料还在。</p><a className={ui.primary} href="/login?return_to=%2Faccount%23balance">登录账户 <ArrowRight size={16} /></a><div className={styles.guestContact}><p>开通前也可以加微信 <b>lxlikex</b>，扫码和销售页是同一个。</p><a href="/contact-wechat.jpg" target="_blank" rel="noreferrer"><img src="/contact-wechat.jpg" width="160" height="128" alt="成子 客服微信二维码" /></a></div></div>}
-    {error && <p className={styles.error} role="alert">{error}</p>}
+    {error && <section className={styles.error} role="alert" data-account-error><p>{/[\u3400-\u9fff]/.test(error) ? error : "账户暂时未连接，请检查网络后重试。已保存的资料不受影响。"}</p><button className={ui.secondary} disabled={loading} onClick={() => void load()}>{loading ? "正在连接…" : "重新连接"}</button></section>}
     {notice && <p className={styles.notice} role="status">{notice}</p>}
     {account && <><section className={styles.balance} id="balance"><div><small>可用积分</small><strong>{account.balance}</strong><span>处理中暂留 {account.reserved} · 累计使用 {account.spent}</span></div><div className={styles.status}><b>{account.active && account.features.length ? "已开通" : account.enabledUntil ? "已到期 / 未启用功能" : "等待开通"}</b><span>有效期：{dateLabel(account.enabledUntil)}</span><span>{account.features.map(key => featureLabels[key] || key).join("、") || "暂未开通功能"}</span><a className={ui.secondary} href="#contact">联系开通 / 补充积分</a></div></section>
     <section className={`${styles.panel} ${styles.identity}`}><h2><Fingerprint size={18}/>你的用户编号</h2><p>将这个编号发给客服，核对后开通此账户。</p><div><code>{account.userId}</code><button className={ui.secondary} onClick={() => void copy(account.userId)}><Copy size={15} />复制编号</button></div></section>

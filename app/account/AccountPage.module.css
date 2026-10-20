@@ -43,6 +43,8 @@
 .guestContact { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-top: 18px; }
 .error, .notice { margin: 0; padding: 15px 18px; border: 1px solid #e8c7b7; border-radius: 12px; background: #fff2e9; }
 .content .error { color: #a64b37; }
+.content .error p { margin: 0 0 12px; color: inherit; font-size: 16px; }
+.content .error button { min-height: 44px; font-size: 16px; }
 .content .notice { color: #826348; }
 .muted { color: #86766a; }
 .content a:focus-visible, .content button:focus-visible { outline: 3px solid #d1a17c; outline-offset: 4px; }

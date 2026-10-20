@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import zipfile
 from normalize import VERSION
+from release_signature import release_signature
 
 ROOT = Path(__file__).resolve().parent
 APP = ROOT / "dist" / "ChengziWeChatCollector"
@@ -28,6 +29,7 @@ SOURCE_FILES += ('compatibility_ui.py', 'test_compatibility.py')
 SOURCE_FILES += ('local_chat_images.py', 'test_local_chat_images.py')
 SOURCE_FILES += ('launcher.py', 'build_launcher.py', 'test_launcher.py', 'launcher.ico',
                  'windows_version_info.py', 'test_windows_version_info.py', 'sign_release.ps1')
+SOURCE_FILES += ('release_signature.py', 'test_release_signing.py', 'test_main.py')
 
 # PyInstaller 6's default onedir layout. Stop before publishing an installer
 # whose offline OCR would otherwise fail only on the user's computer.
@@ -216,6 +218,7 @@ def write_bootstrap(release, manifest):
 def main():
     parser = argparse.ArgumentParser(description="Package a built, isolated Windows collector directory.")
     parser.add_argument("--app", type=Path, default=APP, help="Built ChengziWeChatCollector directory; output is written beside it.")
+    parser.add_argument("--require-signed", action="store_true", help="Reject builds without a trusted timestamped Authenticode signature.")
     args = parser.parse_args()
     app = args.app.resolve()
     if app.name != "ChengziWeChatCollector":
@@ -227,6 +230,7 @@ def main():
     validate_offline_ocr(app)
     validate_local_voice_runtime(app)
     validate_local_database_runtime(app)
+    signature = release_signature(executable, args.require_signed)
     release.mkdir(parents=True, exist_ok=True)
     source = app / "source"
     source.mkdir(exist_ok=True)
@@ -260,9 +264,9 @@ def main():
         "version": VERSION,
         "publisher": "成子智能体",
         "productName": "成子电脑微信采集助手",
-        # The hash protects downloads; SmartScreen publisher reputation still
-        # requires Authenticode signing with a certificate trusted by Windows.
-        "authenticode": "unsigned-build-sign-with-sign_release.ps1-before-publishing",
+        # Inspect the actual binary: a company-name resource or a build flag
+        # must never claim that an unsigned file has a verified publisher.
+        **signature,
         "bytes": archive.stat().st_size,
         "sha256": sha(archive),
         "exeSha256": sha(executable),

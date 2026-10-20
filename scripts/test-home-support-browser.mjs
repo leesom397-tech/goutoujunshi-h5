@@ -67,25 +67,65 @@ try {
       assert.ok(await page.$eval('[aria-label="主导航"] a[href="/support"]',el=>el.checkVisibility()),"persistent Download navigation");
     }
     try {
+      await navigate("/workspace");
+      await page.waitForSelector("[data-home-start]");
+      await page.waitForSelector('[data-account-state="ready"]');
+      assert.equal(await page.$$eval("[data-home-start]",els=>els.length),1,"one main home action");
+      assert.equal(await page.$("[data-home-task]"),null,"old three-card home removed");
+      assert.equal(await page.$("[data-feature-entry]"),null,"specialized tools stay out of the opening");
+      const sizes=await page.$$eval('[data-home-start], button[aria-controls="home-more-ways"]',els=>els.map(el=>Number.parseFloat(getComputedStyle(el).fontSize)));
+      assert.ok(sizes.every(size=>size>=16),"opening controls remain readable");
+      await fits();await shot("home");
+      const openMore=async()=>{
+        await page.click('button[aria-controls="home-more-ways"]');
+        await page.waitForSelector("#home-more-ways[open]");
+        assert.equal(await page.evaluate(()=>document.documentElement.style.overflow),"hidden","opening locks background scroll");
+        const bounds=await page.$eval("#home-more-ways",el=>{const rect=el.getBoundingClientRect();return {left:rect.left,right:rect.right,scrollWidth:el.scrollWidth,clientWidth:el.clientWidth};});
+        assert.ok(bounds.left>=0&&bounds.right<=width+1&&bounds.scrollWidth<=bounds.clientWidth+1,"dialog fits without horizontal scrolling");
+      };
+      const closedMore=async()=>{
+        await page.waitForFunction(()=>!document.querySelector("#home-more-ways[open]")&&document.documentElement.style.overflow!=="hidden",{timeout:5000});
+        assert.equal(await page.evaluate(()=>document.activeElement?.getAttribute("aria-controls")),"home-more-ways","closing returns keyboard focus to its trigger");
+        assert.notEqual(await page.evaluate(()=>document.documentElement.style.overflow),"hidden","closing restores background scroll");
+      };
+      await openMore();
+      const choices=await page.$$eval("[data-feature-entry]",els=>els.map(el=>({text:el.innerText,href:el.getAttribute("href")})));
+      assert.ok(choices.some(el=>el.text.includes("好感探测器")&&el.href==="/analyze?mode=chat&focus=affinity"),"affinity remains an explicit secondary choice");
+      assert.ok(choices.some(el=>el.text.includes("截图分析")&&el.href==="/analyze?mode=chat"));
+      assert.ok(choices.some(el=>el.href==="/support"),"helper support remains in more options");
+      await shot("more-ways");
+      await page.keyboard.press("Escape");await closedMore();
+      await openMore();await page.click('[aria-label="关闭更多方式"]');await closedMore();
+      if(width<=390){
+        await page.setViewport({width,height:680});
+        await openMore();
+        const backgroundScroll=await page.evaluate(()=>scrollY);
+        assert.ok(await page.$eval("#home-more-ways",el=>el.scrollHeight>el.clientHeight),"short mobile viewport has a scrollable options sheet");
+        const box=await page.$eval("#home-more-ways",el=>{const rect=el.getBoundingClientRect();return {x:rect.x+rect.width/2,y:rect.y+rect.height/2};});
+        await page.mouse.move(box.x,box.y);await page.mouse.wheel({deltaY:450});
+        await page.waitForFunction(()=>document.querySelector("#home-more-ways").scrollTop>0);
+        assert.equal(await page.evaluate(()=>scrollY),backgroundScroll,"scrolling options does not move the home page");
+        await fits();await shot("more-ways-scrolled");
+        await page.keyboard.press("Escape");await closedMore();
+        await page.setViewport({width,height:1000});
+      }
       for(const task of [
-        {key:"affinity",path:"/analyze",params:{mode:"chat",focus:"affinity"}},
-        {key:"screenshot",path:"/analyze",params:{mode:"chat"}},
-        {key:"history",path:"/relationship",params:{}},
+        {href:"/analyze?mode=chat&focus=affinity",params:{mode:"chat",focus:"affinity"}},
+        {href:"/analyze?mode=chat",params:{mode:"chat"}},
       ]) {
         await navigate("/workspace");
-        await page.waitForSelector(`[data-home-task="${task.key}"]`);
-        await page.waitForFunction(()=>!document.querySelector("[data-session-state]"));
-        assert.equal(await page.$$eval("[data-home-task]",els=>els.length),3);
-        const sizes=await page.$$eval("[data-home-task] strong, [data-home-task] strong+span",els=>els.map(el=>Number.parseFloat(getComputedStyle(el).fontSize)));
-        assert.ok(sizes.every(size=>size>=16),"main task text at least 16px");
-        await fits();
-        if(task.key==="affinity")await shot("home");
-        await page.click(`[data-home-task="${task.key}"]`);
-        await page.waitForFunction(path=>location.pathname===path,{timeout:30000},task.path);
+        await page.waitForSelector("[data-home-start]");
+        await page.waitForSelector('[data-account-state="ready"]');
+        await openMore();
+        await page.click(`[data-feature-entry][href="${task.href}"]`);
+        await page.waitForFunction(()=>location.pathname==="/analyze",{timeout:30000});
         const next=new URL(page.url());
         for(const [key,value] of Object.entries(task.params))assert.equal(next.searchParams.get(key),value);
-        if(task.key==="screenshot")assert.equal(next.searchParams.has("focus"),false,"screenshot entry has no unintended affinity focus");
+        if(!task.params.focus)assert.equal(next.searchParams.has("focus"),false,"screenshot entry has no unintended affinity focus");
       }
+      await navigate("/workspace");await page.waitForSelector("[data-home-start]");await page.waitForSelector('[data-account-state="ready"]');
+      await page.click("[data-home-start]");
+      await page.waitForFunction(()=>location.pathname==="/relationship");
       await page.waitForFunction(()=>document.querySelectorAll("[data-person-entry]").length===2);
       await page.waitForSelector('[aria-label="搜索功能、人物与报告"]');
       await page.click('[aria-label="搜索功能、人物与报告"]');
@@ -143,7 +183,7 @@ try {
       await page.evaluate(()=>[...document.querySelectorAll("button")].find(el=>el.textContent==="重新连接").click());
       await page.waitForFunction(()=>document.querySelectorAll("[data-person-entry]").length===2);
       assert.deepEqual(errors,[]);
-      console.log(`PASS ${width}: three home routes/readable labels; guest EXE/persistent download; QuickSearch defaults; same-name subject/library grouping; real 20s timeout and 503 recover; no analysis POST`);
+      console.log(`PASS ${width}: one home action; secondary affinity/screenshot routes; modal focus/Escape/scroll; guest EXE/persistent download; same-name subject/library grouping; 20s timeout and 503 recover; no analysis POST`);
     } catch(error) {
       console.error(`FAIL ${width}`,page.url(),errors,await page.$eval("body",el=>el.innerText));
       await shot("failure").catch(()=>{});
