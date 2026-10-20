@@ -27,3 +27,15 @@
 .evidencePager { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:20px; font-size:14px; color:#68594e; }
 .evidencePager button { display:flex; align-items:center; gap:4px; min-height:44px; padding:8px 12px; border:1px solid #dec6b7; border-radius:10px; background:#fffaf5; color:#88513d; font:inherit; cursor:pointer; }
 .evidencePager button:disabled { opacity:.4; cursor:default; }
+.inferenceBlock { padding:20px 22px; border-left:3px solid #c39351; background:#fff4e3; border-radius:0 12px 12px 0; }
+.findings article[data-reading-kind] { padding:20px 22px; border:1px solid #eadfd2; border-left:3px solid #c39351; border-radius:0 12px 12px 0; background:#fffaf4; }
+.findings article[data-reading-kind=counter] { border-left-color:#a9644e; background:#fff1e9; }
+.findings article>header .kindLabel { display:block; color:#94672d; font-size:14px; }
+.findings article[data-reading-kind=counter]>header .kindLabel { color:#a15d47; }
+.findings article>header strong { font-size:18px; line-height:1.7; }
+.findingEvidence[data-reading-kind=fact] { background:#f1f6f1; border-color:#80a899; padding:12px 16px; border-radius:0 8px 8px 0; }
+.findingEvidence[data-reading-kind=fact]>small { color:#356e63; margin:0 0 4px; }
+.findingEvidence :global([data-report-excerpt]) blockquote { padding:0; border:0; background:transparent; }
+.alternative[data-reading-kind=alternative] { margin:15px 0 0; padding:14px 16px; background:#f4eee6; border-left:3px solid #b8a18a; border-radius:0 8px 8px 0; }
+.alternative[data-reading-kind=alternative]>strong { font-size:14px; color:#806952; }
+@media(max-width:600px){.inferenceBlock,.findings article[data-reading-kind]{padding:16px}.findingEvidence[data-reading-kind=fact],.alternative[data-reading-kind=alternative]{padding:12px}}

@@ -1,3 +1,4 @@
+import { captureImageDigest } from "./capture-image-digest";
 import { captureLibraryId, captureNamespaceKey, type CaptureImage, type StoredCaptureRecord } from "./desktop-capture";
 import { cacheCloudCaptureLibrary, getCaptureLibrary, listCaptureLibraries, readReportSources, linkReportSources, setCaptureCloudState, type CaptureCloudState, type CaptureLibrary, type CaptureLibrarySummary, type CaptureReportSources } from "./desktop-capture-vault";
 import { sanitizeCloudCaptureRecord, type CloudCaptureLibrary, type CloudCaptureRecord, type CloudMediaRef } from "./capture-cloud";
@@ -65,7 +66,7 @@ export async function listCloudCaptureLibraries(owner: string): Promise<CloudCap
 }
 function localId(ownerId: string, info: CloudCaptureLibrary) { return captureLibraryId({ ownerId, account:info.account, friend:info.friend, kind:info.kind }); }
 function cloudState(info: CloudCaptureLibrary, prior?: CaptureCloudState): CaptureCloudState {
-  return { ...prior, id: info.id, epoch: info.epoch, enabled: true, offline:false, retired:false, total: info.total, syncedAt: new Date().toISOString(), subjectId: info.subjectId || "" };
+  return { ...prior, id: info.id, epoch: info.epoch, revision:info.revision, enabled: true, offline:false, retired:false, total: info.total, syncedAt: new Date().toISOString(), subjectId: info.subjectId || "" };
 }
 export async function listSyncedCaptureLibraries(owner: string): Promise<{libraries:SyncedLibrarySummary[];warning:string}> {
   const local = await listCaptureLibraries(owner);
@@ -97,7 +98,6 @@ async function digest(value: string | Uint8Array): Promise<string> {
   return Array.from(new Uint8Array(hash),n=>n.toString(16).padStart(2,"0")).join("");
 }
 async function rowDigest(row: CloudCaptureRecord) { return digest(JSON.stringify({ ...row, firstCapturedAt:undefined, lastCapturedAt:undefined })); }
-const bytesFromBase64 = (value:string) => Uint8Array.from(atob(value),character=>character.charCodeAt(0));
 export async function loadCloudCaptureImage(owner:string, libraryId:string, media:CloudMediaRef): Promise<CaptureImage> {
   const parts:string[]=[];
   for(let chunk=0;chunk<media.chunks;chunk++) {
@@ -106,7 +106,7 @@ export async function loadCloudCaptureImage(owner:string, libraryId:string, medi
     parts.push(data.data);
   }
   const data=parts.join("");
-  if(await digest(bytesFromBase64(data))!==media.sha256)throw Error("图片下载不完整，请重试。");
+  if(await captureImageDigest(data)!==media.sha256)throw Error("图片下载不完整，请重试。");
   return {mime:media.mime,name:media.name,data};
 }
 function storedRecord(owner:string, info:CloudCaptureLibrary, row:CloudCaptureRecord):StoredCaptureRecord {
@@ -149,7 +149,7 @@ export async function downloadCloudCaptureLibrary(owner:string, id:string, progr
   let completedImages=0;progress?.(0,images.length,"images");
   try{await concurrentMap(images,async({record,media})=>{
     const key=JSON.stringify([record.localId,media.index]),prior=reusable.get(record.localId)?.images?.[media.index];
-    const matches=prior&&cached?.cloud?.mediaDigests?.[key]===media.sha256&&await digest(bytesFromBase64(prior.data))===media.sha256;
+    const matches=prior&&cached?.cloud?.mediaDigests?.[key]===media.sha256&&await captureImageDigest(prior.data)===media.sha256;
     record.images![media.index]=matches?prior:await loadCloudCaptureImage(owner,id,media);
     mediaDigests[key]=media.sha256;progress?.(++completedImages,images.length,"images");
     if(preview&&initial&&record.images!.filter(Boolean).length===Number(record.source.imageCount)){
@@ -279,7 +279,7 @@ async function performSync(owner:string, library:CaptureLibrary, options:SyncOpt
   };
   try{await concurrentMap(imageJobs,async({row,index,img})=>{
     assertSyncCurrent(options);
-    const hash=await digest(bytesFromBase64(img.data)),key=JSON.stringify([row.localId,index]);if(mediaDigests[key]===hash){options.onProgress?.(++completedImages,imageJobs.length,"images");return;}
+    const hash=await captureImageDigest(img.data),key=JSON.stringify([row.localId,index]);if(mediaDigests[key]===hash){options.onProgress?.(++completedImages,imageJobs.length,"images");return;}
     const expected=receiptState?.mediaDigests?.[key];
     const chunks=Math.ceil(img.data.length/400000);
     for(let n=0;n<chunks;n++){

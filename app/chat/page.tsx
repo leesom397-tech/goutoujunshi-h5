@@ -1,10 +1,12 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { Mic, Send, Phone, Square, MessageCircle, ScanLine, Compass, Plus, ArrowUpRight, Quote, SlidersHorizontal, ShieldCheck, Coins, UserRound, ChevronRight, AudioLines, X, Check } from "lucide-react";
+import { Mic, Send, Phone, Square, MessageCircle, ScanLine, Compass, Plus, ArrowUpRight, ArrowLeft, Quote, SlidersHorizontal, ShieldCheck, Coins, UserRound, ChevronRight, AudioLines, X, Check } from "lucide-react";
 import { AssistantEmblem } from "@/components/web-analysis/Visuals";
 import styles from "./chat.module.css";
 import { WebNav } from "@/components/WebNav";
 import { personAnalysisHref } from "@/lib/person-analysis-navigation";
+import { reportReturnHref } from "@/lib/report-return";
+import { RELATIONSHIP_ANALYSIS_LABEL } from "@/lib/product-labels";
 import { AddMaterials } from "@/components/AddMaterials";
 import { AnalysisAuthGate } from "@/components/AnalysisAuthGate";
 import { AccountNotice, ErrorNotice, PersonSelect, api, message, priceLabel, hasPrice, useAccount, readLocal, saveLocal, type Json, WebError } from "@/components/web-analysis/client";
@@ -259,7 +261,8 @@ export default function ChatPage() {
   );
   return <><WebNav/><main className={styles.page}>
     <QuestionImagePreview image={previewImage} onClose={()=>setPreviewImage(null)}/>
-    <header className="chat-question-heading"><div><span>成子智能体 · 有疑问，直接问</span><h1>问成子</h1><p>说说让你困惑的事，一起看清原因和下一步。</p></div><a className={styles.fullAnalysis} href={personAnalysisHref(subject)}><ScanLine size={18}/>分析这个人的全部资料<ArrowUpRight size={16}/></a></header>
+    {currentContext && <a className={styles.returnReport} data-report-return href={reportReturnHref(currentContext)}><ArrowLeft size={18}/>{currentContext.reportId ? "返回报告" : "返回分析记录"}</a>}
+    <header className="chat-question-heading"><div><span>成子智能体 · 有疑问，直接问</span><h1>问成子</h1><p>说说让你困惑的事，一起看清原因和下一步。</p></div><a className={styles.fullAnalysis} href={personAnalysisHref(subject)}><ScanLine size={18}/>{RELATIONSHIP_ANALYSIS_LABEL}<ArrowUpRight size={16}/></a></header>
     {account.unauthorized ? <div className={styles.guestNotice}><span>可以先了解怎么问，添加私人截图或发送问题时再登录。</span><a href="/login?return_to=%2Fchat">登录后继续<ArrowUpRight size={14}/></a></div> : <AccountNotice state={account}/>}
     {accessIssue && <div className="chat-access-notice" role="status"><span>{accessIssue}</span><a href="/account#contact">查看积分与开通 <ArrowUpRight size={15}/></a></div>}
     <div className={styles.personContext}><label htmlFor="chat-active-person">这次在聊谁</label><select id="chat-active-person" value={subject} disabled={controlsBusy || account.loading} onChange={event => changeSubject(event.target.value)}><option value="">先聊我的问题</option>{account.people.map(person => <option key={person.id} value={person.id}>{person.label}</option>)}</select>{subject && <a href={personAnalysisHref(subject)}>查看全部资料<ArrowUpRight size={15}/></a>}</div>
@@ -276,7 +279,7 @@ export default function ChatPage() {
       </section>
       <aside className={"chat-side" + (settingsOpen ? " is-open" : "")} id="chat-settings" aria-label="咨询设置">
         <section className="wa-card wa-chat-settings"><h2><SlidersHorizontal size={19}/>咨询设置</h2>{subject && <a className="chat-side-link" href={"/archive?subjectId=" + encodeURIComponent(subject)}>查看人物与长期趋势<ArrowUpRight size={15}/></a>}<details className="chat-advanced-settings"><summary>咨询方式与记录</summary><div className="wa-tabs" role="tablist" aria-label="咨询方式">{[["conversation", "直接聊"], ["chat", "分析原话"], ["positioning", "我的需求"]].map(([value, label]) => <button role="tab" key={value} aria-selected={mode === value} disabled={controlsBusy} onClick={() => changeMode(value)}><span>{label}</span></button>)}</div><label className="wa-check"><input type="checkbox" checked={saveHistory} disabled={separateDraft} onChange={e => setSaveHistory(e.target.checked)}/>{separateDraft ? "本次带入的聊天仅保留在当前窗口。" : "在此浏览器保留本账号最近 30 条对话。"}</label><p className="wa-muted">关闭后仅保留当前窗口。“新对话”会清空当前记录。</p></details></section>
-        <section className="wa-card chat-side-tools"><h2>其他方式</h2><a href={"/voice?subjectId=" + encodeURIComponent(subject)}><span><Phone size={19}/><b>实时语音交流</b></span><ArrowUpRight size={16}/></a><a href={personAnalysisHref(subject)}><span><ScanLine size={19}/><b>生成完整分析报告</b></span><ArrowUpRight size={16}/></a></section>
+        <section className="wa-card chat-side-tools"><h2>其他方式</h2><a href={"/voice?subjectId=" + encodeURIComponent(subject)}><span><Phone size={19}/><b>实时语音交流</b></span><ArrowUpRight size={16}/></a><a href={personAnalysisHref(subject)}><span><ScanLine size={19}/><b>{RELATIONSHIP_ANALYSIS_LABEL}</b></span><ArrowUpRight size={16}/></a></section>
         <section className="chat-credit-summary"><Coins size={18}/><div><strong>{account.loading ? "正在确认账户" : account.unauthorized ? "登录后查看积分" : `${accountData?.balance ?? "—"} 可用积分`}</strong><p>发送前显示费用，用多少扣多少。案例免费，自己的材料需要账号和积分。</p><a href="/account#balance">积分明细与开通<ArrowUpRight size={13}/></a></div></section>
       </aside>
     </div>

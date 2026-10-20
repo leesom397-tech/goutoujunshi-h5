@@ -241,6 +241,21 @@ function databaseVoiceIdentity(record: CaptureRecord, account: string): string |
   return JSON.stringify([record.id, ...fields, record.sender, record.senderRole, record.at, source.durationSeconds ?? null]);
 }
 function isDatabaseVoice(record: CaptureRecord): boolean { return record.source.method === "wechat-local-db" && record.source.mediaKind === "voice"; }
+function enrichDatabaseImage(previous: StoredCaptureRecord, next: CaptureRecord): StoredCaptureRecord {
+  if (previous.kind !== "image" || next.kind !== "image" || previous.images?.length) return previous;
+  const source = { ...previous.source };
+  for (const field of ["mediaAvailability", "previewUnavailable", "imageType"] as const) {
+    if (next.source[field] !== undefined) source[field] = next.source[field];
+  }
+  if (next.images?.length) {
+    source.mediaAvailability = "preview";
+    delete source.previewUnavailable;
+    delete source.cloudMediaUnavailable;
+    delete source.cloudMediaPending;
+    return { ...previous, images: next.images, source };
+  }
+  return { ...previous, source };
+}
 /** This alias is created only after matching an existing UI interval. Incoming
  * batches cannot supply it. Keeping it separate preserves native transcripts. */
 function databaseAlias(record: CaptureRecord, account: string): CaptureRecord | null {
@@ -683,6 +698,13 @@ export function mergeCaptureRecords(existing: StoredCaptureRecord[], input: unkn
     if (old !== undefined) {
       const binding = crossSource.get(index);
       if (binding) records[old] = attachDatabaseAlias(records[old], row, binding.anchors);
+      // Only an exact database identity (or an already proven alias) may attach
+      // recovered media. Keep original text, actor, chronology and local IDs.
+      const resolved = databaseAlias(records[old], namespace.account) || records[old];
+      if (row.kind === "image" && databaseRecordIdentity(row, namespace.account) &&
+          databaseRecordIdentity(row, namespace.account) === databaseRecordIdentity(resolved, namespace.account)) {
+        records[old] = enrichDatabaseImage(records[old], row);
+      }
       const alias = databaseAlias(records[old], namespace.account);
       if (alias) {
         if (isDatabaseVoice(row) && records[old].kind !== "text" && row.kind === "text") {

@@ -1,10 +1,11 @@
 // Real page/navigation checks with synthetic accounts and intercepted APIs only.
 import assert from "node:assert/strict";
-import {mkdir} from "node:fs/promises";
+import {mkdir,readFile} from "node:fs/promises";
 import {resolve} from "node:path";
 import puppeteer from "puppeteer-core";
 
 const origin=process.env.INTAKE_TEST_ORIGIN||"http://127.0.0.1:8798";
+const release=JSON.parse(await readFile(new URL("../public/downloads/collector-release.json",import.meta.url),"utf8"));
 const affinityHref="/analyze?mode=chat&focus=affinity";
 const expectedFeatures=[
   ["好感探测器",affinityHref],["截图分析","/analyze?mode=chat"],
@@ -70,7 +71,7 @@ try {
     const navigate=path=>page.goto(origin+path,{waitUntil:"domcontentloaded",timeout:60000});
     async function downloadVisible() {
       const links=await page.$$eval('a[download]',els=>els.filter(el=>el.checkVisibility()).map(el=>el.getAttribute("href")));
-      assert.ok(links.includes("/downloads/ChengziWeChatCollector-Setup-1.2.13.exe"),"current EXE download remains available");
+      assert.ok(links.includes(`/downloads/ChengziWeChatCollector-Setup-${release.version}.exe`),"current EXE download remains available");
       assert.ok(await page.$eval('[aria-label="主导航"] a[href="/support"]',el=>el.checkVisibility()),"persistent Download navigation");
     }
     try {
@@ -94,10 +95,20 @@ try {
       assert.equal(await page.$('#home-more-ways[hidden], #home-more-ways details, #home-more-ways button[aria-expanded]'),null,"no collapsed feature list");
       await fits();await shot("home");
       await page.click('a[href="#home-more-ways"]');
-      await page.waitForFunction(()=>location.hash==="#home-more-ways"&&scrollY>0&&document.querySelector("#home-more-title").getBoundingClientRect().top<innerHeight);
+      await page.waitForFunction(()=>scrollY>0&&document.querySelector("#home-more-title").getBoundingClientRect().top<innerHeight);
       assert.notEqual(await page.evaluate(()=>document.documentElement.style.overflow),"hidden","more link scrolls the page without locking it");
       assert.equal(await page.$("dialog"),null);
       await fits();await page.screenshot({path:resolve(output,`more-ways-${width}.png`),fullPage:false});
+      // Regression: a second click with the same hash must still scroll, even
+      // after a user returns to the hero. Check the actual target, not just URL.
+      await page.evaluate(()=>window.scrollTo({top:0,behavior:"instant"}));
+      await page.click('a[href="#home-more-ways"]');
+      await page.waitForFunction(()=>scrollY>0&&document.querySelector("#home-more-title").getBoundingClientRect().top>=60&&document.querySelector("#home-more-title").getBoundingClientRect().top<innerHeight/2);
+      await page.evaluate(()=>window.scrollTo({top:0,behavior:"instant"}));
+      await page.focus('a[href="#home-more-ways"]');await page.keyboard.press("Enter");
+      await page.waitForFunction(()=>scrollY>0&&document.activeElement?.id==="home-more-ways"&&document.querySelector("#home-more-title").getBoundingClientRect().top<innerHeight/2);
+      assert.equal(await page.$eval("[data-home-start]",el=>el.textContent),"关系透视");
+      assert.equal(await page.$eval('.web-nav-tools a[href="/relationship"]',el=>el.textContent),"关系透视");
       for(const task of [
         {href:affinityHref,params:{mode:"chat",focus:"affinity"}},
         {href:"/analyze?mode=chat",params:{mode:"chat"}},
@@ -126,7 +137,7 @@ try {
 
       scenario="guest";
       await navigate("/support");
-      await text("版本 1.2.13");await downloadVisible();await fits();await shot("support-guest");
+      await text(`版本 ${release.version}`);await downloadVisible();await fits();await shot("support-guest");
       assert.equal(new URL(page.url()).pathname,"/support","downloads do not redirect to login");
 
       scenario="healthy";

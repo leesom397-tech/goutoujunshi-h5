@@ -22,7 +22,7 @@ function stepsFor(page:Page,method:string):Step[]{
   const available:Step[]=[
    {id:"upload",selector:"#analysis-upload",title:"先把材料放在这里",text:"选截图、拖进来或直接粘贴。聊天按最早到最新排列，每组最多 9 张。"},
    {id:"person",selector:'[data-tour="analysis-person"]',title:"认清双方，选好人物",text:"聊天先确认哪侧是你；关联人物后，新材料会接着已有档案分析。不选人物也能继续。"},
-   {id:"confirm",selector:".ax-submit-row",title:"核对费用后，再开始",text:"检查上方实际张数与积分，勾选授权后再点“开始分析”。引导不会替你提交。"}
+   {id:"confirm",selector:".ax-submit-row",title:"核对费用，生成报告",text:"检查上方实际张数与积分，勾选授权后生成报告。引导不会替你提交。"}
   ];
   return available;
  }

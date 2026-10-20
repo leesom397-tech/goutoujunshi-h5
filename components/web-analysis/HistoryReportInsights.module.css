@@ -120,6 +120,24 @@
 @media(max-width:600px) { .section { margin-top:26px; padding-top:22px; }.heading { gap:12px; }.heading h2 { font-size:22px; }.affinity > strong { font-size:24px; }.signalCounts { gap:8px; }.signalCounts > div + div { padding-left:10px; }.signalCounts dt { font-size:13px; }.signalCounts dd { font-size:25px; }.profile > div { grid-template-columns:1fr; gap:22px; }.sourceSummary { padding:14px 16px; } }
 .materialScope,.actionReading dt,.sectionTabs button,.pager button{font-size:16px}
 .heading .affinity>span,.signalCounts dt{font-size:14px}
+.inference { padding:16px 20px; background:#fff3df; border-left:3px solid #c39351; border-radius:0 10px 10px 0; margin:14px 0; }
+.inference>small { font-size:14px; color:#8d642e; }
+.namedEvidence>div[data-reading-kind=fact] { padding:14px 18px; background:#f1f6f1; border-left:3px solid #80a899; border-radius:0 10px 10px 0; }
+.namedEvidence>div[data-reading-kind=fact]>small { color:#356e63; }
+.namedEvidence :global([data-report-excerpt]) blockquote { padding:0; background:none; border:0; }
+.moreEvidence { margin-top:4px; }
+.moreEvidence>summary { cursor:pointer; color:#9b604c; font-size:16px; min-height:42px; line-height:42px; }
+.resolution { border-top:1px solid #e2ded0; margin:20px 0 0; padding-top:2px; }
+.alternative[data-reading-kind=alternative] { padding:14px 18px; margin:16px 0; border-left:3px solid #b8a18a; background:#f4eee6; border-radius:0 10px 10px 0; }
+.alternative[data-reading-kind=alternative]>strong { color:#806952; font-size:14px; }
+.momentsOverview { margin:24px 0; padding:20px 24px; border:1px solid #d5e1d9; border-left:4px solid #356e63; border-radius:0 14px 14px 0; background:#f1f6f1; color:#302a25; }
+.momentsOverview header { display:flex; gap:9px; align-items:center; flex-wrap:wrap; color:#356e63; }
+.momentsOverview header h2 { font-size:20px; margin:0; }
+.momentsOverview header>span { margin-left:auto; font-size:14px; }
+.momentsOverview>p { font-size:16px; line-height:1.8; }
+.momentsOverview>button { display:inline-flex; align-items:center; gap:8px; border:0; background:none; padding:9px 0; min-height:44px; font:inherit; font-size:16px; color:#356e63; cursor:pointer; }
+.momentsOverview>button:focus-visible,.moreEvidence>summary:focus-visible { outline:2px solid #a9644e; outline-offset:3px; }
+@media(max-width:600px){.inference,.namedEvidence>div[data-reading-kind=fact],.alternative[data-reading-kind=alternative]{padding:14px}.momentsOverview{padding:17px}.momentsOverview header h2{font-size:19px}.sectionTabs button:last-child:nth-child(5){grid-column:1/-1}}
 .sectionTabs{background:#f4ece3;border:1px solid #e5d4c6}
 .sectionTabs button{color:#5d5146}
 .sectionTabs button[aria-selected=true]{color:#356e63;background:#fffaf5;box-shadow:0 3px 12px #79614c14}

@@ -1,6 +1,7 @@
 """Explicit synthetic encrypted-SQLite smoke test, never a live WeChat source."""
 import hashlib
 import hmac
+import io
 import os
 from pathlib import Path
 import struct
@@ -42,7 +43,8 @@ def run_database_self_test():
     started = time.monotonic()
     result = {"mode": "local-database-runtime-self-test", "ok": False,
               "userDataUsed": False, "processMemoryRead": False, "networkUsed": False,
-              "decryptionPassed": False, "readOnlyGuard": False, "compressionReady": False}
+              "decryptionPassed": False, "readOnlyGuard": False, "compressionReady": False,
+              "imageDecryptionPassed": False}
     try:
         import apsw
         import zstandard
@@ -78,6 +80,30 @@ def run_database_self_test():
             if zstandard.ZstdDecompressor().decompress(packed) != payload:
                 raise RuntimeError("compression-roundtrip-failed")
             result["compressionReady"] = True
+            # Exercise the shipped AES and raster components with a generated
+            # PNG, not a cache file, live account or process-memory reader.
+            from cryptography.hazmat.primitives import padding
+            from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+            from PIL import Image
+            from local_chat_images import _preview
+            from local_image_codec import ImageKeyContext, V1_MAGIC, V2_MAGIC
+            image_file = io.BytesIO()
+            Image.new("RGB", (48, 32), "orange").save(image_file, format="PNG")
+            plain_image = image_file.getvalue()
+            context = ImageKeyContext(root, "synthetic-self", 123456)
+            keys = context.for_account(root, "synthetic-self")
+            for magic, aes_key in ((V1_MAGIC, b"cfcd208495d565ef"), (V2_MAGIC, keys[0])):
+                padder = padding.PKCS7(128).padder()
+                padded = padder.update(plain_image[:32]) + padder.finalize()
+                encryptor = Cipher(algorithms.AES(aes_key), modes.ECB()).encryptor()
+                ciphertext = encryptor.update(padded) + encryptor.finalize()
+                data = (magic + struct.pack("<II", 32, 20) + b"\0" + ciphertext +
+                        plain_image[32:-20] + bytes(byte ^ keys[1] for byte in plain_image[-20:]))
+                preview, status = _preview(data, keys)
+                if not preview or status != "preview":
+                    raise RuntimeError("image-roundtrip-failed")
+            context.close()
+            result["imageDecryptionPassed"] = True
             result["syntheticPages"] = encrypted_path.stat().st_size // 4096
             result["ok"] = True
     except Exception as error:

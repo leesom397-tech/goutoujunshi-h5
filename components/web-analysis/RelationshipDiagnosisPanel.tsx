@@ -6,6 +6,7 @@ import { reportPersonLabel } from "@/components/report-person-label";
 import { reportEvidenceDate } from "@/lib/report-reading";
 import styles from "./RelationshipDiagnosisPanel.module.css";
 import {reportEvidenceSpeaker} from "./report-context";
+import { ReportExcerpt } from "./ReportExcerpt";
 
 type Json = Record<string, any>;
 const rows = (value: unknown): Json[] => Array.isArray(value) ? value.filter(item => item && typeof item === "object") : [];
@@ -37,15 +38,15 @@ export function RelationshipDiagnosisPanel({ diagnosis, semanticHistory: standal
   const alternatives = uniqueText(semantic?.alternatives);
   const explanation = text(semantic?.explanation);
   return <section className={styles.reading} aria-label="判断依据与其他解释" data-folded={folded}>
-    {explanation && normalized(explanation) !== normalized(text(semantic?.summary)) && <section className={styles.readingBlock}>
+    {explanation && normalized(explanation) !== normalized(text(semantic?.summary)) && <section className={`${styles.readingBlock} ${styles.inferenceBlock}`} data-reading-kind="inference">
       <h3><Sparkles size={18}/>为什么这样判断{semantic?.confidence && <small>把握度：{semantic.confidence}</small>}</h3>
-      {explanation.split(/\n+/).filter(Boolean).map((paragraph, index) => <p key={index}>{paragraph}</p>)}
+      <ReportExcerpt value={explanation} limit={240}/>
     </section>}
     {findings.length > 0 && <section ref={evidenceRoot} style={{scrollMarginTop:120}} className={styles.readingBlock} data-history-findings><h3><Quote size={18}/>支持与相反线索</h3><div className={styles.findings}>
-      {visibleFindings.map((finding, index) => <article key={finding.id || index} data-finding-id={finding.id}>
-        <header><strong>{finding.claim}</strong><small>{counterIds.has(finding.id) ? "相反证据" : "材料线索"}{finding.confidence ? ` · 把握度 ${finding.confidence}` : ""}</small></header>
-        {rows(finding.evidence).map((item, evidenceIndex) => <div className={compactEvidence?styles.evidenceLink:styles.findingEvidence} key={`${item.sourceId}-${evidenceIndex}`}><small>{reportEvidenceSpeaker(report,item.senderRole,item.basis)}{item.at ? ` · ${reportEvidenceDate(item.at)}` : ""}</small>{!compactEvidence&&<blockquote>{item.quote}</blockquote>}<CaptureEvidence quote={item.quote} sourceIds={item.sourceId ? [item.sourceId] : undefined} libraryId={item.libraryId} sourceKind={item.sourceKind} label={item.basis==="visual"?"查看图片来源":undefined}/></div>)}
-        {finding.alternative && <p className={styles.alternative}><strong>也可能：</strong>{finding.alternative}</p>}
+      {visibleFindings.map((finding, index) => <article key={finding.id || index} data-finding-id={finding.id} data-reading-kind={counterIds.has(finding.id) ? "counter" : "inference"}>
+        <header><small className={styles.kindLabel}>{counterIds.has(finding.id) ? "相反证据" : "根据材料的推测"}{finding.confidence ? ` · 把握度 ${finding.confidence}` : ""}</small><strong>{finding.claim}</strong></header>
+        {rows(finding.evidence).map((item, evidenceIndex) => <div className={compactEvidence?styles.evidenceLink:styles.findingEvidence} key={`${item.sourceId}-${evidenceIndex}`} data-reading-kind="fact"><small>原文事实 · {reportEvidenceSpeaker(report,item.senderRole,item.basis)}{item.at ? ` · ${reportEvidenceDate(item.at)}` : ""}</small>{!compactEvidence&&<ReportExcerpt value={item.quote} quote limit={160}/>}<CaptureEvidence quote={item.quote} sourceIds={item.sourceId ? [item.sourceId] : undefined} libraryId={item.libraryId} sourceKind={item.sourceKind} label={item.basis==="visual"?"查看图片来源":undefined}/></div>)}
+        {finding.alternative && <div className={styles.alternative} data-reading-kind="alternative"><strong>另一种解释</strong><ReportExcerpt value={finding.alternative}/></div>}
       </article>)}
     </div>{pages>1&&<nav className={styles.evidencePager} aria-label="判断线索分页"><button disabled={!currentPage} onClick={()=>turn(currentPage-1)}><ChevronLeft size={16}/>上一组</button><span>{currentPage+1} / {pages} · 共 {findings.length} 条线索</span><button disabled={currentPage===pages-1} onClick={()=>turn(currentPage+1)}>下一组<ChevronRight size={16}/></button></nav>}</section>}
     {!findings.length && hypotheses.length > 0 && <section className={styles.readingBlock}><h3><Sparkles size={18}/>从行为看到的线索</h3><div className={styles.findings}>{hypotheses.map((item, index) => <article key={item.id || index}><header><strong>{item.claim}</strong><small>把握度 {item.confidence || "低"}</small></header>{uniqueText(item.alternatives).map(value => <p className={styles.alternative} key={value}>其他解释：{value}</p>)}{item.whatToObserve && <p>接着观察：{item.whatToObserve}</p>}</article>)}</div></section>}

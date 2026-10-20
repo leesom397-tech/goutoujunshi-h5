@@ -1,10 +1,8 @@
 import assert from "node:assert/strict";
-import { computeChatActivity } from "../lib/chat-activity.ts";
-import { applySemanticDiagnosis, buildRelationshipDiagnosis, relationshipReportDocument } from "../lib/relationship-diagnosis.ts";
 import { build } from "esbuild";
-const compiled=await build({entryPoints:["lib/capture-semantic-history.ts"],bundle:true,write:false,format:"cjs",platform:"node",logLevel:"silent"});
+const compiled=await build({stdin:{contents:"export * from './lib/capture-semantic-history'; export * from './lib/chat-activity'; export * from './lib/relationship-diagnosis';",resolveDir:process.cwd()},bundle:true,write:false,format:"cjs",platform:"node",logLevel:"silent"});
 const compiledModule={exports:{}};new Function("module","exports",compiled.outputFiles[0].text)(compiledModule,compiledModule.exports);
-const { validatedSynthesis }=compiledModule.exports;
+const { validatedSynthesis, computeChatActivity, applySemanticDiagnosis, buildRelationshipDiagnosis, relationshipReportDocument }=compiledModule.exports;
 
 const row = (id, at, text = "今天聊聊安排", kind = "text", extra = {}) => ({localId: id, at, text, kind, senderRole: "other", source: {label: "合成资料", method: "uia", ...extra}});
 const records = [row("early", "2026-10-01 12:00"), ...Array.from({length: 12}, (_, index) => row(`late-${index}`, "2026-10-14 12:00"))];

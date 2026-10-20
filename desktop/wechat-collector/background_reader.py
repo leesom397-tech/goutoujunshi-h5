@@ -26,6 +26,7 @@ MAX_AUDIO_BATCH = 64 * 1024 * 1024
 MAX_SHARDS = 64
 MAX_PAGE_SIZE = 500
 MAX_VOICE_REFS = 500
+MAX_IMAGE_REFS = 100
 MAX_CURSOR_LENGTH = 24_000
 MAX_CONTACT_RESULTS = 20
 HISTORY_FIELDS = {"pageSize", "direction", "cursor", "since"}
@@ -86,7 +87,7 @@ def probe_background():
 def _validate_request(request):
     if not isinstance(request, dict) or request.get("kind") != "chat":
         raise BackgroundCaptureError("INVALID_REQUEST", "后台读取目前仅支持一对一聊天。")
-    if set(request) - ({"kind", "friend", "contactId", "accountKey", "limit", "includeVoice", "mode", "voiceOnly", "voiceIds"} | HISTORY_FIELDS):
+    if set(request) - ({"kind", "friend", "contactId", "accountKey", "limit", "includeVoice", "mode", "voiceOnly", "voiceIds", "imageOnly", "imageIds"} | HISTORY_FIELDS):
         raise BackgroundCaptureError("INVALID_REQUEST", "采集请求包含不支持的参数。")
     friend = request.get("friend")
     limit = request.get("limit", 500)
@@ -132,6 +133,31 @@ def _validate_request(request):
             seen.add(pair)
     elif refs is not None:
         raise BackgroundCaptureError("INVALID_REQUEST", "未启用定向语音补全。")
+    image_only = request.get("imageOnly", False)
+    image_refs = request.get("imageIds")
+    if type(image_only) is not bool:
+        raise BackgroundCaptureError("INVALID_REQUEST", "图片补全范围必须明确。")
+    if image_only:
+        if (voice or voice_only or refs is not None or request.get("mode") != "background"
+                or not isinstance(image_refs, list) or not 1 <= len(image_refs) <= MAX_IMAGE_REFS
+                or "cursor" in request or "since" in request):
+            raise BackgroundCaptureError("INVALID_REQUEST", "图片补全每批最多100条，不能混用语音或历史分页位置。")
+        seen = set()
+        for ref in image_refs:
+            if (not isinstance(ref, dict) or not {"messageShard", "messageId"} <= set(ref)
+                    or set(ref) - {"messageShard", "messageId", "localId"}):
+                raise BackgroundCaptureError("INVALID_REQUEST", "图片消息来源格式无效。")
+            shard, message_id, local_id = ref.get("messageShard"), ref.get("messageId"), ref.get("localId")
+            if (not isinstance(shard, str) or not shard or len(shard) > 200 or any(ord(c) < 32 for c in shard)
+                    or not isinstance(message_id, str) or not re.fullmatch(r"[0-9]{1,20}", message_id)
+                    or local_id is not None and (not isinstance(local_id, str) or not re.fullmatch(r"[0-9]{1,20}", local_id))):
+                raise BackgroundCaptureError("INVALID_REQUEST", "图片消息来源无法核对。")
+            pair = (shard, message_id, local_id)
+            if pair in seen:
+                raise BackgroundCaptureError("INVALID_REQUEST", "图片消息来源不能重复。")
+            seen.add(pair)
+    elif image_refs is not None:
+        raise BackgroundCaptureError("INVALID_REQUEST", "未启用定向图片补全。")
     _history_request(request)
     return friend.strip(), limit, voice
 
@@ -544,8 +570,11 @@ def _read_history_page(source, session, options):
                   "nextCursor": next_cursor, "snapshot": _encode_cursor(snapshot), "complete": not more}
 
 
-def _read_voice_page(source, session, options, refs):
-    """Resolve a bounded set of stable voice references, never replay text history."""
+def _read_voice_page(source, session, options, refs, *, media_type=34):
+    """Resolve selected media references, never replay text history."""
+    if media_type not in (3, 34):
+        raise BackgroundCaptureError("INVALID_REQUEST", "媒体补全类型无效。")
+    media_label = "图片" if media_type == 3 else "语音"
     account = _short_id(source.account_id, "账号")
     identity = {"account": _identity(account), "contact": _identity(session)}
     table = "Msg_" + hashlib.md5(session.encode("utf-8")).hexdigest()
@@ -571,17 +600,17 @@ def _read_voice_page(source, session, options, refs):
         matches = _execute(conn,
             f'SELECT local_id,server_id,local_type,real_sender_id,create_time,sort_seq,'
             f'CAST(message_content AS BLOB),CAST(compress_content AS BLOB),rowid FROM "{table}" '
-            f'WHERE (local_type & 4294967295)=34 AND (server_id IN ({marks}) '
+            f'WHERE (local_type & 4294967295)={media_type} AND (server_id IN ({marks}) '
             f'OR ((server_id IS NULL OR server_id=0) AND local_id IN ({marks}))) LIMIT 1001',
             (*ids, *ids)).fetchall()
         if len(matches) > 1000:
-            raise BackgroundCaptureError("MESSAGE_IDENTITY_AMBIGUOUS", "语音来源编号重复过多，未自动合并。")
+            raise BackgroundCaptureError("MESSAGE_IDENTITY_AMBIGUOUS", f"{media_label}来源编号重复过多，未自动合并。")
         current[_identity(label)] = max((row[8] for row in matches), default=0)
         for ref in grouped[label]:
             candidates = [row for row in matches if str(row[1] or row[0]) == ref["messageId"]
                           and (ref.get("localId") is None or str(row[0]) == ref["localId"])]
             if len(candidates) > 1:
-                raise BackgroundCaptureError("MESSAGE_IDENTITY_AMBIGUOUS", "同一条语音来源编号重复，未自动合并。")
+                raise BackgroundCaptureError("MESSAGE_IDENTITY_AMBIGUOUS", f"同一条{media_label}来源编号重复，未自动合并。")
             if not candidates:
                 continue
             row = candidates[0]
@@ -591,8 +620,8 @@ def _read_voice_page(source, session, options, refs):
                 "sender": str(sender_row[0]) if sender_row else "", "timestamp": row[4], "sequence": row[5],
                 "content": _decode_text(row[6]) or _decode_text(row[7]), "shard": label, "rowId": row[8]}
     if len(rows_by_ref) != len(refs):
-        raise BackgroundCaptureError("VOICE_MESSAGE_MISSING",
-            f"有 {len(refs) - len(rows_by_ref)} 条待转写语音已无法在本机核对，请重新同步该联系人的聊天后重试；已保存文字不会丢失。")
+        raise BackgroundCaptureError("IMAGE_MESSAGE_MISSING" if media_type == 3 else "VOICE_MESSAGE_MISSING",
+            f"有 {len(refs) - len(rows_by_ref)} 条待补全{media_label}已无法在本机核对，请重新同步该联系人的聊天后重试；已保存文字不会丢失。")
     rows = [rows_by_ref[(ref["messageShard"], ref["messageId"], ref.get("localId"))] for ref in refs]
     snapshot = {"v": 1, "kind": "snapshot", **identity, "upper": current}
     return rows, {"version": 1, "direction": options.get("direction", "backward"), "count": len(rows),
@@ -656,7 +685,9 @@ def _build_batch(source, friend, session, rows, audio):
     image_reader = None
     if photo_rows and getattr(source, "account_dir", None):
         from local_chat_images import LocalChatImages
-        image_reader = LocalChatImages(source.account_dir, [row["content"] for row in photo_rows])
+        image_reader = LocalChatImages(source.account_dir, [row["content"] for row in photo_rows],
+                                       account_id=account,
+                                       image_key_context=getattr(source, "image_key_context", None))
     for index, row in enumerate(rows):
         try:
             at = datetime.fromtimestamp(int(row["timestamp"]), timezone.utc).isoformat()
@@ -752,6 +783,8 @@ def capture_from_source(request, progress, on_partial, source, transcribe=None):
         history = _history_request(request)
         if request.get("voiceOnly") is True:
             rows, history = _read_voice_page(source, session, history or {"direction": "backward"}, request["voiceIds"])
+        elif request.get("imageOnly") is True:
+            rows, history = _read_voice_page(source, session, history or {"direction": "backward"}, request["imageIds"], media_type=3)
         elif history:
             rows, history = _read_history_page(source, session, history)
         else:
@@ -771,7 +804,8 @@ def capture_from_source(request, progress, on_partial, source, transcribe=None):
             batch["history"] = history
         source.assert_unchanged()  # No partial data escapes a changed-account snapshot.
         progress({"stage": "chat-read", "percent": 25 if include_voice else 95,
-                  "message": f"已找到 {len(rows)} 条待转写语音" if request.get("voiceOnly") else f"已读取 {len(rows)} 条聊天", "voice": _coverage(batch)})
+                  "message": (f"已核对 {len(rows)} 条图片消息" if request.get("imageOnly") else
+                              f"已找到 {len(rows)} 条待转写语音" if request.get("voiceOnly") else f"已读取 {len(rows)} 条聊天"), "voice": _coverage(batch)})
         if not include_voice:
             return batch
         if not any(isinstance(blob, bytes) and blob for blob in audio.values()):

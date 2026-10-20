@@ -1,9 +1,10 @@
 "use client";
-import { type ReactNode } from "react";
+import { useRef, type ReactNode, type MouseEvent } from "react";
 import { ArrowUpRight, ArrowRight, MessageCircle, BookOpen, ScanLine, Images, ScanFace, AudioLines, Users, Heart, Download, ChevronDown } from "lucide-react";
 import { knowledgeManifest, knowledgeVolume } from "@/lib/knowledge-public";
 import { knowledgeOrigin } from "@/lib/knowledge-origins";
 import { GlassStudy } from "./GlassStudy";
+import { RELATIONSHIP_ANALYSIS_LABEL } from "@/lib/product-labels";
 import styles from "./ProductHome.module.css";
 const features = [
   { href: "/analyze?mode=chat&focus=affinity", icon: Heart, title: "好感探测器", text: "看好感信号与判断依据" },
@@ -16,6 +17,18 @@ const features = [
   { href: "/support", icon: Download, title: "帮助与下载", text: "下载或更新微信助手" },
 ];
 export function ProductHome({ onStart, signedIn = false, afterHero }: { onStart: (href: string) => void; signedIn?: boolean; afterHero?: ReactNode }) {
+  const tools = useRef<HTMLElement>(null);
+  function showTools(event: MouseEvent<HTMLAnchorElement>) {
+    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0 || !tools.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    // Keep this an in-page action. Updating router-managed history here can
+    // restore the old scroll position after a keyboard or repeat activation.
+    tools.current.focus({ preventScroll: true });
+    // Keep focus and position together. Competing keyboard focus scrolls can
+    // cancel a smooth animation and leave this apparently unresponsive.
+    tools.current.scrollIntoView({ block: "start", behavior: "instant" });
+  }
   return <div className={styles.page}>
     <section className={styles.hero}>
       <div className={styles.heroCopy}>
@@ -23,15 +36,15 @@ export function ProductHome({ onStart, signedIn = false, afterHero }: { onStart:
         <h1>看懂关系。<br/><span>也照顾你的感受。</span></h1>
         <p className={styles.heroDescription}>从一句聊天，到一段关系。</p>
         <div className={styles.actions}>
-          <button type="button" data-home-start className={styles.startButton} onClick={() => onStart("/relationship")}>开始分析<ArrowRight size={20}/></button>
-          <a className={styles.moreButton} href="#home-more-ways">更多方式<ChevronDown size={18}/></a>
+          <button type="button" data-home-start className={styles.startButton} onClick={() => onStart("/relationship")}>{RELATIONSHIP_ANALYSIS_LABEL}<ArrowRight size={20}/></button>
+          <a className={styles.moreButton} href="#home-more-ways" onClick={showTools}>更多方式<ChevronDown size={18}/></a>
         </div>
       </div>
       <div className={styles.art}><GlassStudy/></div>
     </section>
     {afterHero}
     <KnowledgeEvidence/>
-    <section id="home-more-ways" className={styles.tools} aria-labelledby="home-more-title" tabIndex={-1}>
+    <section ref={tools} id="home-more-ways" className={styles.tools} aria-labelledby="home-more-title" tabIndex={-1}>
       <header><h2 id="home-more-title">更多方式</h2></header>
       <nav className={styles.grid} aria-label="选择分析或交流方式">{features.map(({href,icon:Icon,title,text})=><a className={styles.tool} data-feature-entry href={href} key={href}><span className={styles.icon}><Icon size={23} strokeWidth={1.6}/></span><span className={styles.toolCopy}><strong>{title}</strong><span>{text}</span></span><ArrowUpRight className={styles.toolArrow} size={18}/></a>)}</nav>
     </section>
