@@ -1,4 +1,4 @@
-const {historyReport}=require('../../lib/history-report');
+const {historyReport,reportScope,reportGeneratedTime,signalTags}=require('../../lib/history-report');
 const api = require("../../lib/api");
 const {riskAwarePresentation,riskReplyAllowed}=require("../../lib/risk-aware-presentation");
 const followupContext = require("../../lib/followup-context");
@@ -7,6 +7,7 @@ const idPattern = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[
 
 function followupSummary(report) {
   const excerpt = (value, length) => { const text = String(value || '').trim(); return text.length > length ? text.slice(0, length) + '…' : text; };
+  if(report.fullHistory)return [report.scope.label+' · '+report.fullHistory.other,'判断：'+excerpt(report.fullHistory.summary,300),'关系趋势：'+excerpt(report.fullHistory.trend,160),'下一步：'+excerpt(report.fullHistory.action,200),'问题所依据的完整资料由这份已保存报告关联，逐句样本不是完整材料。'].join('\n');
   return [
     '本轮判断：' + excerpt(report.judgment || report.possibleIntent, 140),
     report.interactionInsight ? '深层推测：' + excerpt(report.interactionInsight.interpretation, 150) + '；另一种解释：' + excerpt(report.interactionInsight.alternative, 100) + '；观察依据：' + excerpt(report.interactionInsight.observed, 150) : '',
@@ -65,10 +66,10 @@ function present(report) {
   const notes = new Map((report.annotations || []).map(item => [item.lineId, item]));
   const lines = (report.lines || []).map((line, index) => {
     const annotation = notes.get(line.id) || {};
-    const tags = values => (values || []).slice(0, 3).map(item => item.label + (typeof item.probability === "number" ? " " + Math.round(item.probability * 100) + "%" : "")).join(" · ");
+    const tags = values => signalTags(values).map(item => item.label + (typeof item.probability === "number" ? " " + Math.round(item.probability * 100) + "%" : "")).join(" · ");
     return {
       id: line.id || String(index), lineNumber: index + 1, who: report.isImported ? line.speaker === 'self' ? '我' : line.sourceSpeaker : line.speaker === "self" ? "我" : line.speaker === "other" ? "对方" : "待确认",
-      text: line.text, emotion: tags(annotation.emotion), intent: tags(annotation.intent), emotionTags:annotation.emotion||[],intentTags:annotation.intent||[],note: annotation.note || "",
+      text: line.text, emotion: tags(annotation.emotion), intent: tags(annotation.intent), emotionTags:signalTags(annotation.emotion),intentTags:signalTags(annotation.intent),note: annotation.note || "",
       alternative: annotation.alternative || '', certainty: annotation.certainty || '',
       evidence: annotation.evidence === "insufficient" ? "依据不足" : annotation.evidence === "limited" ? "线索有限" : ""
     };
@@ -95,6 +96,9 @@ function present(report) {
   } : null;
   return {
     fullHistory:historyReport(report),
+    scope:reportScope(report),generatedTime:reportGeneratedTime(report),
+    parentReportId:idPattern.test(report.supplementOf?.reportId||'')?report.supplementOf.reportId:'',
+    parentGeneratedTime:reportGeneratedTime({generatedAt:report.supplementOf?.generatedAt}),
     isImported: !!report.isImported, isRiskAnalysis: !!report.isRiskAnalysis, riskAlerts: report.riskAlerts || [], riskQuestions: report.riskQuestions || [], hasRiskAlerts: !!report.riskAlerts?.length, hasRiskQuestions: !!report.riskQuestions?.length, importObservations: report.importObservations || [], importBatches: report.importBatches || [],
     trend: '待对照历史', trendLoading: false,
     trendNote: report.subjectId ? '正在准备对照已归档的独立互动。' : '本次未关联人物，暂不对照历史。',
@@ -124,13 +128,17 @@ function present(report) {
 }
 
 Page({
-  data: { phase: "loading", error: "", report: null, rewriteBusy: -1, showEvidence: false, showFitDetails: false, showLines: true, copiedReplyIndex: -1, copyError: "", followupBusy: false, followupError: "" },
+  data: { phase: "loading", error: "", report: null, rewriteBusy: -1, showEvidence: false, showFitDetails: false, showLines: true, copiedReplyIndex: -1, copyError: "", followupBusy: false, followupError: "",replyFilter:-1 },
+  back(){if(typeof getCurrentPages==='function'&&getCurrentPages().length>1)wx.navigateBack({delta:1});else wx.redirectTo({url:'/pages/reports/index'});},
+  parentReport(){const id=this.data.report?.parentReportId;if(idPattern.test(id||''))wx.navigateTo({url:'/pages/report/index?id='+id});},
+  supplement(event){const report=this.data.report;if(!report?.fullHistory||!idPattern.test(report.id||'')||!idPattern.test(report.subjectId||''))return;const moments=event.currentTarget.dataset.kind==='moments';wx.navigateTo({url:(moments?'/pages/social-profile/index':'/pages/quick/index')+'?subjectId='+encodeURIComponent(report.subjectId)+'&returnReportId='+encodeURIComponent(report.id)+(moments?'&materialType=moments':'')});},
+  chooseReply(event){const index=Number(event.currentTarget.dataset.index);if(index===-1||Number.isInteger(index)&&index>=0&&index<(this.data.report?.replies?.length||0))this.setData({replyFilter:index});},
   async openFollowup() {
     const report = this.data.report;
     if (this.data.followupBusy || !report || !idPattern.test(report.id)) return;
     this.setData({ followupBusy: true, followupError: "" });
     try {
-      await followupContext.openReportFollowup({ source: 'chat-analysis', title: '聊天分析', subjectId: report.subjectId || '', token: this._token, reportId: report.id, summary: followupSummary(report) });
+      await followupContext.openReportFollowup({ source: 'chat-analysis', title: report.scope.label, subjectId: report.subjectId || '', token: this._token, reportId: report.id, summary: followupSummary(report) });
     } catch (error) {
       if (!this._unloaded && this.data.report && this.data.report.id === report.id) this.setData({ followupError: error.message || '暂时无法继续追问，请重试。' });
     } finally { if (!this._unloaded) this.setData({ followupBusy: false }); }
@@ -182,6 +190,8 @@ Page({
     if(!current())return;
     this.setData({rewriteBusy:index,copiedReplyIndex:-1,copyError:''});
     try {
+      const confirmed=await new Promise(resolve=>wx.showModal({title:'确认调整语气',content:'把这句回复和你的原话样本用于成子 AI 调整表达。原回复仍然保留，发送前可以再修改。',confirmText:'确认调整',cancelText:'先用原句',success:result=>resolve(result.confirm),fail:()=>resolve(false)}));
+      if(!confirmed||!current())return;
       this._rewriteIds ||= {};
       const key=report.id+':'+report.replies[index].rewriteIndex;
       this._rewriteIds[key] ||= await api.newId();
@@ -226,14 +236,18 @@ Page({
       const response = await api.request("/api/miniapp/report?id=" + id, "GET", null, token);
       if (!current()) return;
       if (!response.report || (response.report.id !== this._id && response.reportId !== this._id)) throw new Error("报告没有完整返回，请稍后重试。");
-      const source = { ...response.report, id };
+      if (['moments','social'].includes(response.kind) && response.report.analysisScope !== 'fullHistory' && response.report.captureFormat !== 'full-history') {
+        wx.redirectTo({url:'/pages/social-profile/index?reportId='+id});
+        return;
+      }
+      const source = { ...response.report, id,subjectId:response.report.subjectId||response.subjectId||'',createdAt:response.report.createdAt||response.createdAt,imageCount:response.report.imageCount??response.imageCount };
       const formatted = present(source);
       this._riskPresentation = riskAwarePresentation(importedReport(source));
-      this.setData({ phase: "ready", report: formatted }, () => {
+      this.setData({ phase: "ready", report: formatted,replyFilter:-1 }, () => {
         if (!current()) return;
         if (formatted.affinity && formatted.affinity.radarReady && typeof wx.createCanvasContext === "function") this.drawRadar(formatted.affinity.dimensions);
       });
-      if (response.report.subjectId) this.loadHistoricalTrend(response.report.subjectId, id, token, current);
+      if (response.report.subjectId&&!formatted.fullHistory) this.loadHistoricalTrend(response.report.subjectId, id, token, current);
     } catch (error) {
       if (!current()) return;
       if (error.status === 401) wx.removeStorageSync(api.STORAGE);

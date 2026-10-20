@@ -61,7 +61,7 @@ module.exports = function createUploader(api, wx) {
   return {
     settleCurrent() { return running ? running.catch(() => {}) : Promise.resolve(); },
     retryCleanup() { return serializeCleanup(drainCleanup); },
-    peek(path) { const queue = read(); return queue && (!path || queue.path === path) ? { taskId: queue.taskId, path: queue.path, subjectId: queue.parameters.subjectId || null, expiresAt: queue.expiresAt } : null; },
+    peek(path) { const queue = read(); return queue && (!path || queue.path === path) ? { taskId: queue.taskId, path: queue.path, subjectId: queue.parameters.subjectId || null, parentReportId: queue.parameters.parentReportId || null, expiresAt: queue.expiresAt } : null; },
     async create(path, images, parameters, token) {
       await serializeCleanup(drainCleanup);
       const existing = read();

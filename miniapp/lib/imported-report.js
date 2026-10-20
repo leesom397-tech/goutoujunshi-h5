@@ -23,7 +23,7 @@ function importedReport(report) {
   const annotations = rows(latest.lineInsights).map((line, index) => ({ lineId: 'import-line-' + index, note: text(line.signal), alternative: text(line.alternative), certainty: text(line.certainty) }));
   const observations = rows(result.observations).map(item => ({ claim: text(item.claim), evidence: text(item.evidence), uncertainty: text(item.uncertainty) }));
   const questions = strings(result.questions).length ? strings(result.questions) : strings(latest.questions);
-  const replyOptions = rows(latest.replyOptions).filter(item => text(item.text)).map((item, index) => ({ text: text(item.text), style: ['稳妥回应', '主动推进', '说明边界'][index] || '回复方向', reason: text(item.when), next: item.next || null }));
+  const replyOptions = rows(latest.replyOptions).filter(item => text(item.text)).map((item, index) => ({ text: text(item.text), style: text(item.style)||text(item.title)||'方案 '+(index+1), reason: text(item.when), next: item.next || null }));
   return {
     ...report, isImported: true, lines, annotations,
     importSummary: text(result.summary) || text(latest.summary),

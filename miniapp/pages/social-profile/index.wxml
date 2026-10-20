@@ -1,6 +1,8 @@
 <import src="../../components/analysis-status.wxml"/>
 <import src="../../components/moments-report.wxml"/>
 <view class="screen">
+  <view wx:if="{{returnReportId}}" class="panel supplement-context"><text class="step">{{supplementLabel}} · 补充解读</text><text class="helper">参考原完整报告，分析本次新截图。原报告保留，不会被覆盖。</text><text wx:if="{{parentGeneratedTime}}" class="helper">原完整报告生成于 {{parentGeneratedTime}}</text><button class="secondary" bindtap="returnToReport">返回原完整报告</button></view>
+  <view wx:elif="{{supplementLabel}}" class="panel"><text class="step">{{supplementLabel}} · 本次截图解读</text><text class="helper">这次独立分析新截图，并关联到这位人物；不会重算电脑完整资料。</text></view>
   <view class="hero page-scene-hero"><view class="glass-stamp page-scene-stamp"><image class="glass-stamp-art" src="/assets/page-scenes/social.png" mode="aspectFit"/><image class="glass-stamp-symbol" src="/assets/ui-users.png" mode="aspectFit"/><text>FROM SIGNALS TO CLARITY</text></view><text class="eyebrow">从真实材料开始</text><text class="title">{{targetSelf ? '看见资料里的自己' : '看懂互动，'}}<text wx:if="{{!targetSelf}}" class="title-line">再决定下一步</text></text><text class="sub">{{result ? '核对材料，理解可能性，再选择适合自己的回应。' : '朋友圈里的线索、彼此的适配，分别说清楚。'}}</text></view>
   <view wx:if="{{phase === 'loading'}}" class="panel"><busy-indicator label="接入微信身份"/></view>
   <view wx:elif="{{phase === 'error'}}" class="panel"><text class="error">{{error}}</text><button class="primary" bindtap="onShow">重试连接</button></view>
@@ -13,7 +15,7 @@
       <text class="step">01 · 选一种资料</text>
       <view class="target-switch"><button data-type="profile" class="{{materialType !== 'moments' ? 'active' : ''}}" bindtap="materialChange">社交主页</button><button data-type="moments" class="{{materialType === 'moments' ? 'active' : ''}}" bindtap="materialChange">朋友圈</button></view>
       <text class="helper">{{materialType === 'moments' ? '整条动态截图即可，文案和九宫格一起看。' : '简介、兴趣与择偶条件，可以放在同一批。'}}</text>
-      <view class="target-switch target-choice"><button class="{{!targetSelf ? 'active' : ''}}" data-target="other" bindtap="targetChange">看 TA 的资料</button><button class="{{targetSelf ? 'active' : ''}}" data-target="self" bindtap="targetChange">看我的资料</button></view>
+      <view wx:if="{{!returnReportId}}" class="target-switch target-choice"><button class="{{!targetSelf ? 'active' : ''}}" data-target="other" bindtap="targetChange">看 TA 的资料</button><button class="{{targetSelf ? 'active' : ''}}" data-target="self" bindtap="targetChange">看我的资料</button></view>
     </view>
     <view class="panel input-panel">
       <view class="section-heading"><text class="step">02 · 添加截图</text><text class="image-count">{{imageCount}} / 9 张</text></view>
@@ -24,7 +26,7 @@
       <view wx:if="{{showUploadHelp}}" class="help-details"><text>按希望阅读的顺序选择，同一批只放同一个人的资料。</text><text>{{materialType === 'moments' ? '保留配文、日期与可见范围提示；不必逐张保存九宫格照片。' : '简介、兴趣、择偶条件等页面可一起选。'}}</text><text>大图会自动压缩。点缩略图核对文字，建议先遮盖联系方式。</text></view>
       <block wx:if="{{!targetSelf}}">
         <text class="field-label">关联哪位人物</text>
-        <picker range="{{people}}" range-key="label" value="{{personIndex}}" bindchange="personChange"><view class="archive-select">{{people[personIndex].label}}<text>选择</text></view></picker>
+        <picker range="{{people}}" range-key="label" value="{{personIndex}}" disabled="{{!!returnReportId}}" bindchange="personChange"><view class="archive-select">{{people[personIndex].label}}<text>选择</text></view></picker>
         <checkbox-group bindchange="compareChange"><label class="consent"><checkbox value="yes" checked="{{compareSelf}}" color="#965a42"/><text>参考我的资料，看看你们的交集</text></label></checkbox-group>
         <text class="privacy-summary">基础资料只在成子服务端使用；已填写的关系偏好会随本次图片交由阿里云百炼处理。</text>
       </block>
@@ -34,18 +36,18 @@
         <button class="text-button" bindtap="togglePrivacyDetails" aria-expanded="{{showPrivacyDetails}}">{{showPrivacyDetails ? '收起临时图片说明' : '临时图片何时清理？'}}</button>
         <view wx:if="{{showPrivacyDetails}}" class="help-details"><text>取回结果或取消上传时清理本机临时副本，清理失败会在下次进入时重试。未完成上传的本机副本在任务过期后再次处理时清理。</text></view>
       </view>
-      <text wx:if="{{imageCount}}" class="cost-note">本批 {{imageCount}} 张 · {{pricesReady ? prices.profile + ' 积分' : '价格读取中'}}；分析成功后使用，失败退回。</text>
+      <text wx:if="{{imageCount}}" class="cost-note">本批 {{imageCount}} 张 · {{pricesReady ? (imageCount === 1 ? prices.analysisSingle : imageCount <= 3 ? prices.analysisSmall : imageCount <= 6 ? prices.analysisMedium : prices.analysisLarge) + ' 积分' : '价格读取中'}}；分析成功后使用，失败退回。</text>
       <button class="primary" disabled="{{busy || !imageCount || !agreed || !pricesReady}}" bindtap="analyze">{{busy ? '正在整理资料…' : materialType === 'moments' ? '分析朋友圈' : '分析这份资料'}}</button>
       <text wx:if="{{error}}" class="error">{{error}}</text>
     </view>
-    <view wx:if="{{!targetSelf}}" class="link-alternative">
+    <view wx:if="{{!targetSelf && !returnReportId}}" class="link-alternative">
       <button class="text-button" bindtap="toggleLinkImport" disabled="{{linkBusy}}" aria-expanded="{{showLinkImport}}">{{showLinkImport ? '收起链接建档' : '没有截图？用公开主页链接建档'}}</button>
       <view wx:if="{{showLinkImport}}" class="panel link-import"><text class="step">公开主页 · 快捷建档</text><text class="helper">支持小红书、抖音。标题和简介会进入待确认线索。</text><input value="{{profileUrl}}" maxlength="500" placeholder="粘贴小红书或抖音公开主页链接" bindinput="profileUrlInput"/><checkbox-group bindchange="linkAgree"><label class="consent"><checkbox value="yes" checked="{{linkConsent}}" color="#965a42"/><text>我确认这是公开主页链接，同意读取公开可见文字并建立人物档案。</text></label></checkbox-group><button class="secondary" disabled="{{linkBusy || !pricesReady}}" bindtap="analyzeProfileLink">{{linkBusy ? '正在读取…' : '读取主页并建档 · ' + (pricesReady ? prices.profile + ' 积分' : '价格读取中')}}</button><text wx:if="{{linkMessage}}" class="success">{{linkMessage}}</text></view>
     </view>
     </block>
     <view wx:if="{{result}}" class="panel result"><text class="step">资料解读 · 共 {{totalCount}} 张</text>
       <view class="report-nav"><button wx:if="{{result.hasHypotheses || result.moments.hasHypotheses}}" data-section="findings" bindtap="jumpToSection">深层推测</button><button wx:if="{{result.approach || result.hasHypothesisActions || (result.isProfile && !targetSelf) || result.moments.approach || result.moments.hasHypotheses || result.moments.hasStarters}}" data-section="actions" bindtap="jumpToSection">怎么相处</button><button data-section="evidence" bindtap="jumpToSection">资料与依据</button></view>
-      <view wx:if="{{!result.moments}}" class="profile-verdict"><text class="verdict-label">{{targetSelf ? '你的资料印象' : '人物总评'}}</text><text class="summary">{{result.summary}}</text></view><text wx:if="{{!result.moments && result.coverage}}" class="coverage">{{result.coverage}}</text><button wx:if="{{result.isChat}}" class="secondary" bindtap="openChatScreenshot">去聊天截图分析 →</button><button wx:if="{{canContinue}}" class="secondary" bindtap="nextBatch">继续补图 · {{pricesReady ? prices.profile + ' 积分 / 新批次' : '价格读取中'}}</button>
+      <view wx:if="{{!result.moments}}" class="profile-verdict"><text class="verdict-label">{{targetSelf ? '你的资料印象' : '人物总评'}}</text><text class="summary">{{result.summary}}</text></view><text wx:if="{{!result.moments && result.coverage}}" class="coverage">{{result.coverage}}</text><button wx:if="{{result.isChat}}" class="secondary" bindtap="openChatScreenshot">去聊天截图分析 →</button><button wx:if="{{canContinue}}" class="secondary" bindtap="nextBatch">继续补图 · 新批次按张数确认费用</button>
       <view wx:if="{{!result.moments}}" class="report-followup"><button class="primary" bindtap="continueDiscussion" disabled="{{busy || followupBusy}}">{{followupBusy ? '正在打开…' : '继续追问这份分析'}}</button><text class="helper">带上当前报告继续聊，不必重新描述。</text></view>
       <risk-review value="{{result.riskReview}}" target-self="{{targetSelf}}"/>
       <personal-connection value="{{result.personalConnection}}" target-self="{{targetSelf}}"/>

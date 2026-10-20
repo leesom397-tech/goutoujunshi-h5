@@ -1,6 +1,6 @@
 const destinations = {
   home: '/pages/home/index',
-  analysis: '/pages/quick/index',
+  analysis: '/pages/library/index',
   chat: '/pages/chat/index',
   people: '/pages/archive/index',
   me: '/pages/account/index'
