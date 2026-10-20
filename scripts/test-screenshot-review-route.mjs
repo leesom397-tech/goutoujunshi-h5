@@ -2,12 +2,14 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import ts from 'typescript';
 import {recognitionSnapshot} from '../lib/screenshot-recognition-review.mjs';
+import * as reportSupplement from '../lib/report-supplement.mjs';
 const module={exports:{}};let settings={consent_at:1,image_consent_at:2,image_self_side:'right'},cache={},ocr=0,analysis=0,fallback=0,budgets=0,saves=0,syntax=false,checkpointDown=false,limitUses=29;
 class CrushError extends Error{constructor(message,status){super(message);this.status=status;}}
 const raw={layout:'wechat-one-to-one',lines:[['unknown','text','周日见'],['right','unread','']]};
 const db={prepare(query){return{bind(){return this},async first(){return query.includes('coach_crush_budget')?{uses:limitUses}:null}}}};
 const checkpoint=async(_task,_id,owner,key,update)=>{assert.equal(owner,'fixture-owner');assert.equal(key,'fixture-secret');if(checkpointDown)throw Error('down');if(update)cache={...cache,...update};return {...cache,reviewOnDoubt:true};};
 const mocks={
+ '@/lib/report-supplement.mjs':reportSupplement,
  '@/app/chatgpt-auth':{getChatGPTUser:async()=>null},'@/db':{getD1:()=>db},
  '@/lib/crush/service':{getSettings:async()=>settings,getThread:async()=>({id:'thread',subject_id:null,data:'[]',channel_key:'fixture'}),reserveBudget:async()=>{budgets++},analyzeLines:async(_owner,text)=>{saves++;return{id:'report',lines:[{text}]}}},
  '@/lib/crush/screenshot':{readScreenshotQuickData:async(_img,_side,_m,_f,mode)=>{assert.equal(mode,'review-recognition');ocr++;return{raw:structuredClone(raw)}},readScreenshotFromQuick:async data=>{analysis++;if(syntax)throw new SyntaxError('synthetic');return{text:data.lines[0][2],count:1,prepared:{},decision:{}}},readScreenshot:async()=>{fallback++;throw Error('must not redo reviewed OCR')}},
