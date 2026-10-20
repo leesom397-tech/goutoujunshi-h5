@@ -87,7 +87,7 @@ try {
     const statsBefore = await page.$eval("[data-message-composition]", node => node.getAttribute("aria-label"));
     assert.ok(statsBefore.includes(String(full.chatActivity.messages)), "full-history statistics still use all messages");
     assert.ok(await page.$("[data-history-moments-overview]"), "Moments has a visible report subsection");
-    await page.$eval("[data-history-moments-overview] button", node => node.click());
+    await page.$eval("[data-history-moments-overview] > button", node => node.click());
     await page.waitForSelector("[data-history-moments]");
     assert.match(await page.$eval("[data-history-moments]", node => node.textContent), /朋友圈与图片/);
     assert.ok(await page.$("[data-moments-finding]"));
@@ -146,7 +146,7 @@ try {
       report = structuredClone(full);
       report.semanticHistory.sourceInsights.moments = { status: "no_supported_insight", summary: "这些动态已读取，但不足以判断对方的长期关系期待。", evidenceIds: [], unknowns: ["对方目前期待怎样的关系仍需核实。"] };
       await open();
-      await page.$eval("[data-history-moments-overview] button", node => node.click());
+      await page.$eval("[data-history-moments-overview] > button", node => node.click());
       await page.waitForSelector("[data-moments-synthesis]");
       assert.match(await page.$eval("[data-moments-synthesis]", node => node.textContent), /动态已读取.*不足以判断/);
       assert.match(await page.$eval("[data-history-moments]", node => node.textContent), /期待怎样的关系仍需核实/);

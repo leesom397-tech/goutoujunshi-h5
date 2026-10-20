@@ -9,6 +9,7 @@ import * as credits from '../lib/account-credits.mjs';
 import {screenshotPrice,fullHistoryPrice,ANALYSIS_PRICE_VERSION} from '../lib/analysis-pricing.mjs';
 import {requestOwner} from '../lib/request-identity.mjs';
 import {LEGACY_MINIAPP_PRICE_ALIASES} from '../lib/miniapp-legacy-pricing.mjs';
+import {saveAnalysisReport,readAnalysisReport,listAnalysisReports} from '../lib/saved-reports.mjs';
 const require=createRequire(import.meta.url),sql=new DatabaseSync(':memory:');
 for(const file of readdirSync('drizzle').filter(name=>name.endsWith('.sql')).sort())sql.exec(readFileSync('drizzle/'+file,'utf8'));
 const db={prepare(query){
@@ -21,9 +22,10 @@ const db={prepare(query){
   };
 }};
 const calls=[],states=new Map(),instances=new Map();
-let denyModel=false;
+let denyModel=false,modelHook=null;
 globalThis.__pricingApp={async fetch(request){
   const body=await request.json();calls.push(body);
+  if(modelHook)await modelHook(body);
   if(denyModel)return Response.json({error:'Synthetic settings revoked'},{status:403});
   return Response.json({id:body.requestId,lines:[{id:'0',speaker:'other',text:'合成原话 '+body.image}],decision:{judgment:'合成已完成报告'},selfSide:body.selfSide});
 }};
@@ -56,8 +58,8 @@ async function send(owner,id,body,expected=200){
   const response=await routeSocialProfileJob(new Request('https://fixture.invalid/api/web/screenshot/batch?taskId='+id,{method:body?'POST':'GET',headers:{'content-type':'application/json','x-test-owner':owner,'x-request-id':id},...(body?{body:JSON.stringify(body)}:{})}),env,{});
   const value=await response.json();assert.equal(response.status,expected,JSON.stringify(value));return value;
 }
-async function upload(owner,images,{subjectId=null,side='right',price=screenshotPrice(images.length),taskId=crypto.randomUUID()}={}){
-  const init={uploadAction:'init',confirmed:true,imageCount:images.length,selfSide:side,sessionId:crypto.randomUUID(),subjectId,priceConfirmation:price};
+async function upload(owner,images,{subjectId=null,side='right',price=screenshotPrice(images.length),taskId=crypto.randomUUID(),parentReportId}={}){
+  const init={uploadAction:'init',confirmed:true,imageCount:images.length,selfSide:side,sessionId:crypto.randomUUID(),subjectId,priceConfirmation:price,...(parentReportId?{parentReportId}:{})};
   await send(owner,taskId,init,201);
   for(let index=0;index<images.length;index++)await send(owner,taskId,{uploadAction:'part',index,image:images[index]});
   await send(owner,taskId,{uploadAction:'commit'},202);
@@ -143,5 +145,34 @@ for(const path of ['/api/miniapp/screenshot/batch','/api/miniapp/social-profile'
 const forgedId=crypto.randomUUID();
 await send('native',forgedId,{...nativeInit,legacyMiniapp:true,openId:nativeOpenId},409);
 assert.equal(ledger('native',forgedId),undefined);assert.equal(balance('native'),1000);
+// Supplement admission, cache scope and changes during processing use real SQL.
+denyModel=false;
+const subjectId=crypto.randomUUID(),otherSubject=crypto.randomUUID(),parentReportId=crypto.randomUUID(),nextParentId=crypto.randomUUID();
+for(const id of [subjectId,otherSubject])sql.prepare("INSERT INTO coach_subjects(id,owner_id,label,status,data,created_at,updated_at) VALUES(?,?,'合成对象','active','{}',1,1)").run(id,'native');
+const parentData={analysisScope:'fullHistory',captureKind:'chat',subjectId,generatedAt:'2026-10-21T00:00:00Z',semanticHistory:{summary:'过去讨论过安排',summaryEvidenceIds:['f1'],findings:[{id:'f1',claim:'过去讨论过安排',evidence:[{sourceId:'r1',quote:'之前讨论的原话',sourceKind:'chat'}]}]}};
+await saveAnalysisReport(db,{ownerId:'native',id:parentReportId,subjectId,kind:'chat',result:parentData});
+await saveAnalysisReport(db,{ownerId:'native',id:nextParentId,subjectId,kind:'chat',result:parentData});
+const original=sql.prepare('SELECT result FROM coach_saved_reports WHERE id=?').get(parentReportId).result;
+for(const invalid of [{subjectId:otherSubject,parentReportId},{subjectId,parentReportId:crypto.randomUUID()},{subjectId,parentReportId,target:'self'}]){
+  const id=crypto.randomUUID();await send('native',id,{...nativeInit,...invalid,priceConfirmation:screenshotPrice(1)},invalid.target?400:409);assert.equal(ledger('native',id),undefined);
+}
+const foreign=crypto.randomUUID();await send('bob',foreign,{...nativeInit,subjectId,parentReportId,priceConfirmation:screenshotPrice(1)},409);assert.equal(ledger('bob',foreign),undefined);
+const newImage=['data:image/png;base64,c3VwcGxlbWVudA=='],baseOptions={subjectId,parentReportId};
+const supplemented=await upload('native',newImage,baseOptions),beforeModel=calls.length;
+const supplementResult=await finish('native',supplemented.id);
+assert.equal(supplementResult.status,'done');assert.equal(calls.length,beforeModel+1,'supplement reuses the usual screenshot call');
+assert.equal(calls.at(-1).parentReportId,parentReportId);assert.equal(supplementResult.result.analysisScope,'supplement');assert.equal(supplementResult.result.entries[0].supplementOf.reportId,parentReportId);
+const savedSupplement=await readAnalysisReport(db,'native',supplemented.id);assert.equal(savedSupplement.report.supplementOf.reportId,parentReportId);assert.match(savedSupplement.report.scopeNote,/不重新统计/);
+const listed=(await listAnalysisReports(db,'native')).reports.find(row=>row.id===supplemented.id);assert.equal(listed.analysisScope,'supplement');assert.equal(listed.supplementOf.reportId,parentReportId);
+assert.equal(sql.prepare('SELECT result FROM coach_saved_reports WHERE id=?').get(parentReportId).result,original,'old report is never rewritten');
+const repeat=await upload('native',newImage,baseOptions),beforeRepeat=calls.length;await finish('native',repeat.id);assert.equal(calls.length,beforeRepeat);assert.equal(ledger('native',repeat.id).status,'released');
+const changed=await upload('native',newImage,{subjectId,parentReportId:nextParentId});await finish('native',changed.id);assert.equal(calls.length,beforeRepeat+1,'different full report cannot borrow cached interpretation');
+const pending=await upload('native',['data:image/png;base64,YmVmb3Jl'],baseOptions),beforeDeletion=calls.length;
+sql.prepare("UPDATE coach_saved_reports SET status='deleted' WHERE id=?").run(parentReportId);
+assert.equal((await finish('native',pending.id)).status,'error');assert.equal(calls.length,beforeDeletion);assert.equal(ledger('native',pending.id).status,'released');
+sql.prepare("UPDATE coach_saved_reports SET status='done' WHERE id=?").run(parentReportId);
+const midFlight=await upload('native',['data:image/png;base64,ZHVyaW5n'],baseOptions);
+modelHook=()=>sql.prepare('UPDATE coach_saved_reports SET subject_id=? WHERE id=?').run(otherSubject,parentReportId);
+assert.equal((await finish('native',midFlight.id)).status,'error');modelHook=null;assert.equal(ledger('native',midFlight.id).status,'released');assert.equal(await readAnalysisReport(db,'native',midFlight.id),null);
 delete globalThis.__pricingApp;delete globalThis.__pricingNativeOwner;sql.close();
 console.log('PASS screenshot 5/10/15/20; stale quotes no task; actual SQLite debits/refunds; exact bytes + scope reuse across IDs; owner/person/speaker isolation; permission failure refunds; no balance reset; full range bounds.');

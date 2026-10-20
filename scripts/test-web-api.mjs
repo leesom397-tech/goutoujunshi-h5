@@ -1,5 +1,6 @@
 import * as pricing from '../lib/analysis-pricing.mjs';
 import * as miniappLegacyPricing from '../lib/miniapp-legacy-pricing.mjs';
+import * as reportSupplement from '../lib/report-supplement.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
@@ -75,7 +76,7 @@ const app = { async fetch(req, appEnv) {
   if (new URL(req.url).pathname === '/api/voice') return new Response('v=0\nm=audio', { headers: { 'Content-Type': 'application/sdp' } });
   return Response.json({ ok: true, report: 'owner-scoped report' });
 } };
-const mocks = {'./analysis-pricing.mjs':pricing,'./miniapp-legacy-pricing.mjs':miniappLegacyPricing,
+const mocks = {'./analysis-pricing.mjs':pricing,'./miniapp-legacy-pricing.mjs':miniappLegacyPricing,'./report-supplement.mjs':reportSupplement,'./lib/report-supplement.mjs':reportSupplement,
   './saved-reports.mjs': savedReports,
   'cloudflare:workers': { DurableObject },
   '../dist/server/index.js': { default: app }, './dist/server/index.js': { default: app },

@@ -4,6 +4,7 @@ import { getD1 } from "@/db";
 import { clearSavedReports, PERMANENT_REPORT_EXPIRES_AT } from "@/lib/saved-reports.mjs";
 import { recordRelationshipHistory } from "@/lib/relationship-history";
 import { createHash } from "node:crypto";
+import {assertReportSupplementCurrent,withReportSupplement,loadReportSupplement} from '../report-supplement.mjs';
 import { parseChat, mergeChat } from "./parser";
 import { classify, classifierStatus, RUBRIC_VERSION } from "./provider";
 import {affinityJev} from "./affinity-jev";
@@ -45,11 +46,12 @@ function contextFor(all:ChatLine[],targets:ChatLine[]) {
   while(lines.reduce((n,l)=>n+l.text.length,0)>12000 && lines[0]?.id!==targets[0].id)lines=lines.slice(1);
   return readableChat(lines);
 }
-export async function analyzeLines(owner:string,text:string,options:{sourceKey:string;channelKey:string;subjectId?:string|null;selfLabel?:string;plainSpeaker?:Speaker;threadId?:string;providerOverride?:"qwen";coverage?:CrushResult["coverage"];budgetMode?:"chat"|"deep";prepared?:PreparedLines;skipAffinity?:boolean;decision?:CrushResult["decision"]}) {
+export async function analyzeLines(owner:string,text:string,options:{sourceKey:string;channelKey:string;subjectId?:string|null;selfLabel?:string;plainSpeaker?:Speaker;threadId?:string;providerOverride?:"qwen";coverage?:CrushResult["coverage"];budgetMode?:"chat"|"deep";prepared?:PreparedLines;skipAffinity?:boolean;decision?:CrushResult["decision"];supplement?:Awaited<ReturnType<typeof loadReportSupplement>>}) {
   const db=getD1(),settings=await requireSettings(owner),now=Date.now();
+  await assertReportSupplementCurrent(db,owner,options.supplement);
   const provider=options.providerOverride||settings.provider;
   const sourceKey=options.sourceKey.slice(0,160);
-  const inputHash=createHash("sha256").update(JSON.stringify({text,subject:options.subjectId||null,self:options.selfLabel||"",speaker:options.plainSpeaker||"other",channel:options.channelKey,provider,rubric:RUBRIC_VERSION})).digest("hex");
+  const inputHash=createHash("sha256").update(JSON.stringify({text,subject:options.subjectId||null,self:options.selfLabel||"",speaker:options.plainSpeaker||"other",channel:options.channelKey,provider,rubric:RUBRIC_VERSION,...(options.supplement?{supplement:options.supplement.fingerprint}:{})})).digest("hex");
   const previous=await db.prepare("SELECT id, input_hash, status, result, updated_at FROM coach_crush_reports WHERE owner_id = ? AND source_key = ?").bind(owner,sourceKey).first<{id:string;input_hash:string;status:string;result:string;updated_at:number}>();
   if(previous) {
     if(previous.input_hash!==inputHash)throw new CrushError("材料或分析方式已改变，请重新提交本次分析。",409);
@@ -124,8 +126,11 @@ export async function analyzeLines(owner:string,text:string,options:{sourceKey:s
     result.riskReview=relationshipRiskReview(result);
     result.personalConnection=await personalizeReport(owner,thread.subject_id,result);
     if(options.decision&&options.skipAffinity&&settings.jev_consent_at&&settings.affinity_consent_at)result.decision={...options.decision,affinityDeferred:true};
+    Object.assign(result,withReportSupplement(result,options.supplement));
+    await assertReportSupplementCurrent(db,owner,options.supplement);
+    const parent=options.supplement;
     const results=await db.batch([
-      db.prepare("UPDATE coach_crush_reports SET result = ?, status = 'done', updated_at = ?, expires_at = ? WHERE id = ? AND owner_id = ? AND status = 'running'").bind(JSON.stringify(result),Date.now(),PERMANENT_REPORT_EXPIRES_AT,id,owner),
+      db.prepare("UPDATE coach_crush_reports SET result = ?, status = 'done', updated_at = ?, expires_at = ? WHERE id = ? AND owner_id = ? AND status = 'running' AND (? IS NULL OR EXISTS (SELECT 1 FROM coach_saved_reports parent JOIN coach_subjects person ON person.id=parent.subject_id AND person.owner_id=parent.owner_id AND person.status='active' WHERE parent.id=? AND parent.owner_id=? AND parent.status='done' AND parent.subject_id=? AND parent.updated_at=?))").bind(JSON.stringify(result),Date.now(),PERMANENT_REPORT_EXPIRES_AT,id,owner,parent?.reportId||null,parent?.reportId||null,owner,parent?.subjectId||null,parent?.updatedAt||0),
       db.prepare("UPDATE coach_crush_threads SET data = ?, self_label = ?, updated_at = ? WHERE id = ? AND owner_id = ? AND revision = ? AND EXISTS (SELECT 1 FROM coach_crush_reports WHERE id = ? AND status = 'done')").bind(JSON.stringify(merged.all),options.selfLabel ?? thread.self_label,Date.now(),thread.id,owner,revision,id),
     ]);
     if(!results[0].meta.changes||!results[1].meta.changes)throw new CrushError("会话已删除，本次结果没有保存。",409);

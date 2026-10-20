@@ -6,6 +6,7 @@ import {loadVoiceMemory,validVoiceSubjectId} from "./lib/miniapp-voice-memory.mj
 import { SocialProfileJobs, routeSocialProfileJob } from "./lib/social-profile-jobs.mjs";
 import { CREDIT_PRICES, reserveCredits, finishCreditTask, requireNewCreditTask, CreditError } from "./lib/account-credits.mjs";
 import { creditResponse } from "./lib/credit-response.mjs";
+import {loadReportSupplement,ReportSupplementError} from './lib/report-supplement.mjs';
 import { createVoiceTurnGuard } from "./lib/voice-turn-guard.mjs";
 import { requestOwner, webOwner, isWebApi, browserRequestAllowed } from "./lib/request-identity.mjs";
 import { legacyCreditPolicy, legacyCreditResponse } from "./lib/web-credit-policy.mjs";
@@ -52,6 +53,10 @@ const worker = {
       const identity = await requestOwner(request,env);
       if (!identity) return Response.json({error:"请重新登录。"},{status:401});
       const screenshot=path.endsWith("/screenshot");
+      if(screenshot){
+        try{const body=await request.clone().json();await loadReportSupplement(env.DB,identity.ownerId,body);}
+        catch(error){if(error instanceof ReportSupplementError)return Response.json({error:error.message,code:error.code},{status:error.status});if(!(error instanceof SyntaxError))return Response.json({error:'暂时无法核对原完整报告，请稍后重试。'},{status:503});}
+      }
       return creditResponse(env.DB,identity.ownerId,request,screenshot?"analysis":"chat",screenshot?CREDIT_PRICES.analysisSingle:CREDIT_PRICES.text,()=>app.fetch(request,env,ctx));
     }
     if (request.method === 'POST') {

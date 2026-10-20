@@ -10,6 +10,7 @@ import {readableReport} from "@/lib/crush/evidence";
 import type {CrushResult} from "@/lib/crush/types";
 import {env} from "cloudflare:workers";
 import {recognitionSnapshot} from "@/lib/screenshot-recognition-review.mjs";
+import {loadReportSupplement,assertReportSupplementCurrent,supplementPrompt,ReportSupplementError} from '@/lib/report-supplement.mjs';
 
 export const runtime="edge";
 const json=(data:unknown,status=200)=>Response.json(data,{status,headers:{"Cache-Control":"no-store"}});
@@ -42,6 +43,7 @@ export async function analyzeScreenshot(request:Request,owner:string){
     if(!uuid(body.requestId)||!uuid(body.sessionId)||body.threadId!=null&&!uuid(body.threadId))throw new CrushError("请重新提交本次截图。",400);
     if(body.subjectId!=null&&(typeof body.subjectId!=="string"||body.subjectId.length>100))throw new CrushError("对象无效。",400);
     const subject=typeof body.subjectId==="string"?body.subjectId:null;
+    const supplement=await loadReportSupplement(getD1(),owner,{parentReportId:body.parentReportId,subjectId:subject});
     const settings=await getSettings(owner);
     if(!settings?.consent_at||!settings.image_consent_at||!(["left","right"].includes(settings.image_self_side||"")))throw new CrushError("请先在页面同意截图识别并确认哪侧是你。",403);
     if(body.selfSide!==settings.image_self_side)throw new CrushError("截图的本人气泡位置与已保存设置不一致，请重新确认。",409);
@@ -52,14 +54,17 @@ export async function analyzeScreenshot(request:Request,owner:string){
       .bind(owner,"web-image:"+body.requestId).first<{status:string;result:string|null;updated_at:number;subject_id:string|null}>();
     if(prior){
       if(prior.subject_id!==subject)throw new CrushError("本次截图对应的对象已改变，请重新选择截图。",409);
+      const priorResult=prior.result?JSON.parse(prior.result):{};
+      if((priorResult.supplementOf?.reportId||null)!==(supplement?.reportId||null) && prior.status==='done')throw new CrushError('本次截图的报告背景已改变，请重新提交。',409);
       if(prior.status==="done"&&prior.result)return json(readableReport(JSON.parse(prior.result) as CrushResult));
       if(prior.status==="running"&&Date.now()-prior.updated_at<330000)return json({error:"这张截图仍在分析，请稍后查看进度。",processing:true},409);
     }
-    const channelKey="web:"+(subject||"temporary:"+body.sessionId);
+    const channelKey=supplement?"web:supplement:"+supplement.reportId+":"+body.sessionId:"web:"+(subject||"temporary:"+body.sessionId);
     const thread=body.threadId
       ? await getD1().prepare("SELECT * FROM coach_crush_threads WHERE id=? AND owner_id=? AND expires_at>?").bind(body.threadId,owner,Date.now()).first<Thread>()
       : await getThread(owner,channelKey,subject);
     if(!thread||thread.subject_id!==subject)throw new CrushError("这张图属于另一位对象或已失效的聊天，请开启新聊天。",409);
+    if(supplement&&thread.channel_key!==channelKey)throw new CrushError('补充截图需要使用本次独立会话，请重新提交。',409);
     // A report opened from WeChat keeps its original thread and person when
     // the user continues that conversation on the web.
     const existing=JSON.parse(thread.data||"[]");
@@ -89,12 +94,13 @@ export async function analyzeScreenshot(request:Request,owner:string){
     stage="ocr";
     await checkpoint({phase:cached?.raw?"recognized":"ocr"});
     const ocrStarted=Date.now();
-    const [profile,quick]=await Promise.all([
+    const [personalProfile,quick]=await Promise.all([
       loadProfileContext(owner,subject,"",1000),
       cached?.raw ? Promise.resolve({raw:cached.raw}) : readScreenshotQuickData(body.image,selfSide,undefined,kind=>{
         console.warn("miniapp_screenshot_quick_unavailable",{kind});
       },cached?.reviewOnDoubt?"review-recognition":"recognition")
     ]);
+    const profile=personalProfile+supplementPrompt(supplement);
     ocrMs=Date.now()-ocrStarted;
     if(quick?.raw){
       await checkpoint({phase:'recognized',raw:quick.raw});
@@ -124,12 +130,13 @@ export async function analyzeScreenshot(request:Request,owner:string){
     await checkpoint({phase:"save"});
     const current=await getSettings(owner);
     if(!current?.consent_at||current.consent_at!==settings.consent_at||current.image_consent_at!==settings.image_consent_at||current.image_self_side!==settings.image_self_side)throw new CrushError("截图处理授权已改变，本次停止保存。",409);
-    const result=await analyzeLines(owner,parsed.text,{sourceKey:"web-image:"+body.requestId,channelKey:thread.channel_key,subjectId:subject,threadId:thread.id,prepared:parsed.prepared,skipAffinity:true,decision:parsed.decision,budgetMode:"deep"});
+    await assertReportSupplementCurrent(getD1(),owner,supplement);
+    const result=await analyzeLines(owner,parsed.text,{sourceKey:"web-image:"+body.requestId,channelKey:thread.channel_key,subjectId:subject,threadId:thread.id,prepared:parsed.prepared,skipAffinity:true,decision:parsed.decision,budgetMode:"deep",supplement});
     if(subject&&!result.decision?.partial){
       try{await suggestScreenshotEvents(owner,subject,result);}
       catch{console.warn("web_screenshot_event_suggestion_failed");}
     }
     console.info("screenshot_analysis_ready",{elapsedMs:Date.now()-started,ocrMs,textMs,lineCount:parsed.count,source,imageBytes:Math.floor(body.image.length*3/4)});
     return json(result);
-  }catch(error){console.warn("screenshot_analysis_failed",{stage,elapsedMs:Date.now()-started,errorType:error instanceof CrushError?"validation_"+error.status:error instanceof Error&&["TimeoutError","AbortError","TypeError"].includes(error.name)?error.name:"other"});return json({error:error instanceof CrushError?error.message:qwenPublicError(error,"截图识别这次没有完成，未生成判断；请稍后重试。"),...(error instanceof Error&&["QWEN_AUTH_FAILED","QWEN_BALANCE_EMPTY","QWEN_API_KEY_MISSING","QWEN_WORKSPACE_MISSING"].includes(error.message)?{retryable:false}:{})},error instanceof CrushError?error.status:503);}
+  }catch(error){console.warn("screenshot_analysis_failed",{stage,elapsedMs:Date.now()-started,errorType:error instanceof CrushError?"validation_"+error.status:error instanceof Error&&["TimeoutError","AbortError","TypeError"].includes(error.name)?error.name:"other"});return json({error:error instanceof CrushError||error instanceof ReportSupplementError?error.message:qwenPublicError(error,"截图识别这次没有完成，未生成判断；请稍后重试。"),...(error instanceof ReportSupplementError?{code:error.code,retryable:false}:{}),...(error instanceof Error&&["QWEN_AUTH_FAILED","QWEN_BALANCE_EMPTY","QWEN_API_KEY_MISSING","QWEN_WORKSPACE_MISSING"].includes(error.message)?{retryable:false}:{})},error instanceof CrushError||error instanceof ReportSupplementError?error.status:503);}
 }

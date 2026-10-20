@@ -1147,7 +1147,10 @@ await test("Qwen defaults to working flash and only selects max explicitly",asyn
     await qwenModule.qwenChat([{role:"user",content:"fictional"}]);
     await qwenModule.qwenChat([{role:"user",content:"fictional"}],{quality:"max"});
     assert.deepEqual(models,["qwen3.8-flash","qwen3.8-max"]);
-    assert.match(qwenModule.qwenPublicError(new Error("QWEN_AUTH_FAILED"),"fallback"),/模型访问被拒绝/);
+    const publicError=qwenModule.qwenPublicError(new Error("QWEN_AUTH_FAILED"),"fallback");
+    assert.match(publicError,/分析服务.*(?:无法连接|不可用)/);
+    assert.match(publicError,/重试|联系客服/);
+    assert.ok(!/QWEN|API.?KEY|DASHSCOPE|fictional-key/i.test(publicError),'provider authentication failure stays an actionable service error');
   }finally{globalThis.fetch=originalFetch;}
 });
 await test("public OCR probe uses a fixed documentation image and never accepts customer image data",async()=>{
