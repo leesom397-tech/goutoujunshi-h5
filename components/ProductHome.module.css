@@ -69,14 +69,10 @@
 .evidenceFooter a:hover { background: #f7eade; border-color: #cba98f; }
 .evidenceFooter a:focus-visible { outline: 2px solid #a26043; outline-offset: 4px; }
 
-.moreDialog { width: min(760px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); margin: auto; padding: 0; overflow: auto; overscroll-behavior: contain; border: 1px solid #e3ccbc; border-radius: 22px; background: #fffaf5; color: #302a25; box-shadow: 0 28px 90px #302a2533; }
-.moreDialog::backdrop { background: #302a2566; backdrop-filter: blur(5px); }
-.moreSurface { padding: 24px; }
-.moreSurface header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 22px; }
-.page .moreSurface h2 { margin: 0; color: #302a25; font-size: 26px; font-weight: 600; line-height: 1.5; letter-spacing: -.035em; }
-.moreSurface header p { margin: 6px 0 0; color: #65574d; font-size: 16px; line-height: 1.65; }
-.moreSurface header button { display: grid; place-items: center; flex: none; width: 44px; height: 44px; border: 1px solid #e3ccbc; border-radius: 12px; background: #fff5eb; color: #855337; cursor: pointer; }
-.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.tools { padding: 10px 6% 28px; scroll-margin-top: 24px; }
+.tools header { margin-bottom: 17px; }
+.page .tools h2 { margin: 0; color: #302a25; font-size: 26px; font-weight: 600; line-height: 1.5; letter-spacing: -.035em; }
+.grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .tool { position: relative; display: flex; align-items: center; gap: 14px; min-width: 0; min-height: 100px; padding: 18px 19px; border: 1px solid #e9dfd5; border-radius: 14px; background: linear-gradient(150deg, #fff, #fffcf8); color: var(--text); box-shadow: inset 0 1px #fff, 0 3px 12px #4b372605; transition: border-color .2s, transform .2s; }
 .page .tool:hover { border-color: #c9a58b; transform: translateY(-2px); text-decoration: none; }
 .icon { display: grid; place-items: center; flex: none; width: 46px; height: 48px; border: 1px solid #e7d3bc; border-radius: 12px; background: linear-gradient(140deg, #fffaf1, #f1e4d5); box-shadow: inset 1px 2px 2px #fff, 0 2px 0 #e1cfbd, 0 5px 9px #855b2812; color: #986b46; }
@@ -117,15 +113,14 @@
   .evidenceFooter { align-items: flex-start; flex-direction: column; gap: 10px; }
   .author { font-size: 16px; }
   .evidenceFooter a { min-height: 44px; }
-  .moreSurface { padding: 20px 16px; }
-  .moreSurface header { gap: 12px; margin-bottom: 18px; }
-  .grid { grid-template-columns: minmax(0, 1fr); gap: 10px; }
-  .tool { min-height: 88px; padding: 16px 14px; gap: 12px; }
+  .tools { padding: 10px 24px 24px; }
+  .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .tool { align-items: flex-start; flex-direction: column; min-height: 164px; padding: 16px 14px; gap: 12px; }
   .icon { width: 38px; height: 40px; border-radius: 10px; }
   .icon svg { width: 21px; height: 21px; }
   .toolCopy { gap: 4px; }
   .toolCopy strong { font-size: 18px; }
-  .toolArrow { align-self: center; width: 16px; height: 16px; }
+  .toolArrow { position: absolute; top: 18px; right: 13px; width: 16px; height: 16px; }
   .utilities { padding: 0 24px 22px; gap: 10px 20px; }
 }
 @media (max-width: 360px) {

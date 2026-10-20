@@ -49,7 +49,7 @@ export function relatedMomentLibraries(chat: Pick<SyncedLibrarySummary, "ownerId
 
 export type AnalysisFocus = "affinity" | "intent" | "reply";
 export const analysisPurposes: { key: AnalysisFocus; title: string; description: string }[] = [
-  { key: "affinity", title: "好感探测器", description: "看回应与投入，也看判断依据。" },
+  { key: "affinity", title: "好感探测器", description: "一次上传，看好感信号、逐句意图和怎么回。" },
   { key: "intent", title: "TA 是什么意思", description: "把这句话放回前后互动里看。" },
   { key: "reply", title: "下一句怎么回", description: "看清眼下的情况，再选合适的回应。" },
 ];

@@ -5,6 +5,13 @@ import {resolve} from "node:path";
 import puppeteer from "puppeteer-core";
 
 const origin=process.env.INTAKE_TEST_ORIGIN||"http://127.0.0.1:8798";
+const affinityHref="/analyze?mode=chat&focus=affinity";
+const expectedFeatures=[
+  ["好感探测器",affinityHref],["截图分析","/analyze?mode=chat"],
+  ["问成子","/chat"],["朋友圈分析","/analyze?mode=moments"],
+  ["社交主页","/analyze?mode=social"],["语音交流","/voice"],
+  ["人物档案","/archive"],["帮助与下载","/support"],
+];
 const output=resolve("outputs/home-support");
 await mkdir(output,{recursive:true});
 const owner="home-support-fixture";
@@ -72,53 +79,35 @@ try {
       await page.waitForSelector('[data-account-state="ready"]');
       assert.equal(await page.$$eval("[data-home-start]",els=>els.length),1,"one main home action");
       assert.equal(await page.$("[data-home-task]"),null,"old three-card home removed");
-      assert.equal(await page.$("[data-feature-entry]"),null,"specialized tools stay out of the opening");
-      const sizes=await page.$$eval('[data-home-start], button[aria-controls="home-more-ways"]',els=>els.map(el=>Number.parseFloat(getComputedStyle(el).fontSize)));
+      const sizes=await page.$$eval('[data-home-start], a[href="#home-more-ways"]',els=>els.map(el=>Number.parseFloat(getComputedStyle(el).fontSize)));
       assert.ok(sizes.every(size=>size>=16),"opening controls remain readable");
+      assert.equal(await page.$("dialog"),null,"home features never require opening a dialog");
+      const choices=await page.$$eval("#home-more-ways [data-feature-entry]",els=>els.map(el=>({
+        title:el.querySelector("strong").textContent,href:el.getAttribute("href"),visible:el.checkVisibility(),
+        icon:!!el.querySelector(":scope > span svg"),
+        titleSize:Number.parseFloat(getComputedStyle(el.querySelector("strong")).fontSize),
+        captionSize:Number.parseFloat(getComputedStyle(el.querySelector("strong + span")).fontSize),
+        height:el.getBoundingClientRect().height,
+      })));
+      assert.deepEqual(choices.map(row=>[row.title,row.href]),expectedFeatures,"all eight existing tools remain visible with affinity included");
+      assert.ok(choices.every(row=>row.visible&&row.icon&&row.titleSize>=18&&row.captionSize>=16&&row.height>=44),"every tool keeps its own icon and readable tap target");
+      assert.equal(await page.$('#home-more-ways[hidden], #home-more-ways details, #home-more-ways button[aria-expanded]'),null,"no collapsed feature list");
       await fits();await shot("home");
-      const openMore=async()=>{
-        await page.click('button[aria-controls="home-more-ways"]');
-        await page.waitForSelector("#home-more-ways[open]");
-        assert.equal(await page.evaluate(()=>document.documentElement.style.overflow),"hidden","opening locks background scroll");
-        const bounds=await page.$eval("#home-more-ways",el=>{const rect=el.getBoundingClientRect();return {left:rect.left,right:rect.right,scrollWidth:el.scrollWidth,clientWidth:el.clientWidth};});
-        assert.ok(bounds.left>=0&&bounds.right<=width+1&&bounds.scrollWidth<=bounds.clientWidth+1,"dialog fits without horizontal scrolling");
-      };
-      const closedMore=async()=>{
-        await page.waitForFunction(()=>!document.querySelector("#home-more-ways[open]")&&document.documentElement.style.overflow!=="hidden",{timeout:5000});
-        assert.equal(await page.evaluate(()=>document.activeElement?.getAttribute("aria-controls")),"home-more-ways","closing returns keyboard focus to its trigger");
-        assert.notEqual(await page.evaluate(()=>document.documentElement.style.overflow),"hidden","closing restores background scroll");
-      };
-      await openMore();
-      const choices=await page.$$eval("[data-feature-entry]",els=>els.map(el=>({text:el.innerText,href:el.getAttribute("href")})));
-      assert.ok(choices.some(el=>el.text.includes("好感探测器")&&el.href==="/analyze?mode=chat&focus=affinity"),"affinity remains an explicit secondary choice");
-      assert.ok(choices.some(el=>el.text.includes("截图分析")&&el.href==="/analyze?mode=chat"));
-      assert.ok(choices.some(el=>el.href==="/support"),"helper support remains in more options");
-      await shot("more-ways");
-      await page.keyboard.press("Escape");await closedMore();
-      await openMore();await page.click('[aria-label="关闭更多方式"]');await closedMore();
-      if(width<=390){
-        await page.setViewport({width,height:680});
-        await openMore();
-        const backgroundScroll=await page.evaluate(()=>scrollY);
-        assert.ok(await page.$eval("#home-more-ways",el=>el.scrollHeight>el.clientHeight),"short mobile viewport has a scrollable options sheet");
-        const box=await page.$eval("#home-more-ways",el=>{const rect=el.getBoundingClientRect();return {x:rect.x+rect.width/2,y:rect.y+rect.height/2};});
-        await page.mouse.move(box.x,box.y);await page.mouse.wheel({deltaY:450});
-        await page.waitForFunction(()=>document.querySelector("#home-more-ways").scrollTop>0);
-        assert.equal(await page.evaluate(()=>scrollY),backgroundScroll,"scrolling options does not move the home page");
-        await fits();await shot("more-ways-scrolled");
-        await page.keyboard.press("Escape");await closedMore();
-        await page.setViewport({width,height:1000});
-      }
+      await page.click('a[href="#home-more-ways"]');
+      await page.waitForFunction(()=>location.hash==="#home-more-ways"&&scrollY>0&&document.querySelector("#home-more-title").getBoundingClientRect().top<innerHeight);
+      assert.notEqual(await page.evaluate(()=>document.documentElement.style.overflow),"hidden","more link scrolls the page without locking it");
+      assert.equal(await page.$("dialog"),null);
+      await fits();await page.screenshot({path:resolve(output,`more-ways-${width}.png`),fullPage:false});
       for(const task of [
-        {href:"/analyze?mode=chat&focus=affinity",params:{mode:"chat",focus:"affinity"}},
+        {href:affinityHref,params:{mode:"chat",focus:"affinity"}},
         {href:"/analyze?mode=chat",params:{mode:"chat"}},
       ]) {
         await navigate("/workspace");
         await page.waitForSelector("[data-home-start]");
         await page.waitForSelector('[data-account-state="ready"]');
-        await openMore();
+        await page.$eval(`[data-feature-entry][href="${task.href}"]`,el=>el.scrollIntoView({block:"center",behavior:"instant"}));
         await page.click(`[data-feature-entry][href="${task.href}"]`);
-        await page.waitForFunction(()=>location.pathname==="/analyze",{timeout:30000});
+        await page.waitForFunction(href=>location.pathname+location.search===href,{timeout:30000},task.href);
         const next=new URL(page.url());
         for(const [key,value] of Object.entries(task.params))assert.equal(next.searchParams.get(key),value);
         if(!task.params.focus)assert.equal(next.searchParams.has("focus"),false,"screenshot entry has no unintended affinity focus");
@@ -131,7 +120,7 @@ try {
       await page.click('[aria-label="搜索功能、人物与报告"]');
       await page.waitForSelector(".quick-search-dialog[open]");
       const defaults=await page.$$eval(".quick-search-results a",els=>els.map(el=>({text:el.textContent,href:el.getAttribute("href")})));
-      assert.ok(defaults.some(el=>el.text==="好感探测器"&&el.href==="/analyze?mode=chat&focus=affinity"));
+      assert.ok(defaults.some(el=>el.text==="好感探测器"&&el.href===affinityHref));
       assert.ok(defaults.some(el=>el.text==="帮助与下载"&&el.href==="/support"));
       await fits();await shot("quick-search");await page.click('[aria-label="关闭搜索"]');
 
@@ -183,9 +172,9 @@ try {
       await page.evaluate(()=>[...document.querySelectorAll("button")].find(el=>el.textContent==="重新连接").click());
       await page.waitForFunction(()=>document.querySelectorAll("[data-person-entry]").length===2);
       assert.deepEqual(errors,[]);
-      console.log(`PASS ${width}: one home action; secondary affinity/screenshot routes; modal focus/Escape/scroll; guest EXE/persistent download; same-name subject/library grouping; 20s timeout and 503 recover; no analysis POST`);
+      console.log(`PASS ${width}: one home action; eight always-visible illustrated tools; readable cards and anchor jump; affinity/screenshot routes; guest EXE/persistent download; same-name subject/library grouping; 20s timeout and 503 recover; no analysis POST`);
     } catch(error) {
-      console.error(`FAIL ${width}`,page.url(),errors,await page.$eval("body",el=>el.innerText));
+      console.error(`FAIL ${width}`,error,page.url(),errors,await page.$eval("body",el=>el.innerText).catch(()=>"(navigation in progress)"));
       await shot("failure").catch(()=>{});
       throw error;
     } finally {closed=true;await context.close();}
