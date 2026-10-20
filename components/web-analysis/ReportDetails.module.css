@@ -1,15 +1,15 @@
-.trigger { display:flex; align-items:center; justify-content:space-between; gap:16px; width:100%; min-height:64px; padding:16px 0; border:0; border-bottom:1px solid #eaded4; border-radius:0; background:transparent; color:#272421; text-align:left; font:inherit; cursor:pointer; }
+.trigger { display:flex; align-items:center; justify-content:space-between; gap:16px; width:100%; min-height:68px; margin:10px 0; padding:16px 18px; border:1px solid #e5d4c6; border-radius:14px; background:#fffdf9; color:#302a25; text-align:left; font:inherit; cursor:pointer; transition:background .15s,border-color .15s; }
 .trigger strong { font-size:16px; font-weight:600; }
 .trigger small { display:block; margin-top:4px; color:#68594e; font-size:14px; line-height:1.65; }
-.trigger > svg { flex:none; color:#b66c53; }
-.trigger:hover { background:#fff5ed; }
+.trigger > svg { flex:none; color:#a9644e; }
+.trigger:hover { background:#fff3e8; border-color:#a9644e; }
 .trigger:focus-visible,.header button:focus-visible { outline:2px solid #b66c53; outline-offset:3px; }
 .dialog { position:fixed; inset:0; width:min(880px,calc(100vw - 32px)); max-width:none; max-height:calc(100dvh - 40px); margin:auto; padding:0; border:1px solid #e4d1c3; border-radius:22px; background:#fffaf5; color:#272421; box-shadow:0 28px 90px #3b251f40; overflow:auto; overscroll-behavior:contain; font-family:"Noto Sans SC","Microsoft YaHei",sans-serif; }
 .dialog::backdrop { background:#30231b66; backdrop-filter:blur(3px); }
 .header { position:sticky; top:0; z-index:2; display:flex; justify-content:space-between; align-items:center; gap:16px; padding:20px 26px; border-bottom:1px solid #e9dbcf; background:#fffaf5; }
 .header h2 { margin:0; font-size:20px; }
 .header button { flex:none; display:grid; place-items:center; width:40px; height:40px; padding:0; border:1px solid #e4caba; border-radius:12px; background:#fff; color:#96563f; cursor:pointer; }
-.content { padding:26px; overflow-wrap:anywhere; }
+.content { padding:26px; overflow-wrap:anywhere; font-size:16px; line-height:1.8; }
 .content > :first-child { margin-top:0; }
 .content > :last-child { margin-bottom:0; }
 @media(max-width:600px) { .dialog { width:calc(100vw - 16px); max-height:calc(100dvh - 16px); border-radius:17px; }.header { padding:16px; }.header h2 { font-size:18px; }.content { padding:18px 16px; } }

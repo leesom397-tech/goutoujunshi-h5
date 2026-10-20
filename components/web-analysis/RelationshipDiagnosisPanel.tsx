@@ -22,7 +22,12 @@ export function RelationshipDiagnosisPanel({ diagnosis, semanticHistory: standal
   if (!diagnosis && !semantic) return null;
   const coverage = diagnosis?.coverage || {}, semanticCoverage = semantic?.coverage;
   const facts = rows(diagnosis?.facts).filter(row => row.id !== "activity:coverage");
-  const findings = rows(semantic?.findings).filter((row, index, all) => all.findIndex(other => normalized(text(other.claim)) === normalized(text(row.claim))) === index);
+  // The same sentence about two people, or supported by different sources, is not a duplicate.
+  const findings = rows(semantic?.findings).filter((row, index, all) => all.findIndex(other =>
+    row.id ? other.id === row.id : other.subject === row.subject
+      && normalized(text(other.claim)) === normalized(text(row.claim))
+      && JSON.stringify(rows(other.evidence)) === JSON.stringify(rows(row.evidence))
+  ) === index);
   const counterIds = new Set(uniqueText(semantic?.counterEvidenceIds));
   // Keep at least one contrary finding in the first reading page.
   const ordered=pageSize&&findings.length>pageSize&&findings.slice(0,pageSize).every(row=>!counterIds.has(row.id))&&findings.some(row=>counterIds.has(row.id))?[...findings.slice(0,pageSize-1),findings.find(row=>counterIds.has(row.id))!,...findings.slice(pageSize-1).filter(row=>!counterIds.has(row.id)),...findings.filter(row=>counterIds.has(row.id)).slice(1)]:findings;

@@ -8,6 +8,31 @@ import type { Json } from "./client";
 import styles from "./ReportCoverage.module.css";
 
 const count = (value: unknown) => Number.isSafeInteger(value) && Number(value) >= 0 ? Number(value) : 0;
+/** Keep the scope visible without implying that an imported image has been read. */
+export function reportSourceSummary(report: Json): string {
+  const full = report.analysisScope === "fullHistory" || report.captureFormat === "full-history";
+  if (!full) {
+    const lines: Json[] = Array.isArray(report.lines) ? report.lines : [];
+    const images = new Set(lines.map(row => row.screenshotNumber).filter(Number.isSafeInteger));
+    return ["本次上传", images.size ? `${images.size} 张截图` : "", `${lines.length} 条可读聊天`].filter(Boolean).join(" · ");
+  }
+  const rows: Json[] = Array.isArray(report.sourceCoverage) ? report.sourceCoverage : [];
+  const chatRows = rows.filter(row => row.kind === "chat"), momentRows = rows.filter(row => row.kind === "moments");
+  const chat = chatRows.length ? chatRows.reduce((sum, row) => sum + count(row.total), 0) : count(report.chatActivity?.messages);
+  const moments = momentRows.reduce((sum, row) => sum + count(row.momentCount ?? row.total), 0);
+  const expected = rows.reduce((sum, row) => sum + count(row.imagesExpected), 0);
+  const analyzed = rows.reduce((sum, row) => sum + count(row.imagesAnalyzed), 0);
+  const coverage = report.semanticHistory?.coverage || report.relationshipDiagnosis?.semanticHistory?.coverage;
+  const voice = report.relationshipDiagnosis?.coverage;
+  return [
+    "本报告关联的全部资料",
+    chatRows.length || chat ? `${chat.toLocaleString("zh-CN")} 条聊天` : "",
+    momentRows.length ? `${moments.toLocaleString("zh-CN")} 条朋友圈` : "",
+    expected ? `图片已读 ${analyzed} / ${expected}` : "",
+    count(voice?.voiceCount) ? `语音已转写 ${count(voice.voiceTranscribed)} / ${count(voice.voiceCount)}` : "",
+    count(coverage?.receivedText) > count(coverage?.analyzedText) ? `文字已解读 ${count(coverage.analyzedText)} / ${count(coverage.receivedText)}` : "",
+  ].filter(Boolean).join(" · ");
+}
 export function ReportCoverage({ report }: { report: Json }) {
   const [page,setPage]=useState(0);
   const rows:Json[]=Array.isArray(report.sourceCoverage)?report.sourceCoverage:[];

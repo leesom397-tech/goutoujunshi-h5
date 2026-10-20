@@ -28,8 +28,8 @@ export function ReportDetails({ title, description, children }: { title: string;
     document.documentElement.style.overflow = "hidden";
   }
   return <>
-    <button type="button" ref={trigger} className={styles.trigger} onClick={open} aria-haspopup="dialog"><span><strong>{title}</strong>{description && <small>{description}</small>}</span><ArrowUpRight size={19}/></button>
-    <dialog ref={dialog} className={styles.dialog} aria-labelledby={id} onClose={restorePosition} onClick={event => {
+    <button type="button" ref={trigger} className={styles.trigger} onClick={open} aria-haspopup="dialog" aria-expanded={opened} aria-controls={`${id}-dialog`}><span><strong>{title}</strong>{description && <small>{description}</small>}</span><ArrowUpRight size={21}/></button>
+    <dialog id={`${id}-dialog`} ref={dialog} className={styles.dialog} aria-labelledby={id} onClose={restorePosition} onClick={event => {
       if (event.target !== event.currentTarget) return;
       const rect = event.currentTarget.getBoundingClientRect();
       if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) close();

@@ -41,6 +41,7 @@ export function ChatReportBrief({ report, diagnosis, showMetrics=true }: { repor
   const semantic = report.semanticHistory || source.semanticHistory;
   const coverage = source.coverage || {};
   const fullHistory = report.analysisScope === "fullHistory" || report.captureFormat === "full-history";
+  const momentOnly = fullHistory && report.captureKind === "moments";
   const judgment = presentation.judgment || source.relationship?.currentState || "材料还不足以形成稳定判断。";
   const trend = semantic?.status === "complete" ? semantic.trend : source.relationship?.trend;
   const action = presentation.nextStep || source.decision?.recommendation || "结合下一次真实回应，再更新判断。";
@@ -50,19 +51,19 @@ export function ChatReportBrief({ report, diagnosis, showMetrics=true }: { repor
   return <section className={visual.brief} aria-label="报告速读" data-report-brief data-risk-priority={presentation.mode}>
     <div className={visual.hero}>
       <div className={visual.verdict}>
-        <div className={visual.kicker}><span className={visual.liveDot}/>{fullHistory ? report.captureKind==='moments'?"完整朋友圈报告":goal==='risk'?"风险核实报告":goal==='connection'?"聊天与推进报告":"完整关系报告" : "这次聊天的观察"}</div>
-        <span className={visual.verdictLabel}>{presentation.mode !== "normal" && presentation.title ? presentation.title : goal==='risk'?`关于${identity.other}的风险判断`:`${identity.other}与你 · 当前判断`}</span>
+        <div className={visual.kicker}><span className={visual.liveDot}/>{goal==='risk'?"先看风险判断":fullHistory?"先看整体判断":"先看这次对话"}</div>
+        <span className={visual.verdictLabel}>{presentation.mode !== "normal" && presentation.title ? presentation.title : momentOnly?`${identity.other}的自我呈现`:goal==='risk'?`关于${identity.other}的风险判断`:`${identity.direction}`}</span>
         <h2>{judgment}</h2>
-        {goal!=='risk'&&<div className={visual.trend}><ChartNoAxesCombined size={17}/><span>{report.captureKind==='moments'?'动态变化':'关系趋势'}</span><strong>{trend || "待了解"}</strong></div>}
-        {typeof coverage.total === "number" && <p className={visual.scope}>{coverage.total.toLocaleString("zh-CN")} 条消息{coverage.startDate && coverage.endDate ? ` · ${coverage.startDate} — ${coverage.endDate}` : ""}</p>}
+        {fullHistory&&goal!=='risk'&&trend&&<div className={visual.trend}><ChartNoAxesCombined size={17}/><span>{momentOnly?'动态变化':'关系趋势'}</span><strong>{trend}</strong></div>}
+        {fullHistory&&coverage.startDate&&coverage.endDate&&<p className={visual.scope}>{coverage.startDate} — {coverage.endDate}</p>}
       </div>
       <div className={visual.art} data-report-art="overview"><GlassStudy imageSrc="/images/report-aurora-overview-v3.webp" variant="report"/></div>
     </div>
-    {showMetrics&&<ReportVisualMetrics report={report}/>}
     <div className={visual.readingGrid}>
       <div className={visual.evidence} data-brief-evidence><header><span className={visual.chapter}>01</span><h3>判断从这里来</h3><Quote size={23}/></header><KeyEvidenceList report={report} priorityEvidence={presentation.mode !== "normal" ? presentation.evidence : undefined} showReferences={false}/></div>
       <aside className={visual.action}><span className={visual.actionSymbol}><ArrowRight size={25}/></span><span className={visual.actionLabel}>给现在的你</span><h3>下一步，先做这一件事。</h3><p>{action}</p><button type="button" onClick={event=>nextSection(event.currentTarget)}>看看具体怎么做<ArrowRight size={17}/></button><div className={visual.actionContour} aria-hidden="true"/></aside>
     </div>
+    {showMetrics&&<ReportVisualMetrics report={report}/>}
     {!report.sourceCoverage?.length && semantic?.coverage && <p className={visual.coverage}>已解读 {semantic.coverage.analyzedText} / {semantic.coverage.receivedText} 条可读文字{typeof coverage.voiceCount === "number" && coverage.voiceCount > 0 ? ` · 语音转写 ${coverage.voiceTranscribed || 0} / ${coverage.voiceCount} 条` : ""}{semantic.status !== "complete" ? " · 文字分析尚未全部完成" : ""}</p>}
   </section>;
 }

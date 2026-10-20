@@ -118,3 +118,9 @@
 .pager button:disabled { opacity:.4; cursor:default; }
 .pager button:focus-visible { outline:2px solid #b66c53; outline-offset:3px; }
 @media(max-width:600px) { .section { margin-top:26px; padding-top:22px; }.heading { gap:12px; }.heading h2 { font-size:22px; }.affinity > strong { font-size:24px; }.signalCounts { gap:8px; }.signalCounts > div + div { padding-left:10px; }.signalCounts dt { font-size:13px; }.signalCounts dd { font-size:25px; }.profile > div { grid-template-columns:1fr; gap:22px; }.sourceSummary { padding:14px 16px; } }
+.materialScope,.actionReading dt,.sectionTabs button,.pager button{font-size:16px}
+.heading .affinity>span,.signalCounts dt{font-size:14px}
+.sectionTabs{background:#f4ece3;border:1px solid #e5d4c6}
+.sectionTabs button{color:#5d5146}
+.sectionTabs button[aria-selected=true]{color:#356e63;background:#fffaf5;box-shadow:0 3px 12px #79614c14}
+@media(max-width:600px){.sectionTabs{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:5px}.sectionTabs button{font-size:16px;flex-direction:row;padding:12px 6px}.heading .affinity>span,.signalCounts dt{font-size:14px}.pager button{font-size:16px}}

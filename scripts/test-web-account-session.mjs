@@ -157,6 +157,17 @@ const { renderToStaticMarkup } = require('react-dom/server'), { createElement } 
 const outage = renderToStaticMarkup(createElement(clientExports.AccountNotice, { state: { unauthorized: false, error: '账号校验服务暂不可用', refresh() {} } }));
 assert.doesNotMatch(outage, /重新登录|href=/, 'temporary identity service failure never asks the user to log in again');
 assert.match(outage, /重新连接/);
+sessionExports.webAccountStore.invalidate();
+const timeoutRead = sessionExports.webAccountStore.refresh(); await tick();
+sessionRequests.at(-1).reject(Object.assign(Error('signal timed out'), { name: 'TimeoutError' }));
+await timeoutRead;
+assert.match(sessionExports.webAccountStore.getSnapshot().error, /账户暂时未连接/);
+assert.equal(sessionExports.webAccountStore.getSnapshot().loading, false, 'timeout ends the initial loading state');
+assert.equal(sessionExports.webAccountStore.getSnapshot().unauthorized, false, 'timeout is not a logout');
+const serverOutage = sessionExports.webAccountStore.refresh({ force: true }); await tick();
+sessionRequests.at(-1).resolve({ response: Response.json({}, { status: 503 }), data: { error: 'signal timed out' } });
+await serverOutage;
+assert.doesNotMatch(sessionExports.webAccountStore.getSnapshot().error, /signal timed out/);
 sessionExports.announceAccountChange(true);
 assert.equal(sessionExports.webAccountStore.getSnapshot().unauthorized, true);
 assert.deepEqual(Object.keys(JSON.parse(saved.get('chengzi:account-revision'))).sort(), ['loggedOut', 'revision'], 'cross-tab notification contains no credentials or personal data');

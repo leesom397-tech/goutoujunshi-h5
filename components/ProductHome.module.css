@@ -10,19 +10,25 @@
 }
 .page a { color: inherit; text-decoration: none; }
 .hero { position: relative; isolation: isolate; display: flex; align-items: center; min-height: 460px; overflow: hidden; background: #fffaf5; }
-.heroCopy { position: relative; z-index: 2; width: 76%; padding: 46px 6% 44px; pointer-events: none; }
+.heroCopy { position: relative; z-index: 2; width: 100%; padding: 40px 6% 34px; pointer-events: none; }
 .heroCopy a, .heroCopy button { pointer-events: auto; }
 .eyebrow { display: inline-flex; align-items: center; gap: 9px; font-size: 14px; letter-spacing: .06em; color: #795a46; }
 .eyebrow::before { content: ""; width: 5px; height: 5px; border-radius: 50%; background: #b17454; box-shadow: 0 0 0 4px #f4e8de; }
 .page .hero h1 { margin: 23px 0 18px; color: #272421; font-family: inherit; font-size: clamp(36px, 3.8vw, 55px); font-weight: 550; line-height: 1.4; letter-spacing: -.045em; }
 .page .hero h1 > span { color: #9e5c46; }
 .hero .heroDescription { margin: 0; color: #58483f; font-size: 18px; line-height: 1.85; }
-.actions { display: flex; margin-top: 28px; }
-.actions button { display: inline-flex; align-items: center; justify-content: space-between; gap: 22px; min-width: 255px; min-height: 54px; padding: 14px 22px; border: 1px solid #a9644e; border-radius: 10px; background: #a9644e; box-shadow: inset 0 1px #ffffff30, 0 5px 16px #9b59451a; color: #fffaf5; font: inherit; font-size: 16px; font-weight: 550; cursor: pointer; transition: background .2s, transform .2s; }
-.actions button:hover { background: #98543f; transform: translateY(-1px); }
-.nearbyLinks { display: flex; flex-wrap: wrap; gap: 3px 20px; margin-top: 13px; max-width: 550px; }
-.nearbyLinks a { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; font-size: 14px; color: #805b46; }
-.nearbyLinks a:hover { color: #a85d43; text-decoration: underline; text-underline-offset: 4px; }
+.taskChoices { display: grid; grid-template-columns: 1fr 1fr 1.18fr; gap: 12px; margin-top: 30px; }
+.taskChoice { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; min-width: 0; padding: 22px; border: 1px solid #d9bca7; border-radius: 15px; background: #fffaf5f5; color: #302a25; font: inherit; text-align: left; cursor: pointer; box-shadow: inset 0 1px #fff, 0 5px 16px #7956380a; transition: transform .2s, border-color .2s; }
+.taskChoice:hover { border-color: #a9644e; transform: translateY(-3px); }
+.taskChoice:first-child { background: #a9644e; border-color: #a9644e; color: #fffaf5; }
+.taskIcon { display: grid; place-items: center; flex: none; width: 42px; height: 42px; border-radius: 12px; background: #a9644e10; color: #a9644e; }
+.taskChoice:first-child .taskIcon { background: #ffffff20; color: inherit; }
+.taskCopy { flex: 1; min-width: 0; }
+.taskCopy strong { display: block; font-size: 21px; line-height: 1.45; font-weight: 600; }
+.taskCopy > span { display: block; margin-top: 5px; font-size: 16px; line-height: 1.65; color: #65574d; }
+.taskChoice:first-child .taskCopy > span { color: #fff5ec; }
+.taskAction { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding-top: 13px; margin-top: 3px; border-top: 1px solid #a9644e25; font-size: 16px; font-weight: 600; color: #8b503b; }
+.taskChoice:first-child .taskAction { color: inherit; border-color: #ffffff40; }
 .art { position: absolute; inset: 0; z-index: 0; }
 .hero::after { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; background: linear-gradient(180deg, #fffaf5, transparent 15%), linear-gradient(90deg, #fffaf5ed 0%, #fffaf5b8 31%, #fffaf540 49%, transparent 68%); }
 
@@ -82,7 +88,7 @@
 .toolCopy > span { color: #65574d; font-size: 14px; line-height: 1.6; }
 .toolArrow { flex: none; align-self: flex-start; margin-left: auto; color: #a3765c; }
 .utilities { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 24px; padding: 0 6% 22px; }
-.utilities > a { display: inline-flex; align-items: center; gap: 7px; min-height: 44px; color: #745746; font-size: 14px; }
+.utilities > a { display: inline-flex; align-items: center; gap: 7px; min-height: 44px; color: #745746; font-size: 16px; }
 .utilities > a:hover { text-decoration: underline; text-underline-offset: 4px; }
 .error { display: flex; align-items: center; flex-wrap: wrap; gap: 15px; margin-bottom: 20px; padding: 16px 6%; background: #fff0e9; color: #854033; font-size: 16px; line-height: 1.8; }
 .error button { min-height: 44px; padding: 6px 12px; border: 1px solid #d5a195; border-radius: 6px; background: white; color: inherit; font: inherit; cursor: pointer; }
@@ -91,20 +97,24 @@
 .page button:disabled { opacity: .55; cursor: wait; transform: none; box-shadow: none; }
 
 @media (max-width: 1100px) {
-  .heroCopy { width: 88%; }
+  .taskChoice { padding: 18px; gap: 12px; }
+  .taskIcon { width: 36px; height: 36px; }
+  .taskCopy strong { font-size: 19px; }
   .evidence { grid-template-columns: minmax(0, 1fr) minmax(260px, .75fr); gap: 24px; padding: 26px; }
   .evidence .evidenceHeading h2 { font-size: 26px; }
   .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 700px) {
-  .hero { min-height: 480px; align-items: flex-start; }
-  .heroCopy { width: 100%; padding: 30px 24px 135px; }
+  .hero { min-height: 0; align-items: flex-start; }
+  .heroCopy { width: 100%; padding: 25px 24px 28px; }
   .eyebrow { font-size: 14px; }
   .page .hero h1 { margin: 20px 0 15px; font-size: 34px; line-height: 1.42; }
   .hero .heroDescription { font-size: 16px; }
-  .actions { margin-top: 24px; }
-  .actions button { min-width: 0; min-height: 52px; width: auto; max-width: 100%; padding: 13px 18px; gap: 18px; }
-  .nearbyLinks { margin-top: 9px; }
+  .taskChoices { grid-template-columns: 1fr; gap: 10px; margin-top: 22px; }
+  .taskChoice { flex-wrap: nowrap; padding: 16px; gap: 12px; min-height: 92px; }
+  .taskCopy strong { font-size: 19px; }
+  .taskCopy > span { font-size: 16px; margin-top: 3px; }
+  .taskAction { width: auto; margin: 0; padding: 0; border: 0; font-size: 0; gap: 0; }
   .hero::after { background: linear-gradient(180deg, #fffaf5f5 0%, #fffaf5eb 44%, #fffaf598 65%, transparent 87%); }
   .evidence { grid-template-columns: minmax(0, 1fr); margin: 0 24px 25px; padding: 22px 18px 18px; gap: 20px; border-radius: 19px; }
   .evidenceKicker { font-size: 16px; }
@@ -125,7 +135,7 @@
   .icon svg { width: 21px; height: 21px; }
   .toolCopy { gap: 4px; }
   .toolCopy strong { font-size: 16px; }
-  .toolCopy > span { font-size: 12px; }
+  .toolCopy > span { font-size: 14px; }
   .toolArrow { position: absolute; top: 15px; right: 13px; width: 16px; height: 16px; }
   .utilities { padding: 0 24px 22px; gap: 10px 20px; }
 }
@@ -136,6 +146,6 @@
   .evidence .evidenceHeading h2 { font-size: 23px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .tool, .actions button, .evidenceFooter a { transition: none; }
-  .page .tool:hover, .actions button:hover { transform: none; }
+  .tool, .taskChoice, .evidenceFooter a { transition: none; }
+  .page .tool:hover, .taskChoice:hover { transform: none; }
 }

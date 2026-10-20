@@ -170,11 +170,12 @@ export default function AnalyzePage() {
   function resetMaterials() { setCaptureSource(null); setFiles([]); setResult(null); setResultSources([]); setPrevious(null); setPreviousCount(0); setConsent(false); setStatus(null); setError(""); setMaterialNote(""); }
   function resetInterpretation() { setResult(null); setResultSources([]); setPrevious(null); setPreviousCount(0); setConsent(false); setStatus(null); setError(""); }
   function moveImage(index: number, direction: number) { if (disabled || index + direction < 0 || index + direction >= files.length) return; setFiles(current => { const next = [...current]; [next[index], next[index + direction]] = [next[index + direction], next[index]]; return next; }); setConsent(false); }
-  function requestUpload() {
+  function requestUpload(otherSources = false) {
     if (disabled) return;
     if (!owner && account.loading) { setPendingAuth(true); return; }
     if (!owner) { setShowAuth(true); return; }
-    setSourcePickerOpen(true);
+    if (otherSources) setSourcePickerOpen(true);
+    else fileInputRef.current?.click();
   }
   useEffect(() => {
     if (!sourcePickerOpen) return;
@@ -344,7 +345,7 @@ export default function AnalyzePage() {
   const visibleResult = owner && owner === restoredOwner ? result : null; const reports: Json[] = visibleResult?.entries || [], combined = mergeChatReports(reports);
 
   const selectedMode = analysisModes.find(item => item.key === mode) || analysisModes[0];
-  const selectedPurpose = analysisPurposes.find(item => item.key === purpose);
+  const selectedPurpose = mode === "chat" ? analysisPurposes.find(item => item.key === purpose) : undefined;
   const hasMaterials = files.length > 0 || !!task || !!visibleResult;
   const currentStep = visibleResult || task || busy ? 3 : confirmStage ? 2 : 1;
   const balance = account.account?.account?.balance;
@@ -353,18 +354,20 @@ export default function AnalyzePage() {
   const selectedPerson = account.people.find(person => person.id === subject);
   const resultSubject = visibleResult?.subjectId || combined?.subjectId;
   const resultCount = visibleResult?.totalCount || reports.length;
+  const startLabel = purpose === "affinity" && mode === "chat" ? "开始好感探测" : purpose === "reply" && mode === "chat" ? "生成回复建议" : purpose === "intent" && mode === "chat" ? "解读每句意图" : "开始分析";
+  const confirmHint = !effectiveFiles.length && files.length ? "这些截图已有报告，可返回材料页直接查看。" : mode === "chat" && !side ? "先选一下：截图里哪侧是你？" : !priceReady ? "费用暂未加载，请重试。" : history.checking || !history.ready ? "正在核对已分析过的截图…" : !consent ? "勾选材料授权后，即可开始。" : needsCredits ? "积分不足，充值后即可继续。" : "";
   const steps = [
-    { label: "添加材料", detail: hasMaterials ? visibleResult ? "材料已处理" : files.length + " 张已选择" : "选择清晰截图", Icon: CloudUpload },
-    { label: "确认分析", detail: currentStep > 2 ? "范围已确认" : "身份、费用与授权", Icon: FileCheck2 },
-    { label: visibleResult ? visibleResult.incomplete ? "部分结果" : "查看结果" : "获得建议", detail: visibleResult ? "从结论到下一步" : task ? busy ? "正在处理材料" : "可继续上次任务" : "有依据，也有行动", Icon: Sparkles },
+    { label: "选择截图", detail: files.length ? files.length + " 张已选择" : "", Icon: CloudUpload },
+    { label: "确认费用", detail: "", Icon: FileCheck2 },
+    { label: visibleResult?.incomplete ? "部分结果" : "查看结果", detail: "", Icon: Sparkles },
   ];
 
   return <>
     <WebNav guideReady={!!owner && !account.loading}/>
     <FirstUseTour owner={owner} page="analyze" ready={!account.loading && owner === restoredOwner}/>
-    <main className={`wa-shell ax-shell ${styles.page}`}>
-      <AuroraPageHero eyebrow="从材料到判断" title={mode === "chat" ? selectedPurpose?.title || "聊天分析" : mode === "moments" ? "朋友圈分析" : "社交主页分析"} description={confirmStage || visibleResult ? undefined : mode === "chat" ? selectedPurpose?.description || selectedMode.description : selectedMode.description}/>
-      {!task && !restoringReport && (!visibleResult || mode==="chat") && <div className={styles.purposeBar}>
+    <main className={`wa-shell ax-shell ${styles.page}`} data-stage={visibleResult ? "result" : task ? "running" : confirmStage ? "confirm" : "upload"}>
+      <AuroraPageHero eyebrow="从材料到判断" title={mode === "chat" ? selectedPurpose?.title || "截图分析" : mode === "moments" ? "朋友圈分析" : "社交主页分析"} description={confirmStage || visibleResult ? undefined : mode === "chat" ? selectedPurpose?.description || "看懂每句意图，知道下一句怎么回。" : selectedMode.description}/>
+      {!task && !restoringReport && !confirmStage && (!visibleResult || mode==="chat") && <div className={styles.purposeBar}>
         <button type="button" disabled={disabled} aria-expanded={purposeOptionsOpen} aria-controls="analysis-purpose-options" onClick={()=>setPurposeOptionsOpen(value=>!value)}><SlidersHorizontal size={16}/>更换分析目标</button>
         {!hasMaterials && <button type="button" onClick={()=>setExampleOpen(true)}><FileCheck2 size={16}/>先看一份示例<ArrowRight size={15}/></button>}
       </div>}
@@ -376,32 +379,26 @@ export default function AnalyzePage() {
       </section>}
       {returnTo && <a className={intake.returnLink} href={returnTo}><History size={16}/>{returnTo.startsWith('/archive') ? '返回人物档案与对照' : '返回刚才的报告'}</a>}
       {restoringReport && <p className={styles.resumeBar} role="status"><LoaderCircle size={19} className="ax-spin"/>正在取回已保存的完整报告…</p>}
-      {owner && !hasMaterials && !visibleResult && lastReport && !restoringReport && <a className={styles.resumeBar} href={`/report?id=${lastReport.id}#report-detail-action`}><History size={21}/><span><strong>继续看上次的报告</strong><small>之前的分析都在分析记录中</small></span><ArrowRight size={19}/></a>}
       {owner && !visibleResult && error && new URLSearchParams(typeof window==='undefined'?'':window.location.search).has('reportId') && <ErrorNotice error={error}/>}
       {account.error && <AccountNotice state={account}/>}
       {pendingAuth && <p role="status" className="wa-muted">正在确认账户，请稍等…</p>}
       {authComplete && owner && !hasMaterials && <p role="status" className="wa-muted">已登录，点击下方选图即可继续。</p>}
 
-      {hasMaterials && <ol className="ax-steps" aria-label="分析进度">
+      {!restoringReport && <ol className="ax-steps" aria-label="分析进度">
         {steps.map((step, index) => {
           const number = index + 1, isDone = number < currentStep || !!visibleResult;
           return <li key={index} data-state={isDone ? "done" : number === currentStep ? "current" : "next"} aria-current={number === currentStep ? "step" : undefined}>
             <span className="ax-step-icon" aria-hidden="true">{isDone ? <Check size={19}/> : <step.Icon size={19}/>}</span>
-            <span><strong><span className="ax-step-number">0{number} · </span>{step.label}</strong><small>{step.detail}</small></span>
+            <span><strong><span className="ax-step-number">0{number} · </span>{step.label}</strong>{step.detail && <small>{step.detail}</small>}</span>
           </li>;
         })}
       </ol>}
 
       {task && !visibleResult && !restoringReport && <LiveAnalysis taskId={task.taskId} status={status} imageCount={task.files.length} previews={previews} busy={busy} reviewBusy={reviewBusy} error={error} onResume={()=>void execute(task)} onCancel={()=>void cancel()} onConfirmReview={recognition=>void confirmReview(recognition)}/>}
       {!visibleResult && !restoringReport && !task && <>
-        {owner && !hasMaterials && !targetSelf && selectedPerson && <section className={intake.remembered} aria-label="当前分析人物"><UserRound size={22}/><div><strong>继续了解 {selectedPerson.label}</strong><small>{mode === 'chat' && side ? `已沿用：${side==='left'?'左侧':'右侧'}是我 · ` : ''}新增材料会结合这个人物已有的资料；选错可以直接更换。</small></div>{editPerson?<PersonSelect people={account.people} value={subject} disabled={disabled} onChange={choosePerson} empty="本次不关联人物"/>:<button type="button" disabled={disabled} onClick={()=>setEditPerson(true)}>换个人</button>}{mode==='chat'&&side&&<button type="button" disabled={disabled} onClick={()=>chooseSide(side==='left'?'right':'left')}>改为{side==='left'?'右侧':'左侧'}是我</button>}</section>}
+        {owner && !hasMaterials && !targetSelf && selectedPerson && <section className={intake.remembered} aria-label="当前分析人物"><UserRound size={22}/><div><strong>继续了解 {selectedPerson.label}</strong><small>{mode === 'chat' && side ? `${side==='left'?'左侧':'右侧'}是我 · ` : ''}结合这个人物的已有资料</small></div>{editPerson?<PersonSelect people={account.people} value={subject} disabled={disabled} onChange={choosePerson} empty="本次不关联人物"/>:<button type="button" disabled={disabled} onClick={()=>setEditPerson(true)}>换个人</button>}</section>}
         {captureSource && !confirmStage && <p className="wa-status"><CheckCheck size={18}/>已带入采集截图。请核对顺序与身份，分析完成后可回看这些原图。</p>}
 
-
-        {owner && !priceReady && !task && <section className="wa-card ax-price-warning" role="status">
-          <p>本次价格暂未取回。你可以继续整理材料，取回价格后再开始。</p>
-          <div className="wa-actions"><button onClick={() => void account.refresh()}><RotateCcw size={16}/>重新读取价格</button><a href="/account">到账户核对</a></div>
-        </section>}
 
         <div className="ax-workspace" data-ready={hasMaterials} id="analysis-workspace" aria-label={selectedMode.label}>
           <div className="ax-main-column">
@@ -414,27 +411,27 @@ export default function AnalyzePage() {
               {draft.available && !files.length && !task && <section className={intake.partial} aria-label="本机上传草稿"><h3><FolderHeart size={20}/>有一份尚未分析的材料</h3><p>{draft.available.files.length} 张截图和原来顺序已暂存在这台浏览器，24 小时内可恢复。恢复后再由你确认分析。</p><div className="wa-actions"><button type="button" onClick={restoreDraft}>恢复材料</button><button type="button" onClick={()=>void draft.discard()}>丢弃草稿</button></div></section>}
               {!!files.length && !task && draft.state && <p className={intake.hint} role="status">{draft.state}</p>}
 
-              <button type="button" className="ax-dropzone" id="analysis-upload" data-dragging={dragging} data-disabled={disabled}
+              <button type="button" className="ax-dropzone" id="analysis-upload" data-dragging={dragging} data-disabled={disabled} data-has-files={files.length > 0}
                 tabIndex={disabled ? -1 : 0}
                 aria-label={owner ? "添加分析截图，支持选择文件、拖放或粘贴图片" : "登录后添加分析截图"}
                 aria-describedby="analysis-upload-limits" aria-disabled={disabled}
-                onClick={requestUpload}
+                onClick={() => requestUpload()}
                 onDragEnter={event => { event.preventDefault(); if (disabled) return; dragDepth.current++; setDragging(true); }}
                 onDragOver={event => { event.preventDefault(); event.dataTransfer.dropEffect = disabled ? "none" : "copy"; }}
                 onDragLeave={event => { event.preventDefault(); dragDepth.current = Math.max(0, dragDepth.current - 1); if (!dragDepth.current) setDragging(false); }}
                 onDrop={event => { event.preventDefault(); dragDepth.current = 0; setDragging(false); if (!disabled) void selectFiles(event.dataTransfer.files); }}>
                 <div className="ax-upload-illustration" aria-hidden="true"><CloudUpload/></div>
-                <strong>{dragging ? "松开鼠标，添加截图" : preparing ? "正在整理图片…" : files.length ? "继续添加截图" : "点击选择来源，或拖到这里"}</strong>
-                <span className="ax-upload-action">{preparing ? <LoaderCircle size={18} className="ax-spin"/> : <ImagePlus size={18}/>}<span>{!owner ? "登录后上传自己的材料" : "选择材料来源"}</span><ArrowRight size={16}/></span>
-                <small className="ax-paste-hint"><Clipboard size={14}/>电脑上可直接粘贴截图 · Ctrl / ⌘ + V</small>
+                <strong>{dragging ? "松开鼠标，添加截图" : preparing ? "正在整理图片…" : files.length ? "还可以补充截图" : mode === "chat" ? "放入你想看懂的对话" : selectedMode.upload}</strong>
+                <span className="ax-upload-action">{preparing ? <LoaderCircle size={18} className="ax-spin"/> : <ImagePlus size={18}/>}<span>{!owner ? "登录并选择截图" : files.length ? "添加截图" : "选择截图"}</span><ArrowRight size={16}/></span>
+                <small className="ax-paste-hint"><Clipboard size={14}/>也可以拖入或粘贴 · Ctrl / ⌘ + V</small>
               </button>
               <input ref={fileInputRef} className="ax-file-input" aria-label="选择分析截图" type="file" accept="image/jpeg,image/png" multiple tabIndex={-1} disabled={disabled || !owner} onChange={event => { void selectFiles(event.target.files); event.target.value = ""; }}/>
-              {!owner && <p className="wa-muted">分析自己的截图需要账号，并按页面上的积分计费。</p>}
-              <p className="ax-upload-limits" id="analysis-upload-limits">JPG / PNG · 每组最多 9 张 · {mode === "chat" ? "每张不超过 5 MB" : "原图每张不超过 12 MB，大图在本机自动优化"}</p>
+              <div className={styles.uploadMeta}><p className="ax-upload-limits" id="analysis-upload-limits">JPG / PNG · 最多 9 张 · 每张 {mode === "chat" ? "5" : "12"} MB</p><button type="button" className={styles.otherSources} disabled={disabled} onClick={() => requestUpload(true)}>其他导入方式<ArrowRight size={15}/></button></div>
               {preparing && <p className="ax-preparing" role="status"><LoaderCircle size={17} className="ax-spin"/>正在本机整理图片，请稍等…</p>}
               {materialNote && <p className={intake.notice} role="status"><CheckCheck size={17}/>{materialNote}</p>}
 
-              <details className={styles.photoTips}><summary>怎样选图更准确？</summary><p>{selectedMode.tip}</p></details>
+              <details className={styles.photoTips}><summary>选图建议</summary><p>{selectedMode.tip}</p></details>
+              {!confirmStage && <ErrorNotice error={error}/>}
               {files.length > 0 && <>
                 <div className="ax-material-toolbar"><strong>已选择 {files.length} 张</strong><span>按阅读顺序排列 · 点图片查看原图</span></div>
                 {files.length>1&&<div className={intake.quickActions}><button type="button" disabled={disabled} onClick={()=>{setFiles(items=>[...items].reverse());setConsent(false);}}>整组倒序</button><button type="button" disabled={disabled} onClick={()=>{setFiles(items=>[...items].sort((a,b)=>a.name.localeCompare(b.name,undefined,{numeric:true})));setConsent(false);}}>按文件名排列</button></div>}
@@ -454,7 +451,7 @@ export default function AnalyzePage() {
                 {history.checking && <p className={intake.hint} role="status">正在核对是否有已分析过的截图…</p>}
                 {history.unavailable && <p className={intake.hint}>暂时无法核对历史记录，本次保留全部截图，请核对费用。</p>}
                 {history.repeated.length>0 && <section className={intake.partial} aria-label="重复材料"><h3><CheckCheck size={19}/>{files.length-history.repeated.length} 张新材料，{history.repeated.length} 张已分析</h3><p>{forceReanalyze ? "本次会重新分析全部截图，并按全部张数计费。" : "已分析过的截图默认跳过，费用按本次实际提交数量计算。"}</p><div className={intake.quickActions}>{[...new Set(history.repeated.map(row=>row.reportId))].map(id=><a key={id} href={withAnalysisFocus("/report?id="+encodeURIComponent(id),purpose)} target="_blank" rel="noopener noreferrer">回看已有报告<ArrowRight size={14}/></a>)}</div><label className="wa-check"><input type="checkbox" checked={forceReanalyze} onChange={e=>{setForceReanalyze(e.target.checked);setConsent(false);}}/><span>仍要重新分析这些图（按全部张数重新计费）</span></label></section>}
-                <button type="button" className="wa-primary ax-next-link" disabled={disabled} onClick={()=>{setConfirmStage(true);requestAnimationFrame(()=>document.getElementById("analysis-confirm")?.scrollIntoView({block:"start",behavior:"smooth"}));}}>下一步 · 确认分析<ArrowRight size={16}/></button>
+                <button type="button" className="wa-primary ax-next-link" disabled={disabled} onClick={()=>{setConfirmStage(true);requestAnimationFrame(()=>document.getElementById("analysis-confirm")?.scrollIntoView({block:"start",behavior:"smooth"}));}}>下一步 · 确认费用<ArrowRight size={16}/></button>
               </>}
             </section>
 
@@ -465,12 +462,11 @@ export default function AnalyzePage() {
               <label className="wa-check"><input type="checkbox" checked={linkConsent} disabled={disabled} onChange={e=>setLinkConsent(e.target.checked)}/><span>同意读取公开简介并保存到人物档案。</span></label>
               <button type="button" disabled={disabled || (!!owner && (!url.trim() || !linkConsent))} onClick={()=>{if(!owner)setShowAuth(true);else void analyzeLink();}}><Link2 size={18}/>{owner?'读取公开简介（免费）':'登录后读取公开简介'}<ArrowRight size={17}/></button>
               {linkResult && <div className={styles.linkResult} role="status"><strong>已读取公开简介</strong><p>{linkResult.message}</p>{linkResult.label&&<p>主页：{linkResult.label}</p>}<a href={"/archive?subjectId="+linkResult.subjectId}>查看已提取的资料<ArrowRight size={16}/></a>{linkResult.subjectId&&<PersonAvatarChoice key={linkResult.subjectId} subjectId={linkResult.subjectId} name={linkResult.label||"新人物"} sources={files} autoOpen onSaved={account.refresh}/>}</div>}
-              {!hasMaterials && <ErrorNotice error={error}/>}
             </section>}
 
             {hasMaterials && confirmStage && <section className="wa-card ax-confirm" id="analysis-confirm" aria-labelledby="analysis-confirm-title">
               <div className={styles.confirmMaterialStrip}><div>{previews.slice(0,4).map((src,index)=><img key={src} src={src} alt={`待分析截图 ${index+1}`}/>)}</div><span>{files.length} 张材料</span><button type="button" disabled={disabled} onClick={()=>setConfirmStage(false)}>返回修改材料</button></div>
-              <div className="ax-section-heading"><div><span className="ax-section-number">02 · 确认分析</span><h2 id="analysis-confirm-title">{selectedPerson ? '人物已选好，核对后开始' : '确认身份，开始分析'}</h2></div><FileCheck2 size={23}/></div>
+              <div className="ax-section-heading"><div><h2 id="analysis-confirm-title">确认后，开始{purpose === "affinity" && mode === "chat" ? "好感探测" : "分析"}</h2></div><FileCheck2 size={23}/></div>
               {mode === "chat" ? <fieldset className={styles.sidePicker} disabled={disabled}>
                 <legend>{rememberedChoice && side ? '已记住你在这段聊天中的位置' : '截图中哪侧气泡是你？'}</legend><div role="group" aria-label="选择我的气泡位置">{([['left','左侧是我'],['right','右侧是我']] as const).map(([value,label])=><button type="button" key={value} aria-pressed={side===value} onClick={()=>chooseSide(value)}><span className={styles.sidePreview} data-side={value}><MessageSquare size={24}/><MessageSquare size={24}/></span><strong>{label}</strong>{side===value?<Check size={20}/>:<span className={styles.radio}/>}</button>)}</div>
               </fieldset> : <label className="wa-field">这些资料属于谁？
@@ -479,21 +475,22 @@ export default function AnalyzePage() {
                 </select>
               </label>}
 
-              {(!targetSelf || mode === "chat") && <section className={styles.personPicker} data-tour="analysis-person" aria-labelledby="analysis-person-title">
-                <header><UserRound size={21}/><div><h3 id="analysis-person-title">这次在分析谁？</h3></div><span>可选</span></header>
+              {(!targetSelf || mode === "chat") && <details className={styles.personPicker} data-tour="analysis-person">
+                <summary><UserRound size={21}/><span>{selectedPerson ? `已关联 ${selectedPerson.label}` : "关联人物档案"}<small>{selectedPerson ? "更换人物或补充背景" : "可选，不影响本次分析"}</small></span><Plus size={18}/></summary>
                 <div className="ax-options-body">
                   {selectedPerson && !editPerson ? <div className={intake.quickActions}><strong>{selectedPerson.label}</strong><button type="button" disabled={disabled||previousCount>0} onClick={()=>setEditPerson(true)}>更换人物</button><a href={'/archive?subjectId='+subject}>查看已存资料</a></div> : <><PersonSelect people={account.people} value={subject} disabled={disabled || previousCount > 0} onChange={choosePerson} empty="暂不关联人物（报告仍会保存）"/><InlinePerson avatarSources={files} disabled={disabled || !owner} onCreated={async id => { choosePerson(id); await account.refresh(); }}/></>}
 
-                  {mode !== "chat" && <label className="wa-check"><input type="checkbox" checked={sameCity} disabled={disabled} onChange={e=>{setSameCity(e.target.checked);setConsent(false);rememberIntakePreference(owner || '',mode,{subjectId:subject,sameCity:e.target.checked});}}/><span>已确认我们在同城<span className="wa-muted">（记住这个人物的已知背景，可随时改）</span></span></label>}
+                  {mode !== "chat" && <label className="wa-check"><input type="checkbox" checked={sameCity} disabled={disabled} onChange={e=>{setSameCity(e.target.checked);setConsent(false);rememberIntakePreference(owner || '',mode,{subjectId:subject,sameCity:e.target.checked});}}/><span>已确认我们在同城</span></label>}
                   {mode !== "chat" && <label className="wa-check"><input type="checkbox" checked={compare} disabled={disabled} onChange={e => { setCompare(e.target.checked); setConsent(false); setResult(null); }}/><span>结合我已确认的资料做适配对照</span></label>}
 
                 </div>
-              </section>}
+              </details>}
 
               <div className="ax-order-summary" aria-live="polite">
-                <div><span>{selectedMode.label}</span><strong>{effectiveFiles.length ? effectiveFiles.length + " 张待分析" : task ? "继续已保存的任务" : "等待添加截图"}</strong></div>
+                <div><span>{selectedPurpose?.title || selectedMode.label}</span><strong>{effectiveFiles.length ? effectiveFiles.length + " 张待分析" : files.length ? "截图已有分析" : "等待添加截图"}</strong></div>
                 <div><span>{previousCount > 0 ? "本次补图费用" : "本次费用"}</span><strong>{files.length && !effectiveFiles.length ? "0 积分 · 可回看已有报告" : priceLabel(account.account, costKey)}</strong></div>
               </div>
+              {owner && !priceReady && <div className={styles.priceRetry} role="status"><span>费用暂未加载</span><button type="button" onClick={() => void account.refresh()}><RotateCcw size={16}/>重试</button></div>}
               {account.account && <p className={styles.balanceLine}>当前可用 {balance} 积分{needsCredits && !task ? " · 余额不足" : ""}<a href="/account#contact">购买 / 开通 <ArrowRight size={14}/></a></p>}
               <label className="wa-check ax-consent"><input type="checkbox" checked={consent} disabled={disabled} onChange={e => { setConsent(e.target.checked); if (error === "请确认材料提供权与本次处理范围。") setError(""); }}/><span>我有权提供以上材料，同意发送至阿里云百炼千问分析。</span></label>
               <details className={styles.photoTips}><summary>材料如何保存与删除？</summary><p>上传图片临时保存在当前浏览器，用于断线续传；任务完成或取消后删除本机临时图片。报告和识别文字保存到分析记录，可由你删除。原截图不归档。</p></details>
@@ -503,11 +500,12 @@ export default function AnalyzePage() {
               <div className="wa-actions ax-submit-row">
                 <button className="wa-primary ax-submit" disabled={busy || preparing || !owner || !consent || (mode === "chat" && side !== "left" && side !== "right") || (!task && (!effectiveFiles.length || !priceReady || history.checking || !history.ready))} onClick={() => void submit()}>
                   {busy ? <LoaderCircle size={18} className="ax-spin"/> : <ScanLine size={18}/>}
-                  {busy ? "正在处理…" : task ? "继续查看上次任务" : !effectiveFiles.length && files.length ? "截图均已分析，可回看报告" : "开始分析 · " + priceLabel(account.account, costKey)}
+                  {busy ? "正在处理…" : task ? "继续查看上次任务" : !effectiveFiles.length && files.length ? "截图均已分析，可回看报告" : startLabel + " · " + priceLabel(account.account, costKey)}
                   {!busy && <ArrowRight size={17}/>}
                 </button>
                 {task && !busy && <button onClick={() => void cancel()}>取消未完成上传</button>}
               </div>
+              {confirmHint && <p className={styles.confirmHint} role="status">{confirmHint}</p>}
               <p className="ax-submit-note">{task ? "继续使用原任务，不会因重试重复扣费。" : "提交后预留积分，成功后结算；失败释放积分。"}</p>
 
 
@@ -516,6 +514,7 @@ export default function AnalyzePage() {
 
 
         </div>
+        {owner && !hasMaterials && lastReport && <a className={styles.resumeBar} href={`/report?id=${lastReport.id}#report-detail-action`}><History size={21}/><span><strong>继续看上次的报告</strong></span><ArrowRight size={19}/></a>}
       </>}
 
       <div ref={resultRef} id="analysis-result" className="ax-result" tabIndex={-1}>
