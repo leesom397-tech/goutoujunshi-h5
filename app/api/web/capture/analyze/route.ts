@@ -10,6 +10,7 @@ import { captureAnalysisInput, captureReadableText, type CaptureAnalysisInput, t
 import { CREDIT_PRICES } from "@/lib/account-credits.mjs";
 import { creditResponse } from "@/lib/credit-response.mjs";
 import { requirePriceConfirmation } from "@/lib/analysis-pricing.mjs";
+import { isLegacyMiniappConfirmation } from "@/lib/miniapp-legacy-pricing.mjs";
 import { analyzeLines, requireSettings, reserveBudget } from "@/lib/crush/service";
 import { readScreenshotFromQuick } from "@/lib/crush/screenshot";
 import { loadProfileContext } from "@/lib/profile-context";
@@ -214,7 +215,7 @@ export async function POST(request: Request) {
   // Web cookies require same-origin CSRF validation; native paths require a Bearer session.
   if (new URL(request.url).pathname.startsWith("/api/web/") && request.headers.get("origin") !== new URL(request.url).origin) return json({ error: "请求来源无效。" }, 403);
   if (!request.headers.get("content-type")?.includes("application/json")) return json({ error: "请求格式不正确。" }, 415);
-  let input: CaptureAnalysisInput, raw: string, manifest: any, priceConfirmation: any, quoteOnly = false;
+  let input: CaptureAnalysisInput, raw: string, manifest: any, priceConfirmation: any, quoteOnly = false, legacyMiniapp = false;
   try {
     if (Number(request.headers.get("content-length") || 0) > 10_000_000) return json({ error: "材料过大，请分批分析。" }, 413);
     raw = await request.text();
@@ -222,6 +223,7 @@ export async function POST(request: Request) {
     const body=JSON.parse(raw);
     quoteOnly = !internal && body.quoteOnly === true && body.analysisScope === "fullHistory";
     priceConfirmation = body.priceConfirmation;
+    legacyMiniapp = !internal && isLegacyMiniappConfirmation(request, identity, body);
     const canonical = internal ? {...body.input,confirmed:true} : quoteOnly ? {...body,confirmed:true} : body;
     if(internal){delete canonical.historyRecords;delete canonical.activityRecords;}
     input = captureAnalysisInput(canonical);
@@ -237,11 +239,11 @@ export async function POST(request: Request) {
         const scope={analysisVersion:CAPTURE_REPORT_VERSION,primary,related,contextSnapshot};
         // Quote replies are data, not thrown custom RPC errors: they survive
         // the Durable Object boundary and never create a paid task.
-        const checked=await jobStore(identity.ownerId).start(identity.ownerId,input,scope,{quoteOnly:true});
+        const checked=await jobStore(identity.ownerId).start(identity.ownerId,input,scope,{quoteOnly:true,legacyMiniapp});
         if(quoteOnly||checked.status!=="quoted")return json(checked,checked.status==="quoted"||checked.status==="done"?200:202);
-        requirePriceConfirmation(priceConfirmation,checked.quote);
+        if(!legacyMiniapp)requirePriceConfirmation(priceConfirmation,checked.quote);
         await requireSettings(identity.ownerId);
-        const task=await jobStore(identity.ownerId).start(identity.ownerId,input,scope,{priceConfirmation});
+        const task=await jobStore(identity.ownerId).start(identity.ownerId,input,scope,{priceConfirmation,legacyMiniapp});
         return json(task,task.status==="done"||task.status==="quoted"?200:202);
       }
       if(![5,CAPTURE_REPORT_VERSION].includes(manifest?.analysisVersion))throw new CaptureFullHistoryError("报告分析方式已更新，请重新生成；本次旧任务已停止。",409);

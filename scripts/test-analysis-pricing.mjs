@@ -7,6 +7,8 @@ import {createRequire} from 'node:module';
 import {build} from 'esbuild';
 import * as credits from '../lib/account-credits.mjs';
 import {screenshotPrice,fullHistoryPrice,ANALYSIS_PRICE_VERSION} from '../lib/analysis-pricing.mjs';
+import {requestOwner} from '../lib/request-identity.mjs';
+import {LEGACY_MINIAPP_PRICE_ALIASES} from '../lib/miniapp-legacy-pricing.mjs';
 const require=createRequire(import.meta.url),sql=new DatabaseSync(':memory:');
 for(const file of readdirSync('drizzle').filter(name=>name.endsWith('.sql')).sort())sql.exec(readFileSync('drizzle/'+file,'utf8'));
 const db={prepare(query){
@@ -31,7 +33,7 @@ const bundled=await build({entryPoints:['lib/social-profile-jobs.mjs'],bundle:tr
     build.onLoad({filter:/.*/,namespace:'mock'},args=>({contents:args.path==='cloudflare:workers'
       ?'export class DurableObject {constructor(ctx,env){this.ctx=ctx;this.env=env}}'
       :args.path.includes('dist/server')?'export default globalThis.__pricingApp;'
-      :'export const requestOwner=async r=>r.headers.get("x-test-owner")?{ownerId:r.headers.get("x-test-owner")}:null;export const isWebApi=()=>true;export const webSessionCookie=()=>"";',loader:'js'}));
+      :'export const isWebApi=r=>new URL(r.url).pathname.startsWith("/api/web/");export const requestOwner=async r=>isWebApi(r)?(r.headers.get("x-test-owner")?{ownerId:r.headers.get("x-test-owner"),openId:null}:null):globalThis.__pricingNativeOwner(r);export const webSessionCookie=()=>"";',loader:'js'}));
   }}]});
 const module={exports:{}};new Function('require','exports','module',bundled.outputFiles[0].text)(require,module.exports,module);
 const {SocialProfileJobs,routeSocialProfileJob}=module.exports;
@@ -41,6 +43,8 @@ const env={DB:db,WECHAT_CALLBACK_TOKEN:'synthetic',SOCIAL_PROFILE_JOBS:{idFromNa
     states.set(owner,storage);instances.set(owner,new SocialProfileJobs({storage},env));
   }return instances.get(owner);
 }}};
+env.MINIAPP_APPID='synthetic-app';env.MINIAPP_APPSECRET='synthetic-secret';
+globalThis.__pricingNativeOwner=request=>requestOwner(request,env);
 async function setup(owner){
   await credits.ensureCreditAccount(db,owner);await credits.adjustCredits(db,{id:crypto.randomUUID(),ownerId:owner,actorId:'fixture',delta:1000,reason:'测试账本'});
   await credits.setCreditPermissions(db,{id:crypto.randomUUID(),ownerId:owner,actorId:'fixture',features:['analysis'],enabledUntil:Date.now()+86400000,reason:'测试开通'});
@@ -106,5 +110,38 @@ assert.equal((await finish('alice',failed.id)).status,'error');assert.equal(ledg
 await instances.get('alice').alarm();assert.equal(balance('alice'),1000-spent);
 assert.equal((await send('bob',failed.id,undefined,404)).status,'expired');
 assert.equal(sql.prepare('SELECT count(*) AS n FROM coach_credit_adjustments').get().n,2,'no balance reset or hidden grant');
-delete globalThis.__pricingApp;sql.close();
+// Real native Bearer verification and persisted published-client bodies.
+await setup('native');
+const nativeToken='a'.repeat(64),nativeOpenId='synthetic-openid';
+sql.prepare('INSERT INTO coach_miniapp_links(open_id,owner_id,created_at,updated_at) VALUES(?,?,1,1)').run(nativeOpenId,'native');
+sql.prepare('INSERT INTO coach_miniapp_sessions(token_hash,open_id,expires_at,created_at) VALUES(?,?,?,1)')
+  .run(Buffer.from(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(nativeToken))).toString('hex'),nativeOpenId,Date.now()+60000);
+async function nativeSend(path,id,body,expected=201,headers={}){
+  const result=await routeSocialProfileJob(new Request('https://fixture.invalid'+path,{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+nativeToken,'x-request-id':id,...headers},body:JSON.stringify(body)}),env,{});
+  const value=await result.json();assert.equal(result.status,expected,JSON.stringify(value));return value;
+}
+const nativeInit={uploadAction:'init',confirmed:true,imageCount:1,selfSide:'right',sessionId:crypto.randomUUID()};
+for(const path of ['/api/miniapp/screenshot/batch','/api/miniapp/social-profile']){
+  const blocked=crypto.randomUUID();
+  await nativeSend(path,blocked,nativeInit,401,{authorization:'',cookie:'fake','x-open-id':nativeOpenId,'x-owner-id':'native'});
+  assert.equal(ledger('native',blocked),undefined);
+  for(const priceConfirmation of [null,{version:'old',amount:20}]){
+    await nativeSend(path,blocked,{...nativeInit,priceConfirmation},409);assert.equal(ledger('native',blocked),undefined);
+  }
+  await nativeSend(path,blocked,{...nativeInit,confirmed:false},400);
+  for(const [count,amount] of [[1,5],[3,10],[6,15],[9,20]]){
+    const id=crypto.randomUUID(),accepted=await nativeSend(path,id,{...nativeInit,imageCount:count});
+    assert.equal(accepted.creditAmount,amount);assert.equal(ledger('native',id).amount,amount);
+    const displayed=path.endsWith('social-profile')?30:LEGACY_MINIAPP_PRICE_ALIASES[count<=3?'analysisSmall':count<=6?'analysisMedium':'analysisLarge'];
+    assert.ok(amount<=displayed,'published client charge never exceeds displayed authorization');
+    await nativeSend(path,id,{uploadAction:'cancel'},200);assert.equal(ledger('native',id).status,'released');
+  }
+  const directId=crypto.randomUUID(),direct=await nativeSend(path,directId,{confirmed:true,images:['data:image/png;base64,b2xk'],selfSide:'right',sessionId:crypto.randomUUID()},202);
+  assert.equal(direct.creditAmount,5);assert.equal((await finish('native',directId)).status,'error');
+  assert.equal(ledger('native',directId).status,'released');
+}
+const forgedId=crypto.randomUUID();
+await send('native',forgedId,{...nativeInit,legacyMiniapp:true,openId:nativeOpenId},409);
+assert.equal(ledger('native',forgedId),undefined);assert.equal(balance('native'),1000);
+delete globalThis.__pricingApp;delete globalThis.__pricingNativeOwner;sql.close();
 console.log('PASS screenshot 5/10/15/20; stale quotes no task; actual SQLite debits/refunds; exact bytes + scope reuse across IDs; owner/person/speaker isolation; permission failure refunds; no balance reset; full range bounds.');
