@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
-import { ArrowRight, CheckCheck, LoaderCircle, RefreshCw } from "lucide-react";
+import { ArrowRight, CheckCheck, CircleAlert, LoaderCircle, RefreshCw } from "lucide-react";
 import { api, type Json } from "./web-analysis/client";
 import styles from "./CaptureAnalysisStatus.module.css";
 
@@ -50,7 +50,7 @@ export function CaptureAnalysisStatus({owner, onSettled, onStatus, onChecking, v
   const relatedCount=Array.isArray(job.relatedSnapshots)?job.relatedSnapshots.reduce((total:number,value:Json)=>total+Number(value.expectedTotal??value.total??0),0):0;
   const scopeText=`${job.totalCount} 条${moments?"朋友圈":"聊天"}${!moments&&relatedCount?` + ${relatedCount} 条朋友圈`:""}`;
   return <section className={styles.panel} data-capture-analysis={job.status} aria-live="polite">
-    <div className={styles.heading}>{busy?<LoaderCircle size={21} className={styles.spin}/>:<CheckCheck size={21}/>}<strong>{job.status==='error'?'这次分析未完成':phase[job.phase]||'正在后台生成报告'}</strong></div>
+    <div className={styles.heading}>{busy?<LoaderCircle size={21} className={styles.spin}/>:job.status==='error'?<CircleAlert size={21}/>:<CheckCheck size={21}/>}<strong>{job.status==='error'?'这次分析未完成':phase[job.phase]||'正在后台生成报告'}</strong></div>
     <p>{job.friend ? `${job.friend} · ` : ''}{busy?`已核对 ${readCount} 条${moments?'动态文字':'聊天'}${!moments&&job.completedCaptions?`、${job.completedCaptions} 条动态文字`:''}${job.completedImages?`、${job.completedImages} 张图片`:''} · ${scopeText}` : job.status==='done'?`基于 ${scopeText}${finishedAt?' · '+new Date(finishedAt).toLocaleString('zh-CN',{hour12:false}):''}` : job.error}</p>
     {busy && <><progress aria-label={moments?'已核对的朋友圈文字':'已核对的聊天文字'} max={Math.max(job.totalCount,1)} value={["preparing","images","synthesis"].includes(job.phase)?undefined:Math.min(readCount,job.totalCount)}/><p className={styles.secondary}>{offline?'暂时连不上进度，后台任务仍保留。':job.status==='retrying'?job.error:'报告生成后会保存在这里，可以离开此页。无需重复提交。'}</p></>}
     {job.status==='error' && <p className={styles.secondary}>{job.creditTaskStatus==='released'?'本次积分已退回。重新生成时会复用已完成且未变化的段落。':'正在核对结算，请稍后查看。'}</p>}
