@@ -324,14 +324,28 @@ def _contact_extras(row):
     return {"wechatId": alias, "avatarUrl": _avatar_url(thumbnail) or _avatar_url(full), "avatarData": avatar_data}
 
 
-def search_contacts_from_source(query, source):
+def validate_contact_search(query, offset=0, account_key=None, refresh=False):
+    if not isinstance(query, str) or not query.strip() or len(query) > 100 or any(ord(c) < 32 for c in query):
+        raise BackgroundCaptureError("INVALID_CONTACT_QUERY", "请输入联系人昵称或备注中的文字。")
+    if type(offset) is not int or offset < 0 or offset > 100_000 or offset % MAX_CONTACT_RESULTS:
+        raise BackgroundCaptureError("INVALID_CONTACT_OFFSET", "联系人分页位置无效，请重新搜索。")
+    if (account_key is not None and (not isinstance(account_key, str) or not re.fullmatch(r"[0-9a-f]{64}", account_key))
+            or offset and account_key is None):
+        raise BackgroundCaptureError("INVALID_ACCOUNT_KEY", "请重新搜索后再加载更多联系人。")
+    if type(refresh) is not bool or refresh and offset:
+        raise BackgroundCaptureError("INVALID_CONTACT_REFRESH", "刷新联系人时请从第一页开始。")
+    return query.strip()
+
+
+def search_contacts_from_source(query, source, offset=0, account_key=None):
     """Search only contact names in the verified account; never open messages."""
     try:
-        if not isinstance(query, str) or not query.strip() or len(query) > 100 or any(ord(c) < 32 for c in query):
-            raise BackgroundCaptureError("INVALID_CONTACT_QUERY", "请输入联系人昵称或备注中的文字。")
-        query = query.strip()
+        query = validate_contact_search(query, offset, account_key)
+        current_account = _identity(_short_id(source.account_id, "账号"))
+        if account_key is not None and account_key != current_account:
+            raise BackgroundCaptureError("ACCOUNT_CHANGED", "当前微信账号已变化，请重新搜索联系人。")
         escaped = query.replace("!", "!!").replace("%", "!%").replace("_", "!_")
-        pattern = f"%{escaped}%"
+        pattern, prefix = f"%{escaped}%", f"{escaped}%"
         conn = source.contacts()
         columns = _contact_metadata_columns(conn)
         alias = "alias" if "alias" in columns else "''"
@@ -340,9 +354,17 @@ def search_contacts_from_source(query, source):
             "SELECT username,nick_name,remark," + ",".join(extras) + " FROM contact "
             "WHERE username<>? AND username NOT LIKE '%@chatroom' "
             "AND (username LIKE ? ESCAPE '!' OR nick_name LIKE ? ESCAPE '!' OR remark LIKE ? ESCAPE '!' OR " + alias + " LIKE ? ESCAPE '!') "
-            "ORDER BY CASE WHEN remark=? THEN 0 WHEN nick_name=? THEN 1 WHEN username=? THEN 2 ELSE 3 END, "
-            "COALESCE(NULLIF(TRIM(remark),''),NULLIF(TRIM(nick_name),''),username),username LIMIT ?",
-            (source.self_username, pattern, pattern, pattern, pattern, query, query, query, MAX_CONTACT_RESULTS + 1)).fetchall()
+            "ORDER BY CASE "
+            "WHEN remark=? COLLATE NOCASE THEN 0 WHEN nick_name=? COLLATE NOCASE THEN 1 "
+            "WHEN remark LIKE ? ESCAPE '!' THEN 2 WHEN nick_name LIKE ? ESCAPE '!' THEN 3 "
+            "WHEN remark LIKE ? ESCAPE '!' THEN 4 WHEN nick_name LIKE ? ESCAPE '!' THEN 5 "
+            "WHEN " + alias + "=? COLLATE NOCASE THEN 6 WHEN " + alias + " LIKE ? ESCAPE '!' THEN 7 "
+            "WHEN " + alias + " LIKE ? ESCAPE '!' THEN 8 "
+            "WHEN username=? COLLATE NOCASE THEN 9 WHEN username LIKE ? ESCAPE '!' THEN 10 ELSE 11 END, "
+            "COALESCE(NULLIF(TRIM(remark),''),NULLIF(TRIM(nick_name),''),username) COLLATE NOCASE,"
+            "username COLLATE NOCASE,username LIMIT ? OFFSET ?",
+            (source.self_username, pattern, pattern, pattern, pattern, query, query, prefix, prefix,
+             pattern, pattern, query, prefix, pattern, query, prefix, MAX_CONTACT_RESULTS + 1, offset)).fetchall()
         duplicates = _duplicate_displays(conn, {_contact_display(row) for row in rows[:MAX_CONTACT_RESULTS]})
         contacts = []
         seen = set()
@@ -354,18 +376,23 @@ def search_contacts_from_source(query, source):
             contacts.append({"contactId": contact_id, "label": _contact_label(row, _contact_display(row) in duplicates),
                              "nickname": _contact_text(row[1]), "remark": _contact_text(row[2]), **_contact_extras(row)})
         source.assert_unchanged()
-        return {"contacts": contacts, "accountKey": _identity(_short_id(source.account_id, "账号")),
+        return {"contacts": contacts, "accountKey": current_account,
                 "hasMore": len(rows) > MAX_CONTACT_RESULTS,
+                "nextOffset": offset + MAX_CONTACT_RESULTS if len(rows) > MAX_CONTACT_RESULTS else None,
                 "message": "没有找到匹配的联系人，请尝试昵称、备注或微信号。" if not contacts else ""}
     finally:
         source.close()
 
 
-def search_contacts(query):
+def search_contacts(query, offset=0, account_key=None, *, cache=None, refresh=False):
+    query = validate_contact_search(query, offset, account_key, refresh)
     provider = _provider_module()
     if provider is None:
         raise BackgroundCaptureError("BACKGROUND_SOURCE_UNAVAILABLE", "本机联系人目录暂不可读取，请检查助手组件。")
-    return search_contacts_from_source(query, provider.open_authorized_source())
+    read = lambda source: search_contacts_from_source(query, source, offset, account_key)
+    if cache is not None:
+        return cache.run(read, refresh=refresh)
+    return read(provider.open_authorized_source(contacts_only=True))
 
 
 def _resolve_contact(source, friend, contact_id=None, account_key=None):

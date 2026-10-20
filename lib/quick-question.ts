@@ -52,7 +52,7 @@ export async function readQuickQuestionBody(request: Request): Promise<{ raw: st
 }
 
 export function quickQuestionImages(body: Record<string, unknown>): { images: string[]; selfSide: "left" | "right" | null } {
-  if (body.confirmed !== true) throw new QuickQuestionInputError("请先确认材料提供权与本次千问处理范围。");
+  if (body.confirmed !== true) throw new QuickQuestionInputError("请先确认材料提供权与本次 AI 处理范围。");
   if (body.images !== undefined && !Array.isArray(body.images)) throw new QuickQuestionInputError("截图格式不正确，请重新选择。");
   const images = (body.images || []) as unknown[];
   if (images.length > 3) throw new QuickQuestionInputError("一次最多选择 3 张聊天截图。");

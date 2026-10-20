@@ -7,6 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { build } from 'esbuild';
 import * as credits from '../lib/account-credits.mjs';
+import {fullHistoryPrice,ANALYSIS_PRICE_VERSION} from '../lib/analysis-pricing.mjs';
 
 const require = createRequire(import.meta.url), sql = new DatabaseSync(':memory:');
 for (const file of readdirSync('drizzle').filter(name => name.endsWith('.sql')).sort()) sql.exec(readFileSync('drizzle/' + file, 'utf8'));
@@ -92,11 +93,12 @@ function instance(owner, restart = false) {
   return instances.get(owner);
 }
 env.CAPTURE_HISTORY_JOBS = { idFromName: owner => owner, get: owner => instance(owner) };
-const price = credits.CREDIT_PRICES.analysisSmall;
+const fixturePrices=new Map();
+const fixturePrice=owner=>fixturePrices.get(owner);
 const creditTask = (owner, id) => sql.prepare('SELECT * FROM coach_credit_tasks WHERE owner_id=? AND request_id=?').get(owner, id);
 const balance = owner => sql.prepare('SELECT balance FROM coach_credit_accounts WHERE owner_id=?').get(owner).balance;
 const taskCount = owner => sql.prepare('SELECT COUNT(*) AS n FROM coach_credit_tasks WHERE owner_id=?').get(owner).n;
-const request = (owner, body, headers = {}) => new Request('https://fixture.invalid/api/web/capture/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: 'https://fixture.invalid', ...(owner ? { 'x-test-owner': owner } : {}), ...headers }, body: JSON.stringify(body) });
+const request = (owner, body, headers = {}) => new Request('https://fixture.invalid/api/web/capture/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json', Origin: 'https://fixture.invalid', ...(owner ? { 'x-test-owner': owner } : {}), ...headers }, body: JSON.stringify(body.analysisScope==='fullHistory'&&body.expectedTotal>0&&!Object.hasOwn(body,'priceConfirmation')?{...body,priceConfirmation:fullHistoryPrice(body)}:body) });
 async function start(owner, body, expected = 202) { const response = await route.POST(request(owner, body)); const result = await response.json(); assert.equal(response.status, expected, JSON.stringify(result)); return result; }
 async function alarm(owner, restart = true) {
   const object = instance(owner, restart), before = calls.filter(call => call.owner === owner).length;
@@ -111,6 +113,7 @@ async function finish(owner, limit = 12) {
 }
 async function setup(total = 675) {
   const owner = 'synthetic-' + crypto.randomUUID(), subject = crypto.randomUUID(), library = 'cl_' + crypto.randomUUID().replaceAll('-', '').repeat(2), friend = '合成人物';
+  fixturePrices.set(owner,total<=500?20:total<=3000?40:total<=10000?70:100);
   await credits.ensureCreditAccount(db, owner);
   await credits.adjustCredits(db, { id: crypto.randomUUID(), ownerId: owner, actorId: 'fixture', delta: 1000, reason: '合成测试' });
   await credits.setCreditPermissions(db, { id: crypto.randomUUID(), ownerId: owner, actorId: 'fixture', features: ['analysis'], enabledUntil: Date.now() + 86400000, reason: '合成测试' });
@@ -145,6 +148,39 @@ async function test(label, run) {
   finally { providerFailure = null; failSettlementOnce = false; failSettlementsRemaining = 0; failSettlementRequest = ''; }
 }
 
+await test('all record tiers quote without billing; stale or absent confirmation cannot charge; failures refund', async () => {
+  for(const [total,amount] of [[1,20],[500,20],[501,40],[3000,40],[3001,70],[10000,70],[10001,100],[20000,100]]) {
+    const data=await setup(total), before=calls.length;
+    const quoted=await start(data.owner,{...data.body,confirmed:false,quoteOnly:true,priceConfirmation:null},200);
+    assert.equal(quoted.quote.amount,amount);assert.equal(quoted.quote.recordCount,total);
+    assert.equal(taskCount(data.owner),0);assert.equal(balance(data.owner),1000);assert.equal(calls.length,before);
+    for(const priceConfirmation of [null,{version:'old',amount:20},{version:ANALYSIS_PRICE_VERSION,amount:amount-1}]){
+      const rejected=await start(data.owner,{...data.body,priceConfirmation},409);
+      assert.equal(rejected.code,'PRICE_CONFIRMATION_REQUIRED');assert.equal(rejected.quote.amount,amount);
+      assert.equal(taskCount(data.owner),0);assert.equal(calls.length,before);
+    }
+    const accepted=await start(data.owner,{...data.body,priceConfirmation:{version:quoted.quote.version,amount}});
+    assert.equal(accepted.creditAmount,amount);assert.equal(creditTask(data.owner,data.body.requestId).amount,amount);
+    assert.equal(balance(data.owner),1000-amount);
+    await instance(data.owner).purge(data.owner);
+    assert.equal(balance(data.owner),1000);assert.equal(creditTask(data.owner,data.body.requestId).status,'released');
+    await instance(data.owner).purge(data.owner);assert.equal(balance(data.owner),1000,'refund once');
+  }
+});
+await test('combined sources cross tiers once; forged totals rejected; running legacy task retains agreed price',async()=>{
+  const data=await setup(500);await addRelated(data,1);
+  const quote=await start(data.owner,{...data.body,quoteOnly:true,priceConfirmation:null},200);
+  assert.equal(quote.quote.amount,40);assert.equal(quote.quote.recordCount,501);
+  const forged=await start(data.owner,{...data.body,expectedTotal:499,priceConfirmation:{version:ANALYSIS_PRICE_VERSION,amount:20}},409);
+  assert.match(forged.error,/同步|变化|数量/);assert.equal(taskCount(data.owner),0);
+  const requestId=crypto.randomUUID(),oldInput={...data.body,requestId};
+  await credits.reserveCredits(db,{ownerId:data.owner,requestId,feature:'analysis',amount:20,fingerprint:'a'.repeat(64)});
+  const storage=states.get(data.owner).storage,now=Date.now();
+  await storage.put('job:'+requestId,{owner:data.owner,taskId:requestId,input:oldInput,manifest:{},fingerprint:'legacy',createdAt:now,updatedAt:now,expiresAt:now+100000,status:'queued',creditAmount:20});
+  const restored=await instance(data.owner).start(data.owner,oldInput,{}, {priceConfirmation:{version:'old',amount:20}});
+  assert.equal(restored.creditAmount,20);assert.equal(balance(data.owner),980);assert.equal(taskCount(data.owner),1);
+  await instance(data.owner).purge(data.owner);assert.equal(balance(data.owner),1000);
+});
 await test('auth, ownership, internal header gate and unchanged admission cost', async () => {
   const { owner, body } = await setup();
   assert.equal((await route.POST(request(null, body))).status, 401);
@@ -156,23 +192,23 @@ await test('auth, ownership, internal header gate and unchanged admission cost',
 
 await test('real queued route completes all 675 rows in one bounded alarm and charges once', async () => {
   const { owner, body } = await setup(), before = calls.length, budgetsBefore = reserveBudgets;
-  const queued = await start(owner, body); assert.equal(queued.status, 'queued'); assert.equal(calls.length, before); assert.equal(balance(owner), 1000 - price);
+  const queued = await start(owner, body); assert.equal(queued.status, 'queued'); assert.equal(calls.length, before); assert.equal(balance(owner), 1000 - fixturePrice(owner));
   const done = await alarm(owner); assert.equal(done.status, 'done', done.error); assert.equal(done.completedText, 675); assert.equal(done.result.semanticHistory.status, 'complete'); assert.equal(done.result.semanticHistory.coverage.analyzedText, 675); assert.equal(calls.length - before, 4); assert.equal(reserveBudgets - budgetsBefore, 1, 'daily budget is reserved once across alarms');
-  assert.equal(creditTask(owner, body.requestId).status, 'settled'); assert.equal(taskCount(owner), 1); assert.equal(balance(owner), 1000 - price);
+  assert.equal(creditTask(owner, body.requestId).status, 'settled'); assert.equal(taskCount(owner), 1); assert.equal(balance(owner), 1000 - fixturePrice(owner));
   assert.equal((await start(owner, body, 200)).taskId, body.requestId); assert.equal(calls.length - before, 4);
 });
 
 await test('identical snapshot reuses a saved result for free; changed snapshot creates a new task', async () => {
   const { owner, body, library } = await setup(12); await start(owner, body); const done = await finish(owner); assert.equal(done.status, 'done', done.error);
   const before = calls.length, reused = await start(owner, { ...body, requestId: crypto.randomUUID() }, 200);
-  assert.equal(reused.reused, true); assert.equal(reused.taskId, body.requestId); assert.equal(taskCount(owner), 1); assert.equal(balance(owner), 1000 - price); assert.equal(calls.length, before);
+  assert.equal(reused.reused, true); assert.equal(reused.taskId, body.requestId); assert.equal(taskCount(owner), 1); assert.equal(balance(owner), 1000 - fixturePrice(owner)); assert.equal(calls.length, before);
   await states.get(owner).storage.delete('job:' + body.requestId);
   instances.delete(owner);
   const permanentReuse = await start(owner, {...body, requestId:crypto.randomUUID()}, 200);
   assert.equal(permanentReuse.taskId, body.requestId, 'saved report fingerprint survives temporary task cleanup');
   assert.equal(taskCount(owner), 1); assert.equal(calls.length, before);
   sql.prepare('UPDATE coach_capture_libraries SET revision=revision+1 WHERE id=?').run(library);
-  const fresh = { ...body, requestId: crypto.randomUUID() }; assert.equal((await start(owner, fresh)).taskId, fresh.requestId); assert.equal(taskCount(owner), 2); assert.equal(balance(owner), 1000 - 2 * price);
+  const fresh = { ...body, requestId: crypto.randomUUID() }; assert.equal((await start(owner, fresh)).taskId, fresh.requestId); assert.equal(taskCount(owner), 2); assert.equal(balance(owner), 1000 - 2 * fixturePrice(owner));
   assert.equal((await finish(owner)).status, 'done');
 });
 
@@ -185,7 +221,7 @@ await test('syncing identical materials before another analysis preserves free s
   const before = calls.length;
   const synced = await cloud.syncCloudCaptureLibrary(fixture.owner, { requestId: crypto.randomUUID(), confirmed: true, libraryId: first.library.id, expectedEpoch: 1, library: { ...library, updatedAt: '2026-01-02T00:00:00.000Z' }, records: rows }, db);
   assert.equal(synced.library.revision, first.library.revision);
-  const reused = await start(fixture.owner, { ...fixture.body, requestId: crypto.randomUUID() }, 200); assert.equal(reused.reused, true); assert.equal(reused.taskId, fixture.body.requestId); assert.equal(calls.length, before); assert.equal(balance(fixture.owner), 1000 - price); assert.equal(taskCount(fixture.owner), 1);
+  const reused = await start(fixture.owner, { ...fixture.body, requestId: crypto.randomUUID() }, 200); assert.equal(reused.reused, true); assert.equal(reused.taskId, fixture.body.requestId); assert.equal(calls.length, before); assert.equal(balance(fixture.owner), 1000 - fixturePrice(fixture.owner)); assert.equal(taskCount(fixture.owner), 1);
 });
 
 await test('same-owner concurrent submissions converge while different owners remain independent', async () => {
@@ -194,7 +230,7 @@ await test('same-owner concurrent submissions converge while different owners re
   await start(b.owner, b.body); const completed = await Promise.all([finish(a.owner), finish(b.owner)]); assert.ok(completed.every(item => item.status === 'done'), JSON.stringify(completed.map(item => item.error)));
   assert.equal(await instance(a.owner).status(b.owner, a.body.requestId), null);
   const get = await route.GET(new Request('https://fixture.invalid/api/web/capture/analyze?taskId=' + a.body.requestId, { headers: { 'x-test-owner': b.owner } })); assert.equal((await get.json()).status, 'none');
-  assert.equal(balance(a.owner), 1000 - price); assert.equal(balance(b.owner), 1000 - price);
+  assert.equal(balance(a.owner), 1000 - fixturePrice(a.owner)); assert.equal(balance(b.owner), 1000 - fixturePrice(b.owner));
 });
 
 await test('changed input cannot reuse a request ID and checkpoint RPC enforces owner/token', async () => {
@@ -222,7 +258,7 @@ await test('changed related snapshots stop before any vision provider call', asy
 
 await test('image and text work share the four-call alarm budget and preserve complete source coverage', async () => {
   const fixture = await setup(); await addRelated(fixture); const before = calls.length; await start(fixture.owner, fixture.body);
-  const first = await alarm(fixture.owner); assert.equal(first.status, 'queued', first.error); assert.equal(first.completedImages, 3); assert.equal(first.completedText, 675);
+  const first = await alarm(fixture.owner); assert.equal(first.status, 'queued', first.error); assert.equal(first.completedImages, 3); assert.ok([500,675].includes(first.completedText),'parallel chat/Moments calls may complete in either order within the four-call budget');
   const done = await finish(fixture.owner); assert.equal(done.status, 'done', done.error); assert.equal(done.completedImages, 3); assert.equal(done.completedText, 675); assert.equal(calls.length - before, 6);
   const segments=calls.slice(before).filter(call=>Array.isArray(call.detail.rows));
   assert.equal(segments.length,4,'three chat segments and one independent Moments evidence pass');
@@ -231,14 +267,14 @@ await test('image and text work share the four-call alarm budget and preserve co
   assert.equal(momentsSegment[0].detail.rows.filter(row=>row.basis==='caption').length,3);
   assert.equal(momentsSegment[0].detail.rows.filter(row=>row.basis==='visual').length,3);
   assert.equal(segments.flatMap(call=>call.detail.rows).filter(row=>row.basis==='chat-original').length,675);
-  const moments = done.result.sourceCoverage.find(source => source.kind === 'moments'); assert.equal(moments.imagesAnalyzed, 3); assert.equal(moments.textRead, 3); assert.equal(done.result.semanticHistory.coverage.analyzedText, 675); assert.equal(balance(fixture.owner), 1000 - price);
+  const moments = done.result.sourceCoverage.find(source => source.kind === 'moments'); assert.equal(moments.imagesAnalyzed, 3); assert.equal(moments.textRead, 3); assert.equal(done.result.semanticHistory.coverage.analyzedText, 675); assert.equal(balance(fixture.owner), 1000 - fixturePrice(fixture.owner));
 });
 
 await test('snapshot update after a yield refunds; a new request reuses unchanged finished segments', async () => {
   const { owner, body, library } = await setup(1250); await start(owner, body); const before = calls.length; assert.equal((await alarm(owner)).completedText, 1000);
   sql.prepare('UPDATE coach_capture_libraries SET revision=revision+1 WHERE id=?').run(library);
   const stopped = await alarm(owner); assert.equal(stopped.status, 'error'); assert.equal(balance(owner), 1000); assert.equal(calls.length - before, 4);
-  const retry = { ...body, requestId: crypto.randomUUID() }; await start(owner, retry); const result = await finish(owner); assert.equal(result.status, 'done', result.error); assert.equal(result.reusedSteps, 4); assert.equal(calls.length - before, 6); assert.equal(balance(owner), 1000 - price); assert.equal(creditTask(owner, body.requestId).status, 'released'); assert.equal(creditTask(owner, retry.requestId).status, 'settled');
+  const retry = { ...body, requestId: crypto.randomUUID() }; await start(owner, retry); const result = await finish(owner); assert.equal(result.status, 'done', result.error); assert.equal(result.reusedSteps, 4); assert.equal(calls.length - before, 6); assert.equal(balance(owner), 1000 - fixturePrice(owner)); assert.equal(creditTask(owner, body.requestId).status, 'released'); assert.equal(creditTask(owner, retry.requestId).status, 'settled');
 });
 
 await test('provider failures retain checkpoints, refund exactly once and retry only unfinished work', async () => {
@@ -247,7 +283,7 @@ await test('provider failures retain checkpoints, refund exactly once and retry 
   let last; for (let i = 0; i < 4; i++) { last = await alarm(owner); assert.equal(last.completedText, 1000); assert.equal(last.status, i < 3 ? 'retrying' : 'error', last.error); }
   assert.equal(balance(owner), 1000); assert.equal(creditTask(owner, body.requestId).status, 'released'); await alarm(owner); assert.equal(balance(owner), 1000, 'repeat alarm cannot refund twice');
   providerFailure = null; const before = calls.length, retry = { ...body, requestId: crypto.randomUUID() }; await start(owner, retry); const done = await finish(owner);
-  assert.equal(done.status, 'done', done.error); assert.equal(done.reusedSteps, 4); assert.equal(calls.length - before, 2); assert.equal(balance(owner), 1000 - price);
+  assert.equal(done.status, 'done', done.error); assert.equal(done.reusedSteps, 4); assert.equal(calls.length - before, 2); assert.equal(balance(owner), 1000 - fixturePrice(owner));
 });
 
 await test('reimport epoch and changed question invalidate checkpoint reuse', async () => {
@@ -256,7 +292,7 @@ await test('reimport epoch and changed question invalidate checkpoint reuse', as
   const reimport = { ...body, requestId: crypto.randomUUID(), expectedEpoch: 2 }, before = calls.length; await start(owner, reimport); const reimported = await finish(owner);
   assert.equal(reimported.status, 'done', reimported.error); assert.equal(reimported.reusedSteps, 0); assert.equal(calls.length - before, 2);
   const changed = { ...reimport, requestId: crypto.randomUUID(), question: 'risk' }, questionBefore = calls.length; await start(owner, changed); const result = await finish(owner);
-  assert.equal(result.status, 'done', result.error); assert.equal(result.reusedSteps, 0); assert.equal(calls.length - questionBefore, 2); assert.equal(balance(owner), 1000 - 3 * price);
+  assert.equal(result.status, 'done', result.error); assert.equal(result.reusedSteps, 0); assert.equal(calls.length - questionBefore, 2); assert.equal(balance(owner), 1000 - 3 * fixturePrice(owner));
 });
 
 await test('failed durable admission refunds the reservation and cannot execute the abandoned ID', async () => {
@@ -265,7 +301,7 @@ await test('failed durable admission refunds the reservation and cannot execute 
   const response = await route.POST(request(owner, body)); assert.equal(response.status, 503); assert.equal(balance(owner), 1000); assert.equal(creditTask(owner, body.requestId).status, 'released'); assert.equal(await object.status(owner, body.requestId), null);
   storage.transaction = transaction;
   const again = await route.POST(request(owner, body)); assert.ok(!again.ok); assert.equal(balance(owner), 1000);
-  await start(owner, { ...body, requestId: crypto.randomUUID() }); assert.equal((await finish(owner)).status, 'done'); assert.equal(balance(owner), 1000 - price);
+  await start(owner, { ...body, requestId: crypto.randomUUID() }); assert.equal((await finish(owner)).status, 'done'); assert.equal(balance(owner), 1000 - fixturePrice(owner));
 });
 
 await test('malformed model outputs never become checkpoints or charged partial reports', async () => {
@@ -329,7 +365,7 @@ await test('risk goal keeps named subjects, early warnings, later clarification 
   assert.equal(synthesisCalls,2);assert.equal(calls.slice(before).filter(call=>call.phase==='segments').length,1,'incomplete risk synthesis reuses the verified segment');
   assert.equal(done.result.analysisQuestion,'risk');assert.equal(done.result.participants.other.label,'合成对象林澈');assert.equal(done.result.semanticHistory.riskAssessment.items.length,2);
   assert.equal(done.result.semanticHistory.riskAssessment.items[0].resolution.status,'clarified');assert.equal(done.result.semanticHistory.riskAssessment.items[0].timeRange.start,'2026-01-02');
-  assert.equal(done.result.semanticHistory.actionPlan.actor,'self');assert.equal(done.result.affinity.direction,'otherToSelf');assert.equal(balance(data.owner),1000-price);
+  assert.equal(done.result.semanticHistory.actionPlan.actor,'self');assert.equal(done.result.affinity.direction,'otherToSelf');assert.equal(balance(data.owner),1000-fixturePrice(data.owner));
   assert.ok(done.result.semanticHistory.riskAssessment.items.every(item=>item.subject==='other'&&item.verify.outcomes.length===2));
   const folder=process.env.REPORT_ROUTE_FIXTURE_DIR||'outputs/report-route-fixtures';mkdirSync(folder,{recursive:true});writeFileSync(folder+'/risk-person.json',JSON.stringify(done.result,null,2));
 });
@@ -346,7 +382,7 @@ await test('summary-only synthesis retries without losing completed evidence or 
   assert.equal(creditTask(owner,body.requestId).status,'reserved');assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM coach_saved_reports WHERE id=? AND status='done'").get(body.requestId).n,0);
   providerFailure=null;const done=await finish(owner);assert.equal(done.status,'done',done.error);assert.ok(done.result.semanticHistory.explanation);
   assert.equal(calls.slice(before).filter(call=>call.phase==='segments').length,3,'verified segments must not run again after sparse synthesis');
-  assert.equal(calls.slice(before).filter(call=>call.phase==='synthesis').length,2);assert.equal(balance(owner),1000-price);assert.equal(creditTask(owner,body.requestId).status,'settled');
+  assert.equal(calls.slice(before).filter(call=>call.phase==='synthesis').length,2);assert.equal(balance(owner),1000-fixturePrice(owner));assert.equal(creditTask(owner,body.requestId).status,'settled');
 });
 
 await test('standalone full Moments reads beyond ten posts and accounts captions separately from images',async()=>{
@@ -357,9 +393,9 @@ await test('standalone full Moments reads beyond ten posts and accounts captions
   const rows=calls.slice(before).filter(call=>call.phase==='segments').flatMap(call=>call.detail.rows);
   assert.equal(rows.filter(row=>row.basis==='caption').length,17);assert.equal(rows.filter(row=>row.basis==='visual').length,17);assert.equal(rows.filter(row=>row.basis==='chat-original').length,0);
   assert.equal(done.completedText,0);assert.equal(done.completedCaptions,17);assert.equal(done.completedImages,17);assert.equal(done.result.semanticHistory.affinity.value,null);
-  assert.equal(creditTask(data.owner,body.requestId).amount,credits.CREDIT_PRICES.profile,'standalone Moments charges the displayed profile price');
-  assert.equal(balance(data.owner),1000-credits.CREDIT_PRICES.profile);
-  const same=await start(data.owner,{...body,requestId:crypto.randomUUID()},200);assert.equal(same.status,'done');assert.equal(balance(data.owner),1000-credits.CREDIT_PRICES.profile,'unchanged Moments reuse the report without charging again');
+  assert.equal(creditTask(data.owner,body.requestId).amount,credits.CREDIT_PRICES.historySmall,'standalone Moments charges the displayed profile price');
+  assert.equal(balance(data.owner),1000-credits.CREDIT_PRICES.historySmall);
+  const same=await start(data.owner,{...body,requestId:crypto.randomUUID()},200);assert.equal(same.status,'done');assert.equal(balance(data.owner),1000-credits.CREDIT_PRICES.historySmall,'unchanged Moments reuse the report without charging again');
 });
 
 await test('persistent Moments synthesis failure refunds without publishing a generic partial report',async()=>{
@@ -401,6 +437,21 @@ await test('photos-only Moments preserve image coverage without fabricating capt
   assert.equal(done.result.chatActivity,undefined);assert.equal(done.result.affinity,undefined);assert.equal(done.result.semanticHistory.affinity.value,null);assert.ok(done.result.semanticHistory.sourceInsights.moments);assert.ok(done.result.semanticHistory.findings.every(finding=>finding.evidence.every(source=>source.basis==='visual')));
 });
 
+await test('in-flight v5 report completes with original 20-credit agreement and fingerprint after v6 rollout',async()=>{
+  const {owner,body}=await setup(675);await start(owner,body);const storage=states.get(owner).storage;
+  const legacy=await storage.get('job:'+body.requestId);await instance(owner).purge(owner);assert.equal(balance(owner),1000);
+  const taskId=crypto.randomUUID();legacy.taskId=taskId;legacy.input.requestId=taskId;legacy.manifest.analysisVersion=5;
+  legacy.creditAmount=20;legacy.priceQuote={version:'legacy-v5',amount:20};legacy.createdAt=Date.now();legacy.updatedAt=Date.now();
+  const {requestId,...scope}=legacy.input;
+  legacy.fingerprint=Buffer.from(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify({scope,manifest:legacy.manifest})))).toString('hex');
+  await credits.reserveCredits(db,{ownerId:owner,requestId:taskId,feature:'analysis',amount:20,fingerprint:legacy.fingerprint});
+  await storage.put('job:'+taskId,legacy);await storage.setAlarm(Date.now()+1);
+  const resumed=await start(owner,{...body,requestId:taskId,priceConfirmation:null});
+  assert.equal(resumed.creditAmount,20);assert.equal(balance(owner),980);
+  const done=await finish(owner);assert.equal(done.status,'done',done.error);assert.equal(done.result.analysisVersion,5);
+  assert.equal(done.result.analysisFingerprint,legacy.fingerprint);assert.equal(creditTask(owner,taskId).amount,20);
+  assert.equal(creditTask(owner,taskId).status,'settled');assert.equal(balance(owner),980);
+});
 await test('an older running report contract stops before model work and releases its reservation once',async()=>{
   const {owner,body}=await setup(2);await start(owner,body);const storage=states.get(owner).storage,job=await storage.get('job:'+body.requestId);job.manifest.analysisVersion=1;await storage.put('job:'+body.requestId,job);
   const before=calls.length,done=await alarm(owner);assert.equal(done.status,'error');assert.match(done.error,/分析方式已更新/);assert.equal(calls.length,before);assert.equal(balance(owner),1000);assert.equal(creditTask(owner,body.requestId).status,'released');
@@ -426,7 +477,7 @@ await test('crash after durable completion but before settlement settles without
   const job = await states.get(owner).storage.get('job:' + body.requestId); assert.equal(job.status, 'done'); assert.ok(!job.creditFinished); assert.equal(creditTask(owner, body.requestId).status, 'reserved');
   assert.ok(job.nextSettlementAt > Date.now()); assert.ok(await states.get(owner).storage.getAlarm());
   job.nextSettlementAt=Date.now()-1;await states.get(owner).storage.put('job:'+body.requestId,job);
-  const before = calls.length; assert.equal((await alarm(owner)).status, 'done'); assert.equal(calls.length, before); assert.equal(creditTask(owner, body.requestId).status, 'settled'); assert.equal(balance(owner), 1000 - price);
+  const before = calls.length; assert.equal((await alarm(owner)).status, 'done'); assert.equal(calls.length, before); assert.equal(creditTask(owner, body.requestId).status, 'settled'); assert.equal(balance(owner), 1000 - fixturePrice(owner));
 });
 
 await test('ledger outage beyond platform retry budget remains scheduled and GET repairs an exhausted alarm', async () => {
@@ -441,7 +492,7 @@ await test('ledger outage beyond platform retry budget remains scheduled and GET
   const job=await storage.get('job:'+body.requestId);job.nextSettlementAt=Date.now()-1;await storage.put('job:'+body.requestId,job);storage.takeAlarm();assert.equal(await storage.getAlarm(),null);
   const response=await route.GET(new Request('https://fixture.invalid/api/web/capture/analyze?taskId='+body.requestId,{headers:{'x-test-owner':owner}}));
   assert.equal(response.status,200);assert.equal((await response.json()).creditTaskStatus,'reserved');assert.ok(await storage.getAlarm(),'GET restores terminal unsettled task after missing/exhausted alarm');
-  const done=await alarm(owner);assert.equal(done.creditTaskStatus,'settled');assert.equal(done.creditSettlementPending,false);assert.equal(calls.length,providerCount);assert.equal(balance(owner),1000-price);assert.equal(taskCount(owner),1);
+  const done=await alarm(owner);assert.equal(done.creditTaskStatus,'settled');assert.equal(done.creditSettlementPending,false);assert.equal(calls.length,providerCount);assert.equal(balance(owner),1000-fixturePrice(owner));assert.equal(taskCount(owner),1);
 });
 
 await test('cron-released completion records the real ledger outcome and does not block the same owner next task', async () => {
@@ -452,7 +503,7 @@ await test('cron-released completion records the real ledger outcome and does no
   const next={...body,requestId:'ffffffff-ffff-4fff-8fff-ffffffffffff',question:'next'};await start(owner,next);
   await alarm(owner);const prior=await instance(owner).status(owner,body.requestId),done=await instance(owner).status(owner,next.requestId);
   assert.equal(prior.status,'done');assert.equal(prior.creditTaskStatus,'released');assert.equal(prior.creditSettlementPending,false);assert.match(prior.creditSettlementIssue,/已退回/);assert.ok(prior.result,'delivered report remains available');
-  assert.equal(done.status,'done');assert.equal(done.creditTaskStatus,'settled');assert.equal(creditTask(owner,body.requestId).status,'released');assert.equal(creditTask(owner,next.requestId).status,'settled');assert.equal(balance(owner),1000-price);assert.equal(taskCount(owner),2,'no replacement charge for the cron-released task');
+  assert.equal(done.status,'done');assert.equal(done.creditTaskStatus,'settled');assert.equal(creditTask(owner,body.requestId).status,'released');assert.equal(creditTask(owner,next.requestId).status,'settled');assert.equal(balance(owner),1000-fixturePrice(owner));assert.equal(taskCount(owner),2,'no replacement charge for the cron-released task');
 });
 
 await test('one unavailable settlement does not prevent another task for the same owner from completing', async () => {
@@ -472,7 +523,7 @@ await test('deleting an in-progress or completed report cannot resurrect it on a
   sql.prepare("UPDATE coach_saved_reports SET status='deleted',result='{}' WHERE id=?").run(completed.body.requestId);
   const before = calls.length; assert.equal((await instance(completed.owner, true).status(completed.owner, completed.body.requestId)).status, 'removed'); await alarm(completed.owner);
   assert.equal(calls.length, before); assert.equal(sql.prepare('SELECT status FROM coach_saved_reports WHERE id=?').get(completed.body.requestId).status, 'deleted');
-  const replay = await start(completed.owner, completed.body); assert.equal(replay.status, 'removed'); assert.equal(taskCount(completed.owner), 1); assert.equal(balance(completed.owner), 1000 - price);
+  const replay = await start(completed.owner, completed.body); assert.equal(replay.status, 'removed'); assert.equal(taskCount(completed.owner), 1); assert.equal(balance(completed.owner), 1000 - fixturePrice(completed.owner));
 });
 
 await test('expired jobs release the reservation and status repairs a missing alarm', async () => {
@@ -500,7 +551,7 @@ await test('purging during a model call rejects late checkpoints, clears private
     assert.equal((await storage.list({ prefix: 'step:' })).size, 0); assert.equal(balance(current.owner), 1000); assert.equal(creditTask(current.owner, current.body.requestId).status, 'released');
     await assert.rejects(instance(current.owner).checkpoint(current.owner, current.body.requestId, env.WECHAT_CALLBACK_TOKEN, 'a'.repeat(64), { text: 'late secret', phase: 'segments', count: 1 }), /任务已结束/);
     await instance(current.owner).purge(current.owner); assert.equal(balance(current.owner), 1000, 'repeated purge refunds only once');
-    assert.deepEqual(await states.get(other.owner).storage.list(), otherBefore); assert.equal(balance(other.owner), 1000 - price); assert.equal(creditTask(other.owner, other.body.requestId).status, 'reserved');
+    assert.deepEqual(await states.get(other.owner).storage.list(), otherBefore); assert.equal(balance(other.owner), 1000 - fixturePrice(other.owner)); assert.equal(creditTask(other.owner, other.body.requestId).status, 'reserved');
   } finally { release(); await pending; providerFailure = null; }
   assert.equal((await storage.list()).size, 0, 'alarm removes sanitized tombstones after settlement'); assert.equal(await storage.getAlarm(), null);
   assert.equal(sql.prepare('SELECT status FROM coach_saved_reports WHERE id=?').get(current.body.requestId).status, 'deleted');
@@ -531,11 +582,11 @@ await test('terminal purge removes all job and step data; deleting the report fo
   const storage = states.get(owner).storage, otherBefore = await states.get(other.owner).storage.list(); assert.ok((await storage.list({ prefix: 'step:' })).size > 0);
   await assert.rejects(instance(owner).purge(other.owner), /账号不一致/); assert.ok((await storage.list({ prefix: 'step:' })).size > 0);
   sql.prepare("UPDATE coach_saved_reports SET status='deleted',result='{}',summary='' WHERE id=? AND owner_id=?").run(body.requestId, owner);
-  await instance(owner).purge(owner); assert.equal((await storage.list()).size, 0, 'finished job friend, manifest and cached model text are removed'); assert.deepEqual(await states.get(other.owner).storage.list(), otherBefore); assert.equal(balance(owner), 1000 - price, 'already delivered reports are not refunded again');
+  await instance(owner).purge(owner); assert.equal((await storage.list()).size, 0, 'finished job friend, manifest and cached model text are removed'); assert.deepEqual(await states.get(other.owner).storage.list(), otherBefore); assert.equal(balance(owner), 1000 - fixturePrice(owner), 'already delivered reports are not refunded again');
   await alarm(owner); assert.equal(await storage.getAlarm(), null); await instance(owner).purge(owner); await alarm(owner); assert.equal((await storage.list()).size, 0);
   assert.equal(sql.prepare('SELECT COUNT(*) AS n FROM coach_capture_records WHERE owner_id=? AND library_id=?').get(owner, body.libraryId).n, 675, 'original source remains for explicit re-analysis');
   const before = calls.length, fresh = { ...body, requestId: crypto.randomUUID() }; const queued = await start(owner, fresh); assert.equal(queued.reused, undefined); assert.equal(queued.taskId, fresh.requestId);
-  const done = await finish(owner); assert.equal(done.status, 'done', done.error); assert.equal(done.reusedSteps, 0); assert.equal(calls.length - before, 4, 'deleted cached steps cannot be reused even with the same source epoch'); assert.equal(balance(owner), 1000 - 2 * price); assert.equal(sql.prepare('SELECT status FROM coach_saved_reports WHERE id=?').get(body.requestId).status, 'deleted');
+  const done = await finish(owner); assert.equal(done.status, 'done', done.error); assert.equal(done.reusedSteps, 0); assert.equal(calls.length - before, 4, 'deleted cached steps cannot be reused even with the same source epoch'); assert.equal(balance(owner), 1000 - 2 * fixturePrice(owner)); assert.equal(sql.prepare('SELECT status FROM coach_saved_reports WHERE id=?').get(body.requestId).status, 'deleted');
 });
 
 await test('concurrent checkpoint calls finish in-flight work before yielding and validate phase outputs', async () => {

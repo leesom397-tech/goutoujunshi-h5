@@ -48,7 +48,7 @@ export function DecisionPanel({ result }: { result: CrushResult }) {
           <details><summary>为什么这样回 · 理由与代价</summary><p><b>理由：</b>{option.reason}</p><p><b>代价：</b>{option.cost || "这份旧报告没有评估代价；发送前请结合对方的边界判断。"}</p></details>
           <button type="button" disabled={!canPersonalize || busyIndex !== null || result.id === "demo"} onClick={() => void requestRewrite(index)}>{busyIndex === index ? "正在调整语气…" : "更像我一点"}</button>
           {!canPersonalize && <small>本轮我方原话不足，无法可靠调整语气。</small>}
-          {canPersonalize && <small>点击后，仅将这条候选回复与本轮已确认的我方原话发给阿里云百炼；不发送截图或长期档案。</small>}
+          {canPersonalize && <small>使用这条候选回复与本轮已确认的我方原话调整表达。<a href="/privacy#ai-processing" target="_blank" rel="noreferrer">数据处理说明</a></small>}
           {rewrite && <small role="status">{rewrite.note}</small>}
           {error[index] && <small role="alert">{error[index]}</small>}
         </article>;

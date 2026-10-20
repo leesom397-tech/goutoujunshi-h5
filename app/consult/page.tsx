@@ -194,7 +194,7 @@ export default function Home() {
   }
 
   async function analyzeVoiceCall(call: { call_id: string; arguments?: string }, channel: RTCDataChannel) {
-    let output = JSON.stringify({ error: "千问分析暂不可用，请提醒用户稍后再试，不要自行编造结论。" });
+    let output = JSON.stringify({ error: "分析服务暂不可用，请提醒用户稍后再试，不要自行编造结论。" });
     try {
       const args = JSON.parse(call.arguments || "{}") as { query?: string };
       const response = await fetch("/api/voice/delegate", {

@@ -8,6 +8,7 @@ import { CaptureFullHistoryError, MAX_FULL_CAPTURE_ROWS } from "./capture-full-h
 import {captureMaterialRole,captureMaterialCounts,CAPTURE_MATERIAL_GUIDANCE,type CaptureMaterialMetadata} from "./capture-material";
 import { validatedCaptureImageObservations } from "./capture-image-observations";
 import { attachCaptureContext } from "./capture-history-context";
+import { captureMomentsStatistics } from "./capture-moments-statistics";
 
 type Database = ReturnType<typeof getD1>;
 type Snapshot = { libraryId: string; kind: "chat" | "moments"; epoch: number; revision: number; total: number };
@@ -168,10 +169,12 @@ export async function readRelatedCaptureEvidence(db: Database, owner: string, in
   }
   await assertCaptureSnapshotsCurrent(db, owner, snapshots);
   const supplementalRecords: CaptureMemoryRow[] = [], mediaEvidence: CaptureMediaEvidence[] = [], sourceCoverage: CaptureSourceCoverage[] = [],profileMaterials:CaptureProfileMaterial[]=[];
+  const momentSources: Parameters<typeof captureMomentsStatistics>[0][number][] = [];
   for (const {snapshot, records} of sources) {
     const byId = new Map(records.map(row => [row.localId, row]));
     const media = await db.prepare("SELECT id,local_id,image_index,mime,sha256,bytes,chunk_count,analysis_json,analysis_version FROM coach_capture_media WHERE owner_id=? AND library_id=? AND epoch=? AND status='ready' ORDER BY local_id,image_index,id").bind(owner, snapshot.libraryId, snapshot.epoch).all<Media>();
     const pictures = media.results.filter(row => byId.has(row.local_id));
+    if(snapshot.kind==="moments")momentSources.push({libraryId:snapshot.libraryId,records,media:pictures});
     // One visible-ui-preview is one captured frame, even if that frame contains
     // a nine-photo grid. Do not subtract frame count from original-photo count.
     const expected = Math.max(pictures.length, records.reduce((sum, row) => sum + (row.source?.imageType === "visible-ui-preview" ? 1 : Math.max(0, Number(row.imageCount) || 0, row.kind === "image" ? 1 : 0)), 0));
@@ -200,5 +203,5 @@ export async function readRelatedCaptureEvidence(db: Database, owner: string, in
     coverage.status = coverage.imagesMissing || coverage.imagesFailed || coverage.imagesUnreadable ? "partial" : "complete";
   }
   await assertCaptureSnapshotsCurrent(db, owner, snapshots);
-  return {snapshots, supplementalRecords:attachCaptureContext(supplementalRecords,chat.records,supplementalRecords,input.libraryId!), sourceCoverage, mediaEvidence,profileMaterials};
+  return {snapshots, supplementalRecords:attachCaptureContext(supplementalRecords,chat.records,supplementalRecords,input.libraryId!), sourceCoverage, mediaEvidence,profileMaterials,momentsStatistics:captureMomentsStatistics(momentSources)};
 }

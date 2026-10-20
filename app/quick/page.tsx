@@ -1,4 +1,5 @@
 "use client";
+import { DataProcessingLink } from "@/components/DataProcessingLink";
 import { BrandMark } from "@/components/BrandMark";
 
 import { useEffect, useRef, useState } from "react";
@@ -98,7 +99,7 @@ export default function QuickPage() {
         setStatus(previous => previous ? { ...previous, enabled: true, provider: "qwen" } : previous);
       }
       if (!status?.imageEnabled || status.imageSelfSide !== selfSide) {
-        if (!imageConsent) throw new Error("请先同意截图发送至阿里云百炼，并确认本人气泡位置。");
+        if (!imageConsent) throw new Error("请先确认截图处理授权及本人气泡位置。");
         await postSettings({ action: "imageMapping", enabled: true, selfSide, allowImageProcessing: true });
         setStatus(previous => previous ? { ...previous, imageEnabled: true, imageSelfSide: selfSide } : previous);
       }
@@ -183,8 +184,8 @@ export default function QuickPage() {
       <p className="quick-person-note">{subjectId ? "本次分析会接入选中对象的近期聊天；长期事实仍由你确认后保存。" : "先作为临时聊天处理，不会自动归入某个人的长期档案。"} <a href="/profile">管理对象</a></p>
       <div className="quick-consents">
         <label><input type="checkbox" checked={rights} disabled={busy || auth !== "in"} onChange={event => setRights(event.target.checked)}/> 我确认有权提供这张本人双人单聊截图</label>
-        {requiresChatConsent && <label><input type="checkbox" checked={chatConsent} disabled={busy || auth !== "in"} onChange={event => setChatConsent(event.target.checked)}/> 同意聊天文字交由阿里云千问分析，并在本站保留文字与报告 7 天</label>}
-        {requiresImageConsent && <label><input type="checkbox" checked={imageConsent} disabled={busy || auth !== "in"} onChange={event => setImageConsent(event.target.checked)}/> 同意原图发送至阿里云百炼识别；原图不进入长期档案</label>}
+        {requiresChatConsent && <label><input type="checkbox" checked={chatConsent} disabled={busy || auth !== "in"} onChange={event => setChatConsent(event.target.checked)}/> 同意分析聊天文字，并在本站保留文字与报告 7 天。<DataProcessingLink/></label>}
+        {requiresImageConsent && <label><input type="checkbox" checked={imageConsent} disabled={busy || auth !== "in"} onChange={event => setImageConsent(event.target.checked)}/> 同意识别本次原图；原图不进入长期档案。<DataProcessingLink/></label>}
       </div>
       <button type="button" className="quick-primary" disabled={busy || auth === "loading"} onClick={() => void submit()}>{busy ? "正在逐句读取，结果会显示在下方…" : "看这张图怎么聊"}{busy ? <span className="quick-loading"/> : <Sparkles size={18}/>}</button>
       {error && <p className="quick-error" role="alert">{error}</p>}

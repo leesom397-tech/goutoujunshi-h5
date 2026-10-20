@@ -29,7 +29,7 @@ export async function POST(request: Request) {
     selected = await db.prepare("SELECT id, label FROM coach_subjects WHERE id = ? AND owner_id = ?").bind(body.subjectId, owner).first<{ id: string; label: string }>();
     if (!selected) return json({ error: "所选对象不存在。" }, 404);
   }
-  if (!qwenKey()) return json({ error: "智能整理尚未配置百炼密钥。" }, 503);
+  if (!qwenKey()) return json({ error: "智能整理暂未开通，请联系客服。" }, 503);
   const content: QwenContent = [
     { type: "text", text: "当前选中对象：" + (selected?.label || "无") + "\n用户本轮内容：" + (body.text || "") },
   ];

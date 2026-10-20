@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {mkdir, writeFile} from "node:fs/promises";
 import {resolve} from "node:path";
 import puppeteer from "puppeteer-core";
+import {ANALYSIS_PRICES,ANALYSIS_PRICE_VERSION} from "../lib/analysis-pricing.mjs";
 
 const origin=process.env.INTAKE_TEST_ORIGIN||"http://127.0.0.1:8798";
 const output=resolve("outputs/screenshot-entry");
@@ -14,7 +15,7 @@ try {
   for(const width of [1440,390,320]) {
     const context=await browser.createBrowserContext(),page=await context.newPage(),errors=[],mutations=[];
     let owner="screenshot-fixture";
-    const account=()=>({account:{userId:owner,balance:100,active:true},prices:{analysisSmall:3,analysisMedium:5,analysisLarge:8,profile:5},people:[{id:"person-a",label:"合成小林"}]});
+    const account=()=>({account:{userId:owner,balance:100,active:true},prices:{...ANALYSIS_PRICES,profile:30},people:[{id:"person-a",label:"合成小林"}]});
     await page.setViewport({width,height:960});
     page.on("pageerror",e=>errors.push(e.message));
     await page.setRequestInterception(true);
@@ -65,7 +66,7 @@ try {
       await page.waitForSelector("#analysis-confirm");
       assert.equal(await page.$eval("#materials",el=>el.checkVisibility()),false);
       assert.equal(await page.$eval('[data-tour="analysis-person"]',el=>el.open),false,"optional archive is folded");
-      assert.match(await page.$eval(".ax-order-summary",el=>el.innerText),/好感探测器.*1 张待分析.*3 积分/s);
+      assert.match(await page.$eval(".ax-order-summary",el=>el.innerText),/好感探测器.*1 张待分析.*5 积分/s);
       assert.equal(await page.$eval(".ax-submit",el=>el.disabled),true);
       await text("截图里哪侧是你");
       await clickText("右侧是我");
@@ -73,7 +74,9 @@ try {
       assert.equal(mutations.length,0,"identity choice never starts paid work");
       await page.click(".ax-consent input");
       await page.waitForFunction(()=>!document.querySelector(".ax-submit").disabled);
-      assert.match(await page.$eval(".ax-submit",el=>el.innerText),/开始好感探测 · 3 积分/);
+      assert.match(await page.$eval(".ax-submit",el=>el.innerText),/开始好感探测 · 5 积分/);
+      assert.equal(await page.$eval(".ax-consent a",el=>el.getAttribute("href")),"/privacy#ai-processing");
+      assert.equal(await page.$eval(".ax-consent a",el=>el.target),"_blank");
       await page.screenshot({path:resolve(output,`confirmation-${width}.png`),fullPage:true});
       await clickText("返回修改材料");
       assert.equal(await page.$$eval(".wa-image",els=>els.length),1,"back preserves the selected image");
@@ -91,6 +94,7 @@ try {
       assert.equal(new Set(mutations.map(x=>x.taskId)).size,1,"one confirmed task");
       assert.equal(mutations[0].selfSide,"right");
       assert.equal(mutations[0].confirmed,true);
+      assert.deepEqual(mutations[0].priceConfirmation,{version:ANALYSIS_PRICE_VERSION,amount:5});
 
       // A new account has no queued task; social sources remain scoped.
       owner="screenshot-moments";

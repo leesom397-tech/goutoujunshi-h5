@@ -2,8 +2,7 @@
 import { ReportCoverage, reportSourceSummary } from "./ReportCoverage";
 import { useEffect, useRef, useState } from "react";
 import { Sparkles, MessageCircle, ChartNoAxesCombined, Quote, HeartHandshake, Copy, Smile, CircleHelp, Heart, HandHeart, Meh, Frown, Angry, Eye, CircleCheck, Send, ArrowLeft, ArrowRight, Lightbulb, Image, Sticker, BookOpen, CalendarDays, Flag } from "lucide-react";
-import { api, ErrorNotice, followup, message, priceLabel, hasPrice, type Json } from "./client";
-import { personalizeReplyText, replyStyleSamples } from "@/lib/crush/reply-style";
+import { ErrorNotice, followup, message, type Json } from "./client";
 import { ArchiveRadar } from "@/components/ArchiveCharts";
 import { ChatPhotoClues, InteractionEvidence } from "./ReportEvidence";
 import { validScore } from "./report-data";
@@ -15,7 +14,7 @@ import { InsightExplorer } from "./InsightExplorer";
 import { ReportFollowUp, ReportActionFeedback } from "./ReportFollowUp";
 import { RelationshipEvidenceCards } from "./RelationshipEvidenceCards";
 import { RiskReview } from "./RiskReview";
-import { riskAwarePresentation, riskReplyAllowed } from "@/lib/risk-aware-presentation";
+import { riskAwarePresentation } from "@/lib/risk-aware-presentation";
 import { RelationshipJourney } from "@/components/RelationshipJourney";
 import { projectRelationshipContext } from "@/lib/relationship-context";
 import { CaptureEvidence, CaptureEvidenceProvider } from "./CaptureEvidence";
@@ -30,30 +29,13 @@ import { ChatReportBrief, ReportChapterArt } from "./ReportBrief";
 import { ReportVisualMetrics } from "./ReportVisualMetrics";
 import { ReportDetails } from "./ReportDetails";
 import { AffinityOverview } from "./AffinityOverview";
-import { HistoryReportReading, HistoryChangeReading, HistoryActionReading, HistoryMomentsOverview } from "./HistoryReportInsights";
+import { HistoryReportReading, HistoryChangeReading, HistoryActionReading, HistoryActionOverview, HistoryMomentsOverview } from "./HistoryReportInsights";
 import { intakeHref } from "./intake-navigation";
 import { withAnalysisFocus } from "@/lib/person-analysis-navigation";
-import {MethodReferences,ReplyDifference} from "./ReportReadingTools";
+import {MethodReferences} from "./ReportReadingTools";
+import { Replies } from "./ReportReplies";
+export { Replies } from "./ReportReplies";
 import {reportReadingScope,reportLineKey,readReportPosition,saveReportPosition} from "@/lib/report-reading-position";
-export function Replies({ options, report, account, styleReportIds, publicExample = false }: { options: Json[]; report?: Json; account: Json | null; styleReportIds?: string[]; publicExample?: boolean }) {
-  const [rewrites, setRewrites] = useState<Record<number, Json>>({}), [busy, setBusy] = useState(-1), [error, setError] = useState(""), [copied, setCopied] = useState(-1);
-  const ids = useState<Record<number, string>>({})[0], mounted = useRef(true);
-  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
-  const style = replyStyleSamples(report?.lines || []), eligible = !!report && style.eligible;
-  const sampleLength = style.samples.join("").replace(/[\s\p{P}\p{S}]/gu, "").length;
-  const loggedIn = !!account?.account?.userId;
-  const unavailable = publicExample ? "" : !report?.id ? "请先上传聊天截图生成报告，才能参考你的原话调整语气。" : !loggedIn ? "登录后可使用这份报告里的我方原话。" : !eligible ? `目前有 ${style.samples.length} 句、${sampleLength} 个可读字；至少需要 3 句、30 个字，补充含你本人回复的聊天截图后即可使用。` : !hasPrice(account, "text") ? "改写价格尚未取回，请到账户核对后再试。" : "";
-  async function copy(text: string, index: number) { try { await navigator.clipboard.writeText(text); setCopied(index); setError(""); } catch { setError("复制没有完成，可以选中回复文字复制。"); } }
-  async function rewrite(index: number) {
-    if (busy !== -1 || rewrites[index] || options[index]?.adjusted || options[index]?.originalIndex === null) return;
-    if (publicExample) { const value = personalizeReplyText(options[index].text, report?.lines || []); setRewrites(previous => ({ ...previous, [index]: { ...value, note: `案例演示，不扣积分。${value.note}` } })); setError(""); return; }
-    if (!report || unavailable) { setError(unavailable); return; } setBusy(index); setError("");
-    try { ids[index] ||= crypto.randomUUID(); const result = await api("/api/web/rewrite", { reportId: report.id, optionIndex: options[index].originalIndex ?? index, confirmed: true, requestId: ids[index], ...(styleReportIds?.length ? { styleReportIds } : {}) }); if (!result.text || !["adjusted", "unchanged"].includes(result.status) || !result.note) throw new Error("改写未完整返回，原推荐仍可使用。"); if (!riskReplyAllowed(riskAwarePresentation(report), result.text)) throw new Error("这次改写偏离了当前边界建议，先保留原推荐。"); if (mounted.current) { setRewrites(previous => ({ ...previous, [index]: result })); window.dispatchEvent(new Event("chengzi:credits-changed")); } }
-    catch (e) { const details=(e as any)?.details,released=details?.creditTaskStatus==='released'||details?.code==='CREDIT_RELEASED';if(released){delete ids[index];window.dispatchEvent(new Event('chengzi:credits-changed'));}if(mounted.current)setError(message(e)+(released?' 本次积分已退回，可以再试。':'')); }
-    finally { if (mounted.current) setBusy(-1); }
-  }
-  return <div className="wa-replies">{(report || publicExample) && options.some(option=>!option.adjusted && option.originalIndex !== null) && <div className={readerStyles.rewriteGuide}><Sparkles size={20}/><div><strong>把回复改得更像你</strong><p>{publicExample ? "先试案例演示；分析自己的聊天后，会参考你本人的用词和语气。" : "参考你的用词、句长和标点；有已确认且相关的共同经历时，也可以自然带入。"}</p>{unavailable && <p>{unavailable}</p>}{!publicExample && report && !loggedIn && <a href={`/login?return_to=${encodeURIComponent(typeof window !== "undefined" ? window.location.pathname + window.location.search : "/reports")}`}>登录后使用 →</a>}{!publicExample && loggedIn && eligible && !hasPrice(account, "text") && <a href="/account">查看账户 →</a>}</div></div>}{options.map((option, index) => <article className="wa-reply" key={index}><span className="wa-pill">{index === 0 ? "本轮首选" : `备选 ${index + 1}`} · {option.style || "自然回应"}</span><p>{rewrites[index]?.status === "adjusted" ? rewrites[index].text : option.text}</p>{rewrites[index]?.status === "adjusted" && <p className="wa-muted">原推荐：{option.text}</p>}<ReplyDifference options={options} index={index}/><div className={readerStyles.replyActions}><button type="button" onClick={() => void copy(rewrites[index]?.status === "adjusted" ? rewrites[index].text : option.text, index)}><Copy size={16}/>{copied === index ? "已复制" : "复制回复"}</button>{(report || publicExample) && !option.adjusted && option.originalIndex !== null && <button type="button" className={readerStyles.personalizeButton} disabled={!!unavailable || busy !== -1 || !!rewrites[index]} onClick={() => void rewrite(index)}><Sparkles size={17}/>{busy === index ? "正在贴近你的语气…" : rewrites[index] ? "已核对我的语气" : "改得更像我"}{!rewrites[index] && <small>{publicExample ? "案例演示 · 免费" : priceLabel(account, "text")}</small>}</button>}</div>{rewrites[index]?.note && <p className={readerStyles.rewriteResult} role="status">{rewrites[index].note}</p>}{rewrites[index]?.experienceEvidence?.map((item:Json)=><blockquote className={readerStyles.rewriteResult} key={item.id}><strong>已确认的共同经历</strong><p>{item.quote}</p><a href={"/report?id="+encodeURIComponent(item.sourceReportId)}>回看来源 →</a></blockquote>)}<div className={readerStyles.interpretation}><strong><Quote size={16}/>为什么适合这轮</strong><p>{option.reason || "结合当前对话自然承接。"}</p>{option.cost && <p className="wa-muted">留意：{option.cost}</p>}</div></article>)}<ErrorNotice error={error}/></div>;
-}
 function Findings({ rows }: { rows?: Json[] }) { return <>{(rows || []).map((row, index) => <div className="wa-insight" key={index}><strong>{row.title || row.dimension || row.item || row.category}</strong>{row.level && <span className="wa-pill">{row.level}</span>}{(row.meaning || row.reading || row.style || row.valueHint || row.conclusion) && <p>{[row.meaning || row.reading || row.conclusion, row.style, row.valueHint].filter(Boolean).join("；")}</p>}{row.evidence && <p className="wa-muted">依据：{row.evidence}</p>}{row.check && <p>核实：{row.check}</p>}</div>)}</>; }
 export function FitReport({fit,title="资料适配 · 你们合适吗？",current=false}:{fit:Json;title?:string;current?:boolean}){
  const rows:Json[]=fit.fit||[],known=rows.filter(row=>validScore(row.score)||validScore(row.value));
@@ -67,7 +49,7 @@ function AnnotationSignal({annotation}:{annotation:Json}){
  return <div><p className="wa-muted">横条是解释权重，不是喜欢程度。</p>{([['emotion','情绪倾向',Smile],['intent','表达意图',MessageCircle]] as const).map(([key,label,GroupIcon])=>{
   const tags=reportRows(annotation[key]).filter(tag=>typeof tag.label==="string");
   const legacyText=typeof annotation[key]==="string"?annotation[key].trim():"";
-  return <div className={readerStyles.signalGroup} data-kind={key} key={key}><h3><GroupIcon size={17}/>{label}</h3>{tags.length?tags.map((tag:Json,index:number)=>{const Icon=tagIcon(tag.key),value=typeof tag.probability==='number'&&tag.probability>=0&&tag.probability<=1?tag.probability*100:typeof tag.weight==='number'&&tag.weight>=0&&tag.weight<=100?tag.weight:null;return <div className={readerStyles.signalRow} key={index}><Icon size={17}/><span>{tag.label}</span><span className={readerStyles.signalTrack} aria-hidden="true"><i style={{width:`${value??0}%`}}/></span><b>{value===null?'—':`权重 ${value>0&&value<1?'<1':Math.round(value)}`}</b></div>}):<p className="wa-muted">{legacyText||"这句没有足够线索，暂不评分。"}</p>}</div>;
+  return <div className={readerStyles.signalGroup} data-kind={key} key={key}><h3><GroupIcon size={17}/>{label}</h3>{tags.length?tags.map((tag:Json,index:number)=>{const Icon=tagIcon(tag.key),value=typeof tag.probability==='number'&&tag.probability>=0&&tag.probability<=1?tag.probability*100:typeof tag.weight==='number'&&tag.weight>=0&&tag.weight<=100?tag.weight:null;return <div className={readerStyles.signalRow} key={index}><Icon size={17}/><span>{tag.label}</span><span className={readerStyles.signalTrack} aria-hidden="true"><i style={{width:`${value??0}%`}}/></span><b>{value===null?'未评分':`${value>0&&value<1?'<1':Math.round(value)}%`}</b></div>}):<p className="wa-muted">{legacyText||"这句没有足够线索，暂不评分。"}</p>}</div>;
  })}{typeof annotation.note==="string"&&annotation.note&&<div className={readerStyles.interpretation}><strong><Lightbulb size={17}/>结合上下文看</strong><p>{annotation.note}</p></div>}</div>;
 }
 function ToneEvidence({report,storageKey}:{report:Json;storageKey?:string}){
@@ -86,20 +68,16 @@ function ToneEvidence({report,storageKey}:{report:Json;storageKey?:string}){
  },[storageKey]);
  function choose(next:number,fromPager=false){
   if(next<0||next>=lines.length)return;
-  const mobile=window.matchMedia('(max-width:700px)').matches,target=list.current?.querySelector<HTMLElement>(`[data-line="${next}"]`),before=target?.getBoundingClientRect().top;
+  const target=list.current?.querySelector<HTMLElement>(`[data-line="${next}"]`),before=target?.getBoundingClientRect().top;
   selectedKey.current=reportLineKey(lines[next],next);setSelected(next);remember();
   requestAnimationFrame(()=>{
    const selectedButton=list.current?.querySelector<HTMLElement>(`[data-line="${next}"]`);if(!selectedButton||!list.current)return;
-   if(mobile){
+   {
     // Collapsing the previous inline answer must not move the sentence just tapped.
     const top=selectedButton.getBoundingClientRect().top;
     const dialog=selectedButton.closest('dialog');
     if(fromPager){const nav=dialog?.querySelector('header')||selectedButton.closest('[data-report-reader]')?.querySelector('[role="tablist"]')?.parentElement;const targetTop=dialog?dialog.getBoundingClientRect().top+(nav?.getBoundingClientRect().height||72)+16:(nav?.getBoundingClientRect().height||100)+16;(dialog||window).scrollBy({top:top-targetTop,behavior:'instant'});selectedButton.focus({preventScroll:true});}
     else if(before!==undefined&&Math.abs(top-before)>1)(dialog||window).scrollBy({top:top-before,behavior:'instant'});
-   }else if(fromPager){
-    const bounds=list.current.getBoundingClientRect(),rect=selectedButton.getBoundingClientRect();
-    if(rect.top<bounds.top+8)list.current.scrollBy({top:rect.top-bounds.top-8,behavior:'instant'});
-    else if(rect.bottom>bounds.bottom-8)list.current.scrollBy({top:rect.bottom-bounds.bottom+8,behavior:'instant'});
    }
   });
  }
@@ -160,18 +138,19 @@ export function ChatReport({report,account,styleReportIds,preview=false,publicEx
   <div className={reportStyles.participantScope} data-report-participants><span>{momentOnly?'完整朋友圈报告':fullHistory?'完整关系报告':'本次聊天报告'}</span><strong>{momentOnly?identity.other:identity.direction}</strong><small data-report-source-scope>{reportSourceSummary(report)}<CaptureEvidence label="查看原话依据"/></small></div>
   <ReportReader key={readingScope||report.reportId||report.id||"chat-report"} storageKey={readingScope} initialSection={initialFocus==='reply'?'next':initialFocus==='intent'&&!fullHistory?'change':initialFocus==='affinity'||initialFocus==='intent'?'status':undefined} items={!fullHistory?screenshotSections:momentOnly?fullMomentsSections:chatSections}>{active=><>
    {active==='status'&&<>
-    {affinityFirst&&<AffinityOverview report={report}/>}
+    {affinityFirst&&<><AffinityOverview report={report}/><Replies compact options={options} report={report} account={account} publicExample={publicExample}/></>}
     <ChatReportBrief report={report} diagnosis={diagnosis} showMetrics={fullHistory&&!momentOnly}/>
-    {!fullHistory&&!affinityFirst&&<AffinityOverview report={report}/>}
+    {!fullHistory&&!affinityFirst&&<><AffinityOverview report={report}/><Replies compact options={options} report={report} account={account} publicExample={publicExample}/></>}
     {decision.partial&&<p className="wa-status">部分材料未识别；下方依据只覆盖可读内容。</p>}
     <RiskReview report={report} summaryOnly={fullHistory} onInspect={fullHistory&&!momentOnly?kind=>{setRiskCategory(kind);setHistorySection('risk');requestAnimationFrame(()=>document.querySelector('[data-history-reading]')?.scrollIntoView({block:'start',behavior:'instant'}));}:undefined}/>
-    {fullHistory&&!momentOnly&&<HistoryMomentsOverview report={report} onOpen={()=>{setHistorySection('moments');requestAnimationFrame(()=>document.querySelector('[data-history-reading]')?.scrollIntoView({block:'start',behavior:'instant'}));}}/>}
+    {fullHistory&&!momentOnly&&historySection!=='moments'&&<HistoryMomentsOverview report={report} onOpen={()=>{setHistorySection('moments');requestAnimationFrame(()=>document.querySelector('[data-history-reading]')?.scrollIntoView({block:'start',behavior:'instant'}));}}/>}
     {fullHistory&&<HistoryReportReading report={report} diagnosis={diagnosis} section={historySection} onSectionChange={setHistorySection} recentReading={recentReading} riskCategory={riskCategory}/>}
+    <section className="wa-card" data-report-connection><h2><HeartHandshake size={21}/>怎么与这个人相处</h2>{fullHistory&&<HistoryActionOverview report={report}/>}<PersonalConnection report={report} publicExample={publicExample}/>{fit&&<FitReport fit={fit} current={Object.prototype.hasOwnProperty.call(report,'latestCompatibility')}/>}</section>
     {!preview&&!publicExample&&<ReportFollowUp report={actionReport} owner={account?.account?.userId}/>}
     <div className={reportStyles.detailLinks}><h2><BookOpen size={19}/>深入读这份报告</h2><ReportCoverage report={report}/>
      <MethodReferences sources={report.knowledgeSources||semantic?.knowledgeSources||report.decision?.knowledgeSources}/>
      {!fullHistory&&(diagnosis||semantic)&&<ReportDetails title="为什么这样判断" description="详细解读、相反证据与其他可能"><RelationshipDiagnosisPanel diagnosis={diagnosis} semanticHistory={semantic} hideCoverage={!!report.sourceCoverage?.length}/></ReportDetails>}
-     {!momentOnly&&<ReportDetails title="我们之间：共同点与相处差异" description="共同点、期待与需要磨合的地方"><PersonalConnection report={report} publicExample={publicExample}/>{fit&&<FitReport fit={fit} current={Object.prototype.hasOwnProperty.call(report,'latestCompatibility')}/>}</ReportDetails>}
+
      {!preview&&!publicExample&&report.profileMemory&&<ReportDetails title="这次对我的新了解" description="查看从你的表达中整理的信息，也可以纠正"><ConversationMemoryReview memory={report.profileMemory} ownerId={account?.account?.userId} subjectId={report.subjectId}/></ReportDetails>}
      {!diagnosis&&!semantic&&<ReportDetails title="查看完整分析" description="这份报告保留的详细线索与解释"><InsightExplorer compact publicExample={publicExample} report={report} kind="chat" owner={publicExample?undefined:account?.account?.userId}/></ReportDetails>}
     </div>
@@ -187,10 +166,11 @@ export function ChatReport({report,account,styleReportIds,preview=false,publicEx
     </>}
    </>}
    {active==='next'&&<>
-    <ReportChapterArt kind="next"/>
+    {fullHistory?<ReportChapterArt kind="next"/>:<Replies key={`${account?.account?.userId}:${report.id}`} options={options} report={report} account={account} styleReportIds={styleReportIds} publicExample={publicExample}/>}
     {fullHistory?<HistoryActionReading report={report} onAsk={!publicExample&&account?.account?.userId?askGoal:undefined}/>:<section className={reportStyles.nextAction}><header><span>把判断变成行动</span><h2>接下来先做这一件<ArrowRight size={23}/></h2></header><p>{action}</p><dl>{observe&&<div><dt><CalendarDays size={17}/>观察窗口</dt><dd>{observe}</dd></div>}{stop&&<div><dt><Flag size={17}/>何时重新判断</dt><dd>{stop}</dd></div>}</dl></section>}
     {!preview&&!publicExample&&<ReportActionFeedback report={actionReport} owner={account?.account?.userId}/>}
-    {options.length>0&&<section className="wa-card" id="replies"><h2><Send size={21}/>需要回复时，可以这样说</h2><Replies key={`${account?.account?.userId}:${report.id}`} options={options} report={report} account={account} styleReportIds={styleReportIds} publicExample={publicExample}/>{decision.replyReview&&<div className={readerStyles.interpretation}><strong>对原回复的回顾</strong><p>{decision.replyReview}</p></div>}</section>}
+    {fullHistory&&options.length>0&&<section className="wa-card" id="replies"><Replies key={`${account?.account?.userId}:${report.id}`} options={options} report={report} account={account} styleReportIds={styleReportIds} publicExample={publicExample}/></section>}
+    {decision.replyReview&&<div className={readerStyles.interpretation}><strong>对原回复的回顾</strong><p>{decision.replyReview}</p></div>}
     {!fullHistory&&presentation.mode==='normal'&&alternatives.length>0&&<ReportDetails title="如果情况变化，还有哪些选择" description="比较其他做法及适用条件"><div className={reportStyles.actionOptions}>{alternatives.slice(0,4).map((option,index)=><article key={option.label||index}><h3>{option.label}</h3><p>{option.action}</p><dl><div><dt>观察</dt><dd>{option.observeWindow}</dd></div><div><dt>停止条件</dt><dd>{option.stopCondition}</dd></div></dl></article>)}</div></ReportDetails>}
     {!publicExample&&<div className="wa-actions"><button disabled={!account?.account?.userId} onClick={()=>{try{followup(actionReport,account!.account.userId);}catch(e){setFollowupError(message(e));}}}><MessageCircle size={16}/>{fullHistory?'基于全部资料继续问成子':'带着报告问成子'}</button>{report.subjectId&&<a className="wa-button" href={`/archive?subjectId=${report.subjectId}`}>人物档案</a>}</div>}
     {fullHistory&&!publicExample&&<a className={reportStyles.supplementAction} href={newChatHref} data-new-sentence-analysis><MessageCircle size={18}/>补充新聊天，逐句解读<ArrowRight size={17}/></a>}

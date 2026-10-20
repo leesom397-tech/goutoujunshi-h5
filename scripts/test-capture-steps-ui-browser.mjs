@@ -20,7 +20,7 @@ const browser = await puppeteer.launch({ headless: true, executablePath: process
 const page = await browser.newPage(), errors = [], calls = [], jobs = /* @__PURE__ */ new Map(), cloud = /* @__PURE__ */ new Map();
 let reportState = "running", activeReport = null, failStatus = false;
 let voiceReleased = false, voiceDone = false, connected = false, requestCount = 0, earlyUploaded = false, momentsReleased = false, momentsUploaded = false;
-let imagesDone=false;
+let imagesDone=false, repeatedPartialOmitted=0, initialMomentPartials=0;
 const image={mime:"image/png",name:"synthetic.png",data:"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aXGkAAAAASUVORK5CYII="};
 page.on("pageerror", (e) => errors.push(e.message));
 const rows = Array.from({ length: 513 }, (_, i) => ({ id: "wechat-db:fixture-" + i, kind: i < 13 ? "other" : "text", sender: i % 2 ? friend : "我", senderRole: i % 2 ? "other" : "self", at: new Date(Date.UTC(2026, 8, 1, 0, i)).toISOString(), text: i < 13 ? "[语音]" : "真实浏览器中的合成测试 " + i, source: { label: "合成原文", method: "wechat-local-db", idStability: "stable", accountId: wx, sessionId: contactId, messageShard: "message_0.db", messageId: String(i + 1), localId: String(i + 1), ...i < 13 ? { mediaKind: "voice", durationSeconds: 3, transcriptionStatus: "not-transcribed", voiceAvailability: "missing-local" } : {} } }));
@@ -43,7 +43,7 @@ page.on("request", async (req) => {
     let value = {}, status = 200;
     if (u.port === "17863") {
       if (req.method() === "OPTIONS") {
-      } else if (u.pathname === "/health") value = { version: legacyImages?"1.2.13":"1.2.15", ready: true, backgroundModelReady: true, capabilities: { chat: true, moments: true, personBundle: true, momentsAllVisible: true, momentsContacts: true, backgroundChat: true, backgroundHistory: true, backgroundVoice: true, backgroundVoiceById: true,...(!legacyImages?{backgroundImagesById:true}:{}) } };
+      } else if (u.pathname === "/health") value = { version: legacyImages?"1.2.13":"1.2.16", ready: true, backgroundModelReady: true, capabilities: { chat: true, moments: true, personBundle: true, momentsAllVisible: true, momentsContacts: true, backgroundChat: true, backgroundHistory: true, backgroundVoice: true, backgroundVoiceById: true,...(!legacyImages?{backgroundImagesById:true,jobProgressRevision:true}:{}) } };
       else if (u.pathname === "/session") value = { connected };
       else if (u.pathname === "/pair") {
         connected = true;
@@ -62,7 +62,12 @@ page.on("request", async (req) => {
         assert.ok(body);
         if (body.cursor && !earlyUploaded) value = { status: "running", message: "等待重叠上传验收", progress: 10 };
         else if (body.voiceOnly && !voiceReleased) value = { status: "running", message: "正在转写语音 0 / 13", progress: 10 };
-        else if (body.kind === "moments" && !momentsReleased) value = { status: "running", message: "继续采集朋友圈", progress: 20, partialRevision: 1, partial: { ...moments(), coverage: { ...moments().coverage, complete: false, stopReason: "scanning", recordCount: 2 }, records: moments().records.slice(0, 2) } };
+        else if (body.kind === "moments" && !momentsReleased) {
+          const acknowledged=u.pathname.endsWith("/since/1");
+          if(acknowledged)repeatedPartialOmitted++;else initialMomentPartials++;
+          value = { status: "running", message: "继续采集朋友圈", progress: 20, partialRevision: 1,
+            ...(!acknowledged?{partial: { ...moments(), coverage: { ...moments().coverage, complete: false, stopReason: "scanning", recordCount: 2 }, records: moments().records.slice(0, 2) }}:{}) };
+        }
         else {
           if (body.voiceOnly) voiceDone = true;
           if (body.imageOnly) imagesDone = true;
@@ -104,7 +109,10 @@ page.on("request", async (req) => {
           value={ownerId:owner,library:{...state,rows:undefined,total:state.rows.size},records,nextCursor:offset+records.length<state.rows.size?String(offset+records.length):null};
         } else value = { ownerId: owner, libraries: [...cloud.values()].map((v) => ({ ...v, rows: void 0, total: v.rows.size })) };
       } else if (u.pathname === "/api/web/capture/analyze") {
-        if (body) {
+        if (body?.quoteOnly) {
+          assert.equal(body.confirmed,false);
+          value={quote:{version:1,amount:30,label:"完整关系分析"}};
+        } else if (body) {
           assert.equal(body.confirmed, true);
           assert.equal(body.expectedTotal, 513);
           assert.equal(body.relatedSnapshots.length, 1);
@@ -167,7 +175,7 @@ flow: try {
   assert.equal(calls.find((c) => c.path === "capture" && c.body.voiceOnly).body.voiceIds.length, 13);
   assert.equal(earlyUploaded, true, "first page uploaded before remaining history and voices complete");
   assert.equal(await page.$eval("#capture-preview", (e) => !!e.getClientRects().length), false, "no ready/report controls while voices processing");
-  assert.equal(calls.filter((c) => c.path === "/api/web/capture/analyze" && c.body).length, 0);
+  assert.equal(calls.filter((c) => c.path === "/api/web/capture/analyze" && c.body?.confirmed).length, 0);
   await page.screenshot({ path: out + "/voice-progress.png", fullPage: true });
   voiceReleased = true;
   if(legacyImages){
@@ -175,7 +183,7 @@ flow: try {
     await new Promise(resolve=>setTimeout(resolve,1500));
     assert.equal(calls.filter(c=>c.path==="capture"&&c.body.imageOnly).length,0,"old helper never receives an unsupported image request");
     assert.equal(calls.filter(c=>c.path==="capture").length,3,"old helper does not loop after one history and voice pass");
-    assert.equal(calls.filter(c=>c.path==="/api/web/capture/analyze"&&c.body).length,0);
+    assert.equal(calls.filter(c=>c.path==="/api/web/capture/analyze"&&c.body?.confirmed).length,0);
     await page.screenshot({path:out+"/old-helper-image-update.png",fullPage:true});
     console.log("PASS old helper image capability: explicit update message, saved chats kept, no unsupported capture/retry/charge.");
     break flow;
@@ -189,12 +197,22 @@ flow: try {
   const counts = await page.$eval('[data-import-stage="moments"]', (e) => e.innerText);
   assert.match(counts, /聊天\s*513/, "chat count remains visible during Moments");
   assert.match(counts, /语音转写\s*13\s*\/\s*13/, "voice progress remains completed");
+  await new Promise((resolve,reject)=>{
+    const deadline=Date.now()+10000;
+    const poll=()=>repeatedPartialOmitted?resolve():Date.now()>deadline?reject(Error("revision ACK not used after saved partial")):setTimeout(poll,50);poll();
+  });
+  assert.equal(initialMomentPartials,1,"the first Moments partial is transferred once; unchanged polls carry no image payload");
+  // A revision acknowledgement arrives after the first 1.4-second poll. The
+  // measured rate intentionally appears only after 3 seconds, not immediately.
+  await page.waitForSelector('[data-capture-speed]',{visible:true,timeout:6000});
+  assert.match(await page.$eval('[data-capture-speed]',e=>e.textContent),/平均 \d+\.\d 条\/秒/,"Moments displays measured capture speed while polling");
   momentsReleased = true;
   await page.waitForSelector("#capture-confirm", { visible: true });
   assert.equal(calls.filter((c) => c.path === "capture").length, 5, "text x2 + voice x1 + images x1 + Moments x1, no repeated capture");
   assert.equal(calls.filter(c=>c.path==="capture"&&c.body.imageOnly).length,1,"terminal missing-local images never loop");
+  assert.equal([...cloud.values()].find(value=>value.kind==="moments").rows.size,5,"the final three Moments including the last row are preserved after omitted intermediate polls");
   assert.match(await page.$eval("#capture-confirm",e=>e.innerText),/聊天图片 3 \/ 5 条可读 · 2 条缺失/);
-  assert.equal(calls.filter((c) => c.path === "/api/web/capture/analyze" && c.body).length, 0, "no charge before confirmation");
+  assert.equal(calls.filter((c) => c.path === "/api/web/capture/analyze" && c.body?.confirmed).length, 0, "no charge before confirmation");
   assert.match(await page.$eval("#capture-confirm", (e) => e.innerText), /全部 513 条聊天 \+ 5 条朋友圈/);
   await page.setViewport({ width: 390, height: 844 });
   await page.screenshot({ path: out + "/03-fee-mobile.png", fullPage: true });
@@ -217,14 +235,14 @@ flow: try {
   await page.click("#capture-confirm input[type=checkbox]");
   await page.evaluate(() => {const action=[...document.querySelectorAll("#capture-confirm button")].find((e) => e.textContent.includes("确认并生成报告"));action.click();action.click();});
   await page.waitForSelector('[data-capture-analysis="running"]', { timeout: 6e4 });
-  assert.equal(calls.filter((c) => c.path === "/api/web/capture/analyze" && c.body).length, 1, "one final report");
+  assert.equal(calls.filter((c) => c.path === "/api/web/capture/analyze" && c.body?.confirmed).length, 1, "one final report");
   assert.equal(calls.filter((c) => c.path === "/api/web/capture/library" && c.body?.action === "sync").length, uploadedBeforeConfirm, "confirm reuses the verified upload rather than syncing again");
   assert.equal(await page.$eval("#capture-preview", (e) => !!e.getClientRects().length), false, "one active analysis view");
   // Refresh while running restores the same task and cannot expose a second generate action.
   await page.reload({waitUntil:"networkidle0"});
   await page.waitForSelector('[data-capture-analysis="running"]',{timeout:30000});
   assert.equal(await page.$eval("#capture-preview",e=>!!e.getClientRects().length),false,"refresh keeps one running-task surface");
-  assert.equal(calls.filter(c=>c.path==="/api/web/capture/analyze"&&c.body).length,1,"refresh never posts or charges");
+  assert.equal(calls.filter(c=>c.path==="/api/web/capture/analyze"&&c.body?.confirmed).length,1,"refresh never posts or charges");
   failStatus=true;
   await page.evaluate(()=>window.dispatchEvent(new Event("chengzi:capture-analysis")));
   await waitText("暂时连不上进度");
@@ -240,7 +258,7 @@ flow: try {
   await page.reload({waitUntil:"networkidle0"});
   await page.waitForSelector('[data-capture-analysis="done"]',{visible:true});
   await page.waitForFunction(()=>!document.body.innerText.includes("正在核对这位好友的朋友圈"));
-  assert.equal(calls.filter(c=>c.path==="/api/web/capture/analyze"&&c.body).length,1,"done refresh does not resubmit analysis");
+  assert.equal(calls.filter(c=>c.path==="/api/web/capture/analyze"&&c.body?.confirmed).length,1,"done refresh does not resubmit analysis");
   await page.setViewport({width:390,height:844});
   await page.screenshot({path:out+"/04-complete-mobile.png",fullPage:true});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true,"completed mobile no overflow");
@@ -248,7 +266,7 @@ flow: try {
   await click("重新分析 / 调整重点");
   await page.waitForSelector("#capture-confirm",{visible:true});
   assert.equal(await page.$eval("#capture-confirm input[type=checkbox]",e=>e.checked),false,"reanalyze requires fresh explicit fee confirmation");
-  assert.equal(calls.filter(c=>c.path==="/api/web/capture/analyze"&&c.body).length,1,"opening reanalysis does not post");
+  assert.equal(calls.filter(c=>c.path==="/api/web/capture/analyze"&&c.body?.confirmed).length,1,"opening reanalysis does not post");
   await click("返回上一步");
   await page.evaluate(()=>[...document.querySelectorAll('[role="tab"]')].find(e=>e.textContent.includes("导入详情")).click());
   assert.equal(await page.$eval('[data-cloud-sync]',e=>[...e.querySelectorAll("button")].some(button=>button.getClientRects().length)),false,"healthy imported material has no redundant manual sync action");
@@ -260,7 +278,7 @@ flow: try {
   },owner);
   await page.reload({waitUntil:"networkidle0"});
   await waitText("这次有新增或更新的资料");
-  assert.equal(calls.filter(c=>c.path==="/api/web/capture/analyze"&&c.body).length,1,"new material never regenerates or charges automatically");
+  assert.equal(calls.filter(c=>c.path==="/api/web/capture/analyze"&&c.body?.confirmed).length,1,"new material never regenerates or charges automatically");
   await page.screenshot({path:out+"/05-updated-material.png",fullPage:true});
   reportState="error";
   await page.evaluate(()=>window.dispatchEvent(new Event("chengzi:capture-analysis")));
@@ -273,7 +291,7 @@ flow: try {
   await page.click("#capture-confirm input[type=checkbox]");
   await page.evaluate(()=>{const action=[...document.querySelectorAll("#capture-confirm button")].find(e=>e.textContent.includes("确认并生成报告"));action.click();action.click();});
   await page.waitForSelector('[data-capture-analysis="running"]',{visible:true});
-  assert.equal(calls.filter(c=>c.path==="/api/web/capture/analyze"&&c.body).length,2,"double-click on explicit retry makes only one new request");
+  assert.equal(calls.filter(c=>c.path==="/api/web/capture/analyze"&&c.body?.confirmed).length,2,"double-click on explicit retry makes only one new request");
   reportState="done";
   await page.evaluate(()=>window.dispatchEvent(new Event("chengzi:capture-analysis")));
   await page.waitForSelector('[data-capture-analysis="done"]',{visible:true});

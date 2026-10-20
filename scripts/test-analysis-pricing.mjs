@@ -1,0 +1,110 @@
+// Real SQLite credit triggers and production screenshot Durable Object logic.
+// All media, identities and model responses are synthetic; no network calls.
+import assert from 'node:assert/strict';
+import {readFileSync,readdirSync} from 'node:fs';
+import {DatabaseSync} from 'node:sqlite';
+import {createRequire} from 'node:module';
+import {build} from 'esbuild';
+import * as credits from '../lib/account-credits.mjs';
+import {screenshotPrice,fullHistoryPrice,ANALYSIS_PRICE_VERSION} from '../lib/analysis-pricing.mjs';
+const require=createRequire(import.meta.url),sql=new DatabaseSync(':memory:');
+for(const file of readdirSync('drizzle').filter(name=>name.endsWith('.sql')).sort())sql.exec(readFileSync('drizzle/'+file,'utf8'));
+const db={prepare(query){
+  return {
+    args:[],
+    bind(...args){this.args=args;return this},
+    async first(){return sql.prepare(query).get(...this.args)||null},
+    async all(){return {results:sql.prepare(query).all(...this.args)}},
+    async run(){return {meta:{changes:Number(sql.prepare(query).run(...this.args).changes)}}},
+  };
+}};
+const calls=[],states=new Map(),instances=new Map();
+let denyModel=false;
+globalThis.__pricingApp={async fetch(request){
+  const body=await request.json();calls.push(body);
+  if(denyModel)return Response.json({error:'Synthetic settings revoked'},{status:403});
+  return Response.json({id:body.requestId,lines:[{id:'0',speaker:'other',text:'合成原话 '+body.image}],decision:{judgment:'合成已完成报告'},selfSide:body.selfSide});
+}};
+const bundled=await build({entryPoints:['lib/social-profile-jobs.mjs'],bundle:true,write:false,format:'cjs',platform:'node',logLevel:'silent',
+  plugins:[{name:'synthetic-runtime',setup(build){
+    build.onResolve({filter:/^(cloudflare:workers|\.\.\/dist\/server\/index\.js|\.\/request-identity\.mjs)$/},args=>({path:args.path,namespace:'mock'}));
+    build.onLoad({filter:/.*/,namespace:'mock'},args=>({contents:args.path==='cloudflare:workers'
+      ?'export class DurableObject {constructor(ctx,env){this.ctx=ctx;this.env=env}}'
+      :args.path.includes('dist/server')?'export default globalThis.__pricingApp;'
+      :'export const requestOwner=async r=>r.headers.get("x-test-owner")?{ownerId:r.headers.get("x-test-owner")}:null;export const isWebApi=()=>true;export const webSessionCookie=()=>"";',loader:'js'}));
+  }}]});
+const module={exports:{}};new Function('require','exports','module',bundled.outputFiles[0].text)(require,module.exports,module);
+const {SocialProfileJobs,routeSocialProfileJob}=module.exports;
+const env={DB:db,WECHAT_CALLBACK_TOKEN:'synthetic',SOCIAL_PROFILE_JOBS:{idFromName:owner=>owner,get(owner){
+  if(!instances.has(owner)){
+    const values=new Map();const storage={alarm:null,async get(key){return structuredClone(values.get(key))},async put(key,value){values.set(key,structuredClone(value))},async delete(keys){for(const key of Array.isArray(keys)?keys:[keys])values.delete(key)},async list({prefix=''}){return new Map([...values].filter(([key])=>key.startsWith(prefix)).map(([key,value])=>[key,structuredClone(value)]))},async setAlarm(value){this.alarm=value},async transaction(fn){return fn(storage)}};
+    states.set(owner,storage);instances.set(owner,new SocialProfileJobs({storage},env));
+  }return instances.get(owner);
+}}};
+async function setup(owner){
+  await credits.ensureCreditAccount(db,owner);await credits.adjustCredits(db,{id:crypto.randomUUID(),ownerId:owner,actorId:'fixture',delta:1000,reason:'测试账本'});
+  await credits.setCreditPermissions(db,{id:crypto.randomUUID(),ownerId:owner,actorId:'fixture',features:['analysis'],enabledUntil:Date.now()+86400000,reason:'测试开通'});
+  sql.prepare("INSERT INTO coach_crush_settings(owner_id,consent_at,image_consent_at,image_self_side,provider,updated_at) VALUES(?,1,1,'right','qwen',1)").run(owner);
+}
+const balance=owner=>sql.prepare('SELECT balance FROM coach_credit_accounts WHERE owner_id=?').get(owner).balance;
+const ledger=(owner,id)=>sql.prepare('SELECT * FROM coach_credit_tasks WHERE owner_id=? AND request_id=?').get(owner,id);
+async function send(owner,id,body,expected=200){
+  const response=await routeSocialProfileJob(new Request('https://fixture.invalid/api/web/screenshot/batch?taskId='+id,{method:body?'POST':'GET',headers:{'content-type':'application/json','x-test-owner':owner,'x-request-id':id},...(body?{body:JSON.stringify(body)}:{})}),env,{});
+  const value=await response.json();assert.equal(response.status,expected,JSON.stringify(value));return value;
+}
+async function upload(owner,images,{subjectId=null,side='right',price=screenshotPrice(images.length),taskId=crypto.randomUUID()}={}){
+  const init={uploadAction:'init',confirmed:true,imageCount:images.length,selfSide:side,sessionId:crypto.randomUUID(),subjectId,priceConfirmation:price};
+  await send(owner,taskId,init,201);
+  for(let index=0;index<images.length;index++)await send(owner,taskId,{uploadAction:'part',index,image:images[index]});
+  await send(owner,taskId,{uploadAction:'commit'},202);
+  return {id:taskId,init};
+}
+async function finish(owner,id){
+  let result;
+  for(let round=0;round<12;round++){await instances.get(owner).alarm();result=await send(owner,id);if(['done','error'].includes(result.status))return result;}
+  assert.fail('synthetic task never finished');
+}
+await setup('alice');await setup('bob');
+for(const [count,amount] of [[1,5],[2,10],[3,10],[4,15],[6,15],[7,20],[9,20]])assert.equal(screenshotPrice(count).amount,amount);
+for(const total of [0,-1,20001,NaN])assert.throws(()=>fullHistoryPrice({expectedTotal:total}));
+assert.equal(fullHistoryPrice({expectedTotal:20000,relatedSnapshots:[{expectedTotal:20000}]}).amount,100);
+assert.throws(()=>fullHistoryPrice({expectedTotal:20000,relatedSnapshots:[{expectedTotal:20000},{expectedTotal:1}]}));
+const invalidId=crypto.randomUUID(),parameters={uploadAction:'init',confirmed:true,imageCount:1,selfSide:'right',sessionId:crypto.randomUUID()};
+for(const priceConfirmation of [undefined,{version:'old',amount:20},{version:ANALYSIS_PRICE_VERSION,amount:0}]){
+  const rejected=await send('alice',invalidId,{...parameters,priceConfirmation},409);
+  assert.equal(rejected.quote.amount,5);assert.equal(rejected.code,'PRICE_CONFIRMATION_REQUIRED');assert.equal(ledger('alice',invalidId),undefined);
+}
+const missingPerson=crypto.randomUUID();
+await send('alice',missingPerson,{...parameters,subjectId:crypto.randomUUID(),priceConfirmation:screenshotPrice(1)},503);
+assert.equal(ledger('alice',missingPerson).status,'released');assert.equal(balance('alice'),1000,'failed admission refunds before any upload task exists');
+let spent=0;
+for(const [count,amount] of [[1,5],[3,10],[6,15],[9,20]]){
+  const images=Array.from({length:count},(_,index)=>'data:image/png;base64,'+Buffer.from(`synthetic tier ${count} image ${index}`).toString('base64'));
+  const first=await upload('alice',images);assert.equal(ledger('alice',first.id).amount,amount);
+  assert.equal((await finish('alice',first.id)).status,'done');spent+=amount;assert.equal(balance('alice'),1000-spent);
+  const callsBefore=calls.length,second=await upload('alice',images);
+  assert.equal((await finish('alice',second.id)).status,'done');assert.equal(calls.length,callsBefore,'exact uploaded materials reuse saved result despite a new session/request ID');
+  assert.equal(ledger('alice',second.id).status,'released');assert.equal(balance('alice'),1000-spent,'duplicate result is free');
+  await instances.get('alice').alarm();assert.equal(balance('alice'),1000-spent,'repeated alarm cannot double-refund');
+  if(count===1){
+    const other=await upload('bob',images);assert.equal((await finish('bob',other.id)).status,'done');
+    assert.equal(balance('bob'),995);assert.equal(calls.length,callsBefore+1,'another owner cannot reuse private report or images');
+    const flipped=await upload('alice',images,{side:'left'});assert.equal((await finish('alice',flipped.id)).status,'done');
+    spent+=5;assert.equal(balance('alice'),1000-spent,'changed speaker identity is a different analysis');
+    const subjectId=crypto.randomUUID();sql.prepare("INSERT INTO coach_subjects(id,owner_id,label,status,data,created_at,updated_at) VALUES(?,?,'合成人物','active','{}',1,1)").run(subjectId,'alice');
+    const scoped=await upload('alice',images,{subjectId});assert.equal((await finish('alice',scoped.id)).status,'done');
+    spent+=5;assert.equal(balance('alice'),1000-spent,'person scope cannot borrow another report');
+  }
+}
+denyModel=true;
+sql.prepare('UPDATE coach_crush_settings SET image_consent_at=NULL WHERE owner_id=?').run('alice');
+const noConsent=await upload('alice',['data:image/png;base64,'+Buffer.from('synthetic tier 1 image 0').toString('base64')]),noConsentCalls=calls.length;
+assert.equal((await finish('alice',noConsent.id)).status,'error');assert.equal(calls.length,noConsentCalls+1,'cached images still enter the ordinary permission rejection when settings are revoked');
+assert.equal(ledger('alice',noConsent.id).status,'released');assert.equal(balance('alice'),1000-spent);
+const failed=await upload('alice',['data:image/png;base64,ZmFpbHVyZQ==']);
+assert.equal((await finish('alice',failed.id)).status,'error');assert.equal(ledger('alice',failed.id).status,'released');assert.equal(balance('alice'),1000-spent,'revoked settings still fails and refunds; hash reuse cannot generate new content');
+await instances.get('alice').alarm();assert.equal(balance('alice'),1000-spent);
+assert.equal((await send('bob',failed.id,undefined,404)).status,'expired');
+assert.equal(sql.prepare('SELECT count(*) AS n FROM coach_credit_adjustments').get().n,2,'no balance reset or hidden grant');
+delete globalThis.__pricingApp;sql.close();
+console.log('PASS screenshot 5/10/15/20; stale quotes no task; actual SQLite debits/refunds; exact bytes + scope reuse across IDs; owner/person/speaker isolation; permission failure refunds; no balance reset; full range bounds.');

@@ -11,7 +11,7 @@
 .responsePaths dl>div { padding:15px 19px; background:#f1f4ec; border-left:3px solid #7c9b8e; }
 .responsePaths dt { font-size:17px; font-weight:600; color:#244c46; }
 .responsePaths dd { font-size:16px; margin:7px 0 0; }
-.reading { margin-top:32px; scroll-margin-top:116px; }
+.reading { margin-top:32px; scroll-margin-top:176px; }
 .entry { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:15px; margin:0 0 25px; }
 .entry[data-moments-only] { grid-template-columns:repeat(2,minmax(0,1fr)); }
 .entry > button,.entry > a { display:flex; flex-direction:column; align-items:flex-start; gap:10px; padding:20px 21px; border:1px solid #e4d4c6; border-radius:18px; background:linear-gradient(130deg,#fffdf8,#f7eee4); color:#443930; font:inherit; text-align:left; text-decoration:none; cursor:pointer; transition:border-color .18s,box-shadow .18s; }
@@ -141,4 +141,6 @@
 .sectionTabs{background:#f4ece3;border:1px solid #e5d4c6}
 .sectionTabs button{color:#5d5146}
 .sectionTabs button[aria-selected=true]{color:#356e63;background:#fffaf5;box-shadow:0 3px 12px #79614c14}
+.overviewClues{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:18px 0}.overviewClues>div{background:#fffaf5;border-radius:10px;padding:15px;min-width:0}.overviewClues small{font-size:14px;color:#927044}.actionOverview{background:#f3f6ee;border-left:3px solid #719788;border-radius:0 12px 12px 0;padding:18px 20px;margin:22px 0}.actionOverview h3{display:flex;align-items:center;gap:7px;font-size:18px;color:#356e63;margin:0 0 12px}.actionOverview dl{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:14px 0 0}.actionOverview dt{font-size:14px;color:#75604f}.actionOverview dd{margin:5px 0 0;font-size:16px;line-height:1.8}.momentReasoning>h3{font-size:20px;margin:28px 0 14px}.momentReasoning .findings article{padding-top:5px}.momentReasoning .inference h3{margin:9px 0 0}.visualGrid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.visualGrid article{padding:16px;margin:0;background:#f6f0e6;border:1px solid #e5d9c8;border-radius:12px;min-width:0}.visualGrid small{font-size:14px;color:#8a6950}
+@media(max-width:700px){.overviewClues,.visualGrid,.actionOverview dl{grid-template-columns:1fr}.actionOverview{padding:16px}.visualGrid article{padding:14px}}
 @media(max-width:600px){.sectionTabs{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:5px}.sectionTabs button{font-size:16px;flex-direction:row;padding:12px 6px}.heading .affinity>span,.signalCounts dt{font-size:14px}.pager button{font-size:16px}}

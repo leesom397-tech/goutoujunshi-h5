@@ -9,6 +9,8 @@ export type CaptureLibraryPreview = (library:CaptureLibrary)=>void;
 export type CaptureSyncProgress = (done:number,total:number,phase:"records"|"images"|"reports")=>void;
 export type SyncOptions = {
   subjectId?:string;restore?:boolean;onProgress?:CaptureSyncProgress;
+  /** Encoded image bytes ACKed in this pass; cached images never count as new transfer. */
+  onTransfer?:(bytes:number,totalBytes:number,elapsedMs:number)=>void;
   /** A live uploader sends one bounded snapshot; its caller coalesces later changes. */
   followChanges?:boolean;
   /** Stop starting requests after switching account/person; successful ACKs still persist. */
@@ -262,7 +264,14 @@ async function performSync(owner:string, library:CaptureLibrary, options:SyncOpt
   }
   if(!state)throw Error("同步状态未建立，请重试。");
   const imageJobs=library.records.flatMap(row=>(row.images||[]).map((img,index)=>({row,index,img})));
-  let completedImages=0,saveAck:Promise<unknown>=Promise.resolve();options.onProgress?.(0,imageJobs.length,"images");
+  // Resolve cached receipts before displaying progress. Rechecking an unchanged
+  // library must not flash "0 / 124" then replay 124 completed image updates.
+  const checkedImages=await concurrentMap(imageJobs,async job=>({...job,key:JSON.stringify([job.row.localId,job.index]),hash:await captureImageDigest(job.img.data)}));
+  const pendingImages=checkedImages.filter(job=>mediaDigests[job.key]!==job.hash);
+  let completedImages=imageJobs.length-pendingImages.length,saveAck:Promise<unknown>=Promise.resolve();
+  options.onProgress?.(completedImages,imageJobs.length,"images");
+  const transferStarted=Date.now(),transferTotal=pendingImages.reduce((sum,job)=>sum+job.img.data.length,0);
+  let transferred=0;
   const imageReceipts=new Map<string,{hash:string;expected:string|undefined}>();
   const flushImages=()=>{
     if(!imageReceipts.size)return saveAck;
@@ -277,15 +286,16 @@ async function performSync(owner:string, library:CaptureLibrary, options:SyncOpt
     });
     return saveAck;
   };
-  try{await concurrentMap(imageJobs,async({row,index,img})=>{
+  try{await concurrentMap(pendingImages,async({row,index,img,hash,key})=>{
     assertSyncCurrent(options);
-    const hash=await captureImageDigest(img.data),key=JSON.stringify([row.localId,index]);if(mediaDigests[key]===hash){options.onProgress?.(++completedImages,imageJobs.length,"images");return;}
     const expected=receiptState?.mediaDigests?.[key];
     const chunks=Math.ceil(img.data.length/400000);
     for(let n=0;n<chunks;n++){
       assertSyncCurrent(options);
       const result=await request<{ownerId:string;ready:boolean}>(owner,"",{action:"sync-media",libraryId:state!.id,expectedEpoch:state!.epoch,localId:row.localId,index,mime:img.mime,name:img.name,sha256:hash,chunkIndex:n,chunkCount:chunks,data:img.data.slice(n*400000,(n+1)*400000)});
       if(n===chunks-1&&!result.ready)throw Error("图片尚未完整同步，请继续同步。");
+      transferred+=Math.min(400000,img.data.length-n*400000);
+      options.onTransfer?.(transferred,transferTotal,Date.now()-transferStarted);
     }
     // One IndexedDB library write used to clone every saved picture after
     // each individual upload. Batch ACKs, and flush settled workers on both

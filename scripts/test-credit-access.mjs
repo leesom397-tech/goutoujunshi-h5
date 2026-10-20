@@ -1,3 +1,4 @@
+import * as pricing from '../lib/analysis-pricing.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
@@ -5,7 +6,7 @@ import * as credits from '../lib/account-credits.mjs';
 
 let identity = null, calls = [], suppliedActor;
 const account = { userId: '11111111-1111-4111-8111-111111111111', balance: 0, features: [], entries: [], enabledUntil: 0 };
-const mocks = {
+const mocks = {'@/lib/analysis-pricing.mjs':pricing,
   'cloudflare:workers': { env: { COACH_ADMIN_OWNER_IDS: 'real-admin' } },
   '@/db': { getD1() { calls.push('db'); return {}; } },
   '@/lib/miniapp-auth': { async miniappOwner() { return identity; } },

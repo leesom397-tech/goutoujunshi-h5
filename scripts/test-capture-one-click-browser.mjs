@@ -1,3 +1,4 @@
+import {fullHistoryPrice,ANALYSIS_PRICES} from '../lib/analysis-pricing.mjs';
 import assert from 'node:assert/strict';
 import {createHash} from 'node:crypto';
 import {mkdir} from 'node:fs/promises';
@@ -31,7 +32,7 @@ page.on('request',async req=>{try{const u=new URL(req.url());let value={},status
   else{status=404;value={error:'fixture missing bridge '+u.pathname};}
  }else if(u.origin===origin&&u.pathname.startsWith('/api/')){
   const body=req.method()==='POST'?JSON.parse(req.postData()||'{}'):null;calls.push({path:u.pathname,body});
-  const credits={account:{userId:owner,balance:100,active:true},prices:{analysisSmall:30,profile:30}},profile={enabled:true,paused:false,subjects:[{id:person,label:friend}]};
+  const credits={account:{userId:owner,balance:100,active:true},prices:{...ANALYSIS_PRICES,profile:30}},profile={enabled:true,paused:false,subjects:[{id:person,label:friend}]};
   if(u.pathname==='/api/auth/session')value={loggedIn:true,user:{id:owner}};
   else if(u.pathname==='/api/account/credits')value=credits;
   else if(u.pathname==='/api/web/account-context')value={account:credits.account,prices:credits.prices,people:[{id:person,label:friend}],user:{name:'验收用户'},admin:false,meteringReady:true,meteringScope:'web',contact:'fixture'};
@@ -41,8 +42,9 @@ page.on('request',async req=>{try{const u=new URL(req.url());let value={},status
    if(body?.action==='sync'){if(body.library.kind==='chat'&&!voiceDone)earlyUploaded=true;if(body.library.kind==='moments'&&!momentsReleased)momentsUploaded=true;let state=[...cloud.values()].find(v=>v.friend===body.library.friend&&v.kind===body.library.kind);if(!state){const id='cl_'+(body.library.kind==='chat'?'a':'b').repeat(64);state={...body.library,id,epoch:1,rows:new Map(),reportLinks:[],warnings:[],deleted:false};cloud.set(id,state);}for(const row of body.records)state.rows.set(row.localId,row);value={ownerId:owner,library:{...state,rows:undefined,total:state.rows.size},conflicts:[]};}
    else value={ownerId:owner,libraries:[...cloud.values()].map(v=>({...v,rows:undefined,total:v.rows.size}))};
   }else if(u.pathname==='/api/web/capture/analyze'){
-   if(body){assert.equal(body.confirmed,true);assert.equal(body.expectedTotal,513);assert.equal(body.relatedSnapshots.length,1);assert.equal(body.relatedSnapshots[0].expectedTotal,5);const chat=[...cloud.values()].find(v=>v.kind==='chat');assert.equal([...chat.rows.values()].filter(r=>r.source.mediaKind==='voice'&&r.source.transcriptionStatus==='visible-text').length,13);value={taskId:'fixture-report',status:'running'};}
-   else value=calls.some(c=>c.path===u.pathname&&c.body)?{status:'running',phase:'segments',friend,totalCount:518,completedText:200,taskId:'fixture-report'}:{status:'none'};
+   if(body?.quoteOnly){assert.equal(body.confirmed,false);value={status:'quoted',quote:fullHistoryPrice(body)};}
+   else if(body){assert.equal(body.confirmed,true);assert.equal(body.priceConfirmation.amount,40);assert.equal(body.priceConfirmation.version,fullHistoryPrice(body).version);assert.equal(body.expectedTotal,513);assert.equal(body.relatedSnapshots.length,1);assert.equal(body.relatedSnapshots[0].expectedTotal,5);const chat=[...cloud.values()].find(v=>v.kind==='chat');assert.equal([...chat.rows.values()].filter(r=>r.source.mediaKind==='voice'&&r.source.transcriptionStatus==='visible-text').length,13);value={taskId:'fixture-report',status:'running',subjectId:person,libraryId:chat.id};}
+   else value=calls.some(c=>c.path===u.pathname&&c.body&&!c.body.quoteOnly)?{status:'running',phase:'segments',friend,totalCount:518,completedText:200,taskId:'fixture-report',subjectId:person,libraryId:[...cloud.values()].find(v=>v.kind==='chat')?.id}:{status:'none'};
   }else if(u.pathname==='/api/web/report/list')value={reports:[]};
  }else return req.continue();
  await req.respond({status,headers,contentType:'application/json',body:JSON.stringify(value)});
@@ -59,7 +61,7 @@ try{
  assert.equal(calls.find(c=>c.path==='capture'&&c.body.voiceOnly).body.voiceIds.length,13);
  assert.equal(earlyUploaded,true,'first page uploaded before remaining history and voices complete');
  assert.equal(await page.$eval('#capture-preview',e=>!!e.getClientRects().length),false,'no ready/report controls while voices processing');
- assert.equal(calls.filter(c=>c.path==='/api/web/capture/analyze'&&c.body).length,0);
+ assert.equal(calls.filter(c=>c.path==='/api/web/capture/analyze'&&c.body&&!c.body.quoteOnly).length,0);
  await page.screenshot({path:out+'/voice-progress.png',fullPage:true});voiceReleased=true;
  await waitText('继续采集朋友圈');
  await new Promise((resolve,reject)=>{const deadline=Date.now()+15000;const poll=()=>momentsUploaded?resolve():Date.now()>deadline?reject(Error('Moments partial not uploaded during capture')):setTimeout(poll,50);poll();});
@@ -69,13 +71,14 @@ try{
  momentsReleased=true;
  await page.waitForSelector('#capture-confirm',{visible:true});
  assert.equal(calls.filter(c=>c.path==='capture').length,4,'text x2 + voice x1 + Moments x1, no repeated capture');
- assert.equal(calls.filter(c=>c.path==='/api/web/capture/analyze'&&c.body).length,0,'no charge before confirmation');
+ assert.equal(calls.filter(c=>c.path==='/api/web/capture/analyze'&&c.body&&!c.body.quoteOnly).length,0,'no charge before confirmation');
  assert.match(await page.$eval('#capture-confirm',e=>e.innerText),/全部 513 条聊天 \+ 5 条朋友圈/);
  const uploadedBeforeConfirm=calls.filter(c=>c.path==='/api/web/capture/library'&&c.body?.action==='sync').length;
  await page.screenshot({path:out+'/confirm.png',fullPage:true});
+ await waitText('40 积分');assert.ok(calls.some(c=>c.path==='/api/web/capture/analyze'&&c.body?.quoteOnly),'server quote precedes confirmation');
  await page.click('#capture-confirm input[type=checkbox]');await page.evaluate(()=>[...document.querySelectorAll('#capture-confirm button')].find(e=>e.textContent.includes('确认并生成报告')).click());
  await page.waitForSelector('[data-capture-analysis="running"]',{timeout:60000});
- assert.equal(calls.filter(c=>c.path==='/api/web/capture/analyze'&&c.body).length,1,'one final report');
+ assert.equal(calls.filter(c=>c.path==='/api/web/capture/analyze'&&c.body&&!c.body.quoteOnly).length,1,'one final report');
  assert.equal(calls.filter(c=>c.path==='/api/web/capture/library'&&c.body?.action==='sync').length,uploadedBeforeConfirm,'confirm reuses the verified upload rather than syncing again');
  assert.equal(await page.$eval('#capture-preview',e=>!!e.getClientRects().length),false,'one active analysis view');
  assert.deepEqual(errors,[]);console.log('PASS pipelined import: chat upload starts before history/voices finish; Moments partial uploads before collection ends; 513 chat + 13 voices + 5 Moments retained, fees once, one final report, no duplicate confirmation upload; browser/IDB real, services synthetic.');

@@ -77,6 +77,18 @@ try {
     assert.equal(await page.$eval('[data-affinity-dimension="openness"] strong', node => node.textContent), "待判断", "unknown never becomes zero");
     assert.equal(await page.$('[data-affinity-dimension="openness"] i b'), null, "unknown has no score bar");
     assert.ok(await page.$$eval("[data-affinity-dimension] > span", nodes => nodes.every(node => parseFloat(getComputedStyle(node).fontSize) >= 16)));
+    const preview = "[data-reply-preview]";
+    assert.equal(await page.$$eval(`${preview} [data-saved-reply]`, nodes => nodes.filter(node => node.checkVisibility()).length), 3, "all saved replies are visible in the first affinity surface");
+    await page.$eval(`${preview} [data-reply-index="1"] [data-copy-reply]`, node => node.click());
+    assert.equal(await page.evaluate(() => window.__copiedReply), report.decision.replyOptions[1].text);
+    await page.$eval(`${preview} [aria-label="选择回复目的或语气"] button:nth-child(3)`, node => node.click());
+    assert.equal(await page.$$eval(`${preview} [data-saved-reply]`, nodes => nodes.filter(node => node.checkVisibility()).length), 1);
+    assert.match(await page.$eval(`${preview} [data-saved-reply]:not([hidden])`, node => node.textContent), /轻松表达/);
+    await page.$eval(`${preview} [aria-label="选择回复目的或语气"] button:first-child`, node => node.click());
+    await page.$eval(preview, node => node.scrollIntoView({ block: "start" }));
+    await fits();
+    await (await page.$(preview)).screenshot({ path: `outputs/affinity-reader/replies-${width}.png` });
+    assert.deepEqual(mutations, [], "choosing a purpose/tone and copying only use the saved result");
     const supplement = await page.$eval('nav[aria-label="报告操作"] a:last-child', node => node.getAttribute("href"));
     assert.equal(new URL(supplement, origin).searchParams.get("focus"), "affinity", "supplement preserves analysis focus");
     await fits();
@@ -94,6 +106,14 @@ try {
     await page.$eval(".wa-reply button", node => node.click());
     assert.equal(await page.evaluate(() => window.__copiedReply), report.decision.replyOptions[0].text);
     assert.match(await page.$eval(".wa-replies", node => node.textContent), /改得更像我/);
+    await page.$eval(".wa-replies [data-reply-index='0'] details > summary", node => node.click());
+    await page.$eval(".wa-replies [data-reply-index='0'] details button", node => node.click());
+    await page.waitForSelector("[data-rewrite-confirmation]");
+    assert.match(await page.$eval("[data-rewrite-confirmation]", node => node.textContent), /确认改写.*3 积分/);
+    assert.equal(await page.$eval("[data-rewrite-confirmation] a", node => node.getAttribute("href")), "/privacy#ai-processing");
+    assert.deepEqual(mutations, [], "opening the paid rewrite confirmation must not call the API");
+    await page.$eval("[data-rewrite-confirmation] button:last-child", node => node.click());
+    assert.equal(await page.$("[data-rewrite-confirmation]"), null);
     await fits();
     // Saved reports without enough evidence must not manufacture a total.
     current.affinity = { ...current.affinity, value: null };
@@ -110,6 +130,15 @@ try {
     assert.match(await page.$eval("[data-affinity-score]", node => node.textContent), /待判断/);
     await fits();
     if (width === 1440) {
+      current = structuredClone(report);
+      current.decision.replyOptions = [];
+      await page.goto(`${origin}/report?id=${id}&focus=affinity`, { waitUntil: "networkidle0" });
+      await page.waitForSelector("[data-reply-empty]");
+      assert.equal(await page.$$eval("[data-saved-reply]", nodes => nodes.filter(node => node.checkVisibility()).length), 0, "missing reply options are never filled with made-up variants");
+      current.decision.replyOptions = [report.decision.replyOptions[0]];
+      await page.reload({ waitUntil: "networkidle0" });
+      assert.equal(await page.$$eval("[data-reply-preview] [data-saved-reply]", nodes => nodes.length), 1);
+      assert.equal(await page.$('[data-reply-preview] [aria-label="选择回复目的或语气"]'), null, "one saved reply has no invented tone choices");
       current = structuredClone(report);
       await page.goto(`${origin}/report?id=${id}`, { waitUntil: "networkidle0" });
       await page.waitForSelector("[data-affinity-overview]");

@@ -1,0 +1,14 @@
+.trail:global(.page-trail){position:sticky;top:0;z-index:45;display:flex;align-items:center;gap:16px;max-width:1228px;min-height:64px;margin:0 auto;padding:8px 24px;border-bottom:1px solid #eaded3;background:#fffaf5f5;backdrop-filter:blur(12px);color:#65574d;font-family:"PingFang SC","Microsoft YaHei","Noto Sans SC",sans-serif;font-size:16px;line-height:1.5}
+.trail:global(.page-trail) .back{display:inline-flex;align-items:center;gap:8px;flex:none;min-height:46px;margin:0;padding:9px 13px;border:1px solid #d7bca9;border-radius:10px;background:#fffdf9;color:#86543e;text-decoration:none;font-size:16px;font-weight:600;white-space:nowrap}
+.trail:global(.page-trail) .back:hover{background:#f7e8dd;border-color:#b68061}
+.back svg{flex:none}
+.current{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:16px}
+.help{display:inline-flex;align-items:center;justify-content:center;gap:6px;flex:none;margin-left:auto;min-height:44px;padding:8px 10px;border:0;border-radius:8px;background:none;color:#825c48;font:inherit;cursor:pointer}
+.help:disabled{opacity:.5;cursor:default}
+.trail :is(a,button):focus-visible{outline:2px solid #a9644e;outline-offset:3px}
+:global(body:has([data-page-navigation])){--page-navigation-height:64px;scroll-padding-top:76px}
+/* Clipping horizontal overflow must not create a separate mobile scroll owner. */
+:global(html:has([data-page-navigation])),:global(body:has([data-page-navigation])){overflow-x:clip}
+:global(.auxiliary-web-nav:has([data-page-navigation])){display:contents}
+@media(max-width:780px){.trail:global(.page-trail){gap:10px;padding:6px 16px;min-height:60px}.trail:global(.page-trail) .back{padding:8px 10px;min-height:46px}.current{font-size:15px}.help{padding:8px 6px}.help span{display:none}:global(body:has([data-page-navigation])){--page-navigation-height:60px;scroll-padding-top:72px}}
+@media(max-width:360px){.trail:global(.page-trail){padding-right:12px;padding-left:12px;gap:8px}.trail:global(.page-trail) .back{font-size:16px;padding-right:9px;padding-left:9px}.current{font-size:15px}}

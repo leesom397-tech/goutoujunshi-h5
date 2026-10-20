@@ -34,7 +34,7 @@ export async function POST(request: Request) {
   if (subjectId && !await getD1().prepare("SELECT id FROM coach_subjects WHERE id=? AND owner_id=? AND status='active'").bind(subjectId,user.userId).first()) return json({error:"关联人物已不存在，请重新选择。"},400);
   if (text.length > 30000 || images.length > 2 || !text && !images.length) return json({ error: "每批最多 3 万字或 2 张截图。" }, 400);
   if (images.some((item) => typeof item !== "string" || item.length > 7_000_000 || !/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(item))) return json({ error: "图片格式不支持或过大。" }, 400);
-  if (!qwenKey()) return json({ error: "导入分析尚未配置百炼密钥。" }, 503);
+  if (!qwenKey()) return json({ error: "导入分析暂未开通，请联系客服。" }, 503);
   const knowledge = buildKnowledgeContext(text.slice(-6000) || "聊天截图 关系信号 怎么回复", "signal");
   let profileContext = "";
   try { profileContext = await loadProfileContext(user.userId, subjectId); }

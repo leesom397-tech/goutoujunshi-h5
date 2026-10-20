@@ -32,7 +32,7 @@ function validateRewrite(original: string, value: unknown) {
     if (clean.includes(phrase) && !original.includes(phrase)) throw new CrushError("改写添加了原回复没有的承诺或亲昵称呼，已保留原推荐。", 502);
   }
   return { text: clean, status: clean === original ? "unchanged" as const : "adjusted" as const,
-    note: clean === original ? "本轮原话不足以支持更自然的改写，保留原推荐。" : "百炼只参考本轮我方原话调整表达；发送前请再核对语义与边界。" };
+    note: clean === original ? "本轮原话不足以支持更自然的改写，保留原推荐。" : "本次只参考你在这一轮的原话调整表达；发送前请再核对语义与边界。" };
 }
 
 async function reserveRewrite(owner: string) {

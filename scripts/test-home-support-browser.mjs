@@ -8,10 +8,8 @@ const origin=process.env.INTAKE_TEST_ORIGIN||"http://127.0.0.1:8798";
 const release=JSON.parse(await readFile(new URL("../public/downloads/collector-release.json",import.meta.url),"utf8"));
 const affinityHref="/analyze?mode=chat&focus=affinity";
 const expectedFeatures=[
-  ["好感探测器",affinityHref],["截图分析","/analyze?mode=chat"],
-  ["问成子","/chat"],["朋友圈分析","/analyze?mode=moments"],
-  ["社交主页","/analyze?mode=social"],["语音交流","/voice"],
-  ["人物档案","/archive"],["帮助与下载","/support"],
+  ["好感探测器",affinityHref],["聊天解读","/analyze?mode=chat"],
+  ["朋友圈与主页","/analyze?mode=moments"],["问成子","/chat"],
 ];
 const output=resolve("outputs/home-support");
 await mkdir(output,{recursive:true});
@@ -80,7 +78,7 @@ try {
       await page.waitForSelector('[data-account-state="ready"]');
       assert.equal(await page.$$eval("[data-home-start]",els=>els.length),1,"one main home action");
       assert.equal(await page.$("[data-home-task]"),null,"old three-card home removed");
-      const sizes=await page.$$eval('[data-home-start], a[href="#home-more-ways"]',els=>els.map(el=>Number.parseFloat(getComputedStyle(el).fontSize)));
+      const sizes=await page.$$eval('[data-home-start], [data-home-more] summary',els=>els.map(el=>Number.parseFloat(getComputedStyle(el).fontSize)));
       assert.ok(sizes.every(size=>size>=16),"opening controls remain readable");
       assert.equal(await page.$("dialog"),null,"home features never require opening a dialog");
       const choices=await page.$$eval("#home-more-ways [data-feature-entry]",els=>els.map(el=>({
@@ -90,23 +88,33 @@ try {
         captionSize:Number.parseFloat(getComputedStyle(el.querySelector("strong + span")).fontSize),
         height:el.getBoundingClientRect().height,
       })));
-      assert.deepEqual(choices.map(row=>[row.title,row.href]),expectedFeatures,"all eight existing tools remain visible with affinity included");
+      assert.deepEqual(choices.map(row=>[row.title,row.href]),expectedFeatures,"four grouped tools remain visible with affinity included");
       assert.ok(choices.every(row=>row.visible&&row.icon&&row.titleSize>=18&&row.captionSize>=16&&row.height>=44),"every tool keeps its own icon and readable tap target");
+      const alternatives=await page.$$eval("#home-more-ways nav a",els=>els.map(el=>({href:el.getAttribute("href"),visible:el.checkVisibility(),height:el.getBoundingClientRect().height})));
+      for(const href of [affinityHref,"/analyze?mode=chat","/capture?kind=chat&method=video","/analyze?mode=moments","/analyze?mode=social","/chat","/voice"]){
+        assert.ok(alternatives.some(value=>value.href===href&&value.visible&&value.height>=44),"nearby secondary route retained: "+href);
+      }
+      for(const href of ["/archive","/support"])assert.ok(await page.$eval(`[aria-label="主导航"] a[href="${href}"]`,el=>el.checkVisibility()),"global utility retained: "+href);
+      assert.equal(await page.$$eval("#home-more-ways article",els=>els.length),4,"no empty fifth card");
       assert.equal(await page.$('#home-more-ways[hidden], #home-more-ways details, #home-more-ways button[aria-expanded]'),null,"no collapsed feature list");
       await fits();await shot("home");
-      await page.click('a[href="#home-more-ways"]');
-      await page.waitForFunction(()=>scrollY>0&&document.querySelector("#home-more-title").getBoundingClientRect().top<innerHeight);
-      assert.notEqual(await page.evaluate(()=>document.documentElement.style.overflow),"hidden","more link scrolls the page without locking it");
-      assert.equal(await page.$("dialog"),null);
+      await page.click('[data-home-more] summary');
+      await page.waitForFunction(()=>document.querySelector('[data-home-more]').open);
+      const quick=await page.$$eval('[aria-label="更多方式快捷入口"] a',els=>els.map(el=>({href:el.getAttribute('href'),visible:el.checkVisibility(),height:el.getBoundingClientRect().height})));
+      assert.deepEqual(quick.map(row=>row.href),expectedFeatures.map(row=>row[1]));
+      assert.ok(quick.every(row=>row.visible&&row.height>=44),'click reveals real immediate actions');
       await fits();await page.screenshot({path:resolve(output,`more-ways-${width}.png`),fullPage:false});
-      // Regression: a second click with the same hash must still scroll, even
-      // after a user returns to the hero. Check the actual target, not just URL.
-      await page.evaluate(()=>window.scrollTo({top:0,behavior:"instant"}));
-      await page.click('a[href="#home-more-ways"]');
-      await page.waitForFunction(()=>scrollY>0&&document.querySelector("#home-more-title").getBoundingClientRect().top>=60&&document.querySelector("#home-more-title").getBoundingClientRect().top<innerHeight/2);
-      await page.evaluate(()=>window.scrollTo({top:0,behavior:"instant"}));
-      await page.focus('a[href="#home-more-ways"]');await page.keyboard.press("Enter");
-      await page.waitForFunction(()=>scrollY>0&&document.activeElement?.id==="home-more-ways"&&document.querySelector("#home-more-title").getBoundingClientRect().top<innerHeight/2);
+      await page.click('[data-home-more] summary');
+      assert.equal(await page.$eval('[data-home-more]',el=>el.open),false);
+      await page.focus('[data-home-more] summary');await page.keyboard.press("Enter");
+      await page.waitForFunction(()=>document.querySelector('[data-home-more]').open);
+      // Native details remains operable without React hydration or hash scrolling.
+      await page.setJavaScriptEnabled(false);
+      await page.goto(origin+'/workspace',{waitUntil:'networkidle0'});
+      await page.click('[data-home-more] summary');
+      assert.equal(await page.$eval('[data-home-more]',el=>el.open),true);
+      await page.setJavaScriptEnabled(true);
+      await navigate('/workspace');
       assert.equal(await page.$eval("[data-home-start]",el=>el.textContent),"关系透视");
       assert.equal(await page.$eval('.web-nav-tools a[href="/relationship"]',el=>el.textContent),"关系透视");
       for(const task of [
@@ -183,7 +191,7 @@ try {
       await page.evaluate(()=>[...document.querySelectorAll("button")].find(el=>el.textContent==="重新连接").click());
       await page.waitForFunction(()=>document.querySelectorAll("[data-person-entry]").length===2);
       assert.deepEqual(errors,[]);
-      console.log(`PASS ${width}: one home action; eight always-visible illustrated tools; readable cards and anchor jump; affinity/screenshot routes; guest EXE/persistent download; same-name subject/library grouping; 20s timeout and 503 recover; no analysis POST`);
+      console.log(`PASS ${width}: one home action; four grouped tools; native expandable shortcut menu with keyboard and JavaScript disabled; affinity/screenshot routes; guest EXE/persistent download; same-name subject/library grouping; 20s timeout and 503 recover; no analysis POST`);
     } catch(error) {
       console.error(`FAIL ${width}`,error,page.url(),errors,await page.$eval("body",el=>el.innerText).catch(()=>"(navigation in progress)"));
       await shot("failure").catch(()=>{});

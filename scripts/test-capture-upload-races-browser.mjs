@@ -46,7 +46,7 @@ window.createCaptureRaceFixture = function() {
   const setRelatedMoments=value=>{relatedMoments=value;}, setRelatedLoading=value=>{relatedLoading=value;}, setRelatedError=value=>{relatedError=value;};
   const setLibrary=value=>{library=value;}, setSubject=value=>{subject=value;}, setSelectedContact=value=>{selectedContact=value;};
   const setCloudBusy=value=>{cloudBusy=value;}, setImportStage=value=>{importStage=value;}, setCloudError=value=>{cloudError=value;}, setLiveUploadNote=value=>{liveUploadNote=value;};
-  const setCloudNote=()=>{},setError=()=>{},setShowImportControls=()=>{},setConsent=()=>{},setShowAnalysis=value=>{showAnalysis=value;},setMaterialView=()=>{},setNote=()=>{},setKind=value=>{kind=value;};
+  const setCloudNote=()=>{},setTransferNote=()=>{},setError=()=>{},setShowImportControls=()=>{},setConsent=()=>{},setShowAnalysis=value=>{showAnalysis=value;},setMaterialView=()=>{},setNote=()=>{},setKind=value=>{kind=value;};
   ${handlers.join('\n')}
   const runRelatedEffect=${relatedEffect};
   return {

@@ -1123,8 +1123,11 @@ def capture(request, progress, on_partial=None):
                 # open_my_profile -> open_weixin closes the embedded album in
                 # WeChat 4.1.15. Check the same authorized login/contact without
                 # opening any UI, both before partial publication and at end.
-                if _resolve_moments_contact(request, moments_source) != moments_selection:
-                    raise CaptureError("ACCOUNT_CHANGED", "当前账号或所选联系人已变化，已停止本次采集。")
+                # The selected contact is immutable inside this authorized
+                # source snapshot. Verify the login/key on every publication;
+                # rerunning duplicate-name scans over the whole address book
+                # here needlessly blocks the UI reader every few posts.
+                moments_source.assert_unchanged()
                 partial = normalized_capture("moments", request["friend"], canonical_account, rows, warnings)
                 partial["coverage"] = completion
                 on_partial(partial)

@@ -79,7 +79,7 @@ try {
       await page.waitForSelector("[data-history-recent-sentences]");
       assert.match(await page.$eval("[data-history-recent-sentences]", node => node.textContent), /最近 12 条逐句解读/);
       assert.match(await page.$eval("[data-history-recent-sentences]", node => node.textContent), /平静|开心/);
-      assert.match(await page.$eval("[data-history-recent-sentences]", node => node.textContent), /权重 80/);
+      assert.match(await page.$eval("[data-history-recent-sentences]", node => node.textContent), /80%/);
       assert.ok(generatedReport.recentSentenceAnalysis.annotations.every(annotation => Array.isArray(annotation.emotion) && Array.isArray(annotation.intent)), "serialized route data uses the actual UI schema");
     }
     report = full;
@@ -114,8 +114,8 @@ try {
     assert.match(sample, /最近 2 条逐句解读/);
     assert.ok(sample.includes(`全量已读 ${full.semanticHistory.coverage.receivedText} 条`));
     assert.match(sample, /确认邀约安排/);
-    assert.match(sample, /权重 83/);
-    assert.match(sample, /权重 74/);
+    assert.match(sample, /83%/);
+    assert.match(sample, /74%/);
     assert.equal(await page.$eval("[data-message-composition]", node => node.getAttribute("aria-label")), statsBefore, "sample never replaces full statistics");
     assert.equal(full.lines.length, 0, "fixture keeps sample out of global report.lines");
     await page.$eval("[data-method-references] summary", node => node.click());
@@ -133,7 +133,7 @@ try {
       await open();
       await page.$eval('[data-history-reading] [role=tablist]', node => [...node.querySelectorAll("button")].find(button => button.textContent.includes("最近逐句")).click());
       assert.match(await page.$eval("[data-history-recent-sentences]", node => node.textContent), /平静回应/);
-      assert.doesNotMatch(await page.$eval("[data-history-recent-sentences]", node => node.textContent), /权重 \d+/);
+      assert.doesNotMatch(await page.$eval("[data-history-recent-sentences]", node => node.textContent), /\d+%/);
       await page.$eval('[aria-label="报告阅读顺序"]', node => [...node.querySelectorAll("button")].find(button => button.textContent.includes("关系变化")).click());
       const claims = await page.$eval('[data-reading-section="change"]', node => node.textContent);
       assert.doesNotMatch(claims, /旧误判|原来保安|record:synthetic/);
