@@ -1,8 +1,116 @@
 {
   "schema": 1,
-  "version": "1.2.15",
-  "tag": "collector-1.2.15",
+  "version": "1.2.16",
+  "tag": "collector-1.2.16",
   "files": [
+    {
+      "name": "ChengziWeChatCollector-Setup-1.2.16.exe",
+      "bytes": 12098599,
+      "sha256": "a2ea26d6f7f218aa776cb2292df80207c482ff0bd6ce7e46ec9f2fe294b645cb",
+      "url": "https://github.com/leesom397-tech/goutoujunshi-h5/releases/download/collector-1.2.16/ChengziWeChatCollector-Setup-1.2.16.exe"
+    },
+    {
+      "name": "ChengziWeChatCollector-Setup-1.2.16.sha256.txt",
+      "bytes": 107,
+      "sha256": "3f25d6510d216e6007a0c819530486d7f0e9b65293d357159162b5c0d894dfe7",
+      "url": "https://github.com/leesom397-tech/goutoujunshi-h5/releases/download/collector-1.2.16/ChengziWeChatCollector-Setup-1.2.16.sha256.txt"
+    },
+    {
+      "name": "chengzi-wechat-collector-1.2.16.part01.bin",
+      "bytes": 12582912,
+      "sha256": "0097b17d35afd041473c88ae65cc3db0e3a6d99b47de72ea7f9f2797495699ba",
+      "url": "https://github.com/leesom397-tech/goutoujunshi-h5/releases/download/collector-1.2.16/chengzi-wechat-collector-1.2.16.part01.bin"
+    },
+    {
+      "name": "chengzi-wechat-collector-1.2.16.part02.bin",
+      "bytes": 12582912,
+      "sha256": "adadb3796beee10dc5a0ea493b5e6dd18eca2569d783c30b1705948855bab2ea",
+      "url": "https://github.com/leesom397-tech/goutoujunshi-h5/releases/download/collector-1.2.16/chengzi-wechat-collector-1.2.16.part02.bin"
+    },
+    {
+      "name": "chengzi-wechat-collector-1.2.16.part03.bin",
+      "bytes": 12582912,
+      "sha256": "758ac2a9487cd29baad72f5943a264cea64c57393795a67ef2cc693fc430d44a",
+      "url": "https://github.com/leesom397-tech/goutoujunshi-h5/releases/download/collector-1.2.16/chengzi-wechat-collector-1.2.16.part03.bin"
+    },
+    {
+      "name": "chengzi-wechat-collector-1.2.16.part04.bin",
+      "bytes": 12582912,
+      "sha256": "d89974764d5f993d1fce0e47a81306dca96682e1d1d9b1300b05dc442fcae090",
+      "url": "https://github.com/leesom397-tech/goutoujunshi-h5/releases/download/collector-1.2.16/chengzi-wechat-collector-1.2.16.part04.bin"
+    },
+    {
+      "name": "chengzi-wechat-collector-1.2.16.part05.bin",
+      "bytes": 12582912,
+      "sha256": "ddc63d53134f06e9395b99a6f800f7a25ebdcfe999b149a26bea27b28deddc04",
+      "url": "https://github.com/leesom397-tech/goutoujunshi-h5/releases/download/collector-1.2.16/chengzi-wechat-collector-1.2.16.part05.bin"
+    },
+    {
+      "name": "chengzi-wechat-collector-1.2.16.part06.bin",
+      "bytes": 12582912,
+      "sha256": "0a8f201061741aff26a99d58b5c5b3aafb152484515febb9d34a279c0e67b29d",
+      "url": "https://github.com/leesom397-tech/goutoujunshi-h5/releases/download/collector-1.2.16/chengzi-wechat-collector-1.2.16.part06.bin"
+    },
+    {
+      "name": "chengzi-wechat-collector-1.2.16.part07.bin",
+      "bytes": 12582912,
+      "sha256": "2b797fe7f10c8255643cda701b9bb15c37dc5819b1a09802778c621850e6e86e",
+      "url": "https://github.com/leesom397-tech/goutoujunshi-h5/releases/download/collector-1.2.16/chengzi-wechat-collector-1.2.16.part07.bin"
+    },
+    {
+      "name": "chengzi-wechat-collector-1.2.16.part08.bin",
+      "bytes": 12582912,
+      "sha256": "97b8548ef13dc27732389bdec9ba607305a79c09545d8b55284caace3a19f2af",
+      "url": "https://github.com/leesom397-tech/goutoujunshi-h5/releases/download/collector-1.2.16/chengzi-wechat-collector-1.2.16.part08.bin"
+    },
+    {
+      "name": "chengzi-wechat-collector-1.2.16.part09.bin",
+      "bytes": 12582912,
+      "sha256": "00a9017ea9877c6a7e5ef1ae5f6539c154a117bddb3b43566e08c633e2d812a4",
+      "url": "https://github.com/leesom397-tech/goutoujunshi-h5/releases/download/collector-1.2.16/chengzi-wechat-collector-1.2.16.part09.bin"
+    },
+    {
+      "name": "chengzi-wechat-collector-1.2.16.part10.bin",
+      "bytes": 12582912,
+      "sha256": "b3eac94ddb1866fa1fe403b51bdb918757ead983c0fb5dfe318bb75c2b50eb77",
+      "url": "https://github.com/leesom397-tech/goutoujunshi-h5/releases/download/collector-1.2.16/chengzi-wechat-collector-1.2.16.part10.bin"
+    },
+    {
+      "name": "chengzi-wechat-collector-1.2.16.part11.bin",
+      "bytes": 6601397,
+      "sha256": "bc9baf3f3a1f40dea44840029f95cc985bcf39afde1b2423d3370a2372752913",
+      "url": "https://github.com/leesom397-tech/goutoujunshi-h5/releases/download/collector-1.2.16/chengzi-wechat-collector-1.2.16.part11.bin"
+    },
+    {
+      "name": "chengzi-wechat-collector-windows-1.2.16-simple.zip",
+      "bytes": 12018,
+      "sha256": "f7c70b8282dc97b6b79c0a69facc8b8d1b2bc5e089a77d91f9eefd807b575259",
+      "url": "https://github.com/leesom397-tech/goutoujunshi-h5/releases/download/collector-1.2.16/chengzi-wechat-collector-windows-1.2.16-simple.zip"
+    },
+    {
+      "name": "chengzi-wechat-collector-windows-1.2.16.zip",
+      "bytes": 12018,
+      "sha256": "f7c70b8282dc97b6b79c0a69facc8b8d1b2bc5e089a77d91f9eefd807b575259",
+      "url": "https://github.com/leesom397-tech/goutoujunshi-h5/releases/download/collector-1.2.16/chengzi-wechat-collector-windows-1.2.16.zip"
+    },
+    {
+      "name": "chengzi-wechat-collector-windows.zip",
+      "bytes": 12018,
+      "sha256": "f7c70b8282dc97b6b79c0a69facc8b8d1b2bc5e089a77d91f9eefd807b575259",
+      "url": "https://github.com/leesom397-tech/goutoujunshi-h5/releases/download/collector-1.2.16/chengzi-wechat-collector-windows.zip"
+    },
+    {
+      "name": "manifest-1.2.16.json",
+      "bytes": 2576,
+      "sha256": "5ebcc89e5771ed5b0b63951489c84fe59eb9817412c47cca2d72555bef8b73ee",
+      "url": "https://github.com/leesom397-tech/goutoujunshi-h5/releases/download/collector-1.2.16/manifest-1.2.16.json"
+    },
+    {
+      "name": "manifest.json",
+      "bytes": 2576,
+      "sha256": "5ebcc89e5771ed5b0b63951489c84fe59eb9817412c47cca2d72555bef8b73ee",
+      "url": "https://github.com/leesom397-tech/goutoujunshi-h5/releases/download/collector-1.2.16/manifest.json"
+    },
     {
       "name": "ChengziWeChatCollector-Setup-1.2.15.exe",
       "bytes": 12099713,
@@ -94,22 +202,10 @@
       "url": "https://github.com/leesom397-tech/goutoujunshi-h5/releases/download/collector-1.2.15/chengzi-wechat-collector-windows-1.2.15.zip"
     },
     {
-      "name": "chengzi-wechat-collector-windows.zip",
-      "bytes": 12019,
-      "sha256": "ba0f40afa50678f701693d71c1073581807033a5e56e2fd9f5e22f77f8256c60",
-      "url": "https://github.com/leesom397-tech/goutoujunshi-h5/releases/download/collector-1.2.15/chengzi-wechat-collector-windows.zip"
-    },
-    {
       "name": "manifest-1.2.15.json",
       "bytes": 2576,
       "sha256": "8c58a6e8f22c38018149cb712b7c05082e06adf2336df5e1ff335e369a5354d1",
       "url": "https://github.com/leesom397-tech/goutoujunshi-h5/releases/download/collector-1.2.15/manifest-1.2.15.json"
-    },
-    {
-      "name": "manifest.json",
-      "bytes": 2576,
-      "sha256": "8c58a6e8f22c38018149cb712b7c05082e06adf2336df5e1ff335e369a5354d1",
-      "url": "https://github.com/leesom397-tech/goutoujunshi-h5/releases/download/collector-1.2.15/manifest.json"
     },
     {
       "name": "ChengziWeChatCollector-Setup-1.2.14.exe",
@@ -400,5 +496,5 @@
       "url": "https://github.com/leesom397-tech/goutoujunshi-h5/releases/download/collector-1.2.12/manifest-1.2.12.json"
     }
   ],
-  "previousVersion": "1.2.14"
+  "previousVersion": "1.2.15"
 }
