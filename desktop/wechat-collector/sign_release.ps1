@@ -1,91 +1,121 @@
-<##
-Sign a finished Windows collector release with Authenticode.
+<#
+Prepare a NEW Windows release with a trusted Authenticode certificate.
+Order: sign collector -> package signed payload -> build launcher -> sign launcher
+-> verify both files -> write final checksums and signature.json.
 
-SmartScreen warnings are caused by an unsigned or low-reputation publisher;
-there is no safe code-only switch that disables that warning.  This script is
-deliberately opt-in and requires a certificate issued by a trusted CA (or
-Microsoft Artifact Signing).  It never creates a self-signed certificate and
-never changes Defender settings.
-
-Example (certificate already installed in CurrentUser\\My):
-  .\\sign_release.ps1 -ReleaseDir .\\dist\\1.2.4\\release -Thumbprint ABC...
-
-Example (PFX supplied by CI secret):
-  .\\sign_release.ps1 -ReleaseDir .\\dist\\1.2.4\\release `
-      -PfxPath .\\signing\\chengzi.pfx -PfxPassword (Read-Host -AsSecureString)
-
-Run this after building the collector EXE and launcher EXE, before publishing
-the ZIP/manifest.  The manifest hashes are recomputed after signing.
-##>
-
+This script never publishes files, creates a certificate, or changes Windows
+trust settings. Use a fresh version directory; do not replace published assets.
+Example:
+  .\sign_release.ps1 -ReleaseDir .\dist\NEW_VERSION\release -Thumbprint ABC...
+#>
 [CmdletBinding(DefaultParameterSetName = 'Store')]
 param(
     [Parameter(Mandatory = $true)]
     [string] $ReleaseDir,
-
     [Parameter(ParameterSetName = 'Store', Mandatory = $true)]
     [ValidatePattern('^[0-9a-fA-F]{40}$')]
     [string] $Thumbprint,
-
     [Parameter(ParameterSetName = 'Pfx', Mandatory = $true)]
     [string] $PfxPath,
-
     [Parameter(ParameterSetName = 'Pfx', Mandatory = $true)]
     [Security.SecureString] $PfxPassword,
-
+    [string] $PythonPath = (Join-Path $PSScriptRoot '.venv\Scripts\python.exe'),
     [string] $TimestampServer = 'http://timestamp.digicert.com'
 )
-
 $ErrorActionPreference = 'Stop'
-$release = (Resolve-Path -LiteralPath $ReleaseDir).Path
-$manifestPath = Join-Path $release 'manifest.json'
-if (-not (Test-Path -LiteralPath $manifestPath)) { throw "找不到 manifest.json：$release" }
-$manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
-$signtool = Get-Command signtool.exe -ErrorAction SilentlyContinue
-if (-not $signtool) {
-    throw '找不到 signtool.exe。请安装 Windows SDK，或在 CI 中提供 Microsoft Artifact Signing。'
+$release = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($ReleaseDir)
+$app = Join-Path (Split-Path -Parent $release) 'ChengziWeChatCollector'
+$collector = Join-Path $app 'ChengziWeChatCollector.exe'
+if (-not (Test-Path -LiteralPath $collector -PathType Leaf)) {
+    throw "Build the collector first: $collector"
 }
+$signtool = Get-Command signtool.exe -ErrorAction SilentlyContinue
+if (-not $signtool) { throw 'signtool.exe was not found. Install the Windows SDK on the release machine.' }
+$python = Get-Command $PythonPath -ErrorAction SilentlyContinue
+if (-not $python) { throw "Build Python was not found: $PythonPath" }
+$signCommand = $signtool.Name
+if ($signtool.CommandType -eq 'Application') { $signCommand = $signtool.Source }
+$pythonCommand = $python.Name
+if ($python.CommandType -eq 'Application') { $pythonCommand = $python.Source }
 
-$cert = $null
-$pfxArgs = @()
+$keyArgs = @()
 if ($PSCmdlet.ParameterSetName -eq 'Store') {
-    $normalized = $Thumbprint.Replace(' ', '').ToUpperInvariant()
+    $normalized = $Thumbprint.ToUpperInvariant()
     $cert = Get-ChildItem Cert:\CurrentUser\My | Where-Object {
         $_.Thumbprint -eq $normalized -and $_.HasPrivateKey
     } | Select-Object -First 1
-    if (-not $cert) { throw "当前用户证书库中没有带私钥的证书：$normalized" }
-    $pfxArgs = @('/sha1', $normalized)
+    if (-not $cert) { throw "The CurrentUser certificate store has no private key for $normalized." }
+    $keyArgs = @('/sha1', $normalized)
 } else {
-    if (-not (Test-Path -LiteralPath $PfxPath -PathType Leaf)) { throw "找不到 PFX：$PfxPath" }
-    $cert = Get-PfxCertificate -FilePath (Resolve-Path -LiteralPath $PfxPath)
-    if (-not $cert) { throw '无法读取 PFX 证书。' }
-    $pfxArgs = @('/f', (Resolve-Path -LiteralPath $PfxPath).Path, '/p', (New-Object PSCredential('x', $PfxPassword)).GetNetworkCredential().Password)
+    if (-not (Test-Path -LiteralPath $PfxPath -PathType Leaf)) { throw "PFX was not found: $PfxPath" }
+    # Do not call Get-PfxCertificate here: Windows PowerShell would ask for the
+    # password again. SignTool validates the key and the trust chain below.
+    $keyArgs = @('/f', (Resolve-Path -LiteralPath $PfxPath).Path, '/p',
+        (New-Object PSCredential('signing', $PfxPassword)).GetNetworkCredential().Password)
 }
 
-$targets = @(
-    (Get-ChildItem -LiteralPath $release -Filter '*.exe' -File),
-    (Get-ChildItem -LiteralPath (Join-Path $release '..') -Filter '*.exe' -File -ErrorAction SilentlyContinue)
-) | Where-Object { $_ } | Sort-Object FullName -Unique
-if (-not $targets) { throw '发布目录没有可签名的 EXE。' }
-foreach ($target in $targets) {
-    $arguments = @('sign', '/fd', 'SHA256', '/td', 'SHA256', '/tr', $TimestampServer, '/a') + $pfxArgs + @($target.FullName)
-    & $signtool.Source @arguments
-    if ($LASTEXITCODE -ne 0) { throw "签名失败：$($target.Name)" }
-    & $signtool.Source verify '/pa' '/all' $target.FullName
-    if ($LASTEXITCODE -ne 0) { throw "签名校验失败：$($target.Name)" }
-}
-
-# Signing changes the inner collector executable and the outer launcher.  The
-# release manifest must therefore be rebuilt after signing; package_release.py
-# also recreates the archive parts and bootstrap ZIP from these files.
-$app = Join-Path (Join-Path $release '..') 'ChengziWeChatCollector'
-$collector = Join-Path $app 'ChengziWeChatCollector.exe'
-if (-not (Test-Path -LiteralPath $collector)) {
-    Write-Host '未找到内层 collector EXE，跳过重新打包；请手动运行 package_release.py。'
-} else {
-    $hash = (Get-FileHash -LiteralPath $collector -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ([string]$manifest.exeSha256 -ne $hash) {
-        Write-Host '内层 EXE 已签名。请重新运行 package_release.py 和 build_launcher.py，再发布新的 manifest。'
+function Assert-SignedFile([string] $Path) {
+    & $signCommand verify '/pa' '/all' '/tw' $Path | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw "Signature verification failed: $Path" }
+    $signature = Get-AuthenticodeSignature -LiteralPath $Path
+    if ($signature.Status -ne 'Valid' -or -not $signature.SignerCertificate -or -not $signature.TimeStamperCertificate) {
+        throw "A trusted, timestamped signature is required: $Path"
     }
+    return $signature
 }
-Write-Host '签名完成。下一步：重新 package_release.py → build_launcher.py → 上传新的 manifest、ZIP 和 parts。'
+
+function Set-ReleaseSignature([string] $Path) {
+    & $signCommand sign '/fd' 'SHA256' '/td' 'SHA256' '/tr' $TimestampServer '/a' @keyArgs $Path | Out-Host
+    if ($LASTEXITCODE -ne 0) { throw "Signing failed: $Path" }
+    $null = Assert-SignedFile $Path
+}
+
+# Reject a completed release before signing so this cannot rewrite its files.
+if (Test-Path -LiteralPath $release) {
+    $existing = Get-ChildItem -LiteralPath $release -Filter 'ChengziWeChatCollector-Setup-*.exe' -File
+    if ($existing) { throw 'This directory already contains a launcher. Use a fresh version/build directory; never replace a published release.' }
+}
+$null = New-Item -ItemType Directory -Path $release -Force
+try {
+    Set-ReleaseSignature $collector
+    & $pythonCommand (Join-Path $PSScriptRoot 'package_release.py') '--app' $app '--require-signed'
+    if ($LASTEXITCODE -ne 0) { throw 'Packaging the signed collector failed.' }
+    $manifestPath = Join-Path $release 'manifest.json'
+    $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($manifest.authenticode -ne 'signed') { throw 'The packaged collector signature was not verified.' }
+    $collectorHash = (Get-FileHash -LiteralPath $collector -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($collectorHash -ne [string]$manifest.exeSha256) { throw 'Collector hash changed after packaging.' }
+
+    & $pythonCommand (Join-Path $PSScriptRoot 'build_launcher.py') '--manifest' $manifestPath
+    if ($LASTEXITCODE -ne 0) { throw 'Building the pinned-manifest launcher failed.' }
+    $launcher = Join-Path $release ("ChengziWeChatCollector-Setup-{0}.exe" -f $manifest.version)
+    $checksum = [IO.Path]::ChangeExtension($launcher, '.sha256.txt')
+    # build_launcher writes a checksum for its unsigned output. Remove that
+    # intermediate checksum before signing, including on a signing failure.
+    if (Test-Path -LiteralPath $checksum) { Remove-Item -LiteralPath $checksum }
+    Set-ReleaseSignature $launcher
+
+    $innerSignature = Assert-SignedFile $collector
+    $outerSignature = Assert-SignedFile $launcher
+    if ($innerSignature.SignerCertificate.Thumbprint -ne $outerSignature.SignerCertificate.Thumbprint) {
+        throw 'The collector and launcher were signed by different certificates.'
+    }
+    if ((Get-FileHash -LiteralPath $collector -Algorithm SHA256).Hash.ToLowerInvariant() -ne $collectorHash) {
+        throw 'The signed collector changed after packaging.'
+    }
+    $launcherHash = (Get-FileHash -LiteralPath $launcher -Algorithm SHA256).Hash.ToLowerInvariant()
+    [IO.File]::WriteAllText($checksum, "$launcherHash  $([IO.Path]::GetFileName($launcher))`n", [Text.Encoding]::ASCII)
+    $proof = [ordered]@{
+        version = $manifest.version
+        authenticode = 'signed'
+        publisher = $outerSignature.SignerCertificate.Subject
+        certificateThumbprint = $outerSignature.SignerCertificate.Thumbprint
+        collectorSha256 = $collectorHash
+        installerSha256 = $launcherHash
+        installerBytes = (Get-Item -LiteralPath $launcher).Length
+    }
+    [IO.File]::WriteAllText((Join-Path $release 'signature.json'), ($proof | ConvertTo-Json), (New-Object Text.UTF8Encoding($false)))
+    Write-Host 'Signed release verified. Publish these exact files under a new version and pin their final SHA-256 values. Do not rebuild the launcher after signing.'
+} finally {
+    $keyArgs = @()
+}

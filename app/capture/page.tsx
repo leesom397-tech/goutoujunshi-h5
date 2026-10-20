@@ -51,6 +51,7 @@ type StoredCaptureJob = { jobId: string; kind?:CaptureKind; history?: boolean; v
 type PersonImportPlan={chatId:string|null;subjectId:string;contactId:string;accountKey:string;friend:string;entryKey?:string};
 type WechatContact = CaptureContact;
 type JobPhase = "idle" | "checking" | "running" | "done" | "failed" | "missing";
+type PendingConnection = {mode:"opened"|"code";code:string;owner:string};
 class CapturePairSourceError extends Error {}
 type RelatedSnapshot = {libraryId:string;kind:"moments";expectedEpoch:number;expectedTotal:number};
 type Receipt = { requestId: string; libraryId: string; sourceIds: string[]; historyIds?: string[]; subjectId: string; kind: CaptureKind; returnTo?: string; analysisScope?: "fullHistory"; cloudId?: string; expectedTotal?: number; expectedEpoch?: number; relatedSnapshots?:RelatedSnapshot[]; question?: typeof diagnosticQuestions[number] };
@@ -77,6 +78,8 @@ export default function CapturePage() {
   const [cloudBusy,setCloudBusy] = useState(false), [cloudNote,setCloudNote] = useState(""), [cloudError,setCloudError] = useState(""), [librariesLoading,setLibrariesLoading]=useState(false);
   const [returnTo,setReturnTo] = useState("");
   const [pairExpanded,setPairExpanded]=useState(false),[connectionHint,setConnectionHint]=useState("");
+  const [pendingConnection,setPendingConnection]=useState<PendingConnection|null>(null);
+  const lastConnectionOwner=useRef("");
   const [method, setMethod] = useState<"desktop" | "window" | "video" | "library">("desktop"), [kind, setKind] = useState<CaptureKind>("chat"), [friend, setFriend] = useState(""), [wechatAccount, setWechatAccount] = useState(""), [code, setCode] = useState(""), [limit, setLimit] = useState(40), [health, setHealth] = useState<BridgeHealth | null>(null), [connected, setConnected] = useState(false);
   const [contacts,setContacts] = useState<WechatContact[]>([]), [selectedContact,setSelectedContact] = useState<WechatContact|null>(null), [contactSearch,setContactSearch] = useState<"idle"|"searching"|"ready"|"error">("idle"), [contactHint,setContactHint] = useState("");
   const [busy, setBusy] = useState(false), [analyzing, setAnalyzing] = useState(false), [backgroundAnalysis, setBackgroundAnalysis] = useState(false), [error, setError] = useState(""), [note, setNote] = useState(""), [jobId, setJobId] = useState(""), [progress, setProgress] = useState(0), [jobPhase, setJobPhase] = useState<JobPhase>("idle"), [jobMessage, setJobMessage] = useState("");
@@ -258,7 +261,7 @@ export default function CapturePage() {
     requestedSubject.current = new URLSearchParams(window.location.search).get("subjectId") || "";
     void refreshLibraries(owner,current);
     setPairExpanded(false);setConnectionHint("");
-    if(!handoff.current&&!discoveryPaused.current)void resumeExistingConnection(current).catch(cause=>{if(current===generation.current)setError(message(cause));});
+    if(!handoff.current&&!pendingConnection&&!discoveryPaused.current)void resumeExistingConnection(current).catch(cause=>{if(current===generation.current)setError(message(cause));});
     const requestedContact = (new URLSearchParams(window.location.search).get("contactSearch") || "").trim().slice(0,100);
     if(requestedContact)setFriend(requestedContact);
     else if(savedMoments&&entryParams.get('kind')==='moments')setFriend(contactDisplayName(savedMoments.friend));
@@ -283,12 +286,29 @@ export default function CapturePage() {
     return () => { generation.current++; abort.current?.abort();invalidateCaptureUploads(false); };
   }, [owner]);
   useEffect(()=>watchCaptureConnectionRevocation(()=>{
+    setPendingConnection(null);setCode("");handoff.current="";
+    try{consumeCaptureHandoff(sessionStorage);}catch{}
     invalidateCaptureUploads();
     generation.current++;connectionAttempt.current++;abort.current?.abort();discoveryPaused.current=true;token.current="";connectionState.current.connected=false;
     if(owner)remember(`chengzi-capture:${owner}:connection`,null);
     setConnected(false);setHealth(null);setConnectionHint("已退出账号，请重新登录后连接助手。");
   }),[owner]);
-  useEffect(()=>{if(!owner)return;let saved="";try{saved=consumeCaptureHandoff(sessionStorage);}catch{}const value=saved||handoff.current;handoff.current="";if(value)void connect(value);},[owner]);
+  useEffect(()=>{if(!owner||pendingConnection)return;let saved="";try{saved=consumeCaptureHandoff(sessionStorage);}catch{}const value=saved||handoff.current;handoff.current="";if(value)void connect(value);},[owner]);
+  useEffect(()=>{
+    if(!owner)return;
+    const previous=lastConnectionOwner.current;lastConnectionOwner.current=owner;
+    if(!pendingConnection){if(previous&&previous!==owner)setCode("");return;}
+    setPendingConnection(null);
+    if(pendingConnection.owner&&pendingConnection.owner!==owner){
+      setCode("");setConnectionHint("网页账号已更换，请重新输入助手连接码。");return;
+    }
+    if(pendingConnection.mode==="code")void connect(undefined,pendingConnection.code);
+    else{
+      let saved="";try{saved=consumeCaptureHandoff(sessionStorage);}catch{}
+      const value=saved||handoff.current;handoff.current="";
+      if(value)void connect(value);else void connectOpenedAssistant();
+    }
+  },[owner,pendingConnection]);
   useEffect(()=>{
     if(!owner)return;const ticket=generation.current, key=`chengzi-capture:${owner}:connection`;
     const discovery=discoverCaptureConnection({owner,getConnection:()=>connectionState.current.connected&&token.current?stored<{token:string;expiresAt:number}>(key):null,canConnect:()=>!discoveryPaused.current&&!token.current&&!connectionState.current.busy&&connectionState.current.method==="desktop",accept:async(connection,signal)=>{
@@ -701,18 +721,30 @@ export default function CapturePage() {
     }catch(cause){if(current()){setError(message(cause));setConnectionHint("");}}
     finally{if(current()){connectionState.current.busy=false;setBusy(false);connectionDiscovery.current?.refresh();}}
   }
+  function requestAssistantConnection(mode:"opened"|"code"){
+    if(locked)return;
+    const entered=code.trim();
+    if(mode==="code"&&!/^[a-f0-9]{8}$/i.test(entered))return;
+    if(owner){if(mode==="code")void connect(undefined,entered);else void connectOpenedAssistant();return;}
+    // Keep the user's intent in this tab, but do not redeem a helper secret or
+    // restore an owner-scoped grant until the server confirms the account.
+    setPendingConnection({mode,code:entered,owner:lastConnectionOwner.current});
+    if(mode==="code"){handoff.current="";try{consumeCaptureHandoff(sessionStorage);}catch{}}
+    setError("");setConnectionHint("");
+    if(!account.loading&&!account.refreshing&&!account.unauthorized)void account.refresh();
+  }
   function connectionFailed(e:unknown) {
     if(e instanceof BridgeError&&e.status===401&&["PAIR_REQUIRED","TOKEN_INVALID"].includes(e.code)){token.current="";setConnected(false);remember(scopeKey("connection"),null);void forgetCaptureConnectionSession(owner);const stale=stored<StoredCaptureJob>(scopeKey("job"));if(stale?.jobId){clearStoredJob(stale.jobId);setJobPhase("missing");setJobMessage("本机助手连接已失效，已保存的聊天不会删除。重新连接后可继续导入。");setJobId("");setProgress(0);}}
     setError(message(e));
   }
-  async function connect(oneTimeHandoff?:string) {
+  async function connect(oneTimeHandoff?:string,enteredCode=code.trim()) {
     if (!owner) return;
     discoveryPaused.current=false;remember(scopeKey("auto-connect-paused"),null);
     const ticket = generation.current,attempt=++connectionAttempt.current,current=()=>ticket===generation.current&&attempt===connectionAttempt.current&&!discoveryPaused.current;connectionState.current.busy=true; setBusy(true); setError("");
     try {
       const status = await bridgeRequest<BridgeHealth>("/health");
       if (!current()) return; setHealth(status);
-      const pair = await bridgeRequest<{token:string;expiresIn:number}>(oneTimeHandoff?"/pair/handoff":"/pair", { body: oneTimeHandoff?{handoff:oneTimeHandoff}:{ code: code.trim() } });
+      const pair = await bridgeRequest<{token:string;expiresIn:number}>(oneTimeHandoff?"/pair/handoff":"/pair", { body: oneTimeHandoff?{handoff:oneTimeHandoff}:{ code: enteredCode } });
       if (!current()) return;
       // Pairing creates a fresh helper session and discards its previous jobs.
       // Remove the browser's old job checkpoint at the same point.
@@ -1343,12 +1375,13 @@ export default function CapturePage() {
           {method === "desktop" && <div className={styles.connect} data-tour="capture-connect">
             {connected ? <div className={styles.connectionBar}><div className={styles.connected} role="status"><CheckCheck size={19}/><strong>助手已连接</strong></div><a className={`${ui.secondary} ${styles.helperDownload}`} href={collectorInstallerHref} download><Download size={17}/>下载／更新助手</a><details className={styles.assistantSettings}><summary>助手设置</summary><div><a href="/support">安装与连接帮助<ArrowRight size={16}/></a><button disabled={locked} onClick={() => { connectionAttempt.current++;discoveryPaused.current=true;remember(scopeKey("auto-connect-paused"),true);token.current = ""; setConnected(false); setHealth(null); setNote(""); remember(scopeKey("connection"), null);void forgetCaptureConnectionSession(owner); }}>断开助手连接</button></div></details></div> : <>
               <p className={styles.connectLead}>{supplementMoments && selectedContact ? `继续为「${contactDisplayName(selectedContact.label)}」补充朋友圈，已有聊天已保留。` : "连接后选择微信好友，一次导入聊天、语音和朋友圈。"}</p>
-              <button className={`${ui.primary} ${styles.downloadInstaller}`} disabled={!owner||locked} onClick={()=>void connectOpenedAssistant()}>{busy?<LoaderCircle size={18}/>:<Link2 size={18}/>}连接已打开的助手</button>
+              <button className={`${ui.primary} ${styles.downloadInstaller}`} disabled={locked||!!pendingConnection&&(account.loading||account.refreshing)} onClick={()=>requestAssistantConnection("opened")}>{busy||!!pendingConnection&&(account.loading||account.refreshing)?<LoaderCircle className={styles.spin} size={18}/>:<Link2 size={18}/>}连接已打开的助手</button>
+              {!owner&&pendingConnection&&<div className={styles.connectionWaiting} role="status" data-connection-account-wait><strong>{account.unauthorized?"请先登录网页账号":account.loading||account.refreshing?"正在恢复网页账号…":"网页账号暂未连接"}</strong><small>{account.unauthorized?"助手保持打开，登录后即可继续连接。":account.loading||account.refreshing?"恢复后会自动继续连接助手，无需重复点击。":"连接操作已保留。点击上方“重新连接”恢复账号后，会继续连接助手。"}</small></div>}
               {connectionHint&&<p role="status">{connectionHint}</p>}
               <a className={`${ui.secondary} ${styles.downloadInstaller}`} href={collectorInstallerHref} download onClick={()=>{discoveryPaused.current=false;remember(scopeKey("auto-connect-paused"),null);rememberConnectionEntry();connectionDiscovery.current?.refresh();}}><Download size={18}/>下载 Windows 助手</a>
               <small>Windows 10 / 11 · 无需解压、输入命令</small>
               <details className={styles.installHelp}><summary>安装遇到 Windows 提示？</summary><p>安装包尚未完成代码签名，Windows 可能显示“无法识别的应用”。请核对下载地址为 coach.lovetalk.love；无法确认来源时取消安装。</p></details>
-              <details className={styles.pair} open={pairExpanded} onToggle={event=>setPairExpanded(event.currentTarget.open)}><summary>使用助手连接码</summary><label htmlFor="capture-code">输入助手窗口的 8 位连接码</label><div><input id="capture-code" inputMode="text" autoCapitalize="characters" autoComplete="off" maxLength={8} value={code} onChange={e => setCode(e.target.value)} placeholder="8 位连接码" disabled={locked}/><button className={ui.secondary} disabled={!owner || locked || !/^[a-f0-9]{8}$/i.test(code.trim())} onClick={() => void connect()}>{busy ? <LoaderCircle size={17}/> : <Link2 size={17}/>}连接</button></div></details>
+              <details className={styles.pair} open={pairExpanded} onToggle={event=>setPairExpanded(event.currentTarget.open)}><summary>使用助手连接码</summary><label htmlFor="capture-code">输入助手窗口的 8 位连接码</label><div><input id="capture-code" inputMode="text" autoCapitalize="characters" autoComplete="off" maxLength={8} value={code} onChange={e => {setCode(e.target.value);setPendingConnection(null);}} placeholder="8 位连接码" disabled={locked}/><button className={ui.secondary} disabled={locked || !!pendingConnection&&(account.loading||account.refreshing) || !/^[a-f0-9]{8}$/i.test(code.trim())} onClick={() => requestAssistantConnection("code")}>{busy ? <LoaderCircle size={17}/> : <Link2 size={17}/>}连接</button></div></details>
             </>}
             {connected && helperNeedsUpdate && <div className={styles.connectionWaiting}><strong>更新助手，修复采集稳定性</strong><a className={ui.secondary} href={collectorInstallerHref} download><Download size={17}/>下载 {collectorVersion}</a></div>}
           </div>}

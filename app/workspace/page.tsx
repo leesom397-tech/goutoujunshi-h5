@@ -11,8 +11,7 @@ import styles from "./Workspace.module.css";
 import { useAccount } from '@/components/web-analysis/client';
 export default function Workspace() {
   const previousOwner = useRef("");
-  const session = useAccount(), owner = session.account?.account?.userId || '', identity = owner ? { name: session.account?.user?.name || '', id: owner } : null;
-  const { loading, error } = session;
+  const session = useAccount(), owner = session.account?.account?.userId || '';
   const [pendingTask, setPendingTask] = useState<{ mode: string; count: number } | null>(null);
   useEffect(() => {
     let disposed = false;
@@ -30,8 +29,7 @@ export default function Workspace() {
     {pendingTask && <a className="workspace-resume" href={`/analyze?mode=${pendingTask.mode}`}><span><b>接着上次</b><small>{pendingTask.mode === "chat" ? "聊天截图" : pendingTask.mode === "moments" ? "朋友圈" : "社交资料"} · {pendingTask.count} 张图片的任务已保留</small></span><span>继续查看 <ArrowUpRight size={16}/></span></a>}
   </>;
   return <main className={styles.shell}><WebNav/><div className={styles.wrap}>
-    {identity && <div className={styles.welcome}><span>你好，{identity.name}</span><a href="/archive?tab=self">我的资料<ArrowUpRight size={14}/></a></div>}
-    <ProductHome afterHero={continuation} loading={loading} error={error} onRetry={()=>void session.refresh()} signedIn={!!identity} onStart={href => window.location.assign(href)}/>
+    <ProductHome afterHero={continuation} signedIn={!!owner} onStart={href => window.location.assign(href)}/>
   </div><footer className="web-footer"><span>成子 · 陪你看懂关系</span><div><a href="/privacy">数据与隐私</a><a href="/account#contact">联系客服</a><a href="/sales">服务介绍</a></div></footer></main>;
 }
 

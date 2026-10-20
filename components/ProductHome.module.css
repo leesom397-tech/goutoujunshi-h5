@@ -17,18 +17,12 @@
 .page .hero h1 { margin: 23px 0 18px; color: #272421; font-family: inherit; font-size: clamp(36px, 3.8vw, 55px); font-weight: 550; line-height: 1.4; letter-spacing: -.045em; }
 .page .hero h1 > span { color: #9e5c46; }
 .hero .heroDescription { margin: 0; color: #58483f; font-size: 18px; line-height: 1.85; }
-.taskChoices { display: grid; grid-template-columns: 1fr 1fr 1.18fr; gap: 12px; margin-top: 30px; }
-.taskChoice { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; min-width: 0; padding: 22px; border: 1px solid #d9bca7; border-radius: 15px; background: #fffaf5f5; color: #302a25; font: inherit; text-align: left; cursor: pointer; box-shadow: inset 0 1px #fff, 0 5px 16px #7956380a; transition: transform .2s, border-color .2s; }
-.taskChoice:hover { border-color: #a9644e; transform: translateY(-3px); }
-.taskChoice:first-child { background: #a9644e; border-color: #a9644e; color: #fffaf5; }
-.taskIcon { display: grid; place-items: center; flex: none; width: 42px; height: 42px; border-radius: 12px; background: #a9644e10; color: #a9644e; }
-.taskChoice:first-child .taskIcon { background: #ffffff20; color: inherit; }
-.taskCopy { flex: 1; min-width: 0; }
-.taskCopy strong { display: block; font-size: 21px; line-height: 1.45; font-weight: 600; }
-.taskCopy > span { display: block; margin-top: 5px; font-size: 16px; line-height: 1.65; color: #65574d; }
-.taskChoice:first-child .taskCopy > span { color: #fff5ec; }
-.taskAction { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; padding-top: 13px; margin-top: 3px; border-top: 1px solid #a9644e25; font-size: 16px; font-weight: 600; color: #8b503b; }
-.taskChoice:first-child .taskAction { color: inherit; border-color: #ffffff40; }
+.actions { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; margin-top: 28px; }
+.startButton, .moreButton { display: inline-flex; align-items: center; justify-content: center; gap: 14px; min-height: 54px; border-radius: 12px; font: inherit; font-size: 18px; font-weight: 600; cursor: pointer; transition: background .2s, border-color .2s; }
+.startButton { min-width: 204px; padding: 15px 26px; border: 1px solid #a9644e; background: #a9644e; color: #fffaf5; box-shadow: inset 0 1px #ffffff40, 0 5px 18px #79563814; }
+.startButton:hover { background: #96553f; border-color: #96553f; }
+.moreButton { padding: 14px 18px; border: 1px solid #d9bca7; background: #fffaf5eb; color: #754c39; font-size: 16px; font-weight: 500; }
+.moreButton:hover { background: #fff; border-color: #a9644e; }
 .art { position: absolute; inset: 0; z-index: 0; }
 .hero::after { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; background: linear-gradient(180deg, #fffaf5, transparent 15%), linear-gradient(90deg, #fffaf5ed 0%, #fffaf5b8 31%, #fffaf540 49%, transparent 68%); }
 
@@ -75,46 +69,42 @@
 .evidenceFooter a:hover { background: #f7eade; border-color: #cba98f; }
 .evidenceFooter a:focus-visible { outline: 2px solid #a26043; outline-offset: 4px; }
 
-.tools { padding: 10px 6% 28px; scroll-margin-top: 30px; }
-.tools header { margin-bottom: 17px; }
-.page .tools h2 { margin: 0; color: #302a25; font-size: 24px; font-weight: 600; line-height: 1.5; letter-spacing: -.035em; }
-.grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.moreDialog { width: min(760px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); margin: auto; padding: 0; overflow: auto; overscroll-behavior: contain; border: 1px solid #e3ccbc; border-radius: 22px; background: #fffaf5; color: #302a25; box-shadow: 0 28px 90px #302a2533; }
+.moreDialog::backdrop { background: #302a2566; backdrop-filter: blur(5px); }
+.moreSurface { padding: 24px; }
+.moreSurface header { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; margin-bottom: 22px; }
+.page .moreSurface h2 { margin: 0; color: #302a25; font-size: 26px; font-weight: 600; line-height: 1.5; letter-spacing: -.035em; }
+.moreSurface header p { margin: 6px 0 0; color: #65574d; font-size: 16px; line-height: 1.65; }
+.moreSurface header button { display: grid; place-items: center; flex: none; width: 44px; height: 44px; border: 1px solid #e3ccbc; border-radius: 12px; background: #fff5eb; color: #855337; cursor: pointer; }
+.grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .tool { position: relative; display: flex; align-items: center; gap: 14px; min-width: 0; min-height: 100px; padding: 18px 19px; border: 1px solid #e9dfd5; border-radius: 14px; background: linear-gradient(150deg, #fff, #fffcf8); color: var(--text); box-shadow: inset 0 1px #fff, 0 3px 12px #4b372605; transition: border-color .2s, transform .2s; }
 .page .tool:hover { border-color: #c9a58b; transform: translateY(-2px); text-decoration: none; }
 .icon { display: grid; place-items: center; flex: none; width: 46px; height: 48px; border: 1px solid #e7d3bc; border-radius: 12px; background: linear-gradient(140deg, #fffaf1, #f1e4d5); box-shadow: inset 1px 2px 2px #fff, 0 2px 0 #e1cfbd, 0 5px 9px #855b2812; color: #986b46; }
 .icon svg { width: 25px; height: 25px; }
 .toolCopy { display: flex; flex-direction: column; min-width: 0; gap: 5px; }
 .toolCopy strong { color: #272421; font-size: 18px; font-weight: 600; line-height: 1.35; }
-.toolCopy > span { color: #65574d; font-size: 14px; line-height: 1.6; }
+.toolCopy > span { color: #65574d; font-size: 16px; line-height: 1.6; }
 .toolArrow { flex: none; align-self: flex-start; margin-left: auto; color: #a3765c; }
 .utilities { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 24px; padding: 0 6% 22px; }
 .utilities > a { display: inline-flex; align-items: center; gap: 7px; min-height: 44px; color: #745746; font-size: 16px; }
 .utilities > a:hover { text-decoration: underline; text-underline-offset: 4px; }
-.error { display: flex; align-items: center; flex-wrap: wrap; gap: 15px; margin-bottom: 20px; padding: 16px 6%; background: #fff0e9; color: #854033; font-size: 16px; line-height: 1.8; }
-.error button { min-height: 44px; padding: 6px 12px; border: 1px solid #d5a195; border-radius: 6px; background: white; color: inherit; font: inherit; cursor: pointer; }
-.sessionStatus { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 .page :is(a, button):focus-visible { outline: 2px solid #a26043; outline-offset: 4px; }
 .page button:disabled { opacity: .55; cursor: wait; transform: none; box-shadow: none; }
 
 @media (max-width: 1100px) {
-  .taskChoice { padding: 18px; gap: 12px; }
-  .taskIcon { width: 36px; height: 36px; }
-  .taskCopy strong { font-size: 19px; }
   .evidence { grid-template-columns: minmax(0, 1fr) minmax(260px, .75fr); gap: 24px; padding: 26px; }
   .evidence .evidenceHeading h2 { font-size: 26px; }
   .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @media (max-width: 700px) {
-  .hero { min-height: 0; align-items: flex-start; }
-  .heroCopy { width: 100%; padding: 25px 24px 28px; }
+  .hero { min-height: 410px; align-items: flex-start; }
+  .heroCopy { width: 100%; padding: 30px 24px 70px; }
   .eyebrow { font-size: 14px; }
   .page .hero h1 { margin: 20px 0 15px; font-size: 34px; line-height: 1.42; }
   .hero .heroDescription { font-size: 16px; }
-  .taskChoices { grid-template-columns: 1fr; gap: 10px; margin-top: 22px; }
-  .taskChoice { flex-wrap: nowrap; padding: 16px; gap: 12px; min-height: 92px; }
-  .taskCopy strong { font-size: 19px; }
-  .taskCopy > span { font-size: 16px; margin-top: 3px; }
-  .taskAction { width: auto; margin: 0; padding: 0; border: 0; font-size: 0; gap: 0; }
+  .actions { gap: 10px; margin-top: 25px; }
+  .startButton { min-width: 0; padding: 15px 23px; }
+  .moreButton { gap: 8px; padding: 14px; }
   .hero::after { background: linear-gradient(180deg, #fffaf5f5 0%, #fffaf5eb 44%, #fffaf598 65%, transparent 87%); }
   .evidence { grid-template-columns: minmax(0, 1fr); margin: 0 24px 25px; padding: 22px 18px 18px; gap: 20px; border-radius: 19px; }
   .evidenceKicker { font-size: 16px; }
@@ -127,16 +117,15 @@
   .evidenceFooter { align-items: flex-start; flex-direction: column; gap: 10px; }
   .author { font-size: 16px; }
   .evidenceFooter a { min-height: 44px; }
-  .tools { padding: 10px 24px 24px; }
-  .page .tools h2 { font-size: 22px; }
-  .grid { gap: 10px; }
-  .tool { align-items: flex-start; flex-direction: column; min-height: 126px; padding: 14px; gap: 10px; }
+  .moreSurface { padding: 20px 16px; }
+  .moreSurface header { gap: 12px; margin-bottom: 18px; }
+  .grid { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .tool { min-height: 88px; padding: 16px 14px; gap: 12px; }
   .icon { width: 38px; height: 40px; border-radius: 10px; }
   .icon svg { width: 21px; height: 21px; }
   .toolCopy { gap: 4px; }
-  .toolCopy strong { font-size: 16px; }
-  .toolCopy > span { font-size: 14px; }
-  .toolArrow { position: absolute; top: 15px; right: 13px; width: 16px; height: 16px; }
+  .toolCopy strong { font-size: 18px; }
+  .toolArrow { align-self: center; width: 16px; height: 16px; }
   .utilities { padding: 0 24px 22px; gap: 10px 20px; }
 }
 @media (max-width: 360px) {
@@ -146,6 +135,6 @@
   .evidence .evidenceHeading h2 { font-size: 23px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .tool, .taskChoice, .evidenceFooter a { transition: none; }
-  .page .tool:hover, .taskChoice:hover { transform: none; }
+  .tool, .startButton, .moreButton, .evidenceFooter a { transition: none; }
+  .page .tool:hover { transform: none; }
 }

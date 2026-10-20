@@ -2,7 +2,7 @@
 
 ## 使用
 
-1. 在成子网页下载 `ChengziWeChatCollector-Setup-1.2.13.exe` 并双击打开。首次启动会在图形窗口中显示下载和安装进度；安装到当前 Windows 用户目录后自动打开助手，后续双击同一个 EXE 即可启动。无需解压 ZIP、运行脚本或安装 Python。
+1. 在成子网页下载 `ChengziWeChatCollector-Setup-1.2.14.exe` 并双击打开。首次启动会在图形窗口中显示下载和安装进度；安装到当前 Windows 用户目录后自动打开助手，后续双击同一个 EXE 即可启动。无需解压 ZIP、运行脚本或安装 Python。
 2. 打开并登录 Windows 微信。
 3. 助手启动后自动打开成子导入页并连接。没有自动连接时，可在助手窗口点击“打开网页并连接”，或在网页使用助手显示的 8 位备用连接码。
 4. 在网页选择“聊天”或“朋友圈”，搜索昵称、备注或微信号，从候选列表选中具体好友，再点击导入。候选列表提供本地可读的备注、昵称、微信号与头像；资料缺失时留空。同名且无法区分时，请先在微信设置不同备注。后台聊天可连续分页读取电脑上已有的完整历史；中途停止后可继续，之后也可导入新增记录。手机上尚未同步到电脑的记录需先通过微信导出到电脑。
@@ -59,11 +59,15 @@ py -3.12 -m venv .venv
 
 Windows Defender SmartScreen 的“Windows 已保护你的电脑 / 无法识别的应用”提示，原因是安装程序或助手没有使用受 Windows 信任的 Authenticode 证书签名，或者证书还没有形成发布者信誉。文件哈希校验只能证明下载未被篡改，不能代替发布者签名；加入版本信息、图标或修改文件名也不能安全地关闭 SmartScreen。
 
-本仓库不生成自签名证书，也不修改 Defender 设置。拿到受信任的代码签名证书（或 Microsoft Artifact Signing）后，在发布机执行 `sign_release.ps1`，再按脚本提示重新生成 manifest、分片和外层启动程序。签名完成后可在文件属性「数字签名」中核对发布者；没有证书时，用户只能通过 Windows 的「更多信息 → 仍要运行」确认自己信任的下载来源，不能在程序内绕过系统拦截。
+本仓库不生成自签名证书，也不修改 Defender 设置。拿到受信任的代码签名证书后，在装有 Windows SDK 的发布机执行 `sign_release.ps1`。脚本按顺序完成：签署内层助手 → 验证带时间戳的有效签名 → 重建载荷、分片和 manifest → 构建外层安装程序 → 最后签署安装程序 → 校验两者发布者一致 → 写入最终 SHA-256 与 `signature.json`。**签名后不能再运行 `build_launcher.py`，否则会丢失签名。** 云签名服务需接入对应服务的签名工具，不能仅传一个服务名称冒充已配置。
+
+必须使用新的版本目录，脚本拒绝覆盖已包含安装程序的目录；不能替换已发布的 1.2.13 等不可变资产。发布时根据最终文件更新 `public/downloads/collector-release.json` 的大小与 SHA-256，上传同一版本的所有文件后再构建网站。签名失败、缺少时间戳、发布者不一致时不会输出成功证明。`package_release.py --require-signed` 会检查实际二进制，未签名文件不能声明为已签名。
+
+签名能提供可核验的发布者，但无法承诺新程序立即不再出现信誉提示。Chrome 的“不常被下载”是下载信誉检查，Windows SmartScreen 的“无法识别的应用”是另一层检查。参考 [Chrome 官方说明](https://support.google.com/chrome/answer/6261569?hl=zh-Hans) 与 [Microsoft 发布者信誉说明](https://learn.microsoft.com/windows/apps/package-and-deploy/smartscreen-reputation)。不要要求用户关闭浏览器或系统保护，也不要改扩展名或套压缩包来规避检查。
 
 ```powershell
-# 证书已安装在当前用户“个人”证书库
-.\sign_release.ps1 -ReleaseDir .\dist\1.2.4\release -Thumbprint <40位指纹>
+# 先构建一个尚未发布的新版本；证书已安装在当前用户“个人”证书库
+.\sign_release.ps1 -ReleaseDir .\dist\NEW_VERSION\release -Thumbprint <40位指纹>
 ```
 
 ```powershell

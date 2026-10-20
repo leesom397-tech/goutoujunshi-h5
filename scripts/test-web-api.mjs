@@ -55,7 +55,7 @@ assert.equal((await identity.requestOwner(request('/api/miniapp/profile', undefi
 assert.equal(await identity.requestOwner(request('/api/web/profile', undefined, { Cookie: '', Authorization: 'Bearer ' + 'a'.repeat(64) }), miniEnv), null, 'mini-program bearer cannot impersonate a web account');
 
 const sql = new DatabaseSync(':memory:');
-for (const name of ['0000_lying_leech','0003_wealthy_stephen_strange','0015_account_credits', '0016_credit_receipts', '0017_web_accounts','0018_saved_analysis_reports']) sql.exec(readFileSync(new URL('../drizzle/' + name + '.sql', import.meta.url), 'utf8'));
+for (const name of ['0000_lying_leech','0003_wealthy_stephen_strange','0015_account_credits', '0016_credit_receipts', '0017_web_accounts','0018_saved_analysis_reports','0021_verified_legacy_sessions']) sql.exec(readFileSync(new URL('../drizzle/' + name + '.sql', import.meta.url), 'utf8'));
 const db = { prepare(query) { let values = []; return { bind(...v) { values = v; return this; }, async first() { return sql.prepare(query).get(...values) || null; }, async all() { return { results: sql.prepare(query).all(...values) }; }, async run() { return { meta: { changes: Number(sql.prepare(query).run(...values).changes) } }; } }; }, async batch(statements) { sql.exec('BEGIN'); try { const result = []; for (const s of statements) result.push(await s.run()); sql.exec('COMMIT'); return result; } catch (e) { sql.exec('ROLLBACK'); throw e; } } };
 const owner = 'lovetalk:alice';
 let expectedOwner=owner;
@@ -92,6 +92,7 @@ function load(path) {
 }
 const social = load('../lib/social-profile-jobs.mjs');
 mocks['./lib/social-profile-jobs.mjs'] = social;
+mocks['./lib/capture-history-jobs.mjs'] = load('../lib/capture-history-jobs.mjs');
 const worker = load('../worker-entry.mjs').default;
 const stores = new Map(), objects = new Map();
 const env = { DB: db, SOCIAL_PROFILE_JOBS: {
