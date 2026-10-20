@@ -12,7 +12,7 @@ import { readReportLibrarySources } from "./ReportSourceLibrary";
 type SourceLink = NonNullable<Awaited<ReturnType<typeof readReportSources>>>;
 type Selection = { quote?: string; sourceIds?: string[]; label?: string; libraryId?: string; sourceKind?: string };
 type EvidenceContext = { ownerId?: string; reportId?: string; visible: boolean; open: (selection: Selection, trigger: HTMLElement) => void };
-type ProviderProps = { ownerId?: string; reportId?: string; captureOrigin?: boolean; fullHistory?: boolean; historyKind?: 'chat' | 'moments'; historyCount?: number; children: ReactNode };
+type ProviderProps = { ownerId?: string; reportId?: string; captureOrigin?: boolean; fullHistory?: boolean; historyKind?: 'chat' | 'moments'; historyCount?: number; showSourceBar?: boolean; children: ReactNode };
 const Context = createContext<EvidenceContext | null>(null);
 const plain = (value: unknown) => typeof value === "string" ? value.trim() : "";
 const normalized = (value: string) => value.replace(/[\s“”‘’「」『』，。！？：；、,.!?;:'"()（）]/gu, "");
@@ -52,7 +52,7 @@ export function CaptureEvidenceProvider(props: ProviderProps) {
   return <CaptureEvidenceScope {...props}/>;
 }
 
-function CaptureEvidenceScope({ ownerId, reportId, captureOrigin = false, fullHistory = false, historyKind = 'chat', historyCount, children }: ProviderProps) {
+function CaptureEvidenceScope({ ownerId, reportId, captureOrigin = false, fullHistory = false, historyKind = 'chat', historyCount, showSourceBar = true, children }: ProviderProps) {
   const [loaded, setLoaded] = useState<{ owner: string; report: string; link: SourceLink | null; error: string } | null>(null);
   const [selection, setSelection] = useState<Selection | null>(null), [search, setSearch] = useState(""), [limit, setLimit] = useState(24);
   const [librarySources,setLibrarySources]=useState<{key:string;link:SourceLink|null;error:string}|null>(null);
@@ -106,7 +106,7 @@ function CaptureEvidenceScope({ ownerId, reportId, captureOrigin = false, fullHi
   const close = () => dialog.current?.close();
 
   return <Context.Provider value={{ ownerId, reportId, visible, open }}>
-    {visible && <div className={styles.sourceBar} data-capture-sources><FileSearch size={20}/><span>{fullHistory ? `${totalLabel}${baseLink ? ` · 报告附 ${baseLink.records.length} 条原话依据` : ""}` : baseLink ? `本次采集 · ${baseLink.records.length} 条原记录` : "本报告来自微信采集"}</span><button type="button" onClick={event => open({ label: fullHistory ? "这份报告附带的原话依据" : "本次分析的原始记录" }, event.currentTarget)}>{fullHistory ? "查看原话依据" : "查看原始记录"}<ArrowUpRight size={16}/></button></div>}
+    {visible && showSourceBar && <div className={styles.sourceBar} data-capture-sources><FileSearch size={20}/><span>{fullHistory ? `${totalLabel}${baseLink ? ` · 报告附 ${baseLink.records.length} 条原话依据` : ""}` : baseLink ? `本次采集 · ${baseLink.records.length} 条原记录` : "本报告来自微信采集"}</span><button type="button" onClick={event => open({ label: fullHistory ? "这份报告附带的原话依据" : "本次分析的原始记录" }, event.currentTarget)}>{fullHistory ? "查看原话依据" : "查看原始记录"}<ArrowUpRight size={16}/></button></div>}
     {children}
     <dialog ref={dialog} className={styles.drawer} aria-labelledby={headingId} data-capture-evidence-dialog onClose={() => { restorePosition(); setSelection(null); }} onClick={event => { if (event.target === event.currentTarget) { const rect = event.currentTarget.getBoundingClientRect(); if (event.clientX < rect.left || event.clientX > rect.right) close(); } }}>
       <header className={styles.header}><div><span>回看分析依据</span><h2 id={headingId}>{isMoments ? "原始朋友圈动态" : "原始聊天记录"}</h2></div><button type="button" aria-label="关闭原始记录" onClick={close}><X size={22}/></button></header>

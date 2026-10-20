@@ -1,50 +1,187 @@
-import assert from 'node:assert/strict';
-import puppeteer from 'puppeteer-core';
-const origin=process.env.INTAKE_TEST_ORIGIN||'http://127.0.0.1:8798';
-const reportId='22222222-1111-4111-8111-111111111111',previousId='11111111-1111-4111-8111-111111111111',subjectId='followup-person-a';
-let owner='followup-owner-a';const requests=[],errors=[];
-const report={id:reportId,subjectId,selfSide:'right',summary:'双方约好周六看展',lines:[{id:'line-1',speaker:'other',text:'周六下午一起看展吗？'}],decision:{judgment:'双方开始商量具体安排',nextStep:'确认时间后再订票',replySuggestions:[{text:'周六两点可以，展馆门口见。',reason:'确认具体时间'}]},personalConnection:{commonPoints:[{title:'共同看展兴趣',reading:'双方提过喜欢看展'}]}};
-const automatic={status:'compared',headline:'这次材料里有这些变化',note:'变化来自两组已分析材料，反映可见互动，不代表对方内心或建议已经执行。',count:2,current:{reportId,summary:'这次开始约定具体时间',nextStep:'确认时间',date:'2026-01-06 至 2026-01-07'},previous:{reportId:previousId,summary:'之前只谈过看展兴趣',date:'2026-01-04'},changes:[{label:'主动延续',before:20,after:40,text:'主动延续：20 → 40'}]};
-automatic.evidenceReview={note:'材料中的表达，不代表已经赴约。',cards:[{kind:'action',title:'从见面意愿，到具体安排线索',reading:'现在提到了具体时间，可以核对后续安排。',explanation:'提出安排不代表已经赴约。',question:'那我们确认一下具体地点？',observe:'看双方是否确认，不把没有后续材料当成爽约。',sources:[{reportId:previousId,label:'对方聊天识别原文',date:'2026-01-04',text:'想和你见面。',kind:'recognized-text'},{reportId,label:'对方聊天识别原文',date:'2026-01-06',text:'周六两点见。',kind:'recognized-text'}]}]};
-const browser=await puppeteer.launch({headless:true,executablePath:'C:/Program Files/Google/Chrome/Application/chrome.exe',args:['--no-sandbox'],defaultViewport:{width:1280,height:1000}});
-const context=await browser.createBrowserContext(),page=await context.newPage();
-page.on('pageerror',e=>errors.push(e.message));await page.setRequestInterception(true);
-page.on('request',async request=>{
- if(!request.url().startsWith(origin+'/api/'))return request.continue();
- const url=new URL(request.url());requests.push({path:url.pathname,search:url.search,method:request.method()});let value={};
- if(url.pathname==='/api/account/credits')value={account:{userId:owner,balance:100,active:true,features:['chat']},prices:{text:3}};
- else if(url.pathname==='/api/web/profile')value={enabled:true,paused:false,subjects:[{id:subjectId,label:'虚构测试人物'}]};
- else if(url.pathname==='/api/web/report')value={reportId,kind:'chat',subjectId,report,totalCount:1};
- else if(url.pathname==='/api/web/relationship-feedback')value={subjectId,automatic};
- else if(url.pathname==='/api/web/report/list')value={reports:[]};
- await request.respond({status:200,contentType:'application/json',body:JSON.stringify(value)});
+/**
+ * Real React/browser regression for shared follow-up reads and account isolation.
+ * All HTTP requests use synthetic responses; no app server, account, or billing.
+ * Run: node scripts/test-report-followup-browser.mjs (optional CHROME_BIN).
+ */
+import assert from "node:assert/strict";
+import { build } from "esbuild";
+import puppeteer from "puppeteer-core";
+
+const origin = "http://127.0.0.1:8798";
+const reportId = "11111111-1111-4111-8111-111111111111";
+const bundled = await build({
+  stdin: {
+    contents: `
+      import React from "react";
+      import {createRoot} from "react-dom/client";
+      import {ReportFollowUp, ReportActionFeedback} from "./components/web-analysis/ReportFollowUp";
+      import {webAccountStore, announceAccountChange} from "./lib/web-account-session";
+      const root=createRoot(document.getElementById("root"));
+      window.harness={
+        render(owner,subjectId,reportId,comparison=true){
+          const report={subjectId,reportId};
+          root.render(<>{comparison&&<ReportFollowUp report={report} owner={owner}/>}<ReportActionFeedback report={report} owner={owner}/></>);
+        },
+        async login(){announceAccountChange();await webAccountStore.refresh();},
+        logout(){announceAccountChange(true);},
+        clear(){root.render(null);},
+        async ready(){await webAccountStore.refresh();}
+      };
+    `,
+    resolveDir: process.cwd(),
+    sourcefile: "report-followup-browser-fixture.tsx",
+    loader: "tsx",
+  },
+  bundle: true,
+  write: false,
+  platform: "browser",
+  format: "iife",
+  define: { "process.env.NODE_ENV": '"production"' },
+  plugins: [{
+    name: "style-fixture",
+    setup(build) {
+      build.onLoad({ filter: /\.css$/ }, () => ({ contents: "export default {}", loader: "js" }));
+    },
+  }],
 });
-const contains=text=>page.waitForFunction(text=>document.body.textContent.includes(text),{},text);
-try{
- await page.goto(origin+'/report?id='+reportId,{waitUntil:'networkidle0'});
- await page.waitForSelector('[role="tab"]');
- await page.$$eval('[role="tab"]',buttons=>buttons.find(b=>/怎么回|下一步/.test(b.textContent))?.click());
- await contains('这次材料里有这些变化');
- assert.match(await page.$eval('#followup',e=>e.textContent),/从见面意愿，到具体安排线索/);
- assert.equal(await page.$$eval('#followup details',e=>e.length),1,'one explanation disclosure instead of multiple extending cards');
- assert.equal(await page.$eval('#followup details',e=>e.open),false);
- assert.doesNotMatch(await page.$eval('#followup',e=>e.textContent),/见面前准备|口述复盘|记录结果/);
- await page.click('#followup details summary');
- assert.match(await page.$eval('#followup details',e=>e.innerText),/2026-01-04/);
- assert.match(await page.$eval('#followup details',e=>e.innerText),/想和你见面/);
- assert.match(await page.$eval('#followup details',e=>e.innerText),/不代表已经赴约/);
- assert.equal(await page.$eval('#followup details a',e=>new URL(e.href).searchParams.get('id')),previousId);
- const href=await page.$eval('#followup .rf-primary',e=>e.getAttribute('href'));
- assert.equal(new URL(href,origin).searchParams.get('subjectId'),subjectId);
- assert.equal(new URL(href,origin).searchParams.get('returnTo'),'/report?id='+reportId);
- const feedback=requests.find(r=>r.path==='/api/web/relationship-feedback');assert.equal(new URLSearchParams(feedback.search).get('reportId'),reportId);
- assert.equal(await page.evaluate(()=>Object.keys(sessionStorage).some(key=>key.startsWith('web-followup:'))),false,'removed planning flow must not persist a new handoff');
- assert.equal(requests.filter(r=>r.method!=='GET').length,0,'automatic review never writes feedback, calls a model or charges');
- await page.setViewport({width:390,height:850});
- assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true,'evidence text fits mobile');
- automatic.evidenceReview={cards:[],note:''};automatic.previous=null;automatic.current=null;automatic.headline='新聊天会接着这次分析';
- await page.reload({waitUntil:'networkidle0'});await page.$$eval('[role="tab"]',buttons=>buttons.find(b=>/怎么回|下一步/.test(b.textContent))?.click());await contains('新聊天会接着这次分析');
- assert.equal(await page.$('[aria-label="新旧材料对照"]'),null,'no evidence means no empty comparison cards');
- assert.equal(errors.length,0,errors.join('\n'));
- console.log('report follow-up browser: concise evidence cards, one details entry, original dates and sources, scoped return link, no planning/manual tasks, no writes, mobile and empty-state checks passed');
-}finally{await context.close();await browser.close();}
+const browser = await puppeteer.launch({
+  headless: true,
+  executablePath: process.env.CHROME_BIN || "C:/Program Files/Google/Chrome/Application/chrome.exe",
+  args: ["--no-sandbox"],
+});
+const page = await browser.newPage();
+const errors = [], reads = [], writes = [], credits = [];
+let serverOwner = "owner-a", holdCredits = false;
+page.on("pageerror", error => errors.push(error.message));
+await page.setRequestInterception(true);
+const respond = (request, value, status = 200) => request.respond({
+  status, contentType: "application/json", body: JSON.stringify(value),
+});
+page.on("request", async request => {
+  try {
+    const url = new URL(request.url());
+    if (url.pathname === "/fixture") {
+      await request.respond({ status: 200, contentType: "text/html", body: '<div id="root"></div>' });
+    } else if (url.pathname === "/api/web/account-context") {
+      await respond(request, { account: { userId: serverOwner, balance: 100 }, people: [], prices: {} });
+    } else if (url.pathname === "/api/account/credits") {
+      credits.push({ request, owner: serverOwner });
+      if (!holdCredits) await respond(request, { account: { userId: serverOwner } });
+    } else if (url.pathname === "/api/web/relationship-feedback" && request.method() === "GET") {
+      reads.push({ request, subject: url.searchParams.get("subjectId"), owner: serverOwner });
+    } else if (url.pathname === "/api/web/relationship-feedback" && request.method() === "POST") {
+      const body = JSON.parse(request.postData());
+      writes.push({ owner: serverOwner, body });
+      await respond(request, { feedback: { ...body, recordedAt: Date.now() } });
+    } else {
+      await request.abort();
+    }
+  } catch (error) {
+    errors.push(error.message);
+  }
+});
+const wait = (predicate, label) => new Promise((resolve, reject) => {
+  const deadline = Date.now() + 10_000;
+  const check = () => predicate() ? resolve() : Date.now() > deadline ? reject(Error(label)) : setTimeout(check, 20);
+  check();
+});
+const render = (owner, subject, comparison = true) => page.evaluate(
+  (owner, subject, reportId, comparison) => window.harness.render(owner, subject, reportId, comparison),
+  owner, subject, reportId, comparison,
+);
+const waitText = text => page.waitForFunction(text => document.body.innerText.includes(text), { timeout: 10_000 }, text);
+const finishRead = async (index, label, subject = reads[index].subject) => respond(reads[index].request, {
+  subjectId: subject,
+  versionChanges: { previousId: "previous", items: [{ title: label, detail: label, sources: [] }], note: "" },
+  currentFeedback: { reportId, latest: null },
+});
+const click = text => page.evaluate(text => {
+  const button = [...document.querySelectorAll("button")].find(node => node.textContent === text);
+  if (!button) throw Error("Button missing: " + text);
+  button.click();
+}, text);
+try {
+  await page.goto(origin + "/fixture");
+  await page.addScriptTag({ content: bundled.outputFiles[0].text });
+  await page.evaluate(() => window.harness.ready());
+  await render("owner-a", "subject-one");
+  await wait(() => reads.length === 1, "both cards should share one read");
+  await finishRead(0, "第一份比较");
+  await waitText("第一份比较");
+  await waitText("后来怎么样了");
+  assert.equal(reads.length, 1);
+  assert.equal(credits.length, 0, "read-only cards reuse the account instead of verifying it twice");
+
+  // Removing one card must not cancel the same in-flight request for the other.
+  await render("owner-a", "subject-two");
+  await wait(() => reads.length === 2, "second subject starts its own read");
+  await render("owner-a", "subject-two", false);
+  await finishRead(1, "只保留反馈");
+  await waitText("后来怎么样了");
+  assert.equal(reads.length, 2, "unmounting one consumer does not restart the shared read");
+
+  // A response for an older person cannot populate either card for the new one.
+  await render("owner-a", "subject-old");
+  await wait(() => reads.length === 3, "old subject requested");
+  await render("owner-a", "subject-new");
+  await wait(() => reads.length === 4, "new subject requested");
+  await finishRead(3, "新人物比较");
+  await waitText("新人物比较");
+  await finishRead(2, "不应显示的旧人物");
+  assert.equal(await page.evaluate(() => document.body.innerText.includes("不应显示的旧人物")), false);
+
+  // Account revision participates in the key even for the same owner and person.
+  await render("owner-a", "subject-relogin");
+  await wait(() => reads.length === 5, "read before relogin");
+  await page.evaluate(() => window.harness.logout());
+  await page.waitForFunction(() => !document.body.innerText.includes("后来怎么样了"));
+  await page.evaluate(() => window.harness.login());
+  await wait(() => reads.length === 6, "new login has a separate request");
+  await finishRead(5, "重新登录后的比较");
+  await waitText("重新登录后的比较");
+  await finishRead(4, "不应显示的旧登录");
+  assert.equal(await page.evaluate(() => document.body.innerText.includes("不应显示的旧登录")), false);
+
+  await render("owner-a", "subject-account");
+  await wait(() => reads.length === 7, "read before owner switch");
+  serverOwner = "owner-b";
+  await page.evaluate(() => window.harness.login());
+  await render("owner-b", "subject-account");
+  await wait(() => reads.length === 8, "new owner receives its own read");
+  await finishRead(7, "乙账号比较");
+  await waitText("乙账号比较");
+  await finishRead(6, "不应显示的甲账号");
+  assert.equal(await page.evaluate(() => document.body.innerText.includes("不应显示的甲账号")), false);
+  assert.equal(credits.length, 0, "all read-only scenarios make zero extra credits requests");
+
+  // A successful mutation still verifies the live account before writing.
+  await click("试过了");
+  await waitText("保存反馈");
+  await click("保存反馈");
+  await wait(() => writes.length === 1, "valid feedback is written");
+  await waitText("已保存");
+  assert.equal(credits.length, 1);
+  assert.equal(writes[0].owner, "owner-b");
+  assert.equal(writes[0].body.subjectId, "subject-account");
+  assert.equal(writes[0].body.confirmed, true);
+
+  // Switching accounts while the POST identity check is pending forbids the write.
+  await render("owner-b", "subject-write-race");
+  await wait(() => reads.length === 9, "write-race subject loaded");
+  await finishRead(8, "准备补充");
+  await waitText("准备补充");
+  await click("情况变了");
+  await waitText("保存反馈");
+  holdCredits = true;
+  await click("保存反馈");
+  await wait(() => credits.length === 2, "mutation verification pending");
+  serverOwner = "owner-c";
+  await page.evaluate(() => window.harness.login());
+  await respond(credits[1].request, { account: { userId: "owner-b" } });
+  await page.waitForFunction(() => !document.body.innerText.includes("后来怎么样了"));
+  assert.equal(writes.length, 1, "late identity success cannot POST into a changed account");
+  assert.deepEqual(errors, []);
+  console.log("PASS follow-up: shared read, independent consumer lifetime, subject/account/revision isolation, stale responses ignored, and live POST verification retained.");
+} finally {
+  await browser.close();
+}

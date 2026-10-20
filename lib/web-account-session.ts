@@ -5,8 +5,11 @@ const ACCOUNT_EVENT = 'chengzi:account-changed';
 const ACCOUNT_STORAGE = 'chengzi:account-revision';
 let observedRevision: string | null | undefined;
 export const webAccountStore = createWebAccountStore({ request: async () => {
-  const { response, data } = await fetchWebJson('/api/web/account-context', { method: 'GET', credentials: 'same-origin', cache: 'no-store' });
-  if (!response.ok) throw Object.assign(Error(data.error || '账户暂时无法连接，请稍后重试。'), { status: response.status });
+  let result;
+  try { result = await fetchWebJson('/api/web/account-context', { method: 'GET', credentials: 'same-origin', cache: 'no-store' }); }
+  catch { throw Error('账户暂时未连接，请检查网络后重试。已保存的资料不受影响。'); }
+  const { response, data } = result;
+  if (!response.ok) throw Object.assign(Error(typeof data.error === 'string' && /[\u3400-\u9fff]/.test(data.error) ? data.error : '账户暂时未连接，请检查网络后重试。已保存的资料不受影响。'), { status: response.status });
   return data;
 } });
 

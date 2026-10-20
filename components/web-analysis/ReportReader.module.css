@@ -28,3 +28,12 @@
 .pageDots{display:flex;gap:5px;align-items:center}.pageDots i{display:block;width:5px;height:5px;border-radius:50px;background:#d7cbbd;transition:width .2s}.pageDots i[data-current=true]{width:18px;background:#b66e55}.pager .finished{font-size:14px;color:#68594e}
 @media(max-width:700px){.navigation{top:3px;padding:4px 0 7px;margin-bottom:19px}.tabs{gap:2px;padding:4px}.tabs button{ flex-direction:row;gap:5px;justify-content:center;padding:9px 3px;font-size:14px;min-height:42px}.tabs button svg{width:15px;height:15px}.tabs button small{display:none}.panel{padding:0}.pager{gap:8px;margin-top:24px;padding-top:16px}.pager button{padding:10px 9px;font-size:14px;gap:5px}.pager .nextPage{padding:10px 14px}.pageDots{gap:4px}.pager .finished{font-size:14px;gap:4px}}
 @media(prefers-reduced-motion:reduce){.tabs button,.pageDots i{transition:none}}
+
+/* The three report tasks stay readable and visibly actionable on a phone. */
+.tabs{width:min(100%,760px);gap:6px;padding:6px;border:1px solid #e5d4c6;border-radius:18px;background:#f7efe7}
+.tabs button{min-height:54px;padding:12px 15px;border-radius:12px;color:#5e5146;font-size:16px;font-weight:600}
+.tabs button[aria-selected=true]{background:#356e63;color:#fffaf5;box-shadow:0 3px 8px #356e6320}
+.tabs button:not([aria-selected=true]):hover{background:#efe2d7;color:#302a25}
+.pager button,.linePager button,.replyActions button{font-size:16px;min-height:46px}
+.interpretation>strong{font-size:16px}
+@media(max-width:700px){.tabs{gap:4px;padding:4px;border-radius:15px}.tabs button{min-height:52px;padding:10px 5px;gap:5px;font-size:16px;border-radius:10px}.tabs button>svg{display:none}.pager button{font-size:16px}.inlineToneDetail .linePager button{font-size:16px}}

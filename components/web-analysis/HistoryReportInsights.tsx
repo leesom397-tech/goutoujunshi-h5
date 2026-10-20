@@ -93,18 +93,13 @@ export function HistoryReportReading({report,diagnosis,section,onSectionChange}:
 export function HistoryReportInsights({report,diagnosis}:{report:Json;diagnosis?:Json|null}){
  const {semantic,findings,isMoment}=data(report),chatFindings=findings.filter(row=>sources(row).some(item=>!isMoment(item))),identity=reportIdentity(report);
  const affinity=reportAffinity(report),partial=typeof affinity?.contextCount==="number"&&affinity.contextCount<(semantic.coverage?.receivedText||0),known=validScore(affinity?.value)&&!partial,risk=riskAwarePresentation(report);
- const counterIds=new Set(Array.isArray(semantic.counterEvidenceIds)?semantic.counterEvidenceIds:[]);
- const unknowns=Array.isArray(semantic.unknowns)?semantic.unknowns.filter((value:unknown)=>text(value)):[];
  const signals=rows(semantic.affinitySignals).map(item=>({...item,evidence:referenced(item.evidenceIds,findings)} as Json)).filter(item=>text(item.signal)&&text(item.meaning)&&(!item.subject||item.subject==='other')&&(!item.toward||item.toward==='self')&&item.evidence.some((finding:Json)=>sources(finding).some(source=>source.senderRole==='other'&&source.basis!=='visual'&&!isMoment(source)))&&["support","counter","uncertain"].includes(item.direction));
- const coverage=semantic.coverage||{},read=count(coverage.analyzedText),received=count(coverage.receivedText);
  return <section className={styles.section} id="report-history-reasoning" data-history-insights>
   <header className={styles.heading}><div><span><Heart size={18}/>互动与人物解读</span><h2>{identity.other}对你的好感信号</h2></div>{known&&<div className={styles.affinity} data-history-affinity><small>已有互动信号参考</small><strong>{Math.round(affinity!.value)}<small> / 100</small></strong><span>不是喜欢你的概率</span></div>}</header>
-  <p className={styles.lead}>{risk.mode!=="normal"?risk.title||"先核实边界与风险，再考虑推进。":"结合回应、实际投入与边界，理解对方在这段关系中的表现。"}</p>
-  {affinity&&<p className={styles.scope}>{count(affinity.contextCount)!==null?`信号评估实际读取 ${affinity.contextCount} 条；` : "这份旧信号结果未记录评估范围；"}{affinity.unavailableReason||"数字不能代替原话与行动依据。"}</p>}
+  {risk.mode!=="normal"&&<p className={styles.lead}>{risk.title||"先核实边界与风险，再考虑推进。"}</p>}
+  {affinity&&<p className={styles.scope}>{count(affinity.contextCount)!==null?`信号评估覆盖 ${affinity.contextCount} 条聊天。` : "这份旧信号结果未记录评估范围。"}{affinity.unavailableReason||""}</p>}
   {partial&&<p className={styles.scope}>这份旧信号评分只覆盖了部分记录，需重新生成完整报告后查看全部资料的参考分。</p>}
   {!partial&&rows(affinity?.dimensions).some(item=>validScore(item.value))&&<div className={styles.dimensions} data-history-affinity-dimensions>{rows(affinity?.dimensions).map((item,index)=><article key={item.key||index}><header><strong>{item.label||item.key}</strong><span>{validScore(item.value)?Math.round(item.value):"待了解"}</span></header>{validScore(item.value)&&<i><b style={{width:`${item.value}%`}}/></i>}{text(item.reason)&&<p>{item.reason}</p>}<SourceLinks findings={referenced(item.evidenceIds,findings)}/></article>)}</div>}
-  <dl className={styles.signalCounts}><div><dt>可回看线索</dt><dd>{findings.length}<small> 条</small></dd></div><div><dt>相反或保留证据</dt><dd>{findings.filter(row=>counterIds.has(row.id)).length}<small> 条</small></dd></div><div><dt>仍待确认</dt><dd>{unknowns.length}<small> 项</small></dd></div></dl>
-  {read!==null&&received!==null&&<p className={styles.scope}>已解读 {read} / {received} 条可读文字{semantic.status!=="complete"?" · 尚未全部完成":""}。这里展示可核对的线索，不把聊天条数换算成好感。</p>}
   {!findings.length&&!text(semantic.explanation)&&<p className={styles.empty}>这份报告尚未保存可回看的深层互动解读。已有统计仍可查看，暂不补造好感分数。</p>}
   {signals.length>0&&<div className={styles.affinitySignals} data-affinity-signals>{signals.slice(0,6).map((item,index)=><article key={index} data-direction={item.direction}><small>{item.direction==="support"?"支持靠近的信号":item.direction==="counter"?"需要保留的判断":"还不能确定"}</small><h3>{item.signal}</h3><p>{item.meaning}</p>{text(item.alternative)&&<p className={styles.alternative}>也可能：{item.alternative}</p>}<SourceLinks findings={item.evidence}/></article>)}</div>}
   <RelationshipDiagnosisPanel report={report} diagnosis={diagnosis} semanticHistory={{...semantic,findings:chatFindings}} hideCoverage hideFacts={!!report.chatActivity} pageSize={3}/>
@@ -112,7 +107,6 @@ export function HistoryReportInsights({report,diagnosis}:{report:Json;diagnosis?
 }
 
 export function HistoryChangeReading({report}:{report:Json}){
- if(reportGoal(report)==='risk')return <RiskVerification report={report}/>;
  return <HistoryInteractionChanges report={report}/>;
 }
 function HistoryInteractionChanges({report}:{report:Json}){
@@ -156,7 +150,7 @@ function HistoryProfileInsights({report}:{report:Json}){
  const pages=Math.max(1,Math.ceil(profile.length/3)),current=Math.min(page,pages-1);
  function turn(next:number){setPage(next);requestAnimationFrame(()=>root.current?.scrollIntoView({block:"start",behavior:"instant"}));}
  return <section ref={root} className={styles.section} data-profile-insights>
-  <header className={styles.heading}><div><span><UserRound size={18}/>从双方表达理解相处</span><h2>{reportIdentity(report).other}与你：人物解读</h2></div></header>
+  <header className={styles.heading}><div><span><UserRound size={18}/>{report.captureKind==="moments"?"从动态与自我呈现了解":"从双方表达理解相处"}</span><h2>{report.captureKind==="moments"?`${reportIdentity(report).other}：人物解读`:`${reportIdentity(report).direction}：人物解读`}</h2></div></header>
   {profile.length>0?<div className={styles.profileReadings}>{profile.slice(current*3,(current+1)*3).map((item,index)=><article key={item.dimension+index}><small>{item.subject==='self'?'关于你':item.subject==='other'?`关于${reportIdentity(report).other}`:item.subject==='interaction'?'关于双方互动':'原报告未标记人物归属，请结合下方发言人核对'}</small><h3>{item.dimension}</h3><p>{item.reading}</p><EvidenceQuotes report={report} findings={item.evidence} limit={1}/>{text(item.alternative)&&<p className={styles.alternative}>另一种可能：{item.alternative}</p>}</article>)}</div>:<><p className={styles.empty}>{Array.isArray(semantic.profileInsights)?text(semantic.profileUnavailableReason)||"现有材料还不足以形成独立的人物解读。":"这份旧报告没有保存独立的人物解读。"}下面保留已有线索，不把它们推断成固定性格。</p><RelationshipDiagnosisPanel report={report} semanticHistory={{findings,unknowns:semantic.unknowns}} hideCoverage hideFacts pageSize={3}/></>}
   {pages>1&&<nav className={styles.pager} aria-label="人物解读分页"><button disabled={!current} onClick={()=>turn(current-1)}>上一组</button><span>{current+1} / {pages}</span><button disabled={current===pages-1} onClick={()=>turn(current+1)}>下一组</button></nav>}
  </section>;
@@ -179,8 +173,8 @@ export function HistoryMomentsInsights({report}:{report:Json}){
  const imported=materials.length>0||(total!==null?total>0:momentFindings.length>0||visual.some(isMoment));
  const expected=coverage.reduce((sum,row)=>sum+(count(row.imagesExpected)||0),0),analyzed=coverage.reduce((sum,row)=>sum+(count(row.imagesAnalyzed)||0),0);
  return <section className={styles.section} id="report-history-moments" data-history-moments>
-  <header className={styles.heading}><div><span><Images size={18}/>聊天之外的材料</span><h2>朋友圈与图片</h2></div></header>
-  <div className={styles.materialScope}><span>{total!==null?`已导入 ${total} 条动态`:imported?"已保留朋友圈线索":coverage.length?"未导入朋友圈到这份报告":"旧报告未记录朋友圈范围"}</span>{momentCoverage.some(row=>count(row.pinnedCount))&&<span>其中 {momentCoverage.reduce((sum,row)=>sum+(count(row.pinnedCount)||0),0)} 条置顶</span>}{materials.length>0&&<span>另有 {materials.length} 项封面／签名</span>}{expected>0&&<span>图片已解读 {analyzed} / {expected} 张</span>}</div>
+  <header className={styles.heading}><div><span><Images size={18}/>{reportIdentity(report).other}的动态与可见图片</span><h2>朋友圈与图片</h2></div></header>
+  <div className={styles.materialScope}><span>{total!==null?`已导入 ${total} 条动态`:imported?"已保留朋友圈线索":coverage.length?"未导入朋友圈到这份报告":"旧报告未记录朋友圈范围"}</span>{momentCoverage.some(row=>count(row.pinnedCount))&&<span>其中 {momentCoverage.reduce((sum,row)=>sum+(count(row.pinnedCount)||0),0)} 条置顶</span>}{materials.length>0&&<span>另有 {materials.length} 项封面／签名</span>}{coverage.filter(row=>count(row.imagesExpected)).map((row,index)=><span key={row.libraryId||index}>{row.kind==="moments"?"朋友圈":"聊天"}图片已读 {count(row.imagesAnalyzed)||0} / {count(row.imagesExpected)} 张</span>)}</div>
   {materials.length>0&&<section className={styles.visuals} data-history-profile-materials><h3>封面与个性签名</h3><p className={styles.scope}>采集时的个人展示，单独保留；不计入动态和发布趋势。</p>{materials.slice(currentMaterial*2,(currentMaterial+1)*2).map((item,index)=>{const image=visual.find(source=>source.libraryId===item.libraryId&&source.sourceId===item.sourceId);return <article key={`${item.libraryId}:${item.sourceId}:${index}`}><small>{captureMaterialLabel(item)}</small>{item.materialRole==="profile-signature"?<blockquote>{item.text}</blockquote>:<p>{image?.observation||"封面来源已保留，尚未完成可见内容解读。"}</p>}<CaptureEvidence sourceIds={[item.sourceId]} libraryId={item.libraryId} sourceKind="moments" label={`查看${captureMaterialLabel(item)}来源`}/></article>})}{materialPages>1&&<nav className={styles.pager} aria-label="个人展示资料分页"><button disabled={!currentMaterial} onClick={()=>setMaterialPage(currentMaterial-1)}><ArrowLeft size={16}/>上一组</button><span>{currentMaterial+1} / {materialPages}</span><button disabled={currentMaterial===materialPages-1} onClick={()=>setMaterialPage(currentMaterial+1)}>下一组<ArrowRight size={16}/></button></nav>}</section>}
   {!imported&&<div className={styles.empty}><p>{coverage.length?"当前报告没有收到这个人的朋友圈。聊天导入完成，不代表朋友圈也已导入。":"这份旧报告没有保存朋友圈分析及覆盖信息，请先核对同一人物的材料。"}</p><a className={styles.importLink} data-import-moments href={importHref}>{chatLibrary?'补充朋友圈并更新报告':'导入 TA 的朋友圈'}<ArrowRight size={17}/></a></div>}
   {summary&&<div className={styles.sourceSummary} data-moments-synthesis><p>{summary}</p><SourceLinks findings={insightEvidence}/></div>}

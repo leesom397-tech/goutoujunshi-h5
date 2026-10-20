@@ -298,7 +298,7 @@ await test('real route serializes cited affinity, chronological changes, useful 
   assert.equal(joint.result.semanticHistory.changeInsights.length,1);assert.ok(joint.result.semanticHistory.actionPlan.steps[0].reply);assert.ok(joint.result.semanticHistory.sourceInsights.moments.crossSource);
   assert.equal(joint.result.sourceCoverage.find(source=>source.kind==='chat').total,210);assert.equal(joint.result.sourceCoverage.find(source=>source.kind==='chat').textRead,194);
   assert.equal(joint.result.sourceCoverage.find(source=>source.kind==='moments').total,3);assert.equal(calls.slice(before).filter(call=>call.phase==='segments').flatMap(call=>call.detail.rows).filter(row=>row.basis==='chat-original').length,194);
-  const folder='outputs/report-route-fixtures';mkdirSync(folder,{recursive:true});writeFileSync(folder+'/full-person.json',JSON.stringify(joint.result,null,2));
+  const folder=process.env.REPORT_ROUTE_FIXTURE_DIR||'outputs/report-route-fixtures';mkdirSync(folder,{recursive:true});writeFileSync(folder+'/full-person.json',JSON.stringify(joint.result,null,2));
   const chatOnlyBody={...data.body,requestId:crypto.randomUUID(),relatedSnapshots:[]};await start(data.owner,chatOnlyBody);const chatOnly=await finish(data.owner);assert.equal(chatOnly.status,'done',chatOnly.error);assert.equal(chatOnly.result.sourceCoverage.length,1);assert.match(chatOnly.result.captureMediaNote,/尚未提供朋友圈/);writeFileSync(folder+'/chat-only-210-194.json',JSON.stringify(chatOnly.result,null,2));
   const momentsBody={...data.body,requestId:crypto.randomUUID(),kind:'moments',libraryId:momentsId,expectedTotal:3,relatedSnapshots:[]};await start(data.owner,momentsBody);const momentOnly=await finish(data.owner);assert.equal(momentOnly.status,'done',momentOnly.error);
   assert.equal(momentOnly.result.kind,'profile');assert.equal(momentOnly.result.captureKind,'moments');assert.equal(momentOnly.result.chatActivity,undefined);assert.equal(momentOnly.result.affinity,undefined);assert.equal(momentOnly.result.sourceCoverage.length,1);assert.equal(momentOnly.result.sourceCoverage[0].kind,'moments');assert.equal(momentOnly.result.sourceCoverage[0].textRead,3);assert.equal(momentOnly.result.sourceCoverage[0].imagesAnalyzed,3);assert.ok(momentOnly.result.semanticHistory.sourceInsights.moments);writeFileSync(folder+'/moments-only.json',JSON.stringify(momentOnly.result,null,2));
@@ -330,7 +330,7 @@ await test('risk goal keeps named subjects, early warnings, later clarification 
   assert.equal(done.result.semanticHistory.riskAssessment.items[0].resolution.status,'clarified');assert.equal(done.result.semanticHistory.riskAssessment.items[0].timeRange.start,'2026-01-02');
   assert.equal(done.result.semanticHistory.actionPlan.actor,'self');assert.equal(done.result.affinity.direction,'otherToSelf');assert.equal(balance(data.owner),1000-price);
   assert.ok(done.result.semanticHistory.riskAssessment.items.every(item=>item.subject==='other'&&item.verify.outcomes.length===2));
-  const folder='outputs/report-route-fixtures';mkdirSync(folder,{recursive:true});writeFileSync(folder+'/risk-person.json',JSON.stringify(done.result,null,2));
+  const folder=process.env.REPORT_ROUTE_FIXTURE_DIR||'outputs/report-route-fixtures';mkdirSync(folder,{recursive:true});writeFileSync(folder+'/risk-person.json',JSON.stringify(done.result,null,2));
 });
 
 await test('summary-only synthesis retries without losing completed evidence or charging a partial report', async()=>{

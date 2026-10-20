@@ -67,7 +67,7 @@ try{
  assert.match(counts,/聊天\s*513/,'chat count remains visible during Moments');
  assert.match(counts,/语音转写\s*13\s*\/\s*13/,'voice progress remains completed');
  momentsReleased=true;
- await waitText('确认材料与费用');
+ await page.waitForSelector('#capture-confirm',{visible:true});
  assert.equal(calls.filter(c=>c.path==='capture').length,4,'text x2 + voice x1 + Moments x1, no repeated capture');
  assert.equal(calls.filter(c=>c.path==='/api/web/capture/analyze'&&c.body).length,0,'no charge before confirmation');
  assert.match(await page.$eval('#capture-confirm',e=>e.innerText),/全部 513 条聊天 \+ 5 条朋友圈/);
