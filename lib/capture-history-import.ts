@@ -18,6 +18,8 @@ export type HistoryImportOptions = {
   progress: HistoryProgress; request: HistoryRequest;
   accept: (batch: HistoryBatch, interim: boolean) => Promise<HistoryAcceptResult>;
   contact?: { contactId: string; accountKey: string };
+  /** Stable database references for a bounded voice-only enrichment pass. */
+  voiceIds?: Array<{ messageShard: string; messageId: string; localId?: string }>;
   includeVoice?: boolean; onProgress?: (update: HistoryUpdate) => void;
   onJob?: (id: string | null) => void; signal?: AbortSignal; pollMs?: number;
 };
@@ -62,6 +64,7 @@ export function writeHistoryProgress(progress: HistoryProgress): void {
 }
 export function clearHistoryProgress(owner: string, friend: string): void {
   globalThis.localStorage?.removeItem(key(owner,friend));
+  globalThis.localStorage?.removeItem(key(owner,friend) + ":voice-plan");
 }
 export function newHistoryProgress(owner: string, friend: string, prior?: HistoryProgress | null, options: { forceFull?: boolean } = {}): HistoryProgress {
   friend = friend.trim(); key(owner, friend);
@@ -120,8 +123,86 @@ function failure(job: Record<string, unknown>) {
     job.status === "cancelled" ? "导入已停止，点击继续可从本页恢复。" : "本页导入未完成，已保存的内容会保留，可重试本页。");
 }
 
-/** One worker/page at a time. Commit the next cursor only after final IDB acceptance. */
+/** Voice references form their own bounded jobs, never a second history scan. */
 export async function runHistoryImport(options: HistoryImportOptions): Promise<HistoryAcceptResult & { progress: HistoryProgress }> {
+  if (options.voiceIds === undefined) return runHistoryPages(options);
+  const original = checkpoint(options.progress);
+  let refs = options.voiceIds;
+  if (!options.includeVoice || !Array.isArray(refs) || !refs.length && !original.pendingJob || refs.length > 100_000) throw invalid("语音补全范围无效。");
+  const identities = new Set<string>();
+  for (const ref of refs) {
+    if (!object(ref) || !label(ref.messageShard, 200) || typeof ref.messageId !== "string" || !/^[0-9]{1,20}$/.test(ref.messageId) ||
+        ref.localId !== undefined && (typeof ref.localId !== "string" || !/^[0-9]{1,20}$/.test(ref.localId))) throw invalid("语音消息的来源编号无法核对。");
+    const id = JSON.stringify([ref.messageShard, ref.messageId, ref.localId ?? null]);
+    if (identities.has(id)) throw invalid("语音消息来源重复，请重新读取已保存材料。");
+    identities.add(id);
+  }
+  const voicePlanKey = key(original.owner, original.friend) + ":voice-plan";
+  let offset = 0;
+  let carried: HistoryAcceptResult = { added: 0, updatedVoice: 0, total: 0, libraryId: "" };
+  if (original.pendingJob) {
+    // The caller may have removed already transcribed rows from its requested
+    // list after a reload. Resume the exact old batch, not a shifted new batch.
+    let saved: Record<string, unknown> | null = null;
+    try { const parsed: unknown = JSON.parse(globalThis.localStorage?.getItem(voicePlanKey) || "null"); if (object(parsed)) saved = parsed; } catch { /* Fail closed below. */ }
+    if (!saved || saved.version !== 1 || saved.pendingJob !== original.pendingJob || saved.account !== original.account ||
+        JSON.stringify(saved.contact) !== JSON.stringify(options.contact ?? null) || !Array.isArray(saved.refs) ||
+        !integer(saved.offset) || saved.offset % 100 !== 0 || saved.offset >= saved.refs.length ||
+        !object(saved.totals) || !integer(saved.totals.added) || !integer(saved.totals.updatedVoice) || !integer(saved.totals.total) ||
+        typeof saved.totals.libraryId !== "string" || saved.totals.libraryId.length > 2000) {
+      throw invalid("未找到这项语音任务的完整进度，请停止旧任务后重试；已转写内容会保留。");
+    }
+    const remaining = new Set(saved.refs.slice(saved.offset).map(ref => object(ref) ? JSON.stringify([ref.messageShard, ref.messageId, ref.localId ?? null]) : ""));
+    if ([...identities].some(id => !remaining.has(id))) throw invalid("待转写语音与上次任务范围不一致，请先停止旧任务。");
+    // Validate the persisted references before sending them to the local helper.
+    const validRefs = saved.refs.every(ref => object(ref) && label(ref.messageShard, 200) && typeof ref.messageId === "string" && /^[0-9]{1,20}$/.test(ref.messageId) &&
+      (ref.localId === undefined || typeof ref.localId === "string" && /^[0-9]{1,20}$/.test(ref.localId)));
+    if (!validRefs || saved.refs.length > 100_000) throw invalid("语音任务的本机进度已损坏，请停止后重试。");
+    refs = saved.refs as NonNullable<HistoryImportOptions["voiceIds"]>;
+    offset = saved.offset;
+    carried = saved.totals as HistoryAcceptResult;
+  }
+  const voiceScope = `voice:${key(original.owner, original.friend)}`;
+  if (active.has(voiceScope)) throw invalid("这位联系人的语音正在转写，请等当前任务完成。");
+  active.add(voiceScope);
+  let result = { ...carried, progress: { ...original, pages: offset / 100 } };
+  const persistVoicePlan = (pendingJob: string | null) => {
+    try { globalThis.localStorage.setItem(voicePlanKey, JSON.stringify({ version: 1, account: result.progress.account,
+      contact: options.contact ?? null, refs, offset, pendingJob,
+      totals: { added: result.added, updatedVoice: result.updatedVoice, total: result.total, libraryId: result.libraryId } })); }
+    catch { throw invalid("无法保存语音进度，请检查浏览器存储空间后重试。"); }
+  };
+  const resumeOffset = offset;
+  try {
+    for (; offset < refs.length; offset += 100) {
+      checkAbort(options.signal);
+      const fresh = offset === resumeOffset && original.pendingJob ? { ...original } : newHistoryProgress(original.owner, original.friend, null, { forceFull: true });
+      fresh.account = result.progress.account;
+      persistVoicePlan(fresh.pendingJob);
+      const page = await runHistoryPages({ ...options, progress: fresh, voiceIds: refs.slice(offset, offset + 100),
+        accept: async (value, interim) => {
+          result.progress.account = value.account;
+          persistVoicePlan(readHistoryProgress(original.owner, original.friend)?.pendingJob ?? null);
+          return options.accept(value, interim);
+        },
+        onJob: id => { persistVoicePlan(id); options.onJob?.(id); },
+        onProgress: update => options.onProgress?.({ ...update,
+          pageCount: result.progress.pages + update.pageCount, readCount: offset + update.readCount,
+          added: result.added + update.added, updatedVoice: result.updatedVoice + update.updatedVoice,
+          complete: update.complete && offset + 100 >= refs.length,
+        }),
+      });
+      result = { ...page, added: result.added + page.added, updatedVoice: result.updatedVoice + page.updatedVoice,
+        progress: { ...page.progress, count: offset + page.progress.count, pages: Math.floor(offset / 100) + 1 } };
+    }
+    writeHistoryProgress(result.progress);
+    globalThis.localStorage?.removeItem(voicePlanKey);
+    return result;
+  } finally { active.delete(voiceScope); }
+}
+
+/** One worker/page at a time. Commit the next cursor only after final IDB acceptance. */
+async function runHistoryPages(options: HistoryImportOptions): Promise<HistoryAcceptResult & { progress: HistoryProgress }> {
   let progress = checkpoint(options.progress);
   if (options.contact && (!label(options.contact.contactId, 200) || !label(options.contact.accountKey, 200))) throw invalid("请重新选择本机微信联系人后继续导入。");
   const scope = key(progress.owner, progress.friend);
@@ -130,12 +211,15 @@ export async function runHistoryImport(options: HistoryImportOptions): Promise<H
   const pollMs = options.pollMs ?? 1000;
   if (!Number.isFinite(pollMs) || pollMs < 0 || pollMs > 60_000) throw invalid();
   const totals: HistoryAcceptResult = { added: 0, updatedVoice: 0, total: 0, libraryId: "" };
+  // A broken provider must not be able to keep returning the same messages
+  // behind changing cursor metadata forever.
+  const seenRecordIds = new Set<string>();
   let pendingIdentity: string | null = null;
   const seenCursors = new Set<string>(progress.cursor ? [progress.cursor] : []);
   const notify = (message: string) => options.onProgress?.({ message, pageCount: progress.pages, readCount: progress.count,
     added: totals.added, updatedVoice: totals.updatedVoice, complete: progress.complete });
   const persist = () => writeHistoryProgress(progress);
-  const save = async (value: HistoryBatch, interim: boolean, afterCancel = false) => {
+  const save = async (value: HistoryBatch, interim: boolean, afterCancel = false): Promise<HistoryAcceptResult> => {
     if (!afterCancel) checkAbort(options.signal);
     // Account binding is checkpoint metadata and is persisted before accepting
     // a page, so a later retry cannot silently switch the account.
@@ -146,6 +230,7 @@ export async function runHistoryImport(options: HistoryImportOptions): Promise<H
     totals.added += accepted.added; totals.updatedVoice += accepted.updatedVoice;
     totals.total = accepted.total; totals.libraryId = accepted.libraryId;
     if (!afterCancel) checkAbort(options.signal);
+    return accepted;
   };
   active.add(scope);
   try {
@@ -161,8 +246,9 @@ export async function runHistoryImport(options: HistoryImportOptions): Promise<H
           const started = await options.request("/capture", { signal: options.signal, body: {
             kind: "chat", mode: "background", friend: progress.friend, includeVoice: options.includeVoice === true,
             ...(options.contact ? {contactId:options.contact.contactId,accountKey:options.contact.accountKey} : {}),
+            ...(options.voiceIds?.length ? {voiceOnly:true,voiceIds:options.voiceIds} : {}),
             pageSize: options.includeVoice ? 100 : PAGE_SIZE, direction: progress.direction,
-            ...(progress.cursor ? { cursor: progress.cursor } : progress.since ? { since: progress.since } : {}),
+            ...(!options.voiceIds && progress.cursor ? { cursor: progress.cursor } : !options.voiceIds && progress.since ? { since: progress.since } : {}),
           } });
           if (!object(started) || !jobId(started.jobId)) throw invalid("本机助手未返回可核对的任务编号。");
           progress.pendingJob = started.jobId; persist();
@@ -181,6 +267,13 @@ export async function runHistoryImport(options: HistoryImportOptions): Promise<H
         if (!object(job) || !["running", "done", "completed", "error", "failed", "cancelled"].includes(String(job.status))) throw invalid("本机助手返回了无法识别的任务状态。");
         const inspect = (value: unknown) => {
           const valid = batch(value, progress), current = pageIdentity(valid);
+          if (options.voiceIds) {
+            const requested = new Map(options.voiceIds.map(ref => [JSON.stringify([ref.messageShard, ref.messageId]), ref]));
+            if (valid.history.hasMore || valid.records.length !== options.voiceIds.length || valid.records.some(record => {
+              const source = record.source, ref = requested.get(JSON.stringify([source?.messageShard, source?.messageId]));
+              return !ref || source.mediaKind !== "voice" || ref.localId !== undefined && source.localId !== ref.localId;
+            })) throw invalid("语音补全返回了本次范围之外的消息，已停止保存。");
+          }
           if (identity !== null && current !== identity) throw invalid("同一页的消息范围发生变化，已停止推进读取位置。");
           if (valid.history.nextCursor && seenCursors.has(valid.history.nextCursor)) throw invalid("本机助手重复返回了相同读取位置，已停止循环。");
           identity = current; pendingIdentity = current;
@@ -206,14 +299,33 @@ export async function runHistoryImport(options: HistoryImportOptions): Promise<H
             throw invalid("助手已结束这项任务，但没有返回可保存的原文。请重新导入；已保存的内容不会删除。");
           }
           const result = inspect(job.result);
-          await save(result, false);
+          const duplicate = result.records.find(record => seenRecordIds.has(record.id!));
+          if (duplicate) {
+            progress.pendingJob = null;
+            persist();
+            options.onJob?.(null);
+            throw invalid("本机助手重复返回了已经读取的聊天，已停止继续循环；已保存的内容可以继续使用，请重新连接助手后重试。");
+          }
+          const accepted = await save(result, false);
+          // A normal history pass must advance by adding at least one new
+          // record. If an entire non-voice page is already present, the
+          // helper has ignored its cursor and would otherwise keep replaying
+          // old history. Voice enrichment intentionally revisits old rows to
+          // upgrade transcripts, so it is exempt from this guard.
+          if (options.includeVoice !== true && result.records.length > 0 && accepted.added === 0) {
+            progress.pendingJob = null;
+            persist();
+            options.onJob?.(null);
+            throw invalid("本机助手返回的历史页与已保存内容重复，已停止继续读取；已保存的聊天可以继续使用，请重新连接助手后重试。");
+          }
+          for (const record of result.records) seenRecordIds.add(record.id!);
           const next = result.history.nextCursor;
           progress = { ...progress, account: result.account, cursor: next, since: null, snapshot: result.history.snapshot,
             count: progress.count + result.history.count, pages: progress.pages + 1,
             complete: !result.history.hasMore, pendingJob: null };
           persist(); options.onJob?.(null);
           if (next) seenCursors.add(next);
-          notify(progress.complete ? `历史导入完成，已核对 ${progress.count} 条消息。` : `已核对 ${progress.count} 条消息，正在继续读取历史。`);
+          notify(options.voiceIds ? `已处理 ${progress.count} 条语音。` : progress.complete ? `历史导入完成，已核对 ${progress.count} 条消息。` : `已核对 ${progress.count} 条消息，正在继续读取历史。`);
           break;
         }
         if (job.status === "failed" || job.status === "error" || job.status === "cancelled") {

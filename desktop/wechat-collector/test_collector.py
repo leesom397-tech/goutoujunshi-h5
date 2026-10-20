@@ -144,10 +144,11 @@ class AdapterTest(unittest.TestCase):
         listing = SimpleNamespace(wait=lambda *args, **kwargs: listing, children=lambda **kwargs: candidates)
         search = SimpleNamespace(click_input=lambda: None, set_text=lambda value: None)
         main = SimpleNamespace(descendants=lambda **kwargs: [search], child_window=lambda **kwargs:
-                               listing if kwargs.get("auto_id") == "search_list" else SimpleNamespace(click_input=lambda: None))
+                               listing if kwargs.get("auto_id") == "search_list" else SimpleNamespace(click_input=lambda: None, exists=lambda **kwargs: True))
         navigator = SimpleNamespace(open_weixin=lambda **kwargs: main)
         ui = SimpleNamespace(SideBar=SimpleNamespace(Weixin={}), Main_window=SimpleNamespace(Search={}),
-                             Lists=SimpleNamespace(SearchResult={"auto_id": "search_list"}), Texts={})
+                             Lists=SimpleNamespace(SearchResult={"auto_id": "search_list"}),
+                             Texts=SimpleNamespace(CurrentChatNameText={"control_type": "Text"}))
         with patch("adapter._assert_target") as asserted:
             self.assertIs(_open_target("虚构测试人", (navigator, None, ui)), main)
             asserted.assert_called_once()

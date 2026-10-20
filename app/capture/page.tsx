@@ -45,7 +45,7 @@ const contactAvatar = (row: WechatContact): string => {
 const contactDisplayName = (name: string) => name.replace(/ · #[a-fA-F0-9]{16}$/, "");
 
 type Job = { status: string; progress?: number; message?: string; result?: CaptureBatch; partial?: CaptureBatch; partialRevision?: number; error?: string | {message?:string} };
-type StoredCaptureJob = { jobId: string; kind?:CaptureKind; history?: boolean; voiceHistory?: boolean; friend?: string; contactId?: string; accountKey?: string; includeVoice?: boolean; startedAt?: number };
+type StoredCaptureJob = { jobId: string; kind?:CaptureKind; history?: boolean; voiceHistory?: boolean; voiceOnly?: boolean; friend?: string; contactId?: string; accountKey?: string; includeVoice?: boolean; startedAt?: number };
 type PersonImportPlan={chatId:string|null;subjectId:string;contactId:string;accountKey:string;friend:string;entryKey?:string};
 type WechatContact = CaptureContact;
 type JobPhase = "idle" | "checking" | "running" | "done" | "failed" | "missing";
@@ -77,7 +77,7 @@ export default function CapturePage() {
   const [pairExpanded,setPairExpanded]=useState(false),[connectionHint,setConnectionHint]=useState("");
   const [method, setMethod] = useState<"desktop" | "window" | "video" | "library">("desktop"), [kind, setKind] = useState<CaptureKind>("chat"), [friend, setFriend] = useState(""), [wechatAccount, setWechatAccount] = useState(""), [code, setCode] = useState(""), [limit, setLimit] = useState(40), [health, setHealth] = useState<BridgeHealth | null>(null), [connected, setConnected] = useState(false);
   const [contacts,setContacts] = useState<WechatContact[]>([]), [selectedContact,setSelectedContact] = useState<WechatContact|null>(null), [contactSearch,setContactSearch] = useState<"idle"|"searching"|"ready"|"error">("idle"), [contactHint,setContactHint] = useState("");
-  const [busy, setBusy] = useState(false), [analyzing, setAnalyzing] = useState(false), [error, setError] = useState(""), [note, setNote] = useState(""), [jobId, setJobId] = useState(""), [progress, setProgress] = useState(0), [jobPhase, setJobPhase] = useState<JobPhase>("idle"), [jobMessage, setJobMessage] = useState("");
+  const [busy, setBusy] = useState(false), [analyzing, setAnalyzing] = useState(false), [backgroundAnalysis, setBackgroundAnalysis] = useState(false), [error, setError] = useState(""), [note, setNote] = useState(""), [jobId, setJobId] = useState(""), [progress, setProgress] = useState(0), [jobPhase, setJobPhase] = useState<JobPhase>("idle"), [jobMessage, setJobMessage] = useState("");
   const [library, setLibrary] = useState<CaptureLibrary | null>(null), [libraries, setLibraries] = useState<SyncedLibrarySummary[]>([]), [stats, setStats] = useState<{added:number;repeated:number;updatedVoice:number;total:number}|null>(null), [query, setQuery] = useState(""), [selected, setSelected] = useState<string[]>([]), [subject, setSubject] = useState(""), [consent, setConsent] = useState(false), [receipt, setReceipt] = useState<Receipt | null>(null), [reportId, setReportId] = useState(""), [image, setImage] = useState<string | null>(null);
   const [diagnosticQuestion, setDiagnosticQuestion] = useState<"panorama" | "attitude" | "trend" | "worth" | "next" | "risk">("panorama");
   const [personImport,setPersonImport]=useState<"idle"|"chat"|"moments">("idle");
@@ -87,7 +87,7 @@ export default function CapturePage() {
   const locked = busy || analyzing || cloudBusy || subjectBusy || personImport!=="idle";
   currentLibrary.current = library;
   const [recordPage, setRecordPage] = useState(0);
-  const [historyState,setHistoryState]=useState<HistoryProgress|null>(null), [historyRunning,setHistoryRunning]=useState(false), [showMethods,setShowMethods]=useState(false), [autoVoicePending,setAutoVoicePending]=useState(false);
+  const [historyState,setHistoryState]=useState<HistoryProgress|null>(null), [historyRunning,setHistoryRunning]=useState(false), [showMethods,setShowMethods]=useState(false);
   const [showAnalysis,setShowAnalysis]=useState(false), [adjustPerson,setAdjustPerson]=useState(false), [materialView,setMaterialView]=useState<"none"|"records"|"status">("none");
   const [showImportControls,setShowImportControls]=useState(false);
   const [supplementMoments,setSupplementMoments]=useState(false);
@@ -95,6 +95,9 @@ export default function CapturePage() {
   function updateMomentsAttempt(value:MomentsAttempt|null,scope=owner){setMomentsAttempt(value);remember(`chengzi-capture:${scope}:moments-attempt`,value);}
   const revealReportAfterImport=useRef(false);
   const [voiceEnriching,setVoiceEnriching]=useState(false);
+  const [importStage,setImportStage]=useState<""|"chat"|"voice"|"moments"|"upload">("");
+  const captureActive=useRef(false), preparingImport=useRef(false);
+  const preparedReport=useRef<{owner:string;libraryId:string;updatedAt:string;epoch:number;total:number;subject:string;related:{id:string;updatedAt:string}[];snapshots:RelatedSnapshot[]}|null>(null);
   const [contactRetry,setContactRetry]=useState(0);
   const [allVisibleMoments,setAllVisibleMoments]=useState(true);
   const [idleSeconds,setIdleSeconds]=useState(0), [analysisSeconds,setAnalysisSeconds]=useState(0);
@@ -105,12 +108,10 @@ export default function CapturePage() {
   useEffect(()=>{if(!busy&&!jobId){setCaptureElapsed(0);return;}const started=Date.now(),timer=setInterval(()=>setCaptureElapsed(Math.floor((Date.now()-started)/1000)),1000);return()=>clearInterval(timer);},[busy,jobId]);
   useEffect(()=>{setAnalysisSeconds(0);if(!analyzing)return;const started=Date.now(),timer=setInterval(()=>setAnalysisSeconds(Math.floor((Date.now()-started)/1000)),1000);return()=>clearInterval(timer);},[analyzing]);
   useEffect(()=>{
-    if(!revealReportAfterImport.current || busy || personImport!=="idle" || jobId || !library)return;
+    if(!revealReportAfterImport.current || busy || personImport!=="idle" || jobId || !library || relatedLoading || preparingImport.current)return;
     revealReportAfterImport.current=false;
-    setShowImportControls(false);setMaterialView("none");
-    const frame=requestAnimationFrame(()=>document.getElementById("capture-preview")?.scrollIntoView({block:"start",behavior:"smooth"}));
-    return()=>cancelAnimationFrame(frame);
-  },[busy,personImport,jobId,library?.id]);
+    void prepareImportedReport(library,relatedMoments);
+  },[busy,personImport,jobId,library?.id,relatedLoading]);
   const handoff=useRef("");
   const helperEntry=useRef(false), discoveryPaused=useRef(false), connectionState=useRef({connected:false,method:"desktop",busy:false});
   const connectionDiscovery=useRef<ReturnType<typeof discoverCaptureConnection>|null>(null);
@@ -120,11 +121,11 @@ export default function CapturePage() {
     setShowMethods(false); setMethod(value);
     if(owner)try{localStorage.setItem(`chengzi-capture:${owner}:method`,value);}catch{}
   }
-  async function syncRelatedMoments(scope:string, person:string, chat:CaptureLibrary):Promise<RelatedSnapshot[]> {
-    if (relatedLoading || relatedError) throw Error(relatedError || "正在核对同一位好友的朋友圈，请稍候。");
-    if(!relatedMoments.length)return [];
+  async function syncRelatedMoments(scope:string, person:string, chat:CaptureLibrary, sources=relatedMoments):Promise<RelatedSnapshot[]> {
+    if (sources===relatedMoments && (relatedLoading || relatedError)) throw Error(relatedError || "正在核对同一位好友的朋友圈，请稍候。");
+    if(!sources.length)return [];
     const snapshots:RelatedSnapshot[]=[], syncedSources:CaptureLibrary[]=[];
-    for(const moments of relatedMoments){
+    for(const moments of sources){
       if(!moments.records.length)continue;
       const knownSubject=moments.cloud?.subjectId||captureIntakeSubject(scope,moments.id,[person]);
       if(!person||moments.ownerId!==scope||moments.account!==chat.account||moments.friend!==chat.friend&&knownSubject!==person)throw Error("请核对这些材料是否属于同一位微信好友，再合并分析。");
@@ -138,7 +139,7 @@ export default function CapturePage() {
   }
 
   async function askSelected() {
-    if(!owner||!library||analyzing||cloudBusy||busy&&!jobId||receipt||isWindow||library.kind!=="chat")return;
+    if(!owner||!library||analyzing||cloudBusy||busy||importStage||receipt||isWindow||library.kind!=="chat")return;
     const ticket=generation.current, scope=owner;
     try {
       if (busy && jobId) await cancel();
@@ -182,8 +183,8 @@ export default function CapturePage() {
     const current = ++generation.current; abort.current?.abort(); token.current = "";
     connectionState.current.connected=false;revealReportAfterImport.current=false;
     importSubject.current=null;preparingSubject.current=null;setSubjectBusy(false);
-     setConnected(false); setHealth(null); setLibrary(null); setLibraries([]); setSelected([]); setStats(null); setReceipt(null); setConsent(false); setFriend(""); setWechatAccount(""); setSubject(""); setQuery(""); setRecordPage(0); setReportId(""); setImage(null); setDiagnosticQuestion("panorama"); setBusy(false); setAnalyzing(false); setJobId(""); setProgress(0); setJobPhase("idle"); setJobMessage(""); setNote(""); setError(""); setHistoryState(null); setHistoryRunning(false); setContacts([]); setSelectedContact(null); setContactSearch("idle"); setContactHint("");
-    setShowAnalysis(false);setAdjustPerson(false);setMaterialView("none");setAutoVoicePending(false);setShowImportControls(false);setVoiceEnriching(false);
+     setConnected(false); setHealth(null); setLibrary(null); setLibraries([]); setSelected([]); setStats(null); setReceipt(null); setConsent(false); setFriend(""); setWechatAccount(""); setSubject(""); setQuery(""); setRecordPage(0); setReportId(""); setImage(null); setDiagnosticQuestion("panorama"); setBusy(false); setAnalyzing(false); setBackgroundAnalysis(false); setJobId(""); setProgress(0); setJobPhase("idle"); setJobMessage(""); setNote(""); setError(""); setHistoryState(null); setHistoryRunning(false); setContacts([]); setSelectedContact(null); setContactSearch("idle"); setContactHint("");
+    setShowAnalysis(false);setAdjustPerson(false);setMaterialView("none");setShowImportControls(false);setVoiceEnriching(false);
     personStopped.current=true;personImporting.current=false;setPersonImport("idle");setRelatedMoments([]);
     setReturnTo(""); personChosen.current = false; autoSyncedKey.current="";openedDeepLink.current="";setCloudBusy(false);setCloudNote("");setCloudError(""); if (!owner) return;
     discoveryPaused.current=stored<boolean>(`chengzi-capture:${owner}:auto-connect-paused`)===true;
@@ -225,7 +226,7 @@ export default function CapturePage() {
       // just because it crossed the old twenty-five-minute browser timeout.
       setJobId(running.jobId); setJobPhase("checking"); setJobMessage("正在核对上次导入任务…");
       if(running.kind)setKind(running.kind);
-      if (running.history && running.friend) setHistoryState(readHistoryProgress(owner, running.friend));
+      if (running.history && running.friend) setHistoryState(readHistoryProgress(running.voiceHistory ? owner + ":voice" : owner, running.friend));
     }
     const previous = stored<Receipt>(`chengzi-capture:${owner}:analysis`);
     if (previous) void getCaptureLibrary(owner, previous.libraryId).then(value => { if (current !== generation.current || !value) return; setLibrary(value); setSelected(previous.sourceIds); setRecordPage(Math.floor(Math.max(0, value.records.findIndex(row => previous.sourceIds.includes(row.localId))) / 50)); setReceipt(previous); setReturnTo(back=>back || intakeReturnTo(previous.returnTo)); setKind(previous.kind); setSubject(previous.subjectId); setFriend(contactDisplayName(value.friend)); setNote("上次的分析请求已保留，可继续取回结果。"); }).catch(e => { if (current === generation.current) setError(message(e)); });
@@ -296,7 +297,7 @@ export default function CapturePage() {
             : job.message || "本机任务仍在运行，已保存的内容可以继续查看。";
           setJobMessage(text);
           if (job.message || age > 10 * 60 * 1000) setNote(text);
-          if (saved?.history && saved.friend) setHistoryState(readHistoryProgress(owner, saved.friend));
+          if (saved?.history && saved.friend) setHistoryState(readHistoryProgress(saved.voiceHistory ? owner + ":voice" : owner, saved.friend));
           timer = window.setTimeout(inspect, 1500);
           return;
         }
@@ -382,18 +383,6 @@ export default function CapturePage() {
     }, 350);
     return () => { cancelled=true; clearTimeout(timer); controller.abort(); };
   }, [owner,connected,method,kind,friend,contactRetry,supplementMoments]);
-  // A full history pass must stay fast.  Once the text pages are committed,
-  // run the bounded background voice enrichment against the saved library.
-  // This effect deliberately starts only after the library state has updated;
-  // it prevents the first text import from waiting on local ASR/model startup.
-  useEffect(() => {
-    if (personImporting.current || personImport!=="idle" || !autoVoicePending || !owner || !connected || !library || library.kind !== "chat" || busy || analyzing || cloudBusy || showAnalysis || receipt || health?.capabilities.backgroundVoice !== true) return;
-    const timer = window.setTimeout(() => {
-      setAutoVoicePending(false);
-      void capture(false, true, true);
-    }, 150);
-    return () => window.clearTimeout(timer);
-  }, [autoVoicePending, owner, connected, library?.id, busy, analyzing, cloudBusy, showAnalysis, receipt, health?.capabilities.backgroundVoice,personImport]);
   useEffect(()=>{
     setRelatedMoments([]); setRelatedError(""); setRelatedLoading(false);
     if(!owner||library?.kind!=="chat"||personImporting.current)return;
@@ -447,7 +436,7 @@ export default function CapturePage() {
     return () => { cancelled = true; };
   }, [connected, owner]);
   useEffect(() => { recordList.current?.scrollTo({ top: 0 }); }, [recordPage, query, library?.id]);
-  useEffect(() => { setShowAnalysis(false); setAdjustPerson(false); setMaterialView("none"); }, [library?.id]);
+  useEffect(() => { setAdjustPerson(false); setMaterialView("none"); }, [library?.id]);
   useEffect(() => {
     if (!owner || !library || account.loading || locked || receipt) return;
     const allowed = account.people.map(person => String(person.id));
@@ -459,12 +448,12 @@ export default function CapturePage() {
     if (restored !== subject) setSubject(restored);
   }, [owner, library?.id, account.loading, account.people, locked, receipt, subject]);
   useEffect(()=>{
-    if(!owner||!library?.cloud?.enabled||library.cloud.offline||library.records.some(row=>row.source.cloudMediaPending===true)||locked||account.loading||receipt)return;
+    if(!owner||!library?.cloud?.enabled||library.cloud.offline||library.records.some(row=>row.source.cloudMediaPending===true)||locked||importStage||showAnalysis||account.loading||receipt)return;
     const key=JSON.stringify([owner,library.id,library.updatedAt,library.records.length,library.reportLinks.length,subject]);
     if(autoSyncedKey.current===key)return;
     const timer=setTimeout(()=>{autoSyncedKey.current=key;void syncCurrentLibrary(false);},1200);
     return()=>clearTimeout(timer);
-  },[owner,library,locked,account.loading,receipt,subject]);
+  },[owner,library,locked,importStage,showAnalysis,account.loading,receipt,subject]);
   const pending = library ? pendingCaptureRecords(library) : [];
   const selectedRows = library?.records.filter(r => selected.includes(r.localId)) || [];
   const chosen = selectedRows.length && selectedRows.every(visualSource)
@@ -714,8 +703,57 @@ export default function CapturePage() {
     }
     throw Error("采集等待超时，已保存材料仍在。请检查助手后继续这项任务。");
   }
+  async function enrichImportedVoices(target:CaptureLibrary,contact:WechatContact,status:BridgeHealth,scope:string,ticket:number,resume=false):Promise<CaptureLibrary>{
+    const voiceIds=target.records.filter(row=>row.source.method==="wechat-local-db"&&row.source.mediaKind==="voice"&&!(["visible-text","failed"].includes(String(row.source.transcriptionStatus))))
+      .map(row=>({messageShard:String(row.source.messageShard||""),messageId:String(row.source.messageId||""),...(row.source.localId?{localId:String(row.source.localId)}:{})}));
+    const progressOwner=scope+":voice",prior=readHistoryProgress(progressOwner,target.friend);
+    const saved=stored<StoredCaptureJob>(`chengzi-capture:${scope}:job`);
+    const reuse=!!(saved?.voiceOnly&&saved.jobId===prior?.pendingJob);
+    if(!voiceIds.length&&!reuse)return target;
+    if(voiceIds.some(row=>!row.messageShard||!row.messageId))throw Error("部分语音缺少来源编号，请更新助手后重新导入，已有聊天会保留。");
+    if(!status.capabilities.backgroundVoiceById)throw Error("请更新助手后补齐语音，再生成完整报告。已导入的聊天会保留。");
+    setImportStage("voice");setVoiceEnriching(true);setHistoryRunning(true);
+    setNote(`正在转写 ${voiceIds.length} 条语音，完成后继续导入。`);
+    abort.current?.abort();const controller=new AbortController();abort.current=controller;
+    if(prior?.pendingJob&&!reuse){
+      try{await bridgeRequest(`/jobs/${encodeURIComponent(prior.pendingJob)}/cancel`,{token:token.current,body:{}});}catch(cause){if(!(cause instanceof BridgeError&&cause.status===404))throw cause;}
+    }
+    const plan=newHistoryProgress(progressOwner,target.friend,reuse?prior:null,{forceFull:!reuse});plan.account=target.account;
+    const credential=token.current;
+    const result=await runHistoryImport({progress:plan,contact,voiceIds,includeVoice:true,signal:controller.signal,
+      request:(path,options)=>bridgeRequest(path,{...options,token:credential}),
+      accept:async(batch)=>{if(ticket!==generation.current)throw new DOMException("Aborted","AbortError");const value=await accept(batch,scope,ticket,true,true);if(!value)throw new DOMException("Aborted","AbortError");return{added:value.added,updatedVoice:value.updatedVoice,total:value.total,libraryId:value.library.id};},
+      onJob:id=>{if(ticket!==generation.current)return;setJobId(id||"");setJobPhase(id?"running":"idle");remember(`chengzi-capture:${scope}:job`,id?{jobId:id,kind:"chat",history:true,voiceHistory:true,voiceOnly:true,friend:target.friend,contactId:contact.contactId,accountKey:contact.accountKey,includeVoice:true,startedAt:Date.now()}:null);},
+      onProgress:update=>{if(ticket===generation.current)setNote(update.message);}
+    });
+    if(ticket!==generation.current)throw new DOMException("Aborted","AbortError");
+    const complete=await getCaptureLibrary(scope,result.libraryId||target.id);
+    if(!complete)throw Error("语音转写结果暂未保存，请重试。");
+    setVoiceEnriching(false);setHistoryRunning(false);setLibrary(complete);currentLibrary.current=complete;
+    return complete;
+  }
+  async function prepareImportedReport(target:CaptureLibrary,sources:CaptureLibrary[]=[],personHint=""){
+    if(preparingImport.current||!owner||personStopped.current)return;
+    preparingImport.current=true;const scope=owner,ticket=generation.current;
+    setImportStage("upload");setCloudBusy(true);setCloudError("");setError("");setShowImportControls(false);
+    try{
+      const person=personHint||target.cloud?.subjectId||subject||await ensureImportSubject(null,target);
+      const synced=await syncCaptureLibrary(scope,target,{subjectId:person,onProgress:(done,total,phase)=>{
+        if(ticket===generation.current)setCloudNote(phase==="images"?`正在上传图片 ${done} / ${total}`:phase==="records"?`正在上传资料 ${done} / ${total}`:"正在完成上传");
+      }});
+      if(ticket!==generation.current)return;
+      const snapshots=target.kind==="chat"?await syncRelatedMoments(scope,person,synced,sources):[];
+      if(ticket!==generation.current)return;
+      if(!synced.cloud?.enabled||synced.cloud.offline||synced.cloud.retired||synced.cloud.total!==synced.records.length)throw Error("资料还没有上传完整，请稍后重试。已导入的原文仍保存在本机。");
+      preparedReport.current={owner:scope,libraryId:synced.id,updatedAt:synced.updatedAt,epoch:synced.cloud.epoch,total:synced.records.length,subject:person,related:sources.map(item=>({id:item.id,updatedAt:item.updatedAt})),snapshots};
+      setLibrary(synced);currentLibrary.current=synced;setKind(synced.kind);setSubject(person);setConsent(false);setShowAnalysis(true);setMaterialView("none");
+      autoSyncedKey.current=JSON.stringify([scope,synced.id,synced.updatedAt,synced.records.length,synced.reportLinks.length,person]);
+      setNote("");requestAnimationFrame(()=>document.getElementById("capture-confirm")?.scrollIntoView({block:"start",behavior:"smooth"}));
+    }catch(cause){preparedReport.current=null;if(ticket===generation.current)setCloudError(message(cause));}
+    finally{preparingImport.current=false;if(ticket===generation.current){setCloudBusy(false);setCloudNote("");setImportStage("");}}
+  }
   async function capture(resume = false, includeVoice = false, enrichExisting = includeVoice, forceFull = false, requestedKind?:CaptureKind):Promise<CaptureLibrary|undefined> {
-    if (!owner || !connected || receipt) return;
+    if (!owner || !connected || receipt || captureActive.current) return;
     const previousJob=stored<StoredCaptureJob>(scopeKey("job"));
     if(resume&&previousJob?.voiceHistory){includeVoice=true;enrichExisting=true;}
     if (enrichExisting && library && library.kind !== "chat") return;
@@ -723,7 +761,9 @@ export default function CapturePage() {
     const captureAllMoments=personImporting.current || allVisibleMoments;
     if (!friend.trim()) { setError(targetKind === "chat" || targetKind === "moments" ? "先输入好友备注或昵称，再从搜索结果中选一位。" : "先填写要采集的好友备注或昵称。"); return; }
     if ((targetKind === "chat" || targetKind === "moments") && (!selectedContact || enrichExisting && library && selectedContact.label !== library.friend)) { setError("先从下方搜索结果中选中要导入的微信联系人；同名好友要选对那一位。"); return; }
-    const ticket = generation.current, scope = owner; if(!enrichExisting)revealReportAfterImport.current=targetKind!=='moments'; setBusy(true); setVoiceEnriching(enrichExisting); setError(""); setProgress(0); setJobPhase("checking"); setJobMessage("正在确认选中的微信联系人并准备导入…"); setNote(targetKind === "chat" ? "正在确认选中的微信联系人并准备导入…" : "正在连接本机助手并准备采集朋友圈…");
+    captureActive.current=true;if(!personImporting.current)personStopped.current=false;
+    setShowAnalysis(false);setConsent(false);setImportStage(enrichExisting?"voice":targetKind);
+    const ticket = generation.current, scope = owner; revealReportAfterImport.current=false; setBusy(true); setVoiceEnriching(enrichExisting); setError(""); setProgress(0); setJobPhase("checking"); setJobMessage("正在确认选中的微信联系人并准备导入…"); setNote(targetKind === "chat" ? "正在确认选中的微信联系人并准备导入…" : "正在连接本机助手并准备采集朋友圈…");
     if(targetKind==='moments'){setShowImportControls(true);setKind('moments');if(!resume)updateMomentsAttempt({jobId:'',startedAt:Date.now(),entryKey:momentsEntryKey(new URLSearchParams(window.location.search)),friend:selectedContact!.label,contactId:selectedContact!.contactId,accountKey:selectedContact!.accountKey,allVisible:captureAllMoments,status:'running',received:0,added:0,repeated:0,total:library?.kind==='moments'?library.records.length:0,detail:'正在准备本次朋友圈采集。'});}
     try {
       if(targetKind==="moments"&&personIntent&&previousJob?.kind!=="moments"){
@@ -738,10 +778,14 @@ export default function CapturePage() {
       const status = await bridgeRequest<BridgeHealth>("/health");
       if(ticket!==generation.current)return;
       setHealth(status);
-      // Text and voice have separate checkpoints. Voice revisits every page;
-      // cached transcripts are reused, without replacing the fast text cursor.
       if(targetKind==="chat" && status.capabilities.backgroundHistory && status.capabilities.backgroundChat && (!resume || pendingJob?.history)){
-        if(enrichExisting&&!status.capabilities.backgroundVoice)throw Error("助手暂不能后台转写语音，已保存的文字仍可分析。");
+        if(enrichExisting){
+          const target=currentLibrary.current?.kind==="chat"?currentLibrary.current:library;
+          if(!target)throw Error("请先打开已导入的聊天。");
+          const enriched=await enrichImportedVoices(target,selectedContact!,status,scope,ticket,resume);
+          revealReportAfterImport.current=!personImporting.current;
+          return enriched;
+        }
         const progressOwner=enrichExisting?`${scope}:voice`:scope;
         abort.current?.abort();const controller=new AbortController();abort.current=controller;
         let saved=readHistoryProgress(progressOwner,targetFriend);
@@ -754,11 +798,11 @@ export default function CapturePage() {
         const credential=token.current;
         setHistoryRunning(true);if(!enrichExisting)setHistoryState(plan);
         try{localStorage.setItem(`chengzi-capture:${scope}:last-friend`,friend.trim());}catch{}
-        setNote(enrichExisting?"正在分批补齐全部历史中的语音，可以继续使用电脑。":plan.since?"正在检查新增聊天，已导入的内容会保留。":"正在快速导入全部历史文字，语音稍后在后台自动补齐。可以继续使用电脑。");
+        setNote(plan.since?"正在检查新增聊天，已导入的内容会保留。":"正在导入全部聊天，接下来自动处理语音和图片。");
         // Never make the complete-history pass wait for local audio loading or
         // ASR model startup.  The saved library is enriched automatically
         // after this pass through capture(..., true, true).
-        const result=await runHistoryImport({progress:plan,contact:{contactId:selectedContact!.contactId,accountKey:selectedContact!.accountKey},includeVoice:enrichExisting,signal:controller.signal,
+        const result=await runHistoryImport({progress:plan,contact:{contactId:selectedContact!.contactId,accountKey:selectedContact!.accountKey},includeVoice:false,signal:controller.signal,
           request:(path,options)=>bridgeRequest(path,{...options,token:credential}),
           accept:async(batch)=>{if(ticket!==generation.current)throw new DOMException("Aborted","AbortError");const value=await accept(batch,scope,ticket,true,true);if(!value||ticket!==generation.current)throw new DOMException("Aborted","AbortError");return{added:value.added,updatedVoice:value.updatedVoice,total:value.total,libraryId:value.library.id};},
           onJob:id=>{if(ticket!==generation.current)return;setJobId(id||"");setJobPhase(id?"running":"idle");setJobMessage(id?enrichExisting?"正在后台补全历史语音，已保存的内容可继续查看。":"正在读取历史聊天，已保存的内容可继续查看。":"");if(id){const previous=stored<StoredCaptureJob>(`chengzi-capture:${scope}:job`);remember(`chengzi-capture:${scope}:job`,{jobId:id,history:true,voiceHistory:enrichExisting,friend:targetFriend,contactId:selectedContact!.contactId,accountKey:selectedContact!.accountKey,includeVoice:enrichExisting,startedAt:previous?.jobId===id&&previous.startedAt||Date.now()});}else remember(`chengzi-capture:${scope}:job`,null);},
@@ -769,8 +813,11 @@ export default function CapturePage() {
         if(!enrichExisting)setHistoryState(result.progress);setStats({added:result.added,updatedVoice:result.updatedVoice,total:result.total,repeated:Math.max(0,result.progress.count-result.added)});
         setNote(enrichExisting?`历史语音已核对，本次补全 ${result.updatedVoice} 条。未下载或转写失败的语音可在导入情况里查看。`:`${plan.since?"新增聊天已检查完":"这位好友在本机可读取的全部聊天已导入"}，资料库共 ${result.total} 条。本次新增 ${result.added} 条。${status.capabilities.backgroundVoice === true ? "语音正在后台补全，完成后会自动更新。" : "语音可在助手支持后补全。"}`);
         await refreshLibraries(scope,ticket);
-        if (!enrichExisting && status.capabilities.backgroundVoice === true && result.total > 0) setAutoVoicePending(true);
-        return await getCaptureLibrary(scope,result.libraryId) || undefined;
+        const refreshed = await getCaptureLibrary(scope,result.libraryId) || undefined;
+        if(!refreshed)return;
+        const complete=await enrichImportedVoices(refreshed,selectedContact!,status,scope,ticket);
+        revealReportAfterImport.current=!personImporting.current;
+        return complete;
       }
       if(targetKind==="chat"&&!enrichExisting&&!resume)throw Error("请下载安装最新版 Windows 助手。安装完成后会自动打开网页并连接，再试一次即可完整导入这个人的聊天。");
       let background = false, readLimit = limit;
@@ -800,7 +847,13 @@ export default function CapturePage() {
       if(targetKind==='moments'){const attempt=stored<MomentsAttempt>(scopeKey('moments-attempt'));if(attempt)updateMomentsAttempt({...attempt,jobId:id,status:'running'});}
       setJobId(id); setJobPhase("running"); setJobMessage("正在处理导入，完成的内容会陆续保存。"); const previous=stored<StoredCaptureJob>(scopeKey("job")); remember(scopeKey("job"), { jobId: id,kind:targetKind,friend:targetFriend,contactId:selectedContact!.contactId,accountKey:selectedContact!.accountKey, includeVoice: preserveReading, startedAt: previous?.jobId===id&&previous.startedAt||Date.now() });
       const completed=await poll(id, ticket, scope, preserveReading);
-      if(targetKind!=='moments')await restoreCompletedPersonPair(completed,selectedContact,scope,ticket);
+      if(targetKind==='moments' && completed && !personImporting.current){
+        const attempt=stored<MomentsAttempt>(scopeKey('moments-attempt'));
+        if(attempt?.status==='complete'){
+          await restoreCompletedPersonPair(completed,selectedContact,scope,ticket);
+          updateMomentsAttempt(null);setShowImportControls(false);revealReportAfterImport.current=true;
+        }
+      }
       return completed;
     } catch (e) {
       if (ticket === generation.current) {
@@ -819,7 +872,7 @@ export default function CapturePage() {
         }
       }
     }
-    finally { if (ticket === generation.current) {setBusy(false);setHistoryRunning(false);setVoiceEnriching(false);} }
+    finally { captureActive.current=false; if (ticket === generation.current) {setBusy(false);setHistoryRunning(false);setVoiceEnriching(false);if(!personImporting.current)setImportStage("");} }
   }
   async function retryMoments(){
     if(!owner||analyzing||cloudBusy||retryingMoments.current)return;
@@ -860,29 +913,29 @@ export default function CapturePage() {
   }
   async function importPerson() {
     if(locked||personImporting.current||!owner||!selectedContact||!connected)return;
-    if(!health?.capabilities.personBundle){setError("一键导入聊天和朋友圈需要 1.2.6 或更新的助手。请使用上方下载入口更新后重试。");return;}
+    if(!health?.capabilities.personBundle){setError("请先更新电脑助手，再导入这个人的全部资料。");return;}
     const ticket=generation.current;
-    let chosenSubject="";
-    personImporting.current=true;personStopped.current=false;setPersonIntent(true);setPersonImport("chat");setShowImportControls(true);setRelatedMoments([]);setAutoVoicePending(false);
-    let chat:CaptureLibrary|undefined,awaitingMoments=false;
+    personImporting.current=true;personStopped.current=false;setPersonIntent(true);setPersonImport("chat");setShowImportControls(true);setRelatedMoments([]);setError("");
     try {
-      chosenSubject=await ensureImportSubject(selectedContact);
+      const person=await ensureImportSubject(selectedContact);
       if(ticket!==generation.current||personStopped.current)return;
-      remember(scopeKey("person-plan"),{chatId:null,subjectId:chosenSubject,contactId:selectedContact.contactId,accountKey:selectedContact.accountKey,friend:selectedContact.label});
-      chat=await capture(false,false,false,false,"chat");
+      remember(scopeKey("person-plan"),{chatId:null,subjectId:person,contactId:selectedContact.contactId,accountKey:selectedContact.accountKey,friend:selectedContact.label});
+      const chat=await capture(false,false,false,false,"chat");
       if(!chat||personStopped.current||ticket!==generation.current)return;
-      remember(scopeKey("person-plan"),{chatId:chat.id,subjectId:chosenSubject,contactId:selectedContact.contactId,accountKey:selectedContact.accountKey,friend:selectedContact.label,entryKey:enterMomentsStep(chat.id,chosenSubject)});
-      awaitingMoments=true;setSupplementMoments(true);setKind('moments');setPersonImport("moments");setNote("聊天已保存，接下来采集这位好友的全部可见朋友圈。请保持微信在前台。");
+      remember(scopeKey("person-plan"),{chatId:chat.id,subjectId:person,contactId:selectedContact.contactId,accountKey:selectedContact.accountKey,friend:selectedContact.label,entryKey:enterMomentsStep(chat.id,person)});
+      setSupplementMoments(true);setKind('moments');setPersonImport("moments");
       const moments=await capture(false,false,false,false,"moments");
-      if(ticket!==generation.current)return;
-      if(moments&&(moments.account!==chat.account||moments.friend!==chat.friend))setError("聊天和朋友圈的微信账号或联系人不一致，已分别保存，未合并分析。");
-    } catch(e){if(ticket===generation.current)setError(message(e));} finally {
-      if(ticket===generation.current){
-        if(chat&&!awaitingMoments){setLibrary(chat);currentLibrary.current=chat;setKind("chat");setStats(null);setSubject(chosenSubject);selectPending(chat);setShowImportControls(false);}
-        if(awaitingMoments){setKind('moments');setShowImportControls(true);revealReportAfterImport.current=false;}
-        personImporting.current=false;setPersonImport("idle");
-        if(chat&&!awaitingMoments&&!personStopped.current&&health?.capabilities.backgroundVoice)setAutoVoicePending(true);
-      }
+      if(!moments||personStopped.current||ticket!==generation.current)return;
+      const verified=await verifiedPersonPairChat(moments,selectedContact,owner,ticket);
+      if(!verified)throw Error("聊天与朋友圈尚未关联，请重试；已导入内容会保留。");
+      const attempt=stored<MomentsAttempt>(scopeKey('moments-attempt'));
+      if(attempt?.status!=='complete'){setShowImportControls(true);return;}
+      rememberCaptureSubject(owner,moments.id,person);savePersonPair(chat,moments,person);
+      setLibrary(chat);currentLibrary.current=chat;setKind("chat");setRelatedMoments([moments]);setSubject(person);selectPending(chat);updateMomentsAttempt(null);
+      await prepareImportedReport(chat,[moments],person);
+    } catch(e){if(ticket===generation.current)setError(message(e));}
+    finally {
+      if(ticket===generation.current){personImporting.current=false;setPersonImport("idle");setImportStage("");revealReportAfterImport.current=false;}
     }
   }
   function enterMomentsStep(chatId:string,person:string){
@@ -901,7 +954,7 @@ export default function CapturePage() {
       const person=(account.people.some(value=>value.id===personHint)?personHint:"")||(!targetChat?subject:"")||await ensureImportSubject(null,chat), contact=await contactFromCaptureLibrary(chat);
       if(ticket!==generation.current)return;
       remember(scopeKey("person-plan"),{chatId:chat.id,subjectId:person,contactId:contact?.contactId||"",accountKey:contact?.accountKey||"",friend:contact?.label||chat.friend,entryKey:enterMomentsStep(chat.id,person)});
-      requestedSubject.current=person;setLibrary(chat);currentLibrary.current=chat;setSubject(person);setPersonIntent(true);setSupplementMoments(true);setMethod("desktop");setKind("moments");setAllVisibleMoments(true);setFriend(contactDisplayName(chat.friend));setSelectedContact(contact);setShowImportControls(true);setShowAnalysis(false);setMaterialView("none");setAutoVoicePending(false);setError("");setJobPhase("idle");setJobMessage("");
+      requestedSubject.current=person;setLibrary(chat);currentLibrary.current=chat;setSubject(person);setPersonIntent(true);setSupplementMoments(true);setMethod("desktop");setKind("moments");setAllVisibleMoments(true);setFriend(contactDisplayName(chat.friend));setSelectedContact(contact);setShowImportControls(true);setShowAnalysis(false);setMaterialView("none");setError("");setJobPhase("idle");setJobMessage("");
       setNote("聊天已保留。接下来补充这位好友的全部可见朋友圈。");
       requestAnimationFrame(()=>document.querySelector('[aria-label="导入操作"]')?.scrollIntoView({block:"start",behavior:"smooth"}));
     }catch(cause){if(ticket===generation.current)setError(message(cause));}
@@ -941,7 +994,7 @@ export default function CapturePage() {
     try{const completed=await getCaptureLibrary(owner,attempt.libraryId);if(!completed||completed.kind!=='moments')throw Error('本次保存的朋友圈暂时无法打开，请重试。');
       const restored=await restoreCompletedPersonPair(completed,attempt,owner,ticket);if(ticket!==generation.current)return;
       if(!restored){if(supplementMoments)throw Error('原聊天的关联信息暂不可用。朋友圈已经保存，请从原报告重新打开补充入口。');setLibrary(completed);currentLibrary.current=completed;setKind('moments');selectPending(completed);setShowImportControls(false);}
-      updateMomentsAttempt(null);setNote(attempt.status==='partial'?'已选择用保存的资料继续分析；尚未确认采集完整，报告会标明覆盖范围。':'本次采集结果已确认。下一步确认材料与费用后生成报告。');
+      updateMomentsAttempt(null);revealReportAfterImport.current=true;setNote(attempt.status==='partial'?'本次尚未确认采集完整，报告会标明覆盖范围。':'');
     }catch(cause){setError(message(cause));setShowImportControls(true);}finally{if(ticket===generation.current)setBusy(false);}
   }
   function savePersonPair(chat:CaptureLibrary,moments:CaptureLibrary,person=subject){
@@ -1021,8 +1074,8 @@ export default function CapturePage() {
   async function openAnalysis() {
     const ticket=generation.current;
     setError("");
-    setAutoVoicePending(false);
-    if (busy && jobId) await cancel();
+
+    if (busy || voiceEnriching || importStage) return;
     if(library&&!isWindow&&!subject&&!receipt){try{await ensureImportSubject(null,library);}catch(e){if(ticket===generation.current)setError(message(e));return;}}
     if(ticket!==generation.current)return;
     setMaterialView("none");
@@ -1030,7 +1083,7 @@ export default function CapturePage() {
     requestAnimationFrame(() => document.getElementById("capture-confirm")?.scrollIntoView({block:"nearest",behavior:"smooth"}));
   }
   async function analyze() {
-    if (!owner || !library || locked || account.loading) return;
+    if (!owner || !library || locked || account.loading || importStage || voiceEnriching) return;
     const fullReport = receipt?.analysisScope === "fullHistory" || !isWindow;
     if (!fullReport && !chosen.length) return;
     if (!fullReport) { const issue=selectionIssue(library,chosen);if(issue){setError(issue);return;} }
@@ -1048,7 +1101,10 @@ export default function CapturePage() {
     let relatedSnapshots:RelatedSnapshot[]=[];
     if (fullReport && !receipt) {
       if (!reportReady) { setError(library.kind === "moments" ? "这份朋友圈还没有可读取的文字或图片，请先完成导入。" : "这份聊天还没有可读的文字或语音转写，请先完成导入。"); return; }
-      setCloudBusy(true); setCloudError(""); setCloudNote("正在同步全部材料，完成后再生成完整报告…");
+      const prepared=preparedReport.current;
+      const reuse=prepared?.owner===scope&&prepared.libraryId===library.id&&prepared.updatedAt===library.updatedAt&&prepared.epoch===library.cloud?.epoch&&prepared.total===library.records.length&&prepared.subject===reportSubject&&prepared.related.length===relatedMoments.length&&prepared.related.every((item,index)=>item.id===relatedMoments[index]?.id&&item.updatedAt===relatedMoments[index]?.updatedAt);
+      if(reuse){relatedSnapshots=prepared.snapshots;}
+      else {setCloudBusy(true); setCloudError(""); setCloudNote("正在同步新增材料，完成后再生成完整报告…");
       try {
         reportLibrary = await syncCaptureLibrary(scope, library, { subjectId: reportSubject, onProgress: (done,total,phase) => {
           if (ticket === generation.current) setCloudNote(phase === "records" ? `正在同步${library.kind === "moments" ? "朋友圈" : "聊天"} ${done} / ${total} 条…` : phase === "images" ? `正在同步图片 ${done} / ${total} 张…` : "正在核对报告依据…");
@@ -1059,7 +1115,7 @@ export default function CapturePage() {
         if(ticket!==generation.current)return;
         setLibrary(reportLibrary);
       } catch (cause) { if (ticket === generation.current) { setCloudError(message(cause)); setCloudNote(""); } return; }
-      finally { if (ticket === generation.current) { setCloudBusy(false); setCloudNote(""); } }
+      finally { if (ticket === generation.current) { setCloudBusy(false); setCloudNote(""); } }}
     }
     const current: Receipt = receipt || { requestId: crypto.randomUUID(), libraryId: reportLibrary.id, sourceIds: fullReport ? [] : chosen.map(r => r.localId), ...(!fullReport ? { historyIds: memoryRows.map(r => r.localId) } : { analysisScope:"fullHistory" as const, cloudId:reportLibrary.cloud!.id, expectedTotal:reportLibrary.records.length, expectedEpoch:reportLibrary.cloud!.epoch,relatedSnapshots }), subjectId: reportSubject, kind: reportLibrary.kind, question: diagnosticQuestion, returnTo };
     const rows = current.sourceIds.map(id => library.records.find(r => r.localId === id)).filter((r): r is StoredCaptureRecord => !!r);
@@ -1084,7 +1140,7 @@ export default function CapturePage() {
       if (current.analysisScope === "fullHistory" && response.taskId && response.status !== "done") {
         if (ticket !== generation.current) return;
         window.dispatchEvent(new Event("chengzi:capture-analysis"));
-        remember(scopeKey("analysis"), null); setReceipt(null); setConsent(false); setShowAnalysis(false);
+         remember(scopeKey("analysis"), null); setReceipt(null); setConsent(false); setShowAnalysis(false); setBackgroundAnalysis(true);
         setNote(response.active && response.sameMaterials===false ? "已有一份报告正在生成，请先查看后台进度。" : "已开始后台分析，可以离开此页。报告完成后会出现在这里和人物页。");
         void account.refresh(); return;
       }
@@ -1129,7 +1185,7 @@ export default function CapturePage() {
   const backgroundVoice = health?.capabilities.backgroundChat === true && health?.capabilities.backgroundVoice === true;
   const databaseVoiceUnavailable = localDatabase && !backgroundVoice;
   const fullHistory = health?.capabilities.backgroundHistory === true;
-  const helperNeedsUpdate = !!health?.version && new Intl.Collator("en",{numeric:true}).compare(health.version,"1.2.9") < 0;
+  const helperNeedsUpdate = !!health?.version && new Intl.Collator("en",{numeric:true}).compare(health.version,"1.2.13") < 0;
   const importLabel = historyState?.complete ? "补充新聊天" : historyState ? "继续导入全部聊天" : "导入这个人的全部聊天";
   const activityNotice=library?.kind==="chat"&&library.records.length>20000 ? prepareChatActivityUpload(library.records,{account:library.account}).notice : "";
   const readableRecordCount = library?.records.filter(row => row.kind === "text" && row.senderRole !== "unknown" && row.text.trim()).length || 0;
@@ -1140,14 +1196,20 @@ export default function CapturePage() {
   const subjectLabel=account.people.find(person=>person.id===subject)?.label||(importSubject.current?.subjectId===subject?importSubject.current.label:"")||contactDisplayName(library?.friend||selectedContact?.label||"");
   const reportReady = !!fullReportPath && (library?.kind==="moments" ? library.records.some(row=>row.text.trim()||row.images?.length||row.source.cloudMediaPending||row.source.cloudMediaUnavailable) : readableRecordCount > 0);
   const reportWaitReason = account.loading ? "正在读取账户与分析价格…" : cloudBusy ? cloudNote || "正在同步已导入资料…" : relatedLoading ? "正在读取这位好友的朋友圈…" : relatedError ? relatedError : !reportReady && fullReportPath ? library?.kind==="moments" ? "还没有可读的动态文字或图片，请先完成导入。" : "还没有可读文字，请先补全聊天文字或语音转写。" : busy && !jobId ? "正在保存刚读到的材料…" : "";
+  const processingImport=!!importStage||voiceEnriching||busy&&!!jobId;
   const compactImport = (method === "desktop" || method === "library") && !!library && (!jobId || voiceEnriching) && personImport === "idle" && !showImportControls;
   const currentMomentsAttempt=kind==='moments'&&momentsAttempt&&selectedContact?.contactId===momentsAttempt.contactId&&selectedContact.accountKey===momentsAttempt.accountKey?momentsAttempt:null;
   const momentsResultOnly=!!currentMomentsAttempt&&currentMomentsAttempt.status!=='running'&&!jobId;
   const reviewing = showAnalysis || !!receipt;
   const browsingMaterials = materialView !== "none" && !reviewing;
-  const showIntake = !compactImport && !reviewing && !browsingMaterials;
+  const showIntake = !processingImport && !backgroundAnalysis && !compactImport && !reviewing && !browsingMaterials;
   const desktopStep = supplementMoments||currentMomentsAttempt ? !connected?0:!selectedContact?1:2 : !connected && !library ? 0 : !selectedContact && !library ? 1 : !library || historyInProgress || !!jobId ? 2 : 3;
-  const showJobStatus = !momentsResultOnly&&(!!jobId || jobPhase === "checking" || jobPhase === "failed" || jobPhase === "missing");
+   // The capture shield is the single source of truth while a live helper job
+   // is running. Rendering the compact status card underneath it made a
+   // completed/failed-looking second control visible and invited duplicate
+   // clicks. Keep the card for reconnect, terminal errors and voice-only
+   // enrichment, but never duplicate the modal progress view.
+   const showJobStatus = !busy&&!momentsResultOnly&&(!!jobId || jobPhase === "checking" || jobPhase === "failed" || jobPhase === "missing");
   const jobProgressValue = kind === "moments" && jobPhase === "running" || jobPhase === "checking" || jobPhase === "running" && progress <= 0 ? undefined : Math.min(100, Math.max(0, progress));
   const jobStatusText = subjectBusy ? "正在关联微信好友，接下来读取朋友圈或聊天…" : busy ? note || jobMessage : jobMessage || (jobPhase === "done" ? "导入已完成，点击保存最后一页。" : jobPhase === "running" ? "本机任务仍在运行，已保存的内容可以继续查看。" : "正在核对本机导入任务…");
   const captureCount = currentMomentsAttempt?.received ?? library?.records.length ?? 0;
@@ -1155,14 +1217,23 @@ export default function CapturePage() {
   const openSyncGuide = () => { if (syncGuide.current) { syncGuide.current.open = true; syncGuide.current.scrollIntoView({block:"center",behavior:"smooth"}); } };
   const kindPicker = <div className={styles.kinds} aria-label="采集内容">{([{key:"chat",label:"聊天记录",Icon:MessageSquare},{key:"moments",label:"朋友圈",Icon:Images}] as const).map(({key,label,Icon}) => <button disabled={locked || !!receipt} aria-pressed={kind === key} key={key} onClick={() => { if(key === kind)return; setKind(key); setLimit(key === "chat" ? 40 : 10); setLibrary(null); setSelected([]); setStats(null); setReportId(""); setConsent(false); setSubject(""); setNote(""); setError(""); }}><Icon size={18}/>{label}</button>)}</div>;
   return <div className={ui.page}><WebNav guideReady={!!owner && !account.loading}/><FirstUseTour owner={owner} page="capture" method={method} ready={!account.loading} auto={method !== "desktop" && !locked && !jobId && !receipt && !library}/><main className={`${ui.wrap} ${styles.page}`}>
-    <header className={styles.pageHeader} hidden={compactImport && !reviewing && !browsingMaterials}><div><p>{kind === "moments" ? "朋友圈 · 补充人物线索" : personIntent ? "聊天 · 朋友圈 · 完整关系报告" : "完整聊天 · 关系报告"}</p><h1>{reviewing ? "确认后，开始整理这段关系" : browsingMaterials ? "查看已保存的材料" : compactImport ? "材料已就位，生成你的关系报告" : kind === "moments" ? "导入 TA 的朋友圈" : personIntent ? "导入 TA 的全部资料" : "导入聊天，看清这段关系"}</h1>{!library && <span>看清现状，看见变化，知道下一步。</span>}</div>{returnTo && <a className={ui.secondary} href={returnTo}><History size={17}/>{returnTo.startsWith('/archive')?'返回人物档案':'返回原报告'}</a>}</header>
+    <header className={styles.pageHeader} hidden={compactImport && !reviewing && !browsingMaterials}><div><p>{kind === "moments" ? "朋友圈 · 补充人物线索" : personIntent ? "聊天 · 朋友圈 · 完整关系报告" : "完整聊天 · 关系报告"}</p><h1>{reviewing ? "资料已上传，确认费用后生成报告" : browsingMaterials ? "查看已保存的材料" : compactImport ? "材料已就位，生成你的关系报告" : kind === "moments" ? "导入 TA 的朋友圈" : personIntent ? "导入 TA 的全部资料" : "导入聊天，看清这段关系"}</h1>{!library && <span>看清现状，看见变化，知道下一步。</span>}</div>{returnTo && <a className={ui.secondary} href={returnTo}><History size={17}/>{returnTo.startsWith('/archive')?'返回人物档案':'返回原报告'}</a>}</header>
 
     <ol id="capture-steps" hidden={compactImport || reviewing || browsingMaterials || needsWindows && method==="desktop" && !connected && (!library || supplementMoments)} className={styles.steps} aria-label="使用步骤">{(method === "desktop" && kind === "chat" ? ["连接助手", "选择联系人", "导入资料", "生成关系报告"] : method === "library" ? ["打开已导入聊天", "查看关系报告"] : method === "video" ? ["选择录屏", "核对画面", "确认后分析"] : ["连接助手", "选择联系人", "采集朋友圈", "生成分析报告"]).map((label, i) => { const active = method === "desktop" ? desktopStep : method === "library" ? library ? 1 : 0 : method === "video" ? library ? 1 : 0 : desktopStep; return <li key={label} data-active={active === i} data-done={active > i}><span>{active > i ? <Check size={18}/> : `0${i + 1}`}</span><strong>{label}</strong></li>; })}</ol>
-    <AccountNotice state={account}/><CaptureAnalysisStatus owner={owner} onSettled={()=>void account.refresh()}/>
+     <AccountNotice state={account}/><CaptureAnalysisStatus owner={owner} visible={!processingImport&&!busy&&!analyzing&&!cloudBusy&&!showAnalysis} onSettled={()=>void account.refresh()} onStatus={job=>setBackgroundAnalysis(!!job && ["queued","running","retrying"].includes(String(job.status)))}/>
     {!library && !jobId && !receipt && <a className={styles.returnToReady} href="/relationship">选择已导入的人与材料<ArrowRight size={16}/></a>}
     {receipt && <p className={styles.warning}>有一份分析尚待取回。请继续本次分析，完成后再切换材料；原请求会保留，避免重复处理。</p>}
     {needsWindows && method==="desktop" && !connected && (!library || supplementMoments) && <section className={`${styles.panel} ${styles.windowsHandoff}`}><Monitor size={28}/><h2>完整导入，请在 Windows 电脑继续</h2><p>在电脑打开此页并连接微信助手。手机可以先传截图，或查看已同步的材料。</p><button className={ui.primary} onClick={()=>void copyWindowsHandoff()}>{handoffCopied?"链接已复制":"复制到电脑继续的链接"}</button><a className={ui.secondary} href={intakeHref('/analyze',{mode:kind,subjectId:subject})}>先用截图分析<ArrowRight size={17}/></a><a href="/relationship">查看已保存的人与材料</a></section>}
-    <div data-mobile-handoff={needsWindows && method==="desktop" && !connected && (!library || supplementMoments)} className={`${styles.layout} ${method === "video" ? styles.videoLayout : ""}`}>
+    {processingImport && <section className={styles.importProgress} aria-live="polite" data-import-stage={importStage||"chat"}>
+      <div className={styles.importProgressHeading}><LoaderCircle size={26} className={styles.spin}/><div><h2>{importStage==="voice"?"正在转写语音":importStage==="moments"?"正在导入朋友圈":importStage==="upload"?"正在完成资料上传":"正在导入全部聊天"}</h2><p>{contactDisplayName(selectedContact?.label||library?.friend||friend)}</p></div></div>
+      <progress aria-label="当前导入进度" max={100} value={importStage==="voice"&&progress>0?progress:undefined}/>
+      <p role="status">{importStage==="upload"?cloudNote||"正在上传本次新增材料":note||jobMessage||"正在准备导入"}</p>
+      <div className={styles.importProgressCounts}><span>聊天 <strong>{library?.kind==="chat"?library.records.length:0}</strong></span><span>语音转写 <strong>{coverage?.transcribed||0} / {coverage?.voiceTotal||0}</strong></span><span>朋友圈 <strong>{currentMomentsAttempt?.received||relatedMomentCount||0}</strong></span></div>
+      <p className={styles.readyCaption}>{importStage==="moments"?"请暂时不要操作微信，采集到可见末尾会自动进入下一步。":"完成后自动显示费用，只需确认一次即可生成报告。"}</p>
+      {idleSeconds>=60 && jobId && <p className={styles.warning}>助手已 {idleSeconds} 秒没有返回新进度。可以暂停后继续，已导入资料会保留。</p>}
+      {jobId && <button className={ui.secondary} disabled={analyzing} onClick={()=>void cancel()}><Square size={16}/>暂停导入</button>}
+    </section>}
+    <div hidden={processingImport||backgroundAnalysis} data-mobile-handoff={needsWindows && method==="desktop" && !connected && (!library || supplementMoments)} className={`${styles.layout} ${method === "video" ? styles.videoLayout : ""}`}>
       <aside className={styles.controls} aria-label="导入操作" hidden={!showIntake}>
         <section className={styles.panel} data-compact={compactImport}>{library && !jobId && personImport === "idle" && <button className={styles.returnToReady} onClick={()=>{setSupplementMoments(false);setShowImportControls(false);}}>返回报告准备<ArrowRight size={16}/></button>}
           <div className={styles.operationHeading}><h2><Monitor size={22}/>{compactImport ? "材料已保存" : method === "desktop" ? !connected ? "第一步 · 连接电脑助手" : supplementMoments ? "补充这位好友的朋友圈" : "选择好友，开始导入" : method === "library" ? "选择已导入的材料" : method === "window" ? "采集微信窗口" : "导入手机录屏"}</h2><button className={styles.refreshLibraries} data-tour="capture-method" disabled={locked || !!receipt} aria-expanded={showMethods} onClick={()=>setShowMethods(!showMethods)}>{showMethods ? "收起" : "更换来源"}<ArrowRight size={15}/></button></div>
@@ -1173,12 +1244,12 @@ export default function CapturePage() {
               <p className={styles.connectLead}>{supplementMoments && selectedContact ? `为「${contactDisplayName(selectedContact.label)}」补充朋友圈。连接后继续这一步，已有聊天会保留。` : "助手已在运行，直接连接。首次使用再下载。"}</p>
               <button className={`${ui.primary} ${styles.downloadInstaller}`} disabled={!owner||locked} onClick={()=>void connectOpenedAssistant()}>{busy?<LoaderCircle size={18}/>:<Link2 size={18}/>}连接已打开的助手</button>
               {connectionHint&&<p role="status">{connectionHint}</p>}
-              <a className={`${ui.secondary} ${styles.downloadInstaller}`} href="/downloads/ChengziWeChatCollector-Setup-1.2.9.exe" download onClick={()=>{discoveryPaused.current=false;remember(scopeKey("auto-connect-paused"),null);rememberConnectionEntry();connectionDiscovery.current?.refresh();}}><Download size={18}/>下载 Windows 助手</a>
+              <a className={`${ui.secondary} ${styles.downloadInstaller}`} href="/downloads/ChengziWeChatCollector-Setup-1.2.13.exe" download onClick={()=>{discoveryPaused.current=false;remember(scopeKey("auto-connect-paused"),null);rememberConnectionEntry();connectionDiscovery.current?.refresh();}}><Download size={18}/>下载 Windows 助手</a>
               <small>Windows 10 / 11 · 无需解压、输入命令</small>
               <details className={styles.installHelp}><summary>安装遇到 Windows 提示？</summary><p>安装包尚未完成代码签名，Windows 可能显示“无法识别的应用”。请核对下载地址为 coach.lovetalk.love；无法确认来源时取消安装。</p></details>
               <details className={styles.pair} open={pairExpanded} onToggle={event=>setPairExpanded(event.currentTarget.open)}><summary>使用助手连接码</summary><label htmlFor="capture-code">输入助手窗口的 8 位连接码</label><div><input id="capture-code" inputMode="text" autoCapitalize="characters" autoComplete="off" maxLength={8} value={code} onChange={e => setCode(e.target.value)} placeholder="8 位连接码" disabled={locked}/><button className={ui.secondary} disabled={!owner || locked || !/^[a-f0-9]{8}$/i.test(code.trim())} onClick={() => void connect()}>{busy ? <LoaderCircle size={17}/> : <Link2 size={17}/>}连接</button></div></details>
             </>}
-            {connected && helperNeedsUpdate && <div className={styles.connectionWaiting}><strong>更新助手，修复朋友圈采集状态</strong><a className={ui.secondary} href="/downloads/ChengziWeChatCollector-Setup-1.2.9.exe" download><Download size={17}/>下载 1.2.9</a></div>}
+            {connected && helperNeedsUpdate && <div className={styles.connectionWaiting}><strong>更新助手，修复采集稳定性</strong><a className={ui.secondary} href="/downloads/ChengziWeChatCollector-Setup-1.2.13.exe" download><Download size={17}/>下载 1.2.13</a></div>}
           </div>}
           {(method === "window" || method === "desktop" && connected && !selectedContact && !jobId) && <>
             {method === "window" && kindPicker}
@@ -1189,7 +1260,7 @@ export default function CapturePage() {
           {method === "desktop" && connected && <>
             {selectedContact && <div className={styles.importAction}>
               <strong><CheckCheck size={18}/> {contactDisplayName(selectedContact.label)} · {kind === "chat" ? "全部聊天记录" : allVisibleMoments ? "全部可见朋友圈" : `最近 ${limit} 条朋友圈`}</strong>
-              <p>{kind === "chat" ? "文字先导入，语音自动补齐。" : "采集到可见末尾，期间请保持微信在前台。"}</p>{!jobId && !supplementMoments && <button className={styles.refreshLibraries} disabled={locked} onClick={()=>setSelectedContact(null)}>重新选择好友</button>}
+              <p>{kind === "chat" ? "一次导入聊天、语音和朋友圈，完成后确认费用并生成报告。" : "采集到可见末尾，期间请保持微信在前台。"}</p>{!jobId && !supplementMoments && <button className={styles.refreshLibraries} disabled={locked} onClick={()=>setSelectedContact(null)}>重新选择好友</button>}
               {kind === "moments" && !jobId && <details className={styles.rangeOptions}><summary>调整采集范围</summary><label className={styles.field}>采集范围<select value={allVisibleMoments ? "all" : String(limit)} disabled={locked} onChange={e=>{setAllVisibleMoments(e.target.value === "all");if(e.target.value!=="all")setLimit(Number(e.target.value));}}><option value="all">全部可见朋友圈</option>{[5,10,20,50].map(n=><option key={n} value={n}>最近 {n} 条</option>)}</select></label></details>}
               {error && error!==currentMomentsAttempt?.detail && <p className={styles.importError} role="alert">{error}</p>}
               {currentMomentsAttempt&&<section className={styles.momentsResult} data-moments-result={currentMomentsAttempt.status} aria-live="polite"><h3>{currentMomentsAttempt.status==='running'?'本次正在采集':currentMomentsAttempt.status==='complete'?'本次朋友圈已保存，请确认':currentMomentsAttempt.status==='empty'?'本次没有读到动态':currentMomentsAttempt.status==='partial'?'本次只完成了部分采集':currentMomentsAttempt.status==='stale'?'未收到本次任务的有效结果':'本次采集未完成'}</h3><p role={['failed','stale'].includes(currentMomentsAttempt.status)?'alert':'status'}>{currentMomentsAttempt.detail}</p><dl><div><dt>本次读到动态</dt><dd>{currentMomentsAttempt.momentCount ?? currentMomentsAttempt.received} 条</dd></div><div><dt>新增保存</dt><dd>{currentMomentsAttempt.added} 条</dd></div><div><dt>已有重复</dt><dd>{currentMomentsAttempt.repeated} 条</dd></div></dl>{!!currentMomentsAttempt.profileMaterialCount&&<p>另有 {currentMomentsAttempt.profileMaterialCount} 项封面／签名资料，不计入动态。</p>}{currentMomentsAttempt.total>0&&<small>资料库累计 {currentMomentsAttempt.total} 条，不代表本次采集条数。</small>}{canContinueMoments(currentMomentsAttempt)&&<button type="button" className={ui.primary} disabled={locked} onClick={()=>void confirmMomentsResult()}>{currentMomentsAttempt.status==='partial'?'用已保存资料继续分析':'确认本次结果，继续报告'}<ArrowRight size={17}/></button>}{currentMomentsAttempt.status!=='running'&&currentMomentsAttempt.status!=='complete'&&<button type="button" className={ui.primary} disabled={locked||!!jobId} onClick={()=>void retryMoments()}><RefreshCw size={17}/>重试本次朋友圈采集</button>}{currentMomentsAttempt.status!=='running'&&currentMomentsAttempt.status!=='complete'&&<><a className={ui.secondary} data-moments-fallback="screenshots" href={intakeHref('/analyze',{mode:'moments',subjectId:subject,returnTo})}>改用朋友圈截图分析<Images size={17}/></a><small>单独分析上传的动态，保留当前人物。不会自动合并进原报告。</small></>}</section>}
@@ -1209,13 +1280,13 @@ export default function CapturePage() {
       <div className={styles.workspace}>
         {error && !(showIntake&&method==="desktop"&&selectedContact) && <p className={styles.error} role="alert">{error}{supplementMoments && <button className={styles.refreshLibraries} disabled={locked} onClick={()=>{openedDeepLink.current="";setError("");void refreshLibraries();}}>重新准备朋友圈</button>}</p>}{cloudError && <p className={styles.error} role="alert">{cloudError}<button className={styles.refreshLibraries} disabled={locked} onClick={()=>{setCloudError("");void refreshLibraries();}}>重新检查同步</button></p>}
         {(librariesLoading && method === "library" || busy && !jobId || subjectBusy) && <p className={styles.status} role="status"><LoaderCircle className={styles.spin} size={18}/>{subjectBusy ? "正在关联所选微信好友的档案…" : busy ? note || "正在打开这份聊天…" : "正在读取已同步聊天…"}</p>}
-        {note && !busy && !compactImport && !momentsResultOnly && <p className={styles.status} role="status"><CheckCheck size={18}/>{note}</p>}
+         {note && !busy && !backgroundAnalysis && !compactImport && !momentsResultOnly && <p className={styles.status} role="status"><CheckCheck size={18}/>{note}</p>}
         {method === "window" && <ScreenCapture sessionKey={JSON.stringify([owner, kind, friend.trim(), wechatAccount.trim()])} disabled={!owner || locked || !!receipt || !friend.trim() || !wechatAccount.trim()} onReady={framesReady}/>}
         {method === "video" && <div id="recording-upload" className={styles.recordingUpload}>{kindPicker}<VideoImport sessionKey={JSON.stringify([owner, kind])} disabled={!owner || locked || !!receipt} onReady={videoReady}/></div>}
         {method === "library" && !library && !visibleLibraries.length && !librariesLoading && !account.loading && <section className={styles.empty}><Cloud size={42}/><h2>{kind === "moments" ? "先在电脑导入朋友圈，之后手机直接看。" : "第一次在电脑导入，之后手机直接看。"}</h2><p>{kind === "moments" ? "电脑端采集朋友圈并启用跨端同步后，手机网页版登录同一账号即可继续查看。" : "电脑端导入聊天后，点击「启用跨端同步」。手机网页版登录同一账号，小程序关联该网页账号，即可打开这里的材料。"}</p><p>已有材料但没看到？请回到原电脑启用同步，再刷新这里。</p><button className={ui.secondary} disabled={locked} onClick={()=>void refreshLibraries()}><RefreshCw size={17}/>刷新已同步材料</button><a className={ui.secondary} href={`/capture?method=computer&kind=${kind}`}>查看电脑版导入步骤<ArrowRight size={17}/></a></section>}
         {library ? <section id="capture-preview" className={styles.preview} data-stage={reviewing?"confirm":browsingMaterials?"materials":"ready"} hidden={showIntake && (method === "desktop" || method === "library")}><div className={styles.previewHead}><div><span className={styles.eyebrow}>{reviewing ? "确认分析" : browsingMaterials ? "已保存材料" : "关系报告"}</span><h2>{contactDisplayName(library.friend)}<small>{library.kind === "chat" ? "聊天记录" : "朋友圈"}</small></h2></div><div className={styles.previewActions}>{!reviewing && !browsingMaterials && <button className={styles.refreshLibraries} disabled={locked || !!receipt} onClick={()=>{setShowImportControls(true);setSelectedContact(null);}}>补充 / 换人<ArrowRight size={15}/></button>}<button className={styles.delete} disabled={locked || !!receipt} onClick={() => void removeLibrary()} aria-label={library.cloud?.enabled ? "删除云端和本机聊天" : "删除本机原文"}><Trash2 size={18}/></button></div></div>
           <div className={styles.stats} hidden={reviewing || browsingMaterials || fullReportPath}><div><strong>{stats?.added ?? pending.length}</strong><span>{stats ? "本次新增" : "尚未分析"}</span></div><div><strong>{stats ? Math.max(0, stats.repeated - stats.updatedVoice) : library.records.length - pending.length}</strong><span>{stats ? "重复跳过" : "已分析"}</span></div><div><strong>{library.records.length}</strong><span>这份材料共保存</span></div></div>
-          {voiceEnriching && !reviewing && <div className={styles.job} data-voice-progress><p role="status"><LoaderCircle size={17} className={styles.spin}/>语音正在后台补齐，已保存的文字和图片可以先看。</p><p>{note}</p><button className={ui.secondary} disabled={!jobId || analyzing} onClick={()=>void cancel()}>暂停补全</button></div>}
+           {voiceEnriching && !reviewing && <div className={styles.job} data-voice-progress><p role="status"><LoaderCircle size={17} className={styles.spin}/>语音正在后台补齐，已保存的文字和图片可以先看。</p><p>{note}</p>{idleSeconds >= 30 && <p className={styles.warning}>助手暂未返回新进度。已保存的文字不会丢失，可以暂停补全，稍后重新连接。</p>}<button className={ui.secondary} disabled={!jobId || analyzing} onClick={()=>void cancel()}>暂停补全</button></div>}
           <div className={styles.nextAction} data-tour="capture-analysis" hidden={browsingMaterials}>{fullReportPath && !reviewing && <><div className={styles.importReceipt}><CheckCheck size={18}/><span>已保存 <strong>{library.records.length}</strong> 条{library.kind === "moments" ? "朋友圈" : "聊天"}{relatedMomentCount ? ` + ${relatedMomentCount} 条朋友圈` : ""}{coverage?.unreadVoice ? ` · ${coverage.unreadVoice} 条语音待补齐` : ""}</span><small>{historyInProgress ? "已保存部分资料" : "材料已就位"}</small></div><h3 className={styles.readyTitle}>下一步，{fullReportTitle}</h3><p className={styles.readyCaption}>{library.kind === "moments" ? "看动态主题、表达线索和变化。全部已导入内容都会纳入分析。" : "看清现状、关系变化和下一步。确认费用后开始。"}</p>{historyInProgress && <p className={styles.readyCaption}>聊天尚未全部导完；继续导入可补齐，也可以先分析已保存的内容。</p>}</>}
             {fullReportPath && library.kind === "chat" && !reviewing && !relatedLoading && !relatedError && (!relatedMomentCount || relatedMoments.some(value=>value.coverage?.scope==="all-visible"&&!value.coverage.complete)) && <div className={styles.missingMoments} data-moments-coverage={relatedMomentCount?"partial":"missing"}><div><strong>{relatedMomentCount ? "朋友圈还没采集到可见末尾" : "朋友圈尚未导入"}</strong><p>{relatedMomentCount ? `已保存 ${relatedMomentCount} 条动态。补采后可以一起分析，已有内容会去重。` : "当前报告会使用已保存的聊天；补充朋友圈后，才能一起核对公开表达和私下互动。"}</p></div><button className={ui.secondary} disabled={locked||!!receipt} onClick={()=>void prepareMomentsImport()}><Images size={18}/>{relatedMomentCount ? "继续补充朋友圈" : "补充这个人的朋友圈"}<ArrowRight size={17}/></button></div>}
             {fullReportPath && library.kind === "moments" && !reviewing && library.coverage?.scope==="all-visible" && !library.coverage.complete && <p className={styles.warning}>本次尚未采集到可见末尾；报告会分析已保存的全部 {library.records.length} 条动态。可先继续导入再生成。</p>}
@@ -1224,23 +1295,24 @@ export default function CapturePage() {
             <p className={styles.selectionNote} hidden={reviewing || fullReportPath}>{isWindow ? "已保留采集画面的顺序，下一步核对截图身份。" : library.kind === "chat" ? `基于全部已导入聊天，梳理现状、变化和下一步。${historyInProgress ? "导入仍在进行；可先暂停，再分析已保存的内容。" : ""}` : `每批最多分析 ${CAPTURE_ANALYSIS_LIMIT.moments} 条动态。其余已保存的原文可在下方查看、分批选择。`}</p>
             {!fullReportPath && <><div id="capture-person" className={styles.personSummary} hidden={reviewing}><span>关联人物：<strong>{subjectLabel || "核对截图中的人物"}</strong></span><button disabled={locked || !!receipt} onClick={()=>setAdjustPerson(!adjustPerson)}>{adjustPerson ? "收起" : "调整"}</button></div>{!reviewing&&(adjustPerson||isWindow&&!subject)&&<div className={styles.personAdjust}><PersonSelect people={account.people} value={subject} onChange={choosePerson} disabled={account.loading || locked || !!receipt} empty={account.loading ? "正在读取人物档案…" : isWindow ? "选择这位好友的档案" : "按导入来源自动关联"}/>{isWindow&&<InlinePerson key={owner + library.id} initialName={contactDisplayName(library.friend)} disabled={locked || !!receipt} onCreated={async id => { await account.refresh(); choosePerson(id); }}/>}</div>}</>}
             {!isWindow&&!subject&&!reviewing&&<p className={styles.readyCaption}>继续即同意保存有权提供的资料并启用档案，将按这份导入材料自动关联人物。</p>}
-            {fullReportPath && !showAnalysis && !receipt && <div className={styles.fullReportCard}>
+             {fullReportPath && !showAnalysis && !receipt && !backgroundAnalysis && <div className={styles.fullReportCard}>
 
-              <button className={ui.primary} disabled={account.loading || subjectBusy || analyzing || cloudBusy || busy && !jobId || (!receipt && (!reportReady || relatedLoading || !!relatedError))} onClick={()=>void openAnalysis()}><FileText size={20}/><span><strong>{receipt ? "继续生成完整报告" : busy && jobId ? voiceEnriching ? "先用已导入资料生成报告" : "暂停导入，先分析已保存聊天" : fullReportTitle}</strong><small>{reportReady || receipt ? priceLabel(account.account, costKey) : library.kind === "moments" ? "还没有可读的动态材料" : "还没有可读的聊天文字"}</small></span><ArrowRight size={18}/></button>
+              <button className={ui.primary} disabled={account.loading || subjectBusy || analyzing || cloudBusy || busy || !!importStage || (!receipt && (!reportReady || relatedLoading || !!relatedError))} onClick={()=>void openAnalysis()}><FileText size={20}/><span><strong>{receipt ? "继续生成完整报告" : fullReportTitle}</strong><small>{reportReady || receipt ? priceLabel(account.account, costKey) : library.kind === "moments" ? "还没有可读的动态材料" : "还没有可读的聊天文字"}</small></span><ArrowRight size={18}/></button>
             </div>}
             {fullReportPath && !reviewing && reportWaitReason && <p className={styles.readyState} role="status">{(cloudBusy || relatedLoading || account.loading || busy&&!jobId) && <LoaderCircle size={17} className={styles.spin}/>} {reportWaitReason}</p>}
 
-            <div className={styles.nextChoices} hidden={reviewing}>
-              {!isWindow&&library.kind==="chat"&&<button className={ui.secondary} disabled={account.loading||analyzing||cloudBusy||relatedLoading||!!relatedError||busy&&!jobId||!!receipt||!readableRecordCount} onClick={()=>void askSelected()}><MessageSquare size={20}/><span><strong>基于全部聊天提问</strong></span><ArrowRight size={18}/></button>}
+             {!backgroundAnalysis && <div className={styles.nextChoices} hidden={reviewing}>
+              {!isWindow&&library.kind==="chat"&&<button className={ui.secondary} disabled={account.loading||analyzing||cloudBusy||relatedLoading||!!relatedError||busy||!!importStage||!!receipt||!readableRecordCount} onClick={()=>void askSelected()}><MessageSquare size={20}/><span><strong>基于全部聊天提问</strong></span><ArrowRight size={18}/></button>}
               {isWindow ? <button className={ui.primary} data-main="true" aria-expanded={showAnalysis||!!receipt} aria-controls="capture-confirm" disabled={account.loading||locked||!chosen.length} onClick={()=>showAnalysis?setShowAnalysis(false):void openAnalysis()}><FileText size={20}/><span><strong>{receipt ? "继续本次分析" : library.kind === "chat" ? "进入截图分析" : "生成分析报告"}</strong><small>{isWindow ? "核对截图，查看画面解读" : `分析选中的 ${chosen.length} 条动态`}</small></span><ArrowRight size={18}/></button> : null}
-            </div>
+             </div>}
             {fullReportPath && adjustPerson && !reviewing && <div id="capture-person" className={styles.confirmPerson}><PersonSelect people={account.people} value={subject} onChange={choosePerson} disabled={account.loading || locked} empty="按导入来源自动关联"/></div>}
             {(showAnalysis||receipt)&&<div id="capture-confirm" className={styles.confirmAnalysis}>
               <div className={styles.confirmHeading}><h3>确认材料与费用</h3>{!analyzing && !receipt && <button type="button" onClick={()=>setShowAnalysis(false)} aria-label="返回报告准备">返回上一步</button>}</div>
               {fullReportPath && <div id="capture-person" className={styles.confirmPerson}><p className={styles.readyCaption}>报告归入「{subjectLabel}」的档案。</p>{account.people.length>1&&<details><summary>关联其他已有档案</summary><PersonSelect people={account.people} value={subject} onChange={choosePerson} disabled={account.loading || locked || !!receipt} empty="按导入来源自动关联"/></details>}</div>}
               {fullReportPath && library.kind === "chat" && <><div className={styles.reportGoals} role="group" aria-label="选择报告重点">{([{key:"panorama",label:"完整看这个人",hint:"现状、变化与下一步"},{key:"next",label:"怎么聊、怎么推进",hint:"接近意愿、回复与邀约"},{key:"risk",label:"先看风险与边界",hint:"矛盾、兑现与需要核实的事"}] as const).map(goal=><button type="button" key={goal.key} aria-pressed={diagnosticQuestion===goal.key} disabled={locked||!!receipt} onClick={()=>setDiagnosticQuestion(goal.key)}><strong>{goal.label}</strong><small>{goal.hint}</small></button>)}</div><details className={styles.rangeOptions}><summary>其他关注点</summary><label className={styles.questionPicker}><span>报告重点</span><select value={diagnosticQuestion} disabled={locked || !!receipt} onChange={event=>setDiagnosticQuestion(event.target.value as typeof diagnosticQuestion)}><option value="panorama">完整关系报告</option><option value="attitude">TA 对我的态度</option><option value="trend">升温、降温与转折</option><option value="worth">是否值得继续投入</option><option value="next">怎么聊、怎么邀约</option><option value="risk">风险与需要核实的行为</option></select></label></details></>}
               <p>{!isWindow&&library.kind==="chat" ? `全部 ${library.records.length} 条聊天${relatedMomentCount ? ` + ${relatedMomentCount} 条朋友圈` : ""} · 可读文字与转写 ${readableRecordCount} 条。` : !isWindow ? `全部 ${library.records.length} 条朋友圈及已保存图片。` : `本次使用选中的 ${chosen.length} 条材料。`}</p>
-              {cloudBusy && <div className={styles.analysisProgress} role="status"><LoaderCircle size={17} className={styles.spin}/><div><strong>正在保存分析所需资料</strong><p>{cloudNote || "正在同步聊天与图片…"}</p></div></div>}
+              {!isWindow && !!coverage?.unreadVoice && <p className={styles.warning}>有 {coverage.unreadVoice} 条语音尚未取得可读转写（本机缺失 {coverage.voiceMissingLocal} 条，转写失败 {coverage.voiceFailed} 条），不会被当作已分析。可先同步或重试语音，再生成完整报告。<button className={styles.refreshLibraries} disabled={locked} onClick={()=>{setShowAnalysis(false);setMaterialView("status");}}>补齐语音</button></p>}
+               {cloudBusy && <div className={styles.analysisProgress} role="status"><LoaderCircle size={17} className={styles.spin}/><div><strong>正在保存分析所需资料</strong><p>{cloudNote || "正在同步聊天与图片…"}</p></div></div>}
               {analyzing && <div className={styles.analysisProgress} role="status"><LoaderCircle size={17} className={styles.spin}/><div><strong>正在生成关系报告 · {Math.floor(analysisSeconds/60)}:{String(analysisSeconds%60).padStart(2,"0")}</strong><p>完成后自动打开。{analysisSeconds>=90 ? "正在连接后台任务；连接中断后可继续原请求。" : "正在核对原话、图片和前后变化。"}</p></div></div>}
               {!isWindow && <label className={styles.consent}><input type="checkbox" checked={consent} disabled={locked} onChange={e => setConsent(e.target.checked)}/><span>{library.kind === "chat" ? `我有权提供以上聊天${relatedMomentCount ? "、朋友圈及已保存的图片" : "及已保存的图片"}，同意发送至阿里云百炼千问分析。` : `我有权提供全部 ${library.records.length} 条朋友圈及已保存图片，同意发送至阿里云百炼千问分析。`}</span></label>}
           {!isWindow && <p className={styles.selectionNote}>相同材料与问题直接打开已有报告，不重复扣费。</p>}
@@ -1259,7 +1331,7 @@ export default function CapturePage() {
           {activityNotice&&<p className={styles.warning}>{activityNotice}</p>}
           {method === "desktop" && library.kind === "chat" && library.records.some(row=>["uia","wechat-local-db"].includes(String(row.source.method))) && (coverage?.unreadVoice || 0) > 0 && <div className={styles.voiceQueue}>
             <div><strong>{databaseVoiceUnavailable ? "语音已保留，后台补全暂不可用" : localDatabase && coverage?.voiceMissingLocal === coverage?.unreadVoice ? "聊天已导入，语音文件还需同步" : "聊天已导入，语音可继续补全"}</strong>
-              <p>{databaseVoiceUnavailable ? (health?.backgroundMessage || "当前助手暂不能后台补全这份语音。已保存的聊天和转写仍可查看。") : backgroundVoice ? fullHistory ? `重新核对「${library.friend}」的全部历史，补全本机能读取的语音，已完成的转写直接复用。` : `后台转写「${library.friend}」最近 ${limit} 条消息中可读取的语音，完成一条保存一条，可以继续使用电脑。` : `补全「${library.friend}」最近 ${limit} 条消息中的语音。当前助手需要保持微信在前台；可随时停止。`}</p>
+               <p>{databaseVoiceUnavailable ? (health?.backgroundMessage || "当前助手暂不能后台补全这份语音。已保存的聊天和转写仍可查看。"): backgroundVoice ? fullHistory ? `只补齐「${library.friend}」中尚未转写的语音，已完成的转写直接复用。` : `后台转写「${library.friend}」最近 ${limit} 条消息中的语音，完成一条保存一条，可以继续使用电脑。` : `补全「${library.friend}」最近 ${limit} 条消息中的语音。当前助手需要保持微信在前台；可随时停止。`}</p>
               {backgroundVoice && health?.backgroundModelReady === false && <p>首次补全需要下载语音识别模型，进度会显示在任务中；以后直接复用。</p>}
             </div>
             <div className={styles.voiceActions}>
@@ -1278,7 +1350,7 @@ export default function CapturePage() {
         </section> : null}
       </div>
     </div>
-    {busy && jobId && <div className={styles.captureShield} role="dialog" aria-modal="true" aria-label="正在采集，请稍候" onKeyDown={e=>{if(e.key!=="Escape")e.preventDefault();}}><div className={styles.captureShieldCard}><LoaderCircle className={styles.spin} size={26}/><div><strong>正在读取微信资料</strong><p>{jobStatusText || "请保持微信窗口打开并置于前台。"}</p><small>已用时 {Math.floor(captureElapsed/60)} 分 {captureElapsed%60} 秒 · 已读 {captureCount} 条 · {captureSpeed} 条/秒</small><small>总条数以微信实际可见内容为准，正在确认是否还有更早记录。</small></div><button type="button" className={ui.secondary} onClick={()=>void cancel()} disabled={analyzing}><Square size={15}/>停止采集</button></div></div>}
+
     {image && <div className={styles.imageModal} role="dialog" aria-modal="true" aria-label="来源截图" onClick={() => setImage(null)}><button onClick={() => setImage(null)} aria-label="关闭来源截图"><X size={23}/></button><img src={image} alt="来源截图完整预览" onClick={e => e.stopPropagation()}/></div>}
   </main></div>;
 }

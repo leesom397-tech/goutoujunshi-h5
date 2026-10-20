@@ -85,6 +85,7 @@ class EncryptedSnapshot:
         self.frames = {}
         self._file = self.path.open("rb")
         self._wal = None
+        self._wal_prefix_hash = None
         self.closed = False
         try:
             first = self._file.read(PAGE_SIZE)
@@ -144,10 +145,35 @@ class EncryptedSnapshot:
                 self.pages = committed_size
         # Uncommitted trailing frames must never be visible to SQLite.
         self.frames = {pg: offset for pg, offset in self.frames.items() if pg <= self.pages}
+        self._wal_prefix_hash = self._wal_prefix_digest(self.before[1][0])
+
+    def _wal_prefix_digest(self, size):
+        digest = hashlib.sha256()
+        with self.wal_path.open("rb") as handle:
+            while size:
+                data = handle.read(min(size, 1024 * 1024))
+                if not data:
+                    return None
+                digest.update(data)
+                size -= len(data)
+        return digest.digest()
 
     def assert_unchanged(self):
-        if self.before != (_stat(self.path), _stat(self.wal_path)):
-            raise _fail("SOURCE_CHANGED", "微信聊天正在同步或更新，请稍后重新导入。")
+        current = (_stat(self.path), _stat(self.wal_path))
+        if self.before == current:
+            return
+        if self.before[0] == current[0]:
+            # An append adds newer transactions outside this snapshot; the
+            # original committed frame offsets remain valid. Verify the entire
+            # old prefix before tolerating it. A checkpoint/truncate/rewrite
+            # still fails closed and is retried from a fresh source.
+            if self.before[1] is None and current[1] is not None:
+                return
+            if (self.before[1] and current[1] and current[1][0] > self.before[1][0]
+                    and self._wal_prefix_hash is not None
+                    and self._wal_prefix_digest(self.before[1][0]) == self._wal_prefix_hash):
+                return
+        raise _fail("SOURCE_CHANGED", "微信聊天正在同步或更新，请稍后重新导入。")
 
     def read_page(self, page_no):
         if page_no in self.cache:
@@ -508,6 +534,12 @@ class LocalDatabaseSource:
     def message_shards(self):
         for relative in self._relative_shards():
             if Path(relative).name.startswith("message_"):
+                yield relative, self._open(relative)
+    def selected_message_shards(self, labels):
+        # Voice enrichment opens only the shards identified during text import.
+        # Browser references are intersected with locally discovered names.
+        for relative in self._relative_shards():
+            if relative in labels and Path(relative).name.startswith("message_"):
                 yield relative, self._open(relative)
     def media_shards(self):
         for relative in self._relative_shards():

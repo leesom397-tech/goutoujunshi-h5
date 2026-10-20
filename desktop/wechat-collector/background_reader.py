@@ -25,6 +25,7 @@ MAX_AUDIO = 8 * 1024 * 1024
 MAX_AUDIO_BATCH = 64 * 1024 * 1024
 MAX_SHARDS = 64
 MAX_PAGE_SIZE = 500
+MAX_VOICE_REFS = 500
 MAX_CURSOR_LENGTH = 24_000
 MAX_CONTACT_RESULTS = 20
 HISTORY_FIELDS = {"pageSize", "direction", "cursor", "since"}
@@ -85,7 +86,7 @@ def probe_background():
 def _validate_request(request):
     if not isinstance(request, dict) or request.get("kind") != "chat":
         raise BackgroundCaptureError("INVALID_REQUEST", "后台读取目前仅支持一对一聊天。")
-    if set(request) - ({"kind", "friend", "contactId", "accountKey", "limit", "includeVoice", "mode"} | HISTORY_FIELDS):
+    if set(request) - ({"kind", "friend", "contactId", "accountKey", "limit", "includeVoice", "mode", "voiceOnly", "voiceIds"} | HISTORY_FIELDS):
         raise BackgroundCaptureError("INVALID_REQUEST", "采集请求包含不支持的参数。")
     friend = request.get("friend")
     limit = request.get("limit", 500)
@@ -103,6 +104,34 @@ def _validate_request(request):
         raise BackgroundCaptureError("INVALID_REQUEST", "每次读取范围必须在 1 至 1000 条之间。")
     if not isinstance(voice, bool):
         raise BackgroundCaptureError("INVALID_REQUEST", "语音选项必须明确为开启或关闭。")
+    voice_only = request.get("voiceOnly", False)
+    if type(voice_only) is not bool:
+        raise BackgroundCaptureError("INVALID_REQUEST", "语音补全范围必须明确。")
+    refs = request.get("voiceIds")
+    if voice_only:
+        if not voice or request.get("mode") != "background" or not isinstance(refs, list) or not 1 <= len(refs) <= MAX_VOICE_REFS:
+            raise BackgroundCaptureError("INVALID_REQUEST", "语音补全请求缺少可核对的消息来源。")
+        if "cursor" in request or "since" in request:
+            raise BackgroundCaptureError("INVALID_REQUEST", "语音补全不能复用历史分页位置。")
+        seen = set()
+        for ref in refs:
+            if not isinstance(ref, dict) or not {"messageShard", "messageId"} <= set(ref) or set(ref) - {"messageShard", "messageId", "localId"}:
+                raise BackgroundCaptureError("INVALID_REQUEST", "语音消息来源格式无效。")
+            shard, message_id = ref.get("messageShard"), ref.get("messageId")
+            if (not isinstance(shard, str) or not shard or len(shard) > 200 or any(ord(c) < 32 for c in shard)
+                    or not isinstance(message_id, str) or not message_id or len(message_id) > 300 or any(ord(c) < 32 for c in message_id)):
+                raise BackgroundCaptureError("INVALID_REQUEST", "语音消息来源无法核对。")
+            local_id = ref.get("localId")
+            if local_id is not None and (not isinstance(local_id, str) or not re.fullmatch(r"[0-9]{1,20}", local_id)):
+                raise BackgroundCaptureError("INVALID_REQUEST", "语音本地消息编号无法核对。")
+            if not re.fullmatch(r"[0-9]{1,20}", message_id):
+                raise BackgroundCaptureError("INVALID_REQUEST", "语音消息编号无法核对。")
+            pair = (shard, message_id, local_id)
+            if pair in seen:
+                raise BackgroundCaptureError("INVALID_REQUEST", "语音消息来源不能重复。")
+            seen.add(pair)
+    elif refs is not None:
+        raise BackgroundCaptureError("INVALID_REQUEST", "未启用定向语音补全。")
     _history_request(request)
     return friend.strip(), limit, voice
 
@@ -515,6 +544,61 @@ def _read_history_page(source, session, options):
                   "nextCursor": next_cursor, "snapshot": _encode_cursor(snapshot), "complete": not more}
 
 
+def _read_voice_page(source, session, options, refs):
+    """Resolve a bounded set of stable voice references, never replay text history."""
+    account = _short_id(source.account_id, "账号")
+    identity = {"account": _identity(account), "contact": _identity(session)}
+    table = "Msg_" + hashlib.md5(session.encode("utf-8")).hexdigest()
+    grouped = {}
+    for ref in refs:
+        grouped.setdefault(ref["messageShard"], []).append(ref)
+    rows_by_ref, current, seen = {}, {}, set()
+    selected_shards = getattr(source, "selected_message_shards", None)
+    shards = selected_shards(set(grouped)) if selected_shards else source.message_shards()
+    for label, conn in shards:
+        _short_id(label, "消息分片")
+        if label in seen or len(seen) >= MAX_SHARDS:
+            raise BackgroundCaptureError("SOURCE_INVALID", "消息分片重复或超过支持的读取范围。")
+        seen.add(label)
+        if label not in grouped:
+            continue
+        if not _execute(conn, "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
+            continue
+        ids = sorted({ref["messageId"] for ref in grouped[label]})
+        marks = ",".join("?" for _ in ids)
+        # messageId uses server_id where present, and local_id for unsent/local
+        # voice messages. Query once per shard, not once per voice bubble.
+        matches = _execute(conn,
+            f'SELECT local_id,server_id,local_type,real_sender_id,create_time,sort_seq,'
+            f'CAST(message_content AS BLOB),CAST(compress_content AS BLOB),rowid FROM "{table}" '
+            f'WHERE (local_type & 4294967295)=34 AND (server_id IN ({marks}) '
+            f'OR ((server_id IS NULL OR server_id=0) AND local_id IN ({marks}))) LIMIT 1001',
+            (*ids, *ids)).fetchall()
+        if len(matches) > 1000:
+            raise BackgroundCaptureError("MESSAGE_IDENTITY_AMBIGUOUS", "语音来源编号重复过多，未自动合并。")
+        current[_identity(label)] = max((row[8] for row in matches), default=0)
+        for ref in grouped[label]:
+            candidates = [row for row in matches if str(row[1] or row[0]) == ref["messageId"]
+                          and (ref.get("localId") is None or str(row[0]) == ref["localId"])]
+            if len(candidates) > 1:
+                raise BackgroundCaptureError("MESSAGE_IDENTITY_AMBIGUOUS", "同一条语音来源编号重复，未自动合并。")
+            if not candidates:
+                continue
+            row = candidates[0]
+            sender_row = _execute(conn, "SELECT user_name FROM Name2Id WHERE rowid=?", (row[3],)).fetchone() if row[3] is not None else None
+            rows_by_ref[(label, ref["messageId"], ref.get("localId"))] = {
+                "localId": row[0], "serverId": row[1], "type": int(row[2]) & 0xFFFFFFFF,
+                "sender": str(sender_row[0]) if sender_row else "", "timestamp": row[4], "sequence": row[5],
+                "content": _decode_text(row[6]) or _decode_text(row[7]), "shard": label, "rowId": row[8]}
+    if len(rows_by_ref) != len(refs):
+        raise BackgroundCaptureError("VOICE_MESSAGE_MISSING",
+            f"有 {len(refs) - len(rows_by_ref)} 条待转写语音已无法在本机核对，请重新同步该联系人的聊天后重试；已保存文字不会丢失。")
+    rows = [rows_by_ref[(ref["messageShard"], ref["messageId"], ref.get("localId"))] for ref in refs]
+    snapshot = {"v": 1, "kind": "snapshot", **identity, "upper": current}
+    return rows, {"version": 1, "direction": options.get("direction", "backward"), "count": len(rows),
+                  "hasMore": False, "nextCursor": None, "snapshot": _encode_cursor(snapshot), "complete": True}
+
+
 def _read_audio(source, session, wanted, load_audio=False):
     """Read only selected session/server IDs, never export an entire media table."""
     wanted = {str(x) for x in wanted if x not in (None, "", 0, "0")}
@@ -646,13 +730,29 @@ def _coverage(batch):
             "transcribed": sum(r["source"].get("transcriptionStatus") == "visible-text" for r in voices)}
 
 
+def _finish_voice_status(batch):
+    voices = [record for record in batch["records"] if record["source"].get("mediaKind") == "voice"]
+    for record in voices:
+        if record["source"].get("transcriptionStatus") != "visible-text":
+            record["source"]["transcriptionStatus"] = "failed"
+            record["source"].setdefault("transcriptionError", record["source"].get("voiceAvailability", "unavailable"))
+    coverage = _coverage(batch)
+    missing = coverage["missingLocal"]
+    failed = coverage["total"] - coverage["transcribed"] - missing
+    if missing or failed:
+        batch["warnings"].append(f"语音已处理：{coverage['transcribed']} 条已转文字，{missing} 条本机缺少音频，{failed} 条转写失败；未识别的语音未纳入内容判断。")
+    return batch
+
+
 def capture_from_source(request, progress, on_partial, source, transcribe=None):
     """Injectable pure orchestration for authorized providers and synthetic tests."""
     try:
         friend, limit, include_voice = _validate_request(request)
         session = _resolve_contact(source, friend, request.get("contactId"), request.get("accountKey"))
         history = _history_request(request)
-        if history:
+        if request.get("voiceOnly") is True:
+            rows, history = _read_voice_page(source, session, history or {"direction": "backward"}, request["voiceIds"])
+        elif history:
             rows, history = _read_history_page(source, session, history)
         else:
             rows = _read_messages(source, session, limit)
@@ -671,15 +771,19 @@ def capture_from_source(request, progress, on_partial, source, transcribe=None):
             batch["history"] = history
         source.assert_unchanged()  # No partial data escapes a changed-account snapshot.
         progress({"stage": "chat-read", "percent": 25 if include_voice else 95,
-                  "message": f"已读取 {len(rows)} 条聊天", "voice": _coverage(batch)})
-        if not include_voice or not any(isinstance(blob, bytes) and blob for blob in audio.values()):
+                  "message": f"已找到 {len(rows)} 条待转写语音" if request.get("voiceOnly") else f"已读取 {len(rows)} 条聊天", "voice": _coverage(batch)})
+        if not include_voice:
             return batch
+        if not any(isinstance(blob, bytes) and blob for blob in audio.values()):
+            return _finish_voice_status(batch)
         if on_partial:
             source.assert_unchanged()
             on_partial(copy.deepcopy(batch))
         if transcribe is None:
-            from local_voice_transcriber import prepare_model, transcribe_silk
-            prepare_model(progress=progress)
+            from local_voice_transcriber import configure_transcriber, transcribe_silk
+            # A cached transcript must not wait for a model download or load.
+            # transcribe_silk prepares the model lazily only on a cache miss.
+            configure_transcriber(progress=progress)
             transcribe = transcribe_silk
         completed = 0
         audio_count = sum(isinstance(blob, bytes) and bool(blob) for blob in audio.values())
@@ -704,14 +808,14 @@ def capture_from_source(request, progress, on_partial, source, transcribe=None):
                 record["source"]["transcriptionError"] = str(code)[:80]
             completed += 1
             progress({"stage": "voice-transcribing", "percent": 30 + int(65 * completed / max(1, audio_count)),
-                      "message": "正在后台补全语音文字，可继续使用电脑。", "voice": _coverage(batch)})
+                      "message": f"正在转写语音 {completed}/{audio_count} 条", "voice": _coverage(batch)})
             if on_partial:
                 # A provider must retain a frozen source snapshot and re-check
                 # account identity. Never publish new text after that proof fails.
                 source.assert_unchanged()
                 on_partial(copy.deepcopy(batch))
         source.assert_unchanged()
-        return batch
+        return _finish_voice_status(batch)
     finally:
         source.close()
 

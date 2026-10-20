@@ -6,6 +6,7 @@ HTTP client, database/key access, send-message API, or contact enumeration.
 UI navigation can bring Weixin forward and mark the selected chat read.
 """
 import base64
+import hashlib
 import io
 import re
 import sys
@@ -64,6 +65,159 @@ def _assert_target(main, friend, Texts, Tools):
         raise CaptureError("GROUP_NOT_SUPPORTED", "目前只采集你指定的一对一聊天，不采集群聊。")
 
 
+def _safe_text(control):
+    try:
+        value = control.window_text()
+    except Exception:
+        value = ""
+    return str(value or "").replace("\u200b", "").strip()
+
+
+def _normalized_label(value):
+    return re.sub(r"\s+", " ", str(value or "").replace("\u200b", "").strip()).casefold()
+
+
+def _children_and_descendants(control, **kwargs):
+    """Read both direct and nested UIA nodes without assuming one WeChat build."""
+    nodes = []
+    for method in ("children", "descendants"):
+        try:
+            found = getattr(control, method)(**kwargs)
+        except Exception:
+            found = []
+        for node in found or []:
+            if node not in nodes:
+                nodes.append(node)
+    return nodes
+
+
+def _is_visible(control):
+    try:
+        return bool(control.is_visible())
+    except Exception:
+        return True
+
+
+def _is_enabled(control):
+    try:
+        return bool(control.is_enabled())
+    except Exception:
+        return True
+
+
+def _wait_exists(control, timeout=5.0, visible=False):
+    def ready():
+        try:
+            exists = control.exists(timeout=.15) if hasattr(control, "exists") else True
+            return bool(exists and (not visible or _is_visible(control)))
+        except Exception:
+            try:
+                if hasattr(control, "wait"):
+                    control.wait("visible" if visible else "ready", timeout=.3)
+                    return True
+            except Exception:
+                return False
+        return False
+    if ready():
+        return control
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if ready():
+            return control
+        time.sleep(.12)
+    return None
+
+
+def _wait_hidden(control, timeout=3.0):
+    def hidden():
+        try:
+            return not control.exists(timeout=.1) or not control.is_visible()
+        except Exception:
+            return True
+    if hidden():
+        return True
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if hidden():
+            return True
+        time.sleep(.12)
+    return False
+
+
+def _control_rect(control):
+    try:
+        rect = control.rectangle()
+        return rect.left, rect.top, rect.right, rect.bottom
+    except Exception:
+        return None
+
+
+def _find_clickable_ancestor(node):
+    """Return the closest actionable node for a visible text label."""
+    current = node
+    for _ in range(5):
+        try:
+            if _is_visible(current) and _is_enabled(current):
+                control_type = str(getattr(current.element_info, "control_type", "") or "")
+                if control_type in ("Button", "Hyperlink", "ListItem"):
+                    return current
+        except Exception:
+            pass
+        try:
+            current = current.parent()
+        except Exception:
+            break
+    return node
+
+
+def _ensure_foreground(control):
+    """Never send physical clicks or wheel events to an occluding window."""
+    try:
+        target_pid = control.process_id()
+    except Exception:
+        return
+    if not target_pid:
+        return
+    try:
+        import win32gui
+        import win32process
+        hwnd = win32gui.GetForegroundWindow()
+        active_pid = win32process.GetWindowThreadProcessId(hwnd)[1] if hwnd else None
+        if active_pid == target_pid:
+            return
+        try:
+            control.top_level_parent().set_focus()
+        except Exception:
+            control.set_focus()
+        time.sleep(.2)
+        hwnd = win32gui.GetForegroundWindow()
+        active_pid = win32process.GetWindowThreadProcessId(hwnd)[1] if hwnd else None
+    except ImportError:
+        return
+    except Exception:
+        active_pid = None
+    if active_pid != target_pid:
+        raise CaptureError("FOCUS_CHANGED", "微信被其他窗口遮挡，已暂停采集以免点错位置。请把微信放到最前面后重试。")
+
+
+def _click_control(control, attempts=3):
+    last_error = None
+    for _ in range(attempts):
+        try:
+            _ensure_foreground(control)
+            control.click_input()
+            _ensure_foreground(control)
+            return True
+        except CaptureError:
+            raise
+        except Exception as error:
+            last_error = error
+            time.sleep(.25)
+    if last_error:
+        raise last_error
+    return False
+
+
 def _open_target(friend, modules, search_query=None):
     # Never delegate candidate selection to upstream search_friend: it chooses
     # the first equal name and can fall back to an online phone/ID lookup.
@@ -77,18 +231,46 @@ def _open_target(friend, modules, search_query=None):
     search.click_input()
     search.set_text(search_query or friend)
     try:
-        listing = main.child_window(**ui.Lists.SearchResult).wait("ready", timeout=4)
-        candidates = [item for item in listing.children(control_type="ListItem")
-                      if item.class_name() == "mmui::SearchContentCellView" and item.window_text().strip() == friend]
+        listing = main.child_window(**ui.Lists.SearchResult).wait("ready", timeout=5)
+        labels = _normalized_label(friend)
+        candidates = []
+        for item in _children_and_descendants(listing, control_type="ListItem"):
+            if not _is_visible(item):
+                continue
+            try:
+                class_name = item.class_name()
+            except Exception:
+                class_name = ""
+            text = _normalized_label(_safe_text(item))
+            lines = [_normalized_label(line) for line in _safe_text(item).splitlines()]
+            nested = [_normalized_label(_safe_text(node)) for node in
+                      _children_and_descendants(item, control_type="Text")]
+            if class_name == "mmui::SearchContentCellView" and labels in (lines + nested + [text]):
+                candidates.append(item)
     except Exception:
         raise CaptureError("FRIEND_NOT_FOUND", "未找到这个完整备注的本地联系人，请核对微信里显示的完整名称。")
     if not candidates:
         raise CaptureError("FRIEND_NOT_FOUND", "未找到这个完整备注的本地联系人，请核对微信里显示的完整名称。")
     if len(candidates) != 1:
         raise CaptureError("FRIEND_AMBIGUOUS", "微信里有多个同名搜索项，请给目标好友设置唯一备注后重试。")
-    candidates[0].click_input()
-    _assert_target(main, friend, ui.Texts, Tools)
-    return main
+    selected = candidates[0]
+    for attempt in range(3):
+        _click_control(selected)
+        deadline = time.monotonic() + 4
+        while time.monotonic() < deadline:
+            try:
+                selector = dict(ui.Texts.CurrentChatNameText)
+                selector["title"] = friend
+                if main.child_window(**selector).exists(timeout=.2):
+                    _assert_target(main, friend, ui.Texts, Tools)
+                    return main
+            except CaptureError:
+                raise
+            except Exception:
+                pass
+            time.sleep(.15)
+        time.sleep(.3)
+    raise CaptureError("CONTACT_OPEN_TIMEOUT", "已找到联系人，但聊天窗口没有打开。请保持微信窗口可见后重试。")
 
 
 def _native_voice(item, content, friend, sender, at, history, main, modules, timeout):
@@ -339,31 +521,78 @@ def _resolve_moments_contact(request, source=None):
             source.close()
 
 
-def _open_moments_from_chat(main, friend, modules):
+def _open_moments_from_chat(main, friend, modules, expected_identifier=None, _retry=0):
     """Open the already verified chat's album, without upstream's second search."""
     from pywinauto import Desktop
     _, Tools, ui = modules
     pane = main.child_window(auto_id="single_chat_info_view", control_type="Group")
-    if not pane.exists(timeout=.2) or not pane.is_visible():
-        main.child_window(**ui.Buttons.ChatInfoButton).click_input()
-    avatar = pane.child_window(title=friend, control_type="Button").wait("ready", timeout=3)
-    buttons = avatar.children(control_type="Button")
-    if not buttons:
+    if not _wait_exists(pane, timeout=.5, visible=True):
+        try:
+            _click_control(main.child_window(**ui.Buttons.ChatInfoButton))
+        except Exception:
+            raise CaptureError("PROFILE_PANE_OPEN_TIMEOUT", "好友资料面板没有打开，请保持微信窗口可见后重试。") from None
+        # The original wrapper is stale after ChatInfoButton creates the pane.
+        pane = main.child_window(auto_id="single_chat_info_view", control_type="Group")
+    if not _wait_exists(pane, timeout=4, visible=True):
+        raise CaptureError("PROFILE_PANE_OPEN_TIMEOUT", "好友资料面板没有加载完成，请保持微信窗口可见后重试。")
+    avatar = pane.child_window(title=friend, control_type="Button")
+    if not _wait_exists(avatar, timeout=4, visible=True):
+        # Some WeChat builds expose the remark/nickname only in a nested text
+        # node. Select the nearest button whose subtree contains the label.
+        matches = []
+        for button in _children_and_descendants(pane, control_type="Button"):
+            labels = [_normalized_label(_safe_text(button))]
+            labels.extend(_normalized_label(_safe_text(node)) for node in
+                          _children_and_descendants(button, control_type="Text"))
+            if _normalized_label(friend) in " ".join(labels):
+                matches.append(button)
+        if matches:
+            avatar = matches[0]
+    if not _wait_exists(avatar, timeout=3, visible=True):
         raise CaptureError("MOMENTS_UNREADABLE", "无法打开所选好友的资料，请关闭微信弹窗后重试。")
-    avatar.click_input()
-    # The profile is a separate top-level popup on 4.1.15. Do not switch
-    # permanently to a main-window child just because it is still opening.
+    try:
+        if hasattr(avatar, "wait"):
+            avatar = avatar.wait("ready", timeout=3)
+    except Exception:
+        pass
+    nested_buttons = [button for button in _children_and_descendants(avatar, control_type="Button")
+                      if _is_visible(button) and _is_enabled(button)]
+    # The first click may only focus the chat detail pane. Verify the profile
+    # after each click instead of assuming a successful click_input opened it.
     profile = Desktop(backend="uia").window(class_name="mmui::ProfileUniquePop",
                                                process=main.process_id(), visible_only=True)
-    try:
-        profile.wait("visible", timeout=8)
-    except Exception:
+    if not _wait_exists(profile, timeout=.2, visible=True):
+        for target in [avatar, avatar, *nested_buttons, avatar]:
+            try:
+                _click_control(target, attempts=1)
+            except Exception:
+                continue
+            if _wait_exists(profile, timeout=1.5, visible=True):
+                break
+    if not _wait_exists(profile, timeout=.5, visible=True):
         raise CaptureError("PROFILE_OPEN_TIMEOUT", "已找到好友，但资料卡尚未打开。请关闭微信遮挡弹窗后重试；本次没有开始读取朋友圈。") from None
-    if not profile.child_window(auto_id="right_v_view.nickname_button_view.display_name_text", title=friend, control_type="Text").exists(timeout=1):
+    identity_text = " ".join(_normalized_label(_safe_text(node)) for node in
+                              _children_and_descendants(profile, control_type="Text"))
+    identity_ok = _normalized_label(friend) in identity_text
+    if not identity_text:
+        try:
+            identity_ok = profile.child_window(
+                auto_id="right_v_view.nickname_button_view.display_name_text",
+                title=friend, control_type="Text").exists(timeout=1)
+        except Exception:
+            identity_ok = True
+    if not identity_ok:
         raise CaptureError("FRIEND_MISMATCH", "打开的资料卡与所选好友不一致，已停止读取。")
+    # A duplicate display name alone cannot identify the selected contact.
+    # A visible WeChat ID/alias from the authorized local contact directory
+    # must also match the opened card when one was used for the search.
+    if expected_identifier and _normalized_label(expected_identifier) != _normalized_label(friend):
+        marker = _normalized_label(expected_identifier)
+        if not marker.startswith("wxid_") and marker not in identity_text:
+            raise CaptureError("MOMENTS_OWNER_UNVERIFIED", "好友资料中的微信号与所选联系人不一致，已停止读取，避免混入同名好友。")
     link = profile.child_window(**ui.Texts.MomentsText)
-    for attempt in range(3):
-        if link.exists(timeout=.6) and link.is_visible():
+    for attempt in range(8):
+        if _wait_exists(link, timeout=.4, visible=True):
             break
         # WeChat preserves the profile's scroll position across openings.
         # Restore only this selected contact's detail viewport, never the chat.
@@ -375,171 +604,286 @@ def _open_moments_from_chat(main, friend, modules):
             time.sleep(.5)
         else:
             time.sleep(.3)
-    if not link.exists(timeout=.5) or not link.is_visible():
+    if not _wait_exists(link, timeout=.5, visible=True):
         raise CaptureError("MOMENTS_ENTRY_UNAVAILABLE", "已打开所选好友资料，但未找到可点击的朋友圈入口。本次未开始读取；请确认这位好友资料中是否显示朋友圈。")
-    buttons = link.parent().parent().descendants(control_type="Button")
-    visible_buttons = [button for button in buttons if button.is_visible() and button.is_enabled()]
-    if not visible_buttons:
-        raise CaptureError("MOMENTS_ENTRY_UNAVAILABLE", "朋友圈入口尚未加载完成，已停止本次尝试。请稍后重试，已保存资料不会删除。")
-    visible_buttons[0].click_input()
+    target = _find_clickable_ancestor(link)
+    click_targets = []
+    try:
+        container = link.parent().parent()
+        buttons = [button for button in _children_and_descendants(container, control_type="Button")
+                   if _is_visible(button) and _is_enabled(button)]
+        semantic = [button for button in buttons
+                    if "SnsView" in getattr(button, "class_name", lambda: "")() or
+                    "value_sns_view" in str(getattr(getattr(button, "element_info", None), "automation_id", ""))]
+        click_targets.extend(semantic or buttons)
+    except Exception:
+        pass
+    click_targets.extend([target, link])
     window = Desktop(backend="uia").window(**ui.Windows.MomentsWindow)
-    return _moments_window(main, window)
+    for candidate in click_targets:
+        try:
+            _click_control(candidate)
+            album = _moments_window(main, window)
+            if _wait_exists(album.child_window(**ui.Lists.MomentsList), timeout=2, visible=True):
+                return album
+        except Exception:
+            continue
+    if _retry < 1:
+        # Some WeChat builds close the profile on the first click without
+        # opening the embedded album. Reopen the verified contact card and
+        # resolve a fresh Moments button rather than clicking stale wrappers.
+        time.sleep(.35)
+        return _open_moments_from_chat(main, friend, modules,
+                                       expected_identifier=expected_identifier, _retry=_retry + 1)
+    raise CaptureError("MOMENTS_ENTRY_UNAVAILABLE", "朋友圈入口没有打开，请保持微信窗口可见后重试。") from None
+
+
+def _visible_moment_cells(listing):
+    try:
+        nodes = listing.children(control_type="ListItem")
+    except Exception:
+        nodes = []
+    if not nodes:
+        nodes = _children_and_descendants(listing, control_type="ListItem")
+    bounds = _control_rect(listing)
+    cells = []
+    for cell in nodes:
+        try:
+            class_name = cell.class_name()
+        except Exception:
+            class_name = ""
+        if class_name in ("mmui::AlbumBaseCell", "mmui::AlbumTopCell"):
+            continue
+        rect = _control_rect(cell)
+        # Qt/UIA may report a recycled cell as visible even when its click
+        # centre is outside the scroll viewport. Clicking it can hit the app
+        # underneath or a different post.
+        if bounds and rect and not (bounds[1] + 48 <= (rect[1] + rect[3]) / 2 <= bounds[3] - 32):
+            continue
+        if _is_visible(cell):
+            cells.append(cell)
+    return cells
+
+
+def _viewport_has_trailing_space(listing):
+    """Positive end proof for WeChat builds without a UIA ScrollPattern."""
+    bounds = _control_rect(listing)
+    if not bounds:
+        return False
+    try:
+        posts = [cell for cell in listing.children(control_type="ListItem")
+                 if getattr(cell, "class_name", lambda: "")() == "mmui::AlbumContentCell"]
+    except Exception:
+        return False
+    rects = [_control_rect(cell) for cell in posts]
+    rects = [rect for rect in rects if rect]
+    return bool(rects and max(rect[3] for rect in rects) <= bounds[3] - 16)
+
+
+def _cell_scan_key(cell):
+    """Keep a post marked as visited while Qt moves/recycles its wrapper."""
+    label = _normalized_label(_safe_text(cell))
+    try:
+        kind = cell.class_name()
+    except Exception:
+        kind = ""
+    return kind, label if label else _control_rect(cell)
+
+
+def _viewport_fingerprint(listing):
+    values = []
+    for cell in _visible_moment_cells(listing):
+        rect = _control_rect(cell)
+        y = rect[1] if rect else len(values)
+        try:
+            class_name = cell.class_name()
+        except Exception:
+            class_name = ""
+        values.append((class_name, _normalized_label(_safe_text(cell))[:180], y))
+    scroll = None
+    try:
+        scroll = round(float(listing.iface_scroll.CurrentVerticalScrollPercent), 2)
+    except Exception:
+        pass
+    return tuple(values), scroll
+
+
+def _scroll_percent(listing):
+    try:
+        return float(listing.iface_scroll.CurrentVerticalScrollPercent)
+    except Exception:
+        return None
+
+
+def _advance_moments_list(listing):
+    """Advance a virtualized WeChat list and prove that it moved."""
+    try:
+        from pywinauto import mouse
+    except (ImportError, AttributeError):
+        mouse = None
+    before = _viewport_fingerprint(listing)
+    before_percent = _scroll_percent(listing)
+    actions = []
+    try:
+        rect = listing.rectangle()
+        center = (rect.left + rect.width() // 2, rect.top + rect.height() // 2)
+        if mouse is not None:
+            actions.append(lambda: mouse.scroll(coords=center, wheel_dist=-6))
+    except Exception:
+        pass
+    actions.extend((
+        lambda: listing.type_keys("{PAGEDOWN}", pause=.1, set_foreground=True),
+        lambda: listing.type_keys("{DOWN}", pause=.1, set_foreground=True),
+    ))
+    for action in actions:
+        try:
+            _ensure_foreground(listing)
+            try:
+                listing.set_focus()
+            except Exception:
+                pass
+            action()
+        except CaptureError:
+            raise
+        except Exception:
+            continue
+        current = _viewport_fingerprint(listing)
+        current_percent = _scroll_percent(listing)
+        if current != before or (before_percent is not None and current_percent is not None and current_percent > before_percent + .01):
+            return True
+        deadline = time.monotonic() + .9
+        while time.monotonic() < deadline:
+            time.sleep(.12)
+            current = _viewport_fingerprint(listing)
+            current_percent = _scroll_percent(listing)
+            if current != before or (before_percent is not None and current_percent is not None and current_percent > before_percent + .01):
+                return True
+    return False
 
 
 def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=None, search_query=None):
     Navigator, Tools, ui = modules
+    try:
+        progress(8, "正在打开所选好友", phase="searching_contact", recordCount=0, pinnedCount=0,
+                 lastAction="open_chat")
+    except TypeError:
+        progress(8, "正在打开所选好友")
     main = _open_target(friend, modules, search_query=search_query)
     main_identity = (main.handle, main.process_id())
-    window = _open_moments_from_chat(main, friend, modules)
+    try:
+        progress(12, "正在核对好友资料和朋友圈入口", phase="opening_profile", recordCount=0,
+                 pinnedCount=0, lastAction="open_profile")
+    except TypeError:
+        progress(12, "正在核对好友资料和朋友圈入口")
+    window = _open_moments_from_chat(main, friend, modules, expected_identifier=search_query)
     listing = window.child_window(**ui.Lists.MomentsList)
     detail = window.child_window(**ui.Lists.SnsDetailList)
     back = window.child_window(**ui.Buttons.BackButton)
-    if not listing.exists(timeout=2):
+    if not _wait_exists(listing, timeout=8, visible=True):
         raise CaptureError("MOMENTS_UNREADABLE", "朋友圈列表不可读，可能未开放、暂无内容或当前微信版本界面不兼容。")
-    listing.wait("ready", timeout=4)
+    try:
+        listing.wait("ready", timeout=4)
+    except Exception:
+        pass
+
+    phase = "opening_moments"
     def assert_view():
         if (main.handle, main.process_id()) != main_identity:
             raise CaptureError("MOMENTS_VIEW_CHANGED", "当前朋友圈已切换，已停止读取，避免混入另一位好友的动态。")
-        # UIA container/runtime IDs legitimately change on returning from a
-        # detail. Verify the actual selected person, not that ephemeral ID.
-        _assert_target(main, friend, ui.Texts, Tools)
-    Tools.activate_momentsList(listing)
-    rows, warnings, seen = [], [], set()
-    post_keys = set()
-    pinned_mode, pinned_handled = False, False
-    header = listing.children(control_type="ListItem")
-    if len(header) >= 2 and all(cell.class_name() == "mmui::AlbumBaseCell" for cell in header[:2]):
-        try:
-            preview = _image(header[0], "moments-cover.jpg")
-            rows.append({"kind": "image", "sender": friend, "senderRole": "other", "text": "朋友圈封面",
-                         "images": [preview], "source": {"materialRole": "moments-cover", "imageType": "visible-ui-preview"}})
-        except Exception:
-            warnings.append("朋友圈封面未能读取，未纳入画面分析。")
-        signature = header[1].window_text().strip()
-        if signature:
-            rows.append({"kind": "text", "sender": friend, "senderRole": "other", "text": signature,
-                         "source": {"materialRole": "profile-signature"}})
-    idle, image_bytes, recovery_attempts = 0, 0, 0
-    completion = {"scope": "all-visible" if all_visible else "requested-count", "complete": False,
-                  "stopReason": "scanning", "recordCount": 0, "imageOmittedCount": 0, "unreadableCount": 0}
-    last_publish = time.monotonic()
-    def moment_count():
-        return sum(row.get("kind") == "post" for row in rows)
-    while True:
-        assert_view()
-        # WeChat virtualizes/recreates sns_list while older posts load. Never
-        # keep using a stale UIA wrapper after that replacement.
+
+    def refresh_listing():
+        nonlocal listing, detail, back
         try:
             current_lists = [item for item in main.descendants(control_type="List")
                              if getattr(item.element_info, "automation_id", "") == "sns_list"
-                             and _control_is_visible(item)]
+                             and _is_visible(item)]
             if len(current_lists) == 1:
                 listing = current_lists[0]
-                try:
-                    listing.wait("ready", timeout=1)
-                except Exception:
-                    pass
-        except (AttributeError, TypeError):
-            # Synthetic/older wrappers do not provide descendants; retain the
-            # verified listing instead of treating this as a navigation error.
-            current_lists = [listing]
         except Exception:
-            recovery_attempts += 1
-            if recovery_attempts >= 20:
-                completion["stopReason"] = "navigation-stalled"
-                break
-            time.sleep(.35)
-            continue
-        listing.type_keys("{DOWN}", pause=0.12, set_foreground=True)
-        selected = [item for item in listing.children(control_type="ListItem") if item.has_keyboard_focus()]
-        if not selected:
-            # Returning from details may remove keyboard focus entirely. Read
-            # an unseen visible cell before scrolling the actual list viewport.
-            visible_cells = [cell for cell in listing.children(control_type="ListItem")
-                             if cell.class_name() not in ("mmui::AlbumBaseCell", "mmui::AlbumTopCell")
-                             and _control_is_visible(cell)]
-            # A recreated list may have no keyboard focus. Inspect the last
-            # visible content cell directly; post_keys removes overlap after
-            # the detail is read, so same-text posts are not lost here.
-            selected = [visible_cells[-1]] if visible_cells else []
-            if not selected:
-                recovery_attempts += 1
-                if recovery_attempts >= 20:
-                    if pinned_mode:
-                        back.click_input()
-                        listing.wait("ready", timeout=3)
-                        pinned_mode, idle = False, 0
-                        seen.clear()
-                        Tools.activate_momentsList(listing)
-                        continue
-                    completion["stopReason"] = "navigation-stalled"
-                    break
-                try:
-                    # Re-focus the current list and use both keyboard and mouse
-                    # paths. WeChat 4.1.15 does not expose ScrollPattern.
-                    listing.type_keys("{PAGEDOWN}", pause=.1, set_foreground=True)
-                    from pywinauto import mouse
-                    rect = listing.rectangle()
-                    mouse.scroll(coords=(rect.left + rect.width() // 2, rect.top + rect.height() // 2), wheel_dist=-5)
-                    time.sleep(.45)
-                except Exception:
-                    pass
-                continue
-        item = selected[0]
-        recovery_attempts = 0
-        # Virtualized lists recycle runtime IDs. Include visible content so
-        # thousands of old posts are not mistaken for the first loaded page.
-        runtime = item.window_text()
-        if runtime in seen:
-            alternatives = [cell for cell in listing.children(control_type="ListItem")
-                            if cell.class_name() not in ("mmui::AlbumBaseCell", "mmui::AlbumTopCell")
-                            and _control_is_visible(cell) and cell.window_text() not in seen]
-            if alternatives:
-                item = alternatives[-1]
-                runtime = item.window_text()
-            else:
-                idle += 1
-            if runtime in seen and idle >= 8:
-                if pinned_mode:
-                    back.click_input()
-                    listing.wait("ready", timeout=3)
-                    pinned_mode, idle = False, 0
-                    seen.clear()
-                    Tools.activate_momentsList(listing)
-                    continue
-                at_end = _moments_at_visible_end(listing)
-                completion.update(complete=at_end and not completion["unreadableCount"],
-                                  stopReason="unreadable-posts" if completion["unreadableCount"] else
-                                  "visible-end" if at_end else "navigation-stalled")
-                break
-            progress(50 if all_visible else min(90, 15 + int(len(rows) / limit * 70)),
-                     f"已读取 {moment_count()} 条朋友圈，正在确认是否还有更早动态…")
-            time.sleep(.5)
-            continue
-        if item.class_name() == "mmui::AlbumTopCell":
-            seen.add(runtime)
-            if not pinned_handled and item.window_text().strip() in ("置顶", "置頂", "Pinned"):
-                pinned_handled = pinned_mode = True
-                item.click_input()
-                listing.wait("ready", timeout=3)
-                seen.clear()
-            continue
-        if item.class_name() == "mmui::AlbumBaseCell":
-            seen.add(runtime)
-            continue
-        idle = 0
-        item.click_input()
-        if not detail.exists(timeout=1):
-            completion["unreadableCount"] += 1
-            warnings.append("部分朋友圈无法打开详情，已跳过。")
-            continue
+            pass
         try:
-            items = detail.children(control_type="ListItem")
-            if not items:
-                completion["unreadableCount"] += 1
-                continue
-            content_item = items[0]
-            raw = content_item.window_text()
+            detail = window.child_window(**ui.Lists.SnsDetailList)
+            back = window.child_window(**ui.Buttons.BackButton)
+        except Exception:
+            pass
+        return listing
+
+    try:
+        Tools.activate_momentsList(listing)
+    except Exception:
+        pass
+    # The first synthetic/real list cell is not selected until the list receives
+    # one navigation event. This also prevents an initial virtual index of -1
+    # from being treated as a real post.
+    try:
+        listing.type_keys("{DOWN}", pause=.05, set_foreground=True)
+    except Exception:
+        pass
+    rows, warnings = [], []
+    pinned_seen, normal_seen, post_keys = set(), set(), set()
+    pinned_attempts, normal_attempts = {}, {}
+    image_bytes = 0
+    last_publish = time.monotonic()
+    completion = {"scope": "all-visible" if all_visible else "requested-count", "complete": False,
+                  "stopReason": "scanning", "recordCount": 0, "imageOmittedCount": 0,
+                  "unreadableCount": 0, "phase": phase, "scrollAttempts": 0,
+                  "pinnedCount": 0, "lastAction": "open_moments"}
+
+    def report(value, message, action=None):
+        completion["phase"] = phase
+        if action:
+            completion["lastAction"] = action
+        try:
+            progress(value, message, phase=phase, recordCount=moment_count(),
+                     pinnedCount=completion["pinnedCount"], lastAction=completion["lastAction"])
+        except TypeError:
+            progress(value, message)
+
+    def moment_count():
+        return sum(row.get("kind") == "post" for row in rows)
+
+    # Header cells contain the cover and signature on supported WeChat builds.
+    header = [cell for cell in _children_and_descendants(listing, control_type="ListItem")
+              if getattr(cell, "class_name", lambda: "")() == "mmui::AlbumBaseCell"]
+    if len(header) >= 2:
+        try:
+            rows.append({"kind": "image", "sender": friend, "senderRole": "other", "text": "朋友圈封面",
+                         "images": [_image(header[0], "moments-cover.jpg")],
+                         "source": {"materialRole": "moments-cover", "imageType": "visible-ui-preview"}})
+        except Exception:
+            warnings.append("朋友圈封面未能读取，未纳入画面分析。")
+        signature = _safe_text(header[1])
+        if signature:
+            rows.append({"kind": "text", "sender": friend, "senderRole": "other", "text": signature,
+                         "source": {"materialRole": "profile-signature"}})
+
+    def read_detail(item, pinned=False):
+        nonlocal image_bytes, listing, detail, phase
+        parent_phase = phase
+        phase = "reading_pinned_detail" if pinned else "reading_feed_detail"
+        completion["phase"] = phase
+        opened = False
+        try:
+            if not _wait_hidden(detail, timeout=2):
+                raise CaptureError("MOMENTS_DETAIL_STALE", "上一条动态详情尚未关闭，已暂停以避免把内容归到错误动态。")
+            _click_control(item)
+            if not _wait_exists(detail, timeout=4, visible=True):
+                raise CaptureError("MOMENTS_DETAIL_TIMEOUT", "动态详情没有打开，已保留当前进度。")
+            opened = True
+            content_item = None
+            deadline = time.monotonic() + 3
+            while True:
+                items = _children_and_descendants(detail, control_type="ListItem")
+                if items:
+                    content_item = items[0]
+                    if _safe_text(content_item) or _is_visible(content_item):
+                        break
+                if time.monotonic() >= deadline:
+                    break
+                time.sleep(.12)
+            if content_item is None:
+                raise CaptureError("MOMENTS_DETAIL_UNREADABLE", "动态详情已打开，但内容尚未加载。")
+            raw = _safe_text(content_item)
             matches = list(ui.Regex_Patterns.Snsdetail_Timestamp_pattern.finditer(raw))
             stamp = matches[-1] if matches else None
             at = stamp.group(0).strip() if stamp else ""
@@ -547,7 +891,9 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
             if content.startswith(friend):
                 content = content[len(friend):].lstrip()
             row = {"kind": "post", "sender": friend, "senderRole": "other", "at": at, "text": content,
-                   "source": {"materialRole": "moment", "pinned": pinned_mode, "imageType": "visible-ui-preview", "timePrecision": "ui-label" if at else "unknown"}}
+                   "source": {"materialRole": "moment", "pinned": pinned,
+                              "imageType": "visible-ui-preview",
+                              "timePrecision": "ui-label" if at else "unknown"}}
             try:
                 preview = _image(content_item, f"moment-preview-{len(rows)+1}.jpg")
                 size = len(preview["data"])
@@ -560,42 +906,184 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
             except Exception:
                 completion["imageOmittedCount"] += 1
                 row["source"]["previewUnavailable"] = "capture-unavailable"
-                warnings.append("部分朋友圈详情截图未获取，已保留可读文字。")
             if not content.strip() and not row.get("images"):
                 completion["unreadableCount"] += 1
-                seen.add(runtime)
-                continue
-            assert_view()
-            post_key = (at, content)
-            if content and post_key in post_keys:
-                seen.add(runtime)
-                continue
+                warnings.append("部分朋友圈无法读取文字或图片，已保留位置并继续。")
+                return None
+            preview_hash = hashlib.sha256(row["images"][0]["data"].encode("ascii")).hexdigest() if row.get("images") else ""
+            post_key = (at, _normalized_label(content) or preview_hash)
+            if post_key in post_keys:
+                return None
             post_keys.add(post_key)
             rows.append(row)
-            # Mark only after a detail was read and accepted. A transient
-            # open failure must be retried after the list is reactivated.
-            seen.add(runtime)
-            completion["recordCount"] = len(rows)
-            progress(50 if all_visible else min(90, 15 + int(len(rows) / limit * 70)), f"已读取 {moment_count()} 条朋友圈，继续读取更早动态…")
+            completion["recordCount"] = moment_count()
+            if pinned:
+                completion["pinnedCount"] += 1
+            return row
         finally:
-            if detail.exists(timeout=0.2):
-                back.click_input()
-                listing.wait("ready", timeout=2)
-        if on_rows and (len(rows) == 1 or time.monotonic() - last_publish >= 5):
-            on_rows(rows, warnings, dict(completion))
-            last_publish = time.monotonic()
+            if opened:
+                try:
+                    _click_control(back)
+                except Exception:
+                    pass
+                if not _wait_hidden(detail, timeout=3):
+                    raise CaptureError("MOMENTS_DETAIL_STALE", "上一条动态详情没有关闭，已保留当前进度。")
+                _wait_exists(listing, timeout=3, visible=True)
+                refresh_listing()
+            phase = parent_phase
+
+    def read_pinned():
+        nonlocal phase, listing, last_publish
+        phase = "reading_pinned"
+        completion["phase"] = phase
+        top_cells = [cell for cell in _children_and_descendants(listing, control_type="ListItem")
+                     if getattr(cell, "class_name", lambda: "")() == "mmui::AlbumTopCell"
+                     and "置顶" in _safe_text(cell)]
+        if not top_cells:
+            return
+        top = top_cells[0]
+        before = _viewport_fingerprint(listing)
+        try:
+            _click_control(_find_clickable_ancestor(top))
+        except Exception:
+            _click_control(top)
+        deadline = time.monotonic() + 4
+        entered = False
+        while time.monotonic() < deadline:
+            if _viewport_fingerprint(listing) != before:
+                entered = True
+                break
+            time.sleep(.15)
+        if not entered:
+            warnings.append("置顶区域没有展开，已继续读取普通朋友圈；置顶内容需要再次确认。")
+            completion["unreadableCount"] += 1
+            return
+        pinned_stall = 0
+        pinned_steps = 0
+        while pinned_stall < 3 and pinned_steps < 100:
+            if not all_visible and moment_count() >= limit:
+                break
+            pinned_steps += 1
+            refresh_listing()
+            cells = _visible_moment_cells(listing)
+            fresh = []
+            for cell in cells:
+                key = _cell_scan_key(cell)
+                if key not in pinned_seen:
+                    fresh.append((cell, key))
+            if fresh:
+                pinned_stall = 0
+                cell, key = fresh[0]
+                try:
+                    read_detail(cell, pinned=True)
+                    pinned_seen.add(key)
+                except CaptureError as error:
+                    if error.code not in ("MOMENTS_DETAIL_TIMEOUT", "MOMENTS_DETAIL_UNREADABLE", "MOMENTS_DETAIL_STALE"):
+                        raise
+                    pinned_attempts[key] = pinned_attempts.get(key, 0) + 1
+                    if pinned_attempts[key] >= 3:
+                        pinned_seen.add(key)
+                        completion["unreadableCount"] += 1
+                        warnings.append(f"一条置顶动态无法打开（{error.code}），已保留其他已读内容。")
+                report(50 if all_visible else min(90, 15 + int(moment_count() / max(limit, 1) * 70)),
+                       f"已读取置顶 {completion['pinnedCount']} 条朋友圈", "read_pinned")
+                if on_rows and moment_count() and (moment_count() == 1 or time.monotonic() - last_publish >= 5):
+                    on_rows(rows, warnings, dict(completion))
+                    last_publish = time.monotonic()
+                continue
+            if not _advance_moments_list(listing):
+                pinned_stall += 1
+            else:
+                pinned_stall = 0
+        if pinned_steps >= 100 and all_visible:
+            completion["unreadableCount"] += 1
+            warnings.append("置顶区域达到本次翻页上限，已保留已读内容；置顶动态可能尚未读完。")
+        elif pinned_stall >= 3 and not ((_scroll_percent(listing) is not None and _scroll_percent(listing) >= 99.9)
+                                         or _viewport_has_trailing_space(listing)):
+            completion["unreadableCount"] += 1
+            warnings.append("置顶区域没有继续向下，未确认到达末尾；已保留已读内容。")
+        # In WeChat 4.1.15 the pinned album replaces the ordinary list in the
+        # same sns_list. Its BackButton returns to the ordinary album header.
+        try:
+            _click_control(back)
+            deadline = time.monotonic() + 4
+            returned = False
+            while time.monotonic() < deadline:
+                refresh_listing()
+                returned = any(getattr(cell, "class_name", lambda: "")() == "mmui::AlbumTopCell"
+                               for cell in _children_and_descendants(listing, control_type="ListItem"))
+                if returned:
+                    break
+                time.sleep(.15)
+            if not returned:
+                raise CaptureError("PINNED_EXIT_FAILED", "置顶内容已读取，但无法回到普通朋友圈列表；已保留已读内容。")
+        except CaptureError:
+            raise
+        except Exception:
+            raise CaptureError("PINNED_EXIT_FAILED", "置顶内容已读取，但无法回到普通朋友圈列表；已保留已读内容。") from None
+
+    read_pinned()
+    phase = "reading_feed"
+    completion["phase"] = phase
+    scroll_stalls = 0
+    while True:
         if not all_visible and moment_count() >= limit:
             completion["stopReason"] = "requested-count"
             break
+        assert_view()
+        refresh_listing()
+        cells = _visible_moment_cells(listing)
+        fresh = []
+        for cell in cells:
+            key = _cell_scan_key(cell)
+            if key not in normal_seen:
+                fresh.append((cell, key))
+        if fresh:
+            scroll_stalls = 0
+            item, key = fresh[0]
+            try:
+                read_detail(item, pinned=False)
+                normal_seen.add(key)
+            except CaptureError as error:
+                if error.code in ("MOMENTS_DETAIL_TIMEOUT", "MOMENTS_DETAIL_UNREADABLE", "MOMENTS_DETAIL_STALE"):
+                    normal_attempts[key] = normal_attempts.get(key, 0) + 1
+                    if normal_attempts[key] >= 3:
+                        normal_seen.add(key)
+                        completion["unreadableCount"] += 1
+                        warnings.append(error.message)
+                else:
+                    raise
+            report(50 if all_visible else min(90, 15 + int(moment_count() / max(limit, 1) * 70)),
+                   f"已读取 {moment_count()} 条朋友圈，正在继续向下翻页…", "read_feed")
+            if on_rows and moment_count() and (moment_count() == 1 or time.monotonic() - last_publish >= 5):
+                on_rows(rows, warnings, dict(completion))
+                last_publish = time.monotonic()
+            if not all_visible and moment_count() >= limit:
+                completion["stopReason"] = "requested-count"
+                break
+            continue
+        completion["lastAction"] = "scroll"
+        completion["scrollAttempts"] += 1
+        if _advance_moments_list(listing):
+            scroll_stalls = 0
+            continue
+        scroll_stalls += 1
+        if scroll_stalls < 3:
+            time.sleep(.35)
+            continue
+        percent = _scroll_percent(listing)
+        at_end = (percent is not None and percent >= 99.9) or _viewport_has_trailing_space(listing)
+        completion["complete"] = bool(at_end and not completion["unreadableCount"])
+        completion["stopReason"] = "unreadable-posts" if completion["unreadableCount"] else ("visible-end" if at_end else "navigation-stalled")
+        break
+
     if not rows:
         raise CaptureError("NO_VISIBLE_MOMENTS", "没有读到可见朋友圈。可能被限制可见、暂无内容或界面不可读；不会绕过可见范围。")
-    if completion["stopReason"] == "focus-unavailable":
-        warnings.append("微信列表焦点丢失，本次只保留已读取的动态，尚未确认读到可见末尾。请将微信放在前台后重试。")
     if completion["stopReason"] == "navigation-stalled":
-        warnings.append("朋友圈列表没有继续向下，且未确认到达可见末尾；已保留读到的内容，请检查微信窗口后继续采集。")
+        warnings.append("朋友圈列表没有继续向下，且未确认到达可见末尾；已保留读到的内容，请点击继续采集。")
     if completion["imageOmittedCount"]:
-        warnings.append(f"已保留所有读到的动态文字；其中 {completion['imageOmittedCount']} 条详情预览因容量或截图不可用未附加图片，不能据此分析画面。")
-    warnings.append("仅采集当前账号可见的朋友圈；可见末尾可能由三天、半年或分组权限决定，不代表对方全部历史。配图为详情区域预览，可能只显示部分缩略图。")
+        warnings.append(f"已保留所有读到的动态文字；其中 {completion['imageOmittedCount']} 条详情预览因容量或截图不可用未附加图片。")
+    warnings.append("仅采集当前账号可见的朋友圈；可见末尾可能由权限决定，不代表对方全部历史。")
     warnings.append("朋友圈时间保留原界面标签，未出现完整日期的内容不会推测年份。")
     return rows, warnings, completion
 

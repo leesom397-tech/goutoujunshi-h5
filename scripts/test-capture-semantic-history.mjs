@@ -130,7 +130,7 @@ const rich=await analyzeCaptureSemanticHistory({historyRecords:all.slice(0,240),
  // previously silently contradicted the earlier profile/Moments guidance.
  const schema=messages[0].content.split("只返回 JSON ").at(-1).split("。summary")[0];
  assert.match(schema,/affinitySignals:/);assert.match(schema,/profileInsights:/);assert.match(schema,/sourceInsights:/);
- return JSON.stringify({summary:"有继续接触的线索，但关系意愿尚待确认。",summaryEvidenceIds:[chat.id],explanation:deepExplanation,affinityAssessment:{dimensions:[],unavailableReason:"仅有安排讨论，维度不足。"},affinitySignals:[makeSignal("uncertain","接触意愿与恋爱意愿还不能等同",[chat.id])],profileInsights:[{dimension:"投入与行动",reading:"有具体安排的讨论，材料尚未包含兑现结果。",evidenceIds:[chat.id],alternative:"也可能是朋友相约"}],sourceInsights:{moments:{summary:"动态里分享了散步生活记录。",evidenceIds:[moment.id],unknowns:["不清楚是否与用户同行"],crossSource:{summary:"聊天和动态出现相近话题，不能据此断定已经共同赴约。",evidenceIds:[chat.id,moment.id]}}}});
+ return JSON.stringify({riskAssessment:{status:"no_supported_signal",summary:"目前没有可核验的边界风险表达。",items:[]},actionPlan:{goal:"connection",steps:[{title:"确认安排",action:"问清双方方便的时间。",why:"对方提到了可以继续安排。",evidenceIds:[chat.id],observeFor:"下次交流",advanceWhen:"双方明确愿意再约",stopWhen:"明确拒绝后停止"}]},summary:"有继续接触的线索，但关系意愿尚待确认。",summaryEvidenceIds:[chat.id],explanation:deepExplanation,affinityAssessment:{dimensions:[],unavailableReason:"仅有安排讨论，维度不足。"},affinitySignals:[makeSignal("uncertain","接触意愿与恋爱意愿还不能等同",[chat.id])],profileInsights:[{dimension:"投入与行动",reading:"有具体安排的讨论，材料尚未包含兑现结果。",evidenceIds:[chat.id],alternative:"也可能是朋友相约"}],sourceInsights:{moments:{summary:"动态里分享了散步生活记录。",evidenceIds:[moment.id],unknowns:["不清楚是否与用户同行"],crossSource:{summary:"聊天和动态出现相近话题，不能据此断定已经共同赴约。",evidenceIds:[chat.id,moment.id]}}}});
 });
 assert.equal(rich.status,"complete");assert.equal(rich.coverage.analyzedText,240);assert.equal(rich.coverage.supplementalAnalyzed,3);
 assert.equal(rich.coverage.sources["moments-library"].captions,3);
@@ -160,9 +160,9 @@ assert.equal(hasCompleteHistorySynthesis({summary:"有活动线索",explanation:
 const detailedBase={summary:"有具体安排",explanation:"有讨论但尚不能确定关系意愿。",summaryEvidenceIds:["chat"]};
 assert.equal(hasCompleteHistorySynthesis(detailedBase,[evidenceFindings[0]],true),false,"full reports must explicitly evaluate or decline the affinity index");
 const explicitInsufficient={...detailedBase,affinityAssessment:{dimensions:[],unavailableReason:"当前只出现一个具体安排维度，不能合成总值。"}};
-assert.equal(hasCompleteHistorySynthesis(explicitInsufficient,[evidenceFindings[0]],true),true,"insufficient evidence is a complete assessment state, not a retry loop");
+assert.equal(hasCompleteHistorySynthesis(explicitInsufficient,[evidenceFindings[0]],true,"connection"),true,"insufficient evidence is a complete assessment state, not a retry loop");
 assert.equal(hasCompleteHistorySynthesis({...explicitInsufficient,action:"确认安排",actionEvidenceIds:["chat"]},[evidenceFindings[0]],true),false,"a grounded proposed action must not lose its usable plan");
-assert.equal(hasCompleteHistorySynthesis({...explicitInsufficient,action:"确认安排",actionEvidenceIds:["chat"],actionPlan:{goal:"connection",steps:[{...step,evidenceIds:["chat"]}]}},[evidenceFindings[0]],true),true);
+assert.equal(hasCompleteHistorySynthesis({...explicitInsufficient,action:"确认安排",actionEvidenceIds:["chat"],actionPlan:{goal:"connection",steps:[{...step,evidenceIds:["chat"]}]}},[evidenceFindings[0]],true,"connection"),true);
 assert.equal(hasCompleteHistorySynthesis({...detailedBase,affinityAssessment:{dimensions:[{...rated[0],level:90}]}},[evidenceFindings[0]],true),false);
 const riskOriginal=[{localId:'risk-original',kind:'text',senderRole:'other',at:'2026-10-01T10:00:00Z',text:'把验证码发给我。'},{localId:'self-refusal',kind:'text',senderRole:'self',at:'2026-10-01T10:01:00Z',text:'我不会给你验证码。'},{localId:'later-response',kind:'text',senderRole:'other',at:'2026-10-01T10:05:00Z',text:'不用给我验证码了，你在官方页面自己操作。'}];
 const riskReview={signals:[{title:'索取验证码',alternative:'可能误把正常流程说错，需核实。',sources:[{sourceId:'risk-original',at:'1999-01-01',quote:'把验证码发给我。',response:{sourceId:'self-refusal',at:'1999-01-01',quote:'我不会给你验证码。'}}]}]};
@@ -188,4 +188,12 @@ assert.equal(hasCompleteHistorySynthesis({...explicitInsufficient,riskAssessment
 const selfProfile=validatedSynthesis({profileInsights:[{subject:'other',dimension:'投入与行动',reading:'对方很主动',evidenceIds:['self-only']},{subject:'self',dimension:'投入与行动',reading:'你表达了见面意愿',evidenceIds:['self-only']}]},[selfOnly]);
 assert.equal(selfProfile.profileInsights.length,1);assert.equal(selfProfile.profileInsights[0].subject,'self');
 assert.equal(signals.affinitySignals[0].subject,'other');assert.equal(signals.affinitySignals[0].toward,'self');assert.equal(structured.actionPlan.actor,'self');
+const fullContract={...riskBase,riskAssessment,profileUnavailableReason:'这些原话只涉及账号操作，暂不据此判断稳定人格。',actionPlan:{goal:'risk',steps:[{...step,evidenceIds:['risk:1']}]}};
+assert.equal(hasCompleteHistorySynthesis(fullContract,riskFinding,true,'panorama'),true);
+assert.equal(hasCompleteHistorySynthesis({...fullContract,riskAssessment:undefined},riskFinding,true,'panorama'),false,'global analysis must not silently omit risk review');
+assert.equal(hasCompleteHistorySynthesis({...fullContract,actionPlan:undefined},riskFinding,true,'panorama'),false,'global analysis needs a usable next step');
+assert.equal(hasCompleteHistorySynthesis({...fullContract,profileUnavailableReason:undefined},riskFinding,true,'panorama'),false,'missing personality interpretation must be explicit');
+const dimensions=['沟通方式','关系期待','投入与行动','边界与相处','生活与兴趣','情绪表达','价值与匹配','说法与兑现'];
+const expandedProfiles=validatedSynthesis({profileInsights:dimensions.map(dimension=>({subject:'other',dimension,reading:'这个维度只能依据具体邀请和后续回应作有限解释。',evidenceIds:['chat'],alternative:'也可能是普通朋友活动。'}))},evidenceFindings);
+assert.equal(expandedProfiles.profileInsights.length,8,'supported personality dimensions must not be truncated to four');
 console.log("Capture semantic history passed: all source rows, verified rubric reference ratings, meaningful chronology and action plans, required Moments sections, genuine evidence and honest incomplete states.");

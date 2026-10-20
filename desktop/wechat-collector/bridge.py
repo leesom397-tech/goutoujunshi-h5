@@ -46,7 +46,9 @@ def _capture_process(conn, request):
                 if len(json.dumps(batch, ensure_ascii=False).encode("utf-8")) > MAX_RESULT:
                     raise ValueError("RESULT_TOO_LARGE")
                 conn.send({"type": "partial", "partial": batch})
-            result = capture(request, lambda progress, message: conn.send({"type": "progress", "progress": progress, "message": message}), on_partial=partial)
+            def emit_progress(value, message, **meta):
+                conn.send({"type": "progress", "progress": value, "message": message, **meta})
+            result = capture(request, emit_progress, on_partial=partial)
             if len(json.dumps(result, ensure_ascii=False).encode("utf-8")) > MAX_RESULT:
                 raise ValueError("RESULT_TOO_LARGE")
             conn.send({"type": "result", "result": result})
@@ -102,6 +104,7 @@ class CollectorState:
         if background:
             capabilities.update(backgroundChat=bool(background.get("ready")),
                                 backgroundVoice=bool(background.get("voiceReady")),
+                                backgroundVoiceById=bool(background.get("voiceReady")),
                                 backgroundContacts=bool(background.get("ready")))
         capabilities["backgroundHistory"] = bool(capabilities.get("backgroundChat"))
         result = {"version": VERSION, "protocol": 1, **health, "capabilities": capabilities}
@@ -227,12 +230,13 @@ class CollectorState:
             raise BridgeError(503, "CONTACT_SEARCH_FAILED", "本机联系人目录暂时无法读取，请确认电脑微信已登录后重试。") from None
 
     def start(self, request):
-        if not isinstance(request, dict) or set(request) - ({"kind", "friend", "contactId", "accountKey", "limit", "includeVoice", "mode", "allVisible"} | HISTORY_FIELDS):
+        if not isinstance(request, dict) or set(request) - ({"kind", "friend", "contactId", "accountKey", "limit", "includeVoice", "mode", "allVisible", "voiceOnly", "voiceIds"} | HISTORY_FIELDS):
             raise BridgeError(400, "INVALID_REQUEST", "仅接受采集类型、好友完整备注、数量和语音补全选项。")
         paged = bool(HISTORY_FIELDS.intersection(request))
         selected = "contactId" in request or "accountKey" in request
         kind, friend, limit = request.get("kind"), request.get("friend"), request.get("limit", MAX_PAGE_SIZE if paged else None)
         include_voice = request.get("includeVoice", False)
+        voice_only = request.get("voiceOnly", False)
         mode = request.get("mode", "ui")
         all_visible = request.get("allVisible", False)
         if type(all_visible) is not bool or all_visible and kind != "moments":
@@ -245,12 +249,16 @@ class CollectorState:
             raise BridgeError(400, "INVALID_MODE", "选择联系人后请使用后台聊天导入。")
         if type(include_voice) is not bool:
             raise BridgeError(400, "INVALID_REQUEST", "语音补全选项必须明确为是或否。")
+        if type(voice_only) is not bool:
+            raise BridgeError(400, "INVALID_REQUEST", "语音补全范围必须明确。")
+        if voice_only and (kind != "chat" or mode != "background" or not include_voice):
+            raise BridgeError(400, "INVALID_REQUEST", "定向语音补全仅支持后台聊天读取。")
         if kind not in ("chat", "moments") or not isinstance(friend, str) or not friend.strip() or len(friend) > 100 or re.search(r"[\x00-\x1f]", friend):
             raise BridgeError(400, "INVALID_REQUEST", "请填写完整的好友备注。")
         maximum = BACKGROUND_MAX_ROWS if mode == "background" else (500 if kind == "chat" else 2000)
         if type(limit) is not int or not 1 <= limit <= maximum:
             raise BridgeError(400, "INVALID_LIMIT", "后台聊天每次最多1000条，界面聊天最多500条，朋友圈单次最多2000条可见动态。")
-        if paged or selected:
+        if paged or selected or voice_only or "voiceIds" in request:
             try:
                 validation = ({**request, "kind": "chat", "limit": 1} if kind == "moments" else dict(request))
                 validation.pop("allVisible", None)
@@ -277,10 +285,12 @@ class CollectorState:
             if kind == "moments":
                 payload["allVisible"] = all_visible
             payload.update({key: request[key] for key in HISTORY_FIELDS if key in request})
-            payload.update({key: request[key] for key in ("contactId", "accountKey") if key in request})
+            payload.update({key: request[key] for key in ("contactId", "accountKey", "voiceOnly", "voiceIds") if key in request})
             proc = ctx.Process(target=self.capture_target, args=(child, payload), daemon=True)
             job = {"jobId": job_id, "mode": mode, "kind": kind, "allVisible": all_visible,
                    "status": "running", "progress": 0, "partialRevision": 0,
+                   "phase": "preparing", "recordCount": 0, "pinnedCount": 0,
+                   "lastAction": "start",
                    "message": "正在检查本机聊天与语音" if mode == "background" else "正在连接微信界面", "updated": time.monotonic(), "process": proc}
             self.jobs[job_id], self.active = job, job_id
             self.local_message = "正在后台导入，可以继续使用电脑；可随时停止" if mode == "background" else "采集中，请暂时不要操作微信；可随时停止"
@@ -317,9 +327,19 @@ class CollectorState:
                             return
                         job["updated"] = time.monotonic()
                         if msg.get("type") == "progress":
-                            job.update(progress=max(0, min(99, int(msg.get("progress", 0)))), message=str(msg.get("message", ""))[:100])
+                            job.update(progress=max(0, min(99, int(msg.get("progress", 0)))),
+                                       phase=str(msg.get("phase") or job.get("phase") or "working")[:50],
+                                       recordCount=int(msg.get("recordCount", job.get("recordCount", 0)) or 0),
+                                       pinnedCount=int(msg.get("pinnedCount", job.get("pinnedCount", 0)) or 0),
+                                       lastAction=str(msg.get("lastAction") or job.get("lastAction") or "")[:80],
+                                       message=str(msg.get("message", ""))[:100])
                         elif msg.get("type") == "partial":
+                            coverage = msg["partial"].get("coverage", {}) or {}
                             job.update(partial=msg["partial"], partialRevision=job.get("partialRevision", 0) + 1,
+                                       phase=str(coverage.get("phase") or job.get("phase") or "reading")[:50],
+                                       recordCount=int(coverage.get("recordCount", len(msg["partial"].get("records", []))) or 0),
+                                       pinnedCount=int(coverage.get("pinnedCount", job.get("pinnedCount", 0)) or 0),
+                                       lastAction=str(coverage.get("lastAction") or job.get("lastAction") or "")[:80],
                                        message=(f"已读取 {len(msg['partial'].get('records', []))} 条朋友圈，继续查找更早动态…"
                                                 if job.get("kind") == "moments" else "文字已导入，正在补全语音…可随时停止。"))
                         elif msg.get("type") == "result":
@@ -358,7 +378,7 @@ class CollectorState:
                     return
             with self.lock:
                 if job["status"] == "running":
-                    message = ("朋友圈读取长时间没有新进展，已停止；已读取的动态仍可导入，请检查微信窗口后重试。" if job.get("kind") == "moments" else
+                    message = (f"朋友圈采集在{job.get('phase', '当前阶段')}阶段长时间没有新进展，已停止；已读取 {job.get('recordCount', 0)} 条动态，仍可导入，请检查微信窗口后重试。" if job.get("kind") == "moments" else
                                "本次语音补全已到时限，已核对的文字仍可导入。" if job.get("partial") else
                                "后台读取超时，请确认电脑微信已登录后重试。" if job.get("mode") == "background" else
                                "微信界面未在三分钟内完成读取，请确认窗口可见后重试。")

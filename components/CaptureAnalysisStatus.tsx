@@ -1,21 +1,24 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ArrowRight, CheckCheck, LoaderCircle, RefreshCw } from "lucide-react";
 import { api, type Json } from "./web-analysis/client";
 import styles from "./CaptureAnalysisStatus.module.css";
 
-export function CaptureAnalysisStatus({owner, onSettled}:{owner:string;onSettled?:()=>void}) {
+export function CaptureAnalysisStatus({owner, onSettled, onStatus, visible = true}:{owner:string;onSettled?:()=>void;onStatus?:(job:Json|null)=>void;visible?:boolean}) {
   const [job,setJob]=useState<Json|null>(null),[offline,setOffline]=useState(false),[retry,setRetry]=useState(0);
+  const onStatusRef=useRef(onStatus);
+  useEffect(()=>{onStatusRef.current=onStatus;},[onStatus]);
   useEffect(()=>{
-    setJob(null);setOffline(false);
-    if(!owner)return;
+    setJob(null);setOffline(false);onStatusRef.current?.(null);
+    if(!owner||!visible)return;
     let live=true,timer:ReturnType<typeof setTimeout>,lastStatus="",lastCreditStatus="";
     const controller=new AbortController();
     const poll=async()=>{
       try{
         const next=await api('/api/web/capture/analyze',undefined,controller.signal);
         if(!live)return;
-        setJob(next.status==='none'||next.status==='removed'?null:next);setOffline(false);
+        const current=next.status==='none'||next.status==='removed'?null:next;
+        setJob(current);setOffline(false);onStatusRef.current?.(current);
         if(lastStatus && (lastStatus!==next.status || lastCreditStatus!==next.creditTaskStatus) && ['done','error'].includes(next.status))onSettled?.();
         lastStatus=next.status;lastCreditStatus=next.creditTaskStatus;
         if(['queued','running','retrying'].includes(next.status) || ['done','error'].includes(next.status) && next.creditTaskStatus==='reserved')timer=setTimeout(poll,3000);
@@ -24,7 +27,7 @@ export function CaptureAnalysisStatus({owner, onSettled}:{owner:string;onSettled
     const refresh=()=>{clearTimeout(timer);void poll();};
     void poll();window.addEventListener('chengzi:capture-analysis',refresh);
     return()=>{live=false;controller.abort();clearTimeout(timer);window.removeEventListener('chengzi:capture-analysis',refresh);};
-  },[owner,retry]);
+  },[owner,retry,visible]);
   if(!job)return null;
   const busy=['queued','running','retrying'].includes(job.status);
   const moments=job.kind==='moments',readCount=moments?job.completedCaptions||0:job.completedText||0;

@@ -16,6 +16,15 @@ const clone = value => structuredClone(value);
 const notFound = () => Object.assign(new Error("synthetic missing job"), { status: 404, code: "JOB_NOT_FOUND" });
 
 function makeBatch(body, total, { transcript = false, voice = false, account = "synthetic-account" } = {}) {
+  if (body.voiceOnly) return {
+    version: 1, kind: "chat", friend: body.friend, account, capturedAt: "2026-10-20T01:00:00Z", warnings: [],
+    records: body.voiceIds.map(ref => ({ id: `wechat-db:voice-${ref.messageId}`, kind: transcript ? "text" : "other",
+      sender: "合成发言人", senderRole: "other", at: "2026-10-20T00:00:00Z", text: transcript ? "合成语音文字" : "[语音]",
+      source: { label: "合成语音", method: "wechat-local-db", accountId: account, ...ref,
+        mediaKind: "voice", transcriptionStatus: transcript ? "visible-text" : "not-transcribed" } })),
+    history: { version: 1, direction: body.direction, count: body.voiceIds.length, hasMore: false, nextCursor: null,
+      snapshot: `voices_${body.voiceIds[0].messageId}`, complete: true },
+  };
   let upper = total, lower = body.since ? Number(body.since.split("_")[1]) : 0, offset = 0;
   if (body.cursor) [, upper, lower, offset] = body.cursor.split("_").map((value, index) => index ? Number(value) : value);
   const count = Math.max(0, Math.min(body.pageSize, upper - lower - offset));
@@ -265,6 +274,78 @@ await test("storage corruption or unapproved fields never become a runnable chec
   assert.equal(readHistoryProgress(owner, friend), null);
   assert.throws(() => writeHistoryProgress({ ...fresh(), records: ["private content"] }));
   storage.data.set(key, "bad json"); assert.equal(readHistoryProgress(owner, friend), null);
+});
+
+await test("521 voice references are handled once in bounded jobs without inherited history cursors", async () => {
+  const bridge = new FakeBridge(), vault = new FakeVault(), plan = fresh(), updates = [];
+  bridge.voice = true;
+  plan.cursor = "old_cursor"; plan.snapshot = "old_snapshot"; plan.count = 3189; plan.pages = 7;
+  const voiceIds = Array.from({ length: 521 }, (_, index) => ({ messageShard: "message_0.db", messageId: String(800000 + index), localId: String(index + 1) }));
+  const seeded = makeBatch({ friend, direction: "backward", voiceOnly: true, voiceIds }, 0);
+  await vault.accept(seeded, false);
+  const result = await run(bridge, vault, plan, { voiceIds, onProgress: update => updates.push(update) });
+  assert.equal(bridge.starts.length, 6); assert.equal(result.progress.count, 521); assert.equal(result.updatedVoice, 521);
+  assert.deepEqual(bridge.starts.map(body => body.voiceIds.length), [100, 100, 100, 100, 100, 21]);
+  assert.equal(bridge.starts.flatMap(body => body.voiceIds).length, 521);
+  for (const body of bridge.starts) { assert.equal("cursor" in body, false); assert.equal("since" in body, false); }
+  assert.equal(updates.at(-1).complete, true);
+  assert.equal(updates.filter(update => update.complete).length, 1);
+});
+
+await test("voice responses outside the selected reference set fail before acceptance", async () => {
+  for (const field of ["messageId", "messageShard", "localId", "mediaKind"]) {
+    const bridge = new FakeBridge(), vault = new FakeVault(); bridge.voice = true;
+    bridge.hook = job => { const result = clone(job.result); result.records[0].source[field] = "unexpected"; return { status: "completed", result }; };
+    await assert.rejects(run(bridge, vault, fresh(), { voiceIds: [{ messageShard: "message_0.db", messageId: "800001", localId: "1" }] }), /范围之外/);
+    assert.equal(vault.rows.size, 0);
+  }
+});
+
+await test("voice requests reject duplicate refs and live unrelated history jobs", async () => {
+  const bridge = new FakeBridge(), ref = { messageShard: "message_0.db", messageId: "1" }; bridge.voice = true;
+  await assert.rejects(run(bridge, new FakeVault(), fresh(), { voiceIds: [ref, ref] }), /重复/);
+  const plan = fresh(); plan.pendingJob = "old_history_job";
+  await assert.rejects(run(bridge, new FakeVault(), plan, { voiceIds: [ref] }), /完整进度/);
+  assert.equal(bridge.starts.length, 0);
+});
+
+await test("voice refresh resumes the same second batch without replaying the completed first batch", async () => {
+  const bridge = new FakeBridge(), vault = new FakeVault(); bridge.voice = true;
+  const voiceIds = Array.from({ length: 213 }, (_, i) => ({ messageShard: "message_0.db", messageId: String(800000+i) }));
+  let interrupted = false;
+  bridge.hook = job => {
+    if (job.body.voiceIds[0].messageId === "800100" && job.reads === 1) {
+      const partial = clone(job.partial); partial.records.splice(0, 5, ...clone(job.result.records.slice(0,5)));
+      return { status: "running", partial, partialRevision: 1 };
+    }
+    if (!interrupted && job.body.voiceIds[0].messageId === "800100" && job.reads === 2) {
+      interrupted = true; throw new TypeError("synthetic voice reconnect");
+    }
+  };
+  await assert.rejects(run(bridge, vault, fresh(), { voiceIds }), /voice reconnect/);
+  const saved = readHistoryProgress(owner, friend);
+  assert.equal(saved.pendingJob, "job_2"); assert.equal(bridge.starts.length, 2);
+  const result = await run(bridge, vault, saved, { voiceIds: voiceIds.slice(105) });
+  assert.equal(bridge.starts.length, 3, "only the final 13 voices start a new job");
+  assert.equal(bridge.starts[2].voiceIds[0].messageId, "800200");
+  assert.equal(result.progress.count, 213); assert.equal(result.progress.pages, 3);
+  assert.equal(vault.rows.size, 213);
+  assert.ok([...vault.rows.values()].every(row => row.source.transcriptionStatus === "visible-text"));
+});
+
+await test("a final partial containing all transcripts can still close its existing voice job", async () => {
+  const bridge = new FakeBridge(), vault = new FakeVault(); bridge.voice = true;
+  const voiceIds = [{ messageShard: "message_0.db", messageId: "800001" }];
+  let interrupted = false;
+  bridge.hook = job => {
+    if (job.reads === 1) return { status: "running", partial: job.result, partialRevision: 1 };
+    if (!interrupted) { interrupted = true; throw new TypeError("synthetic final reconnect"); }
+  };
+  await assert.rejects(run(bridge, vault, fresh(), { voiceIds }), /final reconnect/);
+  assert.equal(vault.rows.get("wechat-db:voice-800001").source.transcriptionStatus, "visible-text");
+  const result = await run(bridge, vault, readHistoryProgress(owner, friend), { voiceIds: [] });
+  assert.equal(result.progress.complete, true); assert.equal(result.progress.pendingJob, null);
+  assert.equal(bridge.starts.length, 1);
 });
 
 console.log(`History import state machine: ${passed} tests passed; all messages and transports were synthetic.`);

@@ -1,6 +1,6 @@
 import {captureMaterialRole,captureMaterialLabel,captureProfileMaterial,CAPTURE_MATERIAL_GUIDANCE} from "@/lib/capture-material";
 import { env } from "cloudflare:workers";
-import { checkpointedCaptureModel, isCaptureJobControl, CaptureJobYield, type CaptureCheckpoint } from "@/lib/capture-job-control";
+import { checkpointedCaptureModel, isCaptureJobControl, CaptureJobYield, CaptureJobRetry, type CaptureCheckpoint } from "@/lib/capture-job-control";
 import { reportContextSnapshot } from "@/lib/report-freshness";
 import { CAPTURE_REPORT_VERSION } from "@/lib/capture-report-version";
 import { loadReportParticipants } from "@/lib/report-participants-server";
@@ -89,6 +89,7 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
   if (!previousContext) try { selfContext = await loadProfileContext(owner,null,input.question || "关系偏好 沟通 边界",1800,false); } catch { selfContext = ""; }
   if (job && !previousContext) await job.checkpoint("context", {personContext,selfContext,selfMemoryStatus});
   const related = await readRelatedCaptureEvidence(db, owner, input, history, model);
+  if (job) await job.checkpoint("progress", {phase:"segments", completedImages:related.sourceCoverage.reduce((total, source) => total + source.imagesAnalyzed + source.imagesUnreadable, 0)});
   if (job && JSON.stringify(related.snapshots.filter(s=>s.libraryId!==input.libraryId)) !== JSON.stringify(job.manifest.related)) throw new CaptureFullHistoryError("分析期间朋友圈资料已更新，请重新核对后生成。",409);
   if(momentsOnly&&!related.supplementalRecords.length)throw new CaptureFullHistoryError("已读取全部动态，但目前没有可读配文或清晰图片；原始动态已保留，请补齐可读内容后再分析。",422);
   // A model segment can fail without discarding the statistics already computed
@@ -112,6 +113,13 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
     if (isCaptureJobControl(error)) throw error;
     semanticHistory = unavailableCaptureSemanticHistory(history.readable, momentsOnly?0:history.records.length, 0);
   }
+  // Revoked consent or changed sources are terminal, not provider retries.
+  await validateContext?.();
+  await assertCaptureSnapshotsCurrent(db, owner, related.snapshots);
+  // A paid global report is complete only after its verified interpretation.
+  // Retain checkpoints and refund on terminal failure instead of selling an
+  // evidence list with generic fallback advice as the finished report.
+  if (semanticHistory.status !== "complete") throw new CaptureJobRetry("完整判断尚未完成，正在继续处理；已完成的原文和图片解读会复用。");
   const modelComplete = semanticHistory.status === "complete" && semanticHistory.coverage.analyzedText === history.readable.length;
   for (const coverage of related.sourceCoverage) {
     coverage.textRead = coverage.kind === "chat" ? semanticHistory.coverage.analyzedText : semanticHistory.coverage.sources?.[coverage.libraryId]?.captions || 0;
