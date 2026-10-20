@@ -19,6 +19,14 @@ try{
  response=new Response(JSON.stringify({contacts:[],accountKey:'synthetic-account',message:'没有匹配联系人'}));
  assert.deepEqual((await exports.bridgeRequest('/contacts/search',{token:'synthetic-token',body:{query:'雅欣'},timeoutMs:45000})).contacts,[]);
  assert.equal(requests.at(-1).options.headers.Authorization,'Bearer synthetic-token');
+ response=new Response(JSON.stringify({status:'running',partialRevision:7}));
+ assert.equal((await exports.bridgeRequest('/jobs/fixture-job/since/7',{token:'synthetic-token'})).partialRevision,7);
+ assert.ok(requests.at(-1).url.endsWith('/jobs/fixture-job/since/7'));
+ const beforeInvalid=requests.length;
+ for(const path of ['/jobs/fixture-job/since/-1','/jobs/fixture-job/since/1?token=leak','/jobs/fixture-job/since/1/../../health']){
+  await assert.rejects(exports.bridgeRequest(path,{token:'synthetic-token'}));
+ }
+ assert.equal(requests.length,beforeInvalid,'malformed progress paths never send the session token');
  for(const {url,options} of requests){assert.ok(url.startsWith('http://127.0.0.1:17863/'));assert.equal(options.credentials,'omit');assert.equal(options.redirect,'error');assert.equal(options.targetAddressSpace,'loopback');assert.equal(options.mode,'cors');}
  assert.equal(requests[1].options.headers.Authorization,'Bearer synthetic-token');
  console.log('PASS desktop bridge client: structured/legacy readable errors, safe malformed fallback, existing local-network guidance and loopback request boundaries');

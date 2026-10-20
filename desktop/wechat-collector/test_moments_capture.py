@@ -197,13 +197,13 @@ class MomentsCaptureTests(unittest.TestCase):
         rows = [{"kind": "post", "sender": "好友", "senderRole": "other", "text": "合成动态"}]
         coverage = {"complete": True, "stopReason": "visible-end"}
         partials = []
-        source = SimpleNamespace(close=Mock())
+        source = SimpleNamespace(close=Mock(), assert_unchanged=Mock())
         def moments(*args, **kwargs):
             kwargs["on_rows"](rows, [], coverage)
             return rows, [], coverage
         with patch.dict(sys.modules, modules), patch("adapter._prepare_capture_ui"), patch("adapter._account", return_value=("visible_wechat_alias", "本人")) as account_read, \
              patch("adapter._open_moments_source", return_value=source), \
-             patch("adapter._resolve_moments_contact", return_value=("好友", "selected-id", "wxid_canonical")), \
+             patch("adapter._resolve_moments_contact", return_value=("好友", "selected-id", "wxid_canonical")) as resolve_contact, \
              patch("adapter._moments", side_effect=moments):
             batch = capture({"kind": "moments", "friend": "所选唯一标签", "contactId": "selected-id", "accountKey": "a" * 64, "limit": 2000, "allVisible": True}, lambda *args: None, partials.append)
         self.assertEqual(batch["account"], "wxid_canonical")
@@ -211,6 +211,8 @@ class MomentsCaptureTests(unittest.TestCase):
         self.assertEqual(batch["friend"], "所选唯一标签")
         self.assertEqual(account_read.call_count, 1, "in-progress and final checks must not close the album through open_my_profile")
         source.close.assert_called_once()
+        source.assert_unchanged.assert_called_once()
+        self.assertEqual(resolve_contact.call_count, 2, "full contact checks at entry and finish; progress verifies the same login without rescanning names")
         self.assertTrue(CollectorState(health_provider=lambda: {}).health()["capabilities"]["personBundle"])
 
     def run_album(self, count, limit=10, all_visible=True, no_focus=False, stuck_at=None, scroll_proof=True, through_capture=False, changed_at=None):

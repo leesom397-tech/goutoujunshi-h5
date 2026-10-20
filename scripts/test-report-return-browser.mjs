@@ -44,6 +44,10 @@ try{
   await page.waitForSelector("[data-report-return]");
   assert.equal(await page.$eval("[data-report-return]",el=>el.getAttribute("href")),"/report?id="+id+"&focus=affinity");
   assert.ok(await page.$eval("[data-report-return]",el=>el.getBoundingClientRect().top<innerHeight&&el.getBoundingClientRect().height>=44));
+  assert.ok(await page.$eval("[data-report-return]",el=>parseFloat(getComputedStyle(el).fontSize)>=16));
+  await page.evaluate(()=>{const spacer=document.createElement("div");spacer.style.height="1800px";spacer.dataset.syntheticLongConversation="true";document.querySelector("main").append(spacer);window.scrollTo({top:1200,behavior:"instant"});});
+  await page.waitForFunction(()=>scrollY>1000&&document.querySelector("[data-page-navigation]").getBoundingClientRect().top>=0);
+  assert.ok(await page.$eval("[data-report-return]",el=>{const box=el.getBoundingClientRect();return box.top>=0&&box.bottom<=100&&document.elementFromPoint(box.left+box.width/2,box.top+box.height/2)?.closest("[data-report-return]")===el;}),"return remains visible and clickable halfway down a conversation");
   await page.screenshot({path:`outputs/report-return/question-${width}.png`,fullPage:true});
   await page.click("[data-report-return]");
   await page.waitForFunction(id=>location.pathname==="/report"&&new URLSearchParams(location.search).get("id")===id,{},id);
@@ -58,6 +62,7 @@ try{
   await page.goto(origin+"/chat?context=return-fixture",{waitUntil:"networkidle0"});
   await page.waitForSelector('[data-account-state="ready"]');
   assert.equal(await page.$("[data-report-return]"),null,"another account cannot inherit the report link");
+  assert.equal(await page.$eval("[data-page-back]",el=>el.getAttribute("href")),"/workspace");
   assert.deepEqual(writes,[]);assert.deepEqual(errors,[]);
   assert.ok(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1));
   await context.close();

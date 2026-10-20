@@ -1,3 +1,4 @@
+import * as pricing from '../lib/analysis-pricing.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
@@ -73,7 +74,7 @@ const app = { async fetch(req, appEnv) {
   if (new URL(req.url).pathname === '/api/voice') return new Response('v=0\nm=audio', { headers: { 'Content-Type': 'application/sdp' } });
   return Response.json({ ok: true, report: 'owner-scoped report' });
 } };
-const mocks = {
+const mocks = {'./analysis-pricing.mjs':pricing,
   './saved-reports.mjs': savedReports,
   'cloudflare:workers': { DurableObject },
   '../dist/server/index.js': { default: app }, './dist/server/index.js': { default: app },
@@ -127,33 +128,33 @@ for (const alternate of ['/api/chat/', '/api//chat', '/%61pi/chat', '/api/ch%61t
 const screenshotId = crypto.randomUUID();
 for (let i = 0; i < 2; i++) assert.equal((await worker.fetch(request('/api/web/screenshot', { confirmed: true, requestId: screenshotId, image: 'test' }), env, ctx)).status, 200);
 assert.equal(calls.length, 1, 'web screenshot retries reuse the paid receipt');
-assert.equal((await credits.readCreditAccount(db, owner)).balance, 280);
+assert.equal((await credits.readCreditAccount(db, owner)).balance, 295);
 assert.equal((await worker.fetch(request('/api/web/screenshot', { confirmed: true, requestId: screenshotId, image: 'different' }), env, ctx)).status, 409);
 const oldChatId = crypto.randomUUID();
 for (let i = 0; i < 2; i++) assert.equal((await worker.fetch(request('/api/chat', { mode: 'reply', turns: [], requestId: oldChatId }), env, ctx)).status, 200);
 assert.equal(calls.length, 2, 'legacy retry uses the same ledger and never invokes the model twice');
-assert.equal((await credits.readCreditAccount(db, owner)).balance, 275);
+assert.equal((await credits.readCreditAccount(db, owner)).balance, 290);
 assert.equal((await worker.fetch(request('/api/chat', { turns: [] }, { Cookie: 'lt_next_session=bob_session_token_1234567890' }), env, ctx)).status, 403);
 for (const path of ['/api/chat', '/api/crush/quick', '/api/crush/rewrite', '/api/crush/screenshot', '/api/crush/card', '/api/import/analyze', '/api/import/transcribe', '/api/history/check', '/api/risk', '/api/profile/suggest', '/api/voice', '/api/voice/delegate', '/api/voice/summary']) assert.ok(billing.legacyCreditPolicy(path, 'POST'), path + ' must meter its provider work');
 for (const action of ['generate', 'save', 'invalid']) assert.equal(billing.legacyCreditPolicy('/api/positioning', 'POST', { action }), null, 'local positioning never reserves provider credits');
 for (const action of ['analyze', 'advice', 'enrichDistribution', 'refreshAffinity']) assert.ok(billing.legacyCreditPolicy('/api/crush', 'POST', { action }));
 for (const action of ['settings', 'imageMapping', 'quickJev', 'fullJev', 'affinity', 'enableAll']) assert.equal(billing.legacyCreditPolicy('/api/crush', 'POST', { action }), null);
 assert.equal(billing.legacyCreditPolicy('/api/chat', 'GET'), null);
-assert.deepEqual(billing.legacyCreditPolicy('/api/chat','POST',{turns:[{role:'user',image:'data:image/png;base64,AAAA'}]}),{feature:'analysis',amount:20},'image chat must require analysis permission and its analysis price');
+assert.deepEqual(billing.legacyCreditPolicy('/api/chat','POST',{turns:[{role:'user',image:'data:image/png;base64,AAAA'}]}),{feature:'analysis',amount:5},'image chat must require analysis permission and its analysis price');
 const voiceId = crypto.randomUUID();
 const voice = () => new Request(origin + '/api/voice', { method: 'POST', headers: { Cookie: cookie, Origin: origin, 'Content-Type': 'application/sdp', 'X-Request-Id': voiceId }, body: 'v=0\nm=audio' });
 assert.equal((await worker.fetch(voice(), env, ctx)).status, 200);
 assert.equal((await worker.fetch(voice(), env, ctx)).status, 409);
-assert.equal((await credits.readCreditAccount(db, owner)).balance, 255);
+assert.equal((await credits.readCreditAccount(db, owner)).balance, 270);
 
 const batchId = crypto.randomUUID(), batchPath = '/api/web/screenshot/batch';
-const upload = body => worker.fetch(request(batchPath, { ...body, taskId: batchId }), env, ctx);
+const upload = body => worker.fetch(request(batchPath, { ...body, taskId: batchId, ...(body.uploadAction==='init'?{priceConfirmation:pricing.screenshotPrice(body.imageCount)}:{}) }), env, ctx);
 assert.equal((await worker.fetch(request(batchPath, { taskId: batchId }, { 'X-Request-Id': crypto.randomUUID() }), env, ctx)).status, 409);
 assert.equal((await upload({ uploadAction: 'init', confirmed: true, imageCount: 2, selfSide: 'right', sessionId: crypto.randomUUID(), ownerId: 'forged-owner' })).status, 201);
 const saved = stores.get(owner).get('job:' + batchId);
 assert.equal(saved.ownerId, owner, 'caller cannot choose a different credit owner');
 assert.equal(saved.webCookie, cookie);
-assert.equal((await credits.readCreditAccount(db, owner)).balance, 235);
+assert.equal((await credits.readCreditAccount(db, owner)).balance, 260);
 assert.equal((await upload({ uploadAction: 'part', index: 0, image: 'data:image/jpeg;base64,AAAA' })).status, 200);
 assert.equal((await upload({ uploadAction: 'part', index: 1, image: 'data:image/jpeg;base64,BBBB' })).status, 200);
 assert.equal((await upload({ uploadAction: 'commit' })).status, 202);
@@ -167,15 +168,15 @@ assert.equal(terminal.webCookie, undefined, 'terminal jobs must erase credential
 assert.equal(terminal.authorization, undefined);
 assert.equal([...stores.get(owner).keys()].some(key => key.startsWith('upload:')), false, 'terminal jobs erase images');
 assert.equal(calls.slice(-2).every(call => call.path === '/api/web/screenshot' && call.headers.get('cookie') === cookie && call.headers.get('origin') === origin), true);
-assert.equal((await credits.readCreditAccount(db, owner)).balance, 235, 'batch callbacks must not charge each image again');
+assert.equal((await credits.readCreditAccount(db, owner)).balance, 260, 'batch callbacks must not charge each image again');
 const otherStatus = await worker.fetch(request(batchPath + '?taskId=' + batchId, undefined, { Cookie: 'lt_next_session=bob_session_token_1234567890' }), env, ctx);
 assert.equal(otherStatus.status, 404, 'another account cannot read the job');
 assert.equal(JSON.stringify(status).includes(token), false, 'credentials never appear in polling responses');
 const socialId = crypto.randomUUID();
-assert.equal((await worker.fetch(request('/api/web/social-profile', { confirmed: true, images: ['data:image/jpeg;base64,AAAA'], target: 'other' }, { 'X-Request-Id': socialId }), env, ctx)).status, 202);
+assert.equal((await worker.fetch(request('/api/web/social-profile', { confirmed: true, images: ['data:image/jpeg;base64,AAAA'], target: 'other',priceConfirmation:pricing.screenshotPrice(1) }, { 'X-Request-Id': socialId }), env, ctx)).status, 202);
 await objects.get(owner).alarm();
 assert.equal(calls.at(-1).path, '/api/web/social-profile');
-assert.equal((await credits.readCreditAccount(db, owner)).balance, 205);
+assert.equal((await credits.readCreditAccount(db, owner)).balance, 255);
 assert.equal(stores.get(owner).get('job:' + socialId).webCookie, undefined);
 
 // The same worker, ledger and DO callbacks also execute for an independent native account.
@@ -189,13 +190,13 @@ await credits.ensureCreditAccount(db,expectedOwner);
 await credits.adjustCredits(db,{id:crypto.randomUUID(),ownerId:expectedOwner,actorId:'admin',delta:50,reason:'客户购买'});
 await credits.setCreditPermissions(db,{id:crypto.randomUUID(),ownerId:expectedOwner,actorId:'admin',features:['analysis','chat','voice'],enabledUntil:Date.now()+86400000,reason:'客户开通'});
 const nativeTask=crypto.randomUUID();
-assert.equal((await worker.fetch(request('/api/web/social-profile',{confirmed:true,images:['data:image/jpeg;base64,AAAA'],target:'self',taskId:nativeTask},{Cookie:nativeCookie}),env,ctx)).status,202);
+assert.equal((await worker.fetch(request('/api/web/social-profile',{confirmed:true,images:['data:image/jpeg;base64,AAAA'],target:'self',taskId:nativeTask,priceConfirmation:pricing.screenshotPrice(1)},{Cookie:nativeCookie}),env,ctx)).status,202);
 assert.equal(stores.get(expectedOwner).get('job:'+nativeTask).webCookie,nativeCookie);
 await objects.get(expectedOwner).alarm();
 const nativeResult=await (await worker.fetch(request('/api/web/social-profile?taskId='+nativeTask,undefined,{Cookie:nativeCookie}),env,ctx)).json();
 assert.equal(nativeResult.status,'done');
 assert.equal(stores.get(expectedOwner).get('job:'+nativeTask).webCookie,undefined);
-assert.equal((await credits.readCreditAccount(db,expectedOwner)).balance,20);
+assert.equal((await credits.readCreditAccount(db,expectedOwner)).balance,45);
 sql.exec('CREATE TABLE IF NOT EXISTS coach_crush_budget (id TEXT PRIMARY KEY,uses INTEGER NOT NULL,expires_at INTEGER NOT NULL)');
 const voiceStatus=await worker.fetch(request('/api/web/voice-live/status',undefined,{Cookie:nativeCookie}),env,ctx);
 assert.equal(voiceStatus.status,200);assert.equal((await voiceStatus.json()).configured,false);

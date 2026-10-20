@@ -2,15 +2,15 @@
 // tab sessionStorage), expire with the original helper session, and are checked
 // via /session before reuse. Nothing is sent to the website server or localStorage.
 export const DESKTOP_BRIDGE = "http://127.0.0.1:17863";
-export type BridgeHealth = { version: string; ready: boolean; message?: string; uiReady?:boolean; uiCode?:string; uiMessage?:string; momentsMessage?:string; backgroundMessage?: string; backgroundStatus?: string; backgroundModelReady?: boolean; backgroundMaxRows?: number; backgroundPageSize?: number; momentsMaxRows?: number; capabilities: { chat: boolean; moments: boolean; uiCapturePreparation?:boolean; momentsAllVisible?: boolean; momentsContacts?: boolean; personBundle?: boolean; deferredVoice?: boolean; backgroundChat?: boolean; backgroundVoice?: boolean; backgroundVoiceById?: boolean; backgroundImagesById?: boolean; backgroundHistory?: boolean } };
+export type BridgeHealth = { version: string; ready: boolean; message?: string; uiReady?:boolean; uiCode?:string; uiMessage?:string; momentsMessage?:string; backgroundMessage?: string; backgroundStatus?: string; backgroundModelReady?: boolean; backgroundMaxRows?: number; backgroundPageSize?: number; momentsMaxRows?: number; capabilities: { chat: boolean; moments: boolean; contactPagination?:boolean; jobProgressRevision?:boolean; uiCapturePreparation?:boolean; momentsAllVisible?: boolean; momentsContacts?: boolean; personBundle?: boolean; deferredVoice?: boolean; backgroundChat?: boolean; backgroundVoice?: boolean; backgroundVoiceById?: boolean; backgroundImagesById?: boolean; backgroundHistory?: boolean } };
 export class BridgeError extends Error { constructor(message: string, public status=0, public code="") { super(message); } }
 export async function bridgeRequest<T>(path: string, options: { token?: string; body?: unknown; signal?: AbortSignal; timeoutMs?: number } = {}): Promise<T> {
-  if (!/^\/(?:health|session|pair(?:\/handoff)?|contacts\/search|capture|jobs\/[a-zA-Z0-9_-]+(?:\/cancel)?)$/.test(path)) throw Error("采集请求地址无效。");
+  if (!/^\/(?:health|session|pair(?:\/handoff)?|contacts\/search|capture|jobs\/[a-zA-Z0-9_-]+(?:\/cancel|\/since\/[0-9]{1,7})?)$/.test(path)) throw Error("采集请求地址无效。");
   if (typeof window !== "undefined" && !window.isSecureContext) throw Error("连接本机助手需要 HTTPS 网页，请从正式网站打开采集页。");
   const controller = new AbortController(), abort = () => controller.abort(options.signal?.reason);
   if (options.signal?.aborted) abort(); else options.signal?.addEventListener("abort", abort, { once: true });
   let timedOut = false;
-  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, Number.isFinite(options.timeoutMs) ? Math.min(60000, Math.max(1000, options.timeoutMs!)) : 12000);
+  const timer = setTimeout(() => { timedOut = true; controller.abort(); }, Number.isFinite(options.timeoutMs) ? Math.min(path === "/contacts/search" ? 90000 : 60000, Math.max(1000, options.timeoutMs!)) : 12000);
   let response: Response;
   try {
     const request: RequestInit & { targetAddressSpace?: "loopback" } = {

@@ -34,7 +34,7 @@ export async function POST(request: Request) {
   }
   const key = qwenKey();
   const workspaceId = qwenWorkspaceId();
-  if (!key || !workspaceId) return json({ error: "录音转写暂未开通：请配置百炼密钥和北京地域业务空间 ID。" }, 503);
+  if (!key || !workspaceId) return json({ error: "录音转写暂未开通，请联系客服。" }, 503);
   try {
     const dataUri = "data:" + audioFormat.mime + ";base64," + encodeBase64(new Uint8Array(await audio.arrayBuffer()));
     const response = await fetch("https://" + workspaceId + ".cn-beijing.maas.aliyuncs.com/api/v1/services/aigc/multimodal-generation/generation", {
@@ -48,8 +48,8 @@ export async function POST(request: Request) {
       }),
     });
     if (!response.ok) {
-      if (response.status === 401 || response.status === 403) return json({ error: "百炼密钥或业务空间无效。" }, 502);
-      if (response.status === 429) return json({ error: "千问转写当前繁忙，请稍后再试。" }, 429);
+      if (response.status === 401 || response.status === 403) return json({ error: "录音转写暂时无法连接，请联系客服。" }, 502);
+      if (response.status === 429) return json({ error: "录音转写当前繁忙，请稍后再试。" }, 429);
       return json({ error: "录音转写失败。请确认文件不超过 5 分钟，并检查格式。" }, 502);
     }
     const result = await response.json() as { output?: { text?: string; sentences?: Array<{ speaker_id?: number | null; text?: string; begin_time?: number; end_time?: number }> } };
@@ -63,5 +63,5 @@ export async function POST(request: Request) {
         end: Math.max(0, Number(item.end_time) || 0) / 1000,
       })),
     });
-  } catch { return json({ error: "千问录音服务连接失败，请稍后再试。" }, 502); }
+  } catch { return json({ error: "录音服务连接失败，请稍后再试。" }, 502); }
 }

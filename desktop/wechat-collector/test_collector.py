@@ -480,6 +480,21 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(cancelled["partialRevision"], 1)
         self.assertEqual(cancelled["partial"], interim["partial"])
         self.assertEqual(self.state.get(job_id)["partial"], interim["partial"])
+
+    def test_revision_progress_is_authenticated_and_final_does_not_duplicate_partial(self):
+        job_id, token = self.start_partial()
+        interim = self.wait_job(job_id, token, lambda job: job["partialRevision"] == 1)
+        self.assertIn("partial", interim)
+        path = "/jobs/" + job_id + "/since/1"
+        status, progress, _ = self.request("GET", path, headers=token)
+        self.assertEqual(status, 200)
+        self.assertNotIn("partial", progress)
+        self.assertEqual(self.request("GET", path)[0], 401)
+        self.wait_job(job_id, token, lambda job: job["status"] == "completed")
+        status, final, _ = self.request("GET", "/jobs/" + job_id + "/since/0", headers=token)
+        self.assertEqual(status, 200)
+        self.assertIn("result", final)
+        self.assertNotIn("partial", final)
         self.assertIsNone(self.state.active)
 
     def test_error_or_interruption_preserves_completed_partial(self):

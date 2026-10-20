@@ -10,7 +10,7 @@ const json = (data: unknown, status = 200) => Response.json(data, { status, head
 export async function POST(request: Request) {
   const user = await getChatGPTUser();
   if (!user) return json({ error: "请先登录后使用语音分析。" }, 401);
-  if (!qwenKey()) return json({ error: "百炼 API 密钥尚未配置。" }, 503);
+  if (!qwenKey()) return json({ error: "语音分析服务暂未开通，请联系客服。" }, 503);
   if (!request.headers.get("content-type")?.includes("application/json")) return json({ error: "请求格式不正确。" }, 415);
   if (Number(request.headers.get("content-length") || 0) > 12000) return json({ error: "语音问题过长。" }, 413);
   let body: { query?: unknown; mode?: unknown; subjectId?: unknown };
@@ -29,5 +29,5 @@ export async function POST(request: Request) {
       { role: "user", content: query },
     ], { fast: true, maxTokens: 550, timeoutMs: 30000 });
     return json({ text });
-  } catch (error) { return json({ error: qwenPublicError(error, "千问语音分析暂时不可用。") }, 502); }
+  } catch (error) { return json({ error: qwenPublicError(error, "语音分析暂时不可用，请稍后重试。") }, 502); }
 }

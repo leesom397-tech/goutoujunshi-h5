@@ -15,6 +15,7 @@ from normalize import VERSION
 from background_reader import (MAX_ROWS as BACKGROUND_MAX_ROWS, MAX_PAGE_SIZE,
                                HISTORY_FIELDS, BackgroundCaptureError, _validate_request)
 from pairing import CONNECTION_PAGE, HANDOFF_TTL, SESSION_TTL, WEB_ORIGIN
+from capture_transport import partial_message, expand_partial
 
 PORT = 17863
 ORIGINS = frozenset([WEB_ORIGIN] + [f"http://{host}:{port}" for host in ("localhost", "127.0.0.1") for port in (3000, 5173, 4173)])
@@ -42,10 +43,14 @@ def _capture_process(conn, request):
                 from background_reader import capture_background as capture
             else:
                 from adapter import capture
+            previous_partial = None
             def partial(batch):
-                if len(json.dumps(batch, ensure_ascii=False).encode("utf-8")) > MAX_RESULT:
+                nonlocal previous_partial
+                message = partial_message(previous_partial, batch)
+                if len(json.dumps(message, ensure_ascii=False).encode("utf-8")) > MAX_RESULT:
                     raise ValueError("RESULT_TOO_LARGE")
-                conn.send({"type": "partial", "partial": batch})
+                conn.send(message)
+                previous_partial = {**batch, "records": list(batch.get("records", []))}
             def emit_progress(value, message, **meta):
                 conn.send({"type": "progress", "progress": value, "message": message, **meta})
             result = capture(request, emit_progress, on_partial=partial)
@@ -87,6 +92,8 @@ class CollectorState:
         self.capture_target = capture_target or _capture_process
         self.local_message = "等待网页连接"
         self.closing = False
+        from local_database_source import ContactSourceCache
+        self.contact_cache = ContactSourceCache()
 
     def health(self):
         from compatibility import compatibility_probe
@@ -108,6 +115,8 @@ class CollectorState:
                                 backgroundContacts=bool(background.get("ready")))
         capabilities["backgroundHistory"] = bool(capabilities.get("backgroundChat"))
         capabilities["backgroundImagesById"] = bool(capabilities.get("backgroundChat"))
+        capabilities["contactPagination"] = True
+        capabilities["jobProgressRevision"] = True
         result = {"version": VERSION, "protocol": 1, **health, "capabilities": capabilities}
         ui_message = health.get("message")
         ui_message = ui_message.strip()[:500] if isinstance(ui_message, str) else ""
@@ -153,6 +162,7 @@ class CollectorState:
         with self.lock:
             self.handoff_digest = b""
             self.handoff_created = 0
+            self.contact_cache.clear()
 
     def _pair_rate_limit(self, now):
         self.pair_failures = [t for t in self.pair_failures if now - t < 60]
@@ -207,6 +217,8 @@ class CollectorState:
         with self.lock:
             remaining = SESSION_TTL - (time.monotonic() - self.token_created)
             if not self.token or remaining <= 0 or origin != self.origin:
+                if remaining <= 0:
+                    self.contact_cache.clear()
                 raise BridgeError(401, "PAIR_REQUIRED", "请先连接本机助手。")
             if not isinstance(authorization, str) or not hmac.compare_digest(authorization.encode("utf-8"), ("Bearer " + self.token).encode("ascii")):
                 raise BridgeError(401, "TOKEN_INVALID", "连接已失效，请重新连接本机助手。")
@@ -219,12 +231,15 @@ class CollectorState:
         for job in completed[:-3]:
             self.jobs.pop(job["jobId"], None)
 
-    def search_contacts(self, query):
-        if not isinstance(query, str) or not query.strip() or len(query) > 100 or re.search(r"[\x00-\x1f]", query):
-            raise BridgeError(400, "INVALID_CONTACT_QUERY", "请输入联系人昵称或备注中的文字。")
+    def search_contacts(self, query, offset=0, account_key=None, refresh=False):
+        from background_reader import validate_contact_search
+        try:
+            validate_contact_search(query, offset, account_key, refresh)
+        except BackgroundCaptureError as error:
+            raise BridgeError(400, error.code, error.message) from None
         try:
             from background_reader import search_contacts
-            return search_contacts(query)
+            return search_contacts(query, offset, account_key, cache=self.contact_cache, refresh=refresh)
         except BackgroundCaptureError as error:
             raise BridgeError(409, error.code, error.message) from None
         except Exception:
@@ -337,14 +352,21 @@ class CollectorState:
                                        pinnedCount=int(msg.get("pinnedCount", job.get("pinnedCount", 0)) or 0),
                                        lastAction=str(msg.get("lastAction") or job.get("lastAction") or "")[:80],
                                        message=str(msg.get("message", ""))[:100])
-                        elif msg.get("type") == "partial":
-                            coverage = msg["partial"].get("coverage", {}) or {}
-                            job.update(partial=msg["partial"], partialRevision=job.get("partialRevision", 0) + 1,
+                        elif msg.get("type") in ("partial", "partial-delta"):
+                            try:
+                                partial = expand_partial(job.get("partial"), msg)
+                            except (ValueError, KeyError, TypeError):
+                                message = "采集进度来源不一致，已保留先前原文，请重新连接后继续。"
+                                job.update(status="failed", message=message,
+                                           error={"code": "PARTIAL_SOURCE_CHANGED", "message": message})
+                                return
+                            coverage = partial.get("coverage", {}) or {}
+                            job.update(partial=partial, partialRevision=job.get("partialRevision", 0) + 1,
                                        phase=str(coverage.get("phase") or job.get("phase") or "reading")[:50],
-                                       recordCount=int(coverage.get("recordCount", len(msg["partial"].get("records", []))) or 0),
+                                       recordCount=int(coverage.get("recordCount", len(partial.get("records", []))) or 0),
                                        pinnedCount=int(coverage.get("pinnedCount", job.get("pinnedCount", 0)) or 0),
                                        lastAction=str(coverage.get("lastAction") or job.get("lastAction") or "")[:80],
-                                       message=(f"已读取 {len(msg['partial'].get('records', []))} 条朋友圈，继续查找更早动态…"
+                                       message=(f"已读取 {len(partial.get('records', []))} 条朋友圈，继续查找更早动态…"
                                                 if job.get("kind") == "moments" else "文字已导入，正在补全语音…可随时停止。"))
                         elif msg.get("type") == "result":
                             if job.get("kind") == "moments" and not msg["result"].get("records"):
@@ -407,12 +429,21 @@ class CollectorState:
                     self.active = None
                 self.local_message = "采集结束；原文仅暂存在本机内存，等待网页操作"
 
-    def get(self, job_id):
+    def get(self, job_id, after_revision=None):
         with self.lock:
             self._prune()
             if job_id not in self.jobs:
                 raise BridgeError(404, "JOB_NOT_FOUND", "任务不存在或已过期。")
-            return {key: value for key, value in self.jobs[job_id].items() if key not in ("process", "updated")}
+            job = self.jobs[job_id]
+            result = {key: value for key, value in job.items() if key not in ("process", "updated")}
+            if after_revision is not None:
+                if type(after_revision) is not int or not 0 <= after_revision <= 1_000_000:
+                    raise BridgeError(400, "INVALID_REVISION", "采集进度编号无效。")
+                # The browser ACKs only after saving the partial. Old clients
+                # retain their full snapshot contract; a reconnect starts at 0.
+                if after_revision == job.get("partialRevision", 0) or job.get("result") is not None:
+                    result.pop("partial", None)
+            return result
 
     def cancel(self, job_id):
         with self.lock:
@@ -554,14 +585,21 @@ def server_for(state, port=PORT):
                     return self._send(200, session)
                 if method == "POST" and path == "/contacts/search":
                     body = self._body()
-                    if set(body) != {"query"}:
-                        raise BridgeError(400, "INVALID_REQUEST", "联系人搜索只接受查询文字。")
-                    return self._send(200, state.search_contacts(body["query"]))
+                    if "query" not in body or set(body) - {"query", "offset", "accountKey", "refresh"}:
+                        raise BridgeError(400, "INVALID_REQUEST", "联系人搜索参数无效。")
+                    result = state.search_contacts(body["query"], **{
+                        {"offset": "offset", "accountKey": "account_key", "refresh": "refresh"}[key]: body[key]
+                        for key in ("offset", "accountKey", "refresh") if key in body})
+                    state.authorize(self.origin, self.headers.get("Authorization"))
+                    return self._send(200, result)
                 if method == "POST" and path == "/capture":
                     return self._send(202, state.start(self._body()))
                 matched = re.fullmatch(r"/jobs/([A-Za-z0-9_-]{24})(/cancel)?", path)
                 if matched and method == "GET" and not matched[2]:
                     return self._send(200, state.get(matched[1]))
+                progress = re.fullmatch(r"/jobs/([A-Za-z0-9_-]{24})/since/([0-9]{1,7})", path)
+                if progress and method == "GET":
+                    return self._send(200, state.get(progress[1], int(progress[2])))
                 if matched and method == "POST" and matched[2]:
                     self._body()
                     return self._send(200, state.cancel(matched[1]))

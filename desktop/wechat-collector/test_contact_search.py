@@ -84,6 +84,47 @@ class ContactSearchTests(unittest.TestCase):
         self.assertEqual(result["contacts"], [])
         self.assertIn("没有找到", result["message"])
 
+    def test_name_matches_precede_public_alias_and_internal_id(self):
+        source = Source()
+        source.contact.execute("ALTER TABLE contact ADD COLUMN alias TEXT")
+        for index in range(50):
+            source.contact.execute("INSERT INTO contact VALUES(?,?,?,?)",
+                                   (f"au-internal-{index}", f"Another {index}", "", ""))
+        for row in (("best", "aU", "", ""), ("remark", "Different", "AU", ""),
+                    ("audrey", "Audrey", "", ""), ("prefix-remark", "", "Audrey备注", ""),
+                    ("contained", "Hello Audrey", "", ""), ("public", "Zulu", "", "au")):
+            source.contact.execute("INSERT INTO contact VALUES(?,?,?,?)", row)
+        result = search_contacts_from_source("Au", source)
+        self.assertEqual([row["contactId"] for row in result["contacts"][:6]],
+                         ["remark", "best", "prefix-remark", "audrey", "contained", "public"])
+        self.assertTrue(result["hasMore"])
+        self.assertEqual(result["nextOffset"], 20)
+
+    def test_pages_are_complete_stable_and_bound_to_account(self):
+        def make():
+            source = Source()
+            for index in range(47):
+                source.contact.execute("INSERT INTO contact VALUES(?,?,?)",
+                                       (f"page-{index:03}", f"Audrey {index:03}", ""))
+            return source
+        first = search_contacts_from_source("au", make())
+        second = search_contacts_from_source("au", make(), 20, first["accountKey"])
+        third = search_contacts_from_source("au", make(), 40, first["accountKey"])
+        rows = first["contacts"] + second["contacts"] + third["contacts"]
+        self.assertEqual(len(rows), 47)
+        self.assertEqual(len({row["contactId"] for row in rows}), 47)
+        self.assertEqual((second["nextOffset"], third["nextOffset"], third["hasMore"]), (40, None, False))
+        for offset, key, code in ((1, first["accountKey"], "INVALID_CONTACT_OFFSET"),
+                                  (True, None, "INVALID_CONTACT_OFFSET"),
+                                  (20, None, "INVALID_ACCOUNT_KEY"),
+                                  (20, "0" * 64, "ACCOUNT_CHANGED")):
+            source = make()
+            source.contacts = lambda: self.fail("invalid page opened contact query")
+            with self.assertRaises(BackgroundCaptureError) as error:
+                search_contacts_from_source("au", source, offset, key)
+            self.assertEqual(error.exception.code, code)
+            self.assertTrue(source.closed)
+
     def test_selected_id_and_account_are_checked_before_reading_messages(self):
         source = Source()
         source.contact.execute("UPDATE contact SET nick_name='ᨳ雅欣ଓ',remark='' WHERE username='target-user'")
@@ -187,6 +228,17 @@ class ContactSearchHttpTests(unittest.TestCase):
         with patch.object(self.state, "search_contacts", side_effect=OSError("synthetic transport failure")):
             status, result = self.request({"query": "雅欣"}, token)
         self.assertEqual((status, result["error"]["code"]), (503, "COLLECTOR_FAILED"))
+
+    def test_paged_search_http_schema_and_capability(self):
+        token = self.state.pair(WEB_ORIGIN, self.state.code)["token"]
+        expected = {"contacts": [], "accountKey": "a" * 64, "hasMore": False, "nextOffset": None}
+        with patch.object(self.state, "search_contacts", return_value=expected) as search:
+            self.assertEqual(self.request({"query": "Au", "offset": 20, "accountKey": "a" * 64}, token), (200, expected))
+            search.assert_called_once_with("Au", offset=20, account_key="a" * 64)
+        self.assertTrue(self.state.health()["capabilities"]["contactPagination"])
+        for body in ({"query": "Au", "offset": 20}, {"query": "Au", "offset": -20},
+                     {"query": "Au", "refresh": "yes"}, {"query": "Au", "offset": 20, "accountKey": "a" * 64, "refresh": True}):
+            self.assertEqual(self.request(body, token)[0], 400)
 
 
 if __name__ == "__main__":

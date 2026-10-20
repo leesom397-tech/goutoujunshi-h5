@@ -16,8 +16,8 @@ function selection(request: Request) {
 // Session policy is returned only to an authenticated user; the API key is never sent to the browser.
 export async function GET(request: Request) {
   if (!await getChatGPTUser()) return json({ error: "请先登录后使用语音。" }, 401);
-  if (!qwenKey()) return json({ error: "双工语音尚未开通：站点所有者需要配置阿里云百炼 API 密钥。" }, 503);
-  if (!qwenWorkspaceId()) return json({ error: "双工语音尚未配置百炼业务空间 ID。" }, 503);
+  if (!qwenKey()) return json({ error: "语音交流暂未开通，请联系客服。" }, 503);
+  if (!qwenWorkspaceId()) return json({ error: "语音交流暂未就绪，请联系客服。" }, 503);
   const { subjectId } = selection(request);
   if (subjectId && subjectId.length > 100) return json({ error: "对象无效。" }, 400);
   const voiceId = (env as { QWEN_VOICE_ID?: string }).QWEN_VOICE_ID || process.env.QWEN_VOICE_ID;
@@ -39,7 +39,7 @@ export async function GET(request: Request) {
         type: "function",
         function: {
           name: "analyze_relationship",
-          description: "在需要过往档案、较长关系事件、对象适配或重要关系决策时调用。普通接话与简单追问直接回答，不必调用。由千问文本模型结合知识库和用户确认的档案分析。",
+          description: "在需要过往档案、较长关系事件、对象适配或重要关系决策时调用。普通接话与简单追问直接回答，不必调用。结合知识库和用户确认的档案分析。",
           parameters: {
             type: "object",
             properties: { query: { type: "string", description: "用户刚说的完整问题及关键事实，中文，勿杜撰。" } },
@@ -54,14 +54,14 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   if (!await getChatGPTUser()) return json({ error: "请先登录后使用语音。" }, 401);
   const key = qwenKey();
-  if (!key) return json({ error: "双工语音尚未开通：站点所有者需要配置阿里云百炼 API 密钥。" }, 503);
+  if (!key) return json({ error: "语音交流暂未开通，请联系客服。" }, 503);
   const { subjectId } = selection(request);
   if (subjectId && subjectId.length > 100) return json({ error: "对象无效。" }, 400);
   if (!request.headers.get("content-type")?.includes("application/sdp")) return json({ error: "语音请求格式不正确。" }, 415);
   const sdp = await request.text();
   if (!sdp || sdp.length > 200_000 || !sdp.includes("m=audio")) return json({ error: "语音连接请求无效。" }, 400);
   const workspaceId = qwenWorkspaceId();
-  if (!workspaceId) return json({ error: "双工语音尚未配置百炼业务空间 ID。" }, 503);
+  if (!workspaceId) return json({ error: "语音交流暂未就绪，请联系客服。" }, 503);
   const endpoint = "https://" + workspaceId + ".cn-beijing.maas.aliyuncs.com/api/v1/webrtc/realtime?model=qwen-audio-3.1-realtime-plus";
   try {
     const response = await fetch(endpoint, {
@@ -71,9 +71,9 @@ export async function POST(request: Request) {
       signal: AbortSignal.timeout(20000),
     });
     if (!response.ok) {
-      if (response.status === 401 || response.status === 403) return json({ error: "百炼密钥或业务空间配置无效。" }, 502);
-      return json({ error: "千问语音服务暂时无法建立连接，请稍后重试。" }, 502);
+      if (response.status === 401 || response.status === 403) return json({ error: "语音服务暂时无法连接，请联系客服。" }, 502);
+      return json({ error: "语音交流暂时无法建立连接，请稍后重试。" }, 502);
     }
     return new Response(await response.text(), { headers: { "Content-Type": "application/sdp", ...noStore } });
-  } catch { return json({ error: "千问语音连接超时，请稍后重试。" }, 502); }
+  } catch { return json({ error: "语音连接超时，请稍后重试。" }, 502); }
 }

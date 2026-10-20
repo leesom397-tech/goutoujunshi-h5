@@ -16,8 +16,11 @@ let count=0, release;const id=crypto.randomUUID();
 const pending=creditResponse(db,owner,request(id),'chat',5,async()=>{count++;await new Promise(r=>release=r);return Response.json({answer:'测试回答'});});
 while(!release)await new Promise(r=>setTimeout(r,1));
 assert.equal((await creditResponse(db,owner,request(id),'chat',5,()=>{assert.fail('duplicate execution');})).status,409);
+const repricedPending=await creditResponse(db,owner,request(id),'chat',70,()=>assert.fail('price update cannot restart a running task'));
+assert.equal(repricedPending.status,409);assert.equal((await repricedPending.json()).code,'CREDIT_PROCESSING');
 release();assert.equal((await pending).status,200);
 assert.deepEqual(await (await creditResponse(db,owner,request(id),'chat',5,()=>assert.fail('replayed model'))).json(),{answer:'测试回答'});
+assert.deepEqual(await (await creditResponse(db,owner,request(id),'chat',70,()=>assert.fail('repriced receipt cannot rerun'))).json(),{answer:'测试回答'});
 assert.equal(count,1);assert.equal((await readCreditAccount(db,owner)).balance,95);
 for(const status of [400,422,429,503]){
   const failed=crypto.randomUUID();

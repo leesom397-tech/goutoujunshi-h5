@@ -16,7 +16,7 @@ const json = (data: unknown, status = 200) => Response.json(data, { status, head
 export async function POST(request: Request) {
   const user = await getChatGPTUser();
   if (!user) return json({ error: "请先登录后使用智能分析。" }, 401);
-  if (!qwenKey()) return json({ error: "智能分析还未开通。站点所有者需要配置百炼 API 密钥。" }, 503);
+  if (!qwenKey()) return json({ error: "成子分析服务暂未开通，请联系客服。" }, 503);
   if (!request.headers.get("content-type")?.includes("application/json")) return json({ error: "请求格式不正确。" }, 415);
   if (Number(request.headers.get("content-length") || 0) > 8_000_000) return json({ error: "图片过大，请换一张小图。" }, 413);
   let body: { mode?: Mode; turns?: Turn[]; subjectId?: string | null };

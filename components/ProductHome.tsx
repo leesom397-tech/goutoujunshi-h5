@@ -1,34 +1,18 @@
 "use client";
-import { useRef, type ReactNode, type MouseEvent } from "react";
-import { ArrowUpRight, ArrowRight, MessageCircle, BookOpen, ScanLine, Images, ScanFace, AudioLines, Users, Heart, Download, ChevronDown } from "lucide-react";
+import { type ReactNode } from "react";
+import { ArrowUpRight, ArrowRight, MessageCircle, BookOpen, ScanLine, Images, Heart, ChevronDown } from "lucide-react";
 import { knowledgeManifest, knowledgeVolume } from "@/lib/knowledge-public";
 import { knowledgeOrigin } from "@/lib/knowledge-origins";
 import { GlassStudy } from "./GlassStudy";
 import { RELATIONSHIP_ANALYSIS_LABEL } from "@/lib/product-labels";
 import styles from "./ProductHome.module.css";
 const features = [
-  { href: "/analyze?mode=chat&focus=affinity", icon: Heart, title: "好感探测器", text: "看好感信号与判断依据" },
-  { href: "/analyze?mode=chat", icon: ScanLine, title: "截图分析", text: "逐句看意图，帮你想回复" },
-  { href: "/chat", icon: MessageCircle, title: "问成子", text: "直接问眼前的困惑" },
-  { href: "/analyze?mode=moments", icon: Images, title: "朋友圈分析", text: "了解日常与兴趣" },
-  { href: "/analyze?mode=social", icon: ScanFace, title: "社交主页", text: "看看共同话题" },
-  { href: "/voice", icon: AudioLines, title: "语音交流", text: "说说你的困惑" },
-  { href: "/archive", icon: Users, title: "人物档案", text: "追踪关系变化" },
-  { href: "/support", icon: Download, title: "帮助与下载", text: "下载或更新微信助手" },
+  { href: "/analyze?mode=chat&focus=affinity", icon: Heart, title: "好感探测器", text: "TA 的态度，原话有线索", choices: [{label:"开始探测",href:"/analyze?mode=chat&focus=affinity"}] },
+  { href: "/analyze?mode=chat", icon: ScanLine, title: "聊天解读", text: "逐句看意图，帮你想回复", choices: [{label:"上传截图",href:"/analyze?mode=chat"},{label:"导入录屏",href:"/capture?kind=chat&method=video"}] },
+  { href: "/analyze?mode=moments", icon: Images, title: "朋友圈与主页", text: "看生活线索，找共同话题", choices: [{label:"朋友圈",href:"/analyze?mode=moments"},{label:"社交主页",href:"/analyze?mode=social"}] },
+  { href: "/chat", icon: MessageCircle, title: "问成子", text: "有困惑，直接聊", choices: [{label:"文字提问",href:"/chat"},{label:"语音交流",href:"/voice"}] },
 ];
 export function ProductHome({ onStart, signedIn = false, afterHero }: { onStart: (href: string) => void; signedIn?: boolean; afterHero?: ReactNode }) {
-  const tools = useRef<HTMLElement>(null);
-  function showTools(event: MouseEvent<HTMLAnchorElement>) {
-    if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.button !== 0 || !tools.current) return;
-    event.preventDefault();
-    event.stopPropagation();
-    // Keep this an in-page action. Updating router-managed history here can
-    // restore the old scroll position after a keyboard or repeat activation.
-    tools.current.focus({ preventScroll: true });
-    // Keep focus and position together. Competing keyboard focus scrolls can
-    // cancel a smooth animation and leave this apparently unresponsive.
-    tools.current.scrollIntoView({ block: "start", behavior: "instant" });
-  }
   return <div className={styles.page}>
     <section className={styles.hero}>
       <div className={styles.heroCopy}>
@@ -37,18 +21,21 @@ export function ProductHome({ onStart, signedIn = false, afterHero }: { onStart:
         <p className={styles.heroDescription}>从一句聊天，到一段关系。</p>
         <div className={styles.actions}>
           <button type="button" data-home-start className={styles.startButton} onClick={() => onStart("/relationship")}>{RELATIONSHIP_ANALYSIS_LABEL}<ArrowRight size={20}/></button>
-          <a className={styles.moreButton} href="#home-more-ways" onClick={showTools}>更多方式<ChevronDown size={18}/></a>
+          <details className={styles.moreMenu} data-home-more>
+            <summary className={styles.moreButton}>更多方式<ChevronDown size={18}/></summary>
+            <nav className={styles.quickChoices} aria-label="更多方式快捷入口">{features.map(({href,icon:Icon,title,text})=><a href={href} key={href}><Icon size={22}/><span><strong>{title}</strong><small>{text}</small></span><ArrowRight size={17}/></a>)}</nav>
+          </details>
         </div>
       </div>
       <div className={styles.art}><GlassStudy/></div>
     </section>
     {afterHero}
     <KnowledgeEvidence/>
-    <section ref={tools} id="home-more-ways" className={styles.tools} aria-labelledby="home-more-title" tabIndex={-1}>
+    <section id="home-more-ways" className={styles.tools} aria-labelledby="home-more-title">
       <header><h2 id="home-more-title">更多方式</h2></header>
-      <nav className={styles.grid} aria-label="选择分析或交流方式">{features.map(({href,icon:Icon,title,text})=><a className={styles.tool} data-feature-entry href={href} key={href}><span className={styles.icon}><Icon size={23} strokeWidth={1.6}/></span><span className={styles.toolCopy}><strong>{title}</strong><span>{text}</span></span><ArrowUpRight className={styles.toolArrow} size={18}/></a>)}</nav>
+      <div className={styles.grid} aria-label="选择分析或交流方式">{features.map(({href,icon:Icon,title,text,choices})=><article className={styles.tool} key={href}><a className={styles.toolMain} data-feature-entry href={href}><span className={styles.icon}><Icon size={23} strokeWidth={1.6}/></span><span className={styles.toolCopy}><strong>{title}</strong><span>{text}</span></span><ArrowUpRight className={styles.toolArrow} size={18}/></a><nav className={styles.toolChoices} aria-label={`${title}的使用方式`}>{choices.map(choice=><a key={choice.href} href={choice.href}>{choice.label}<ArrowUpRight size={14}/></a>)}</nav></article>)}</div>
     </section>
-    <nav className={styles.utilities} aria-label="更多信息"><a href="/archive?tab=self">我的资料<ArrowUpRight size={14}/></a><a href="/library">资料与依据<ArrowUpRight size={14}/></a><a href="/support">帮助与下载<ArrowUpRight size={14}/></a>{!signedIn && <a href="/login?return_to=%2Fworkspace">登录</a>}</nav>
+    <nav className={styles.utilities} aria-label="更多信息"><a href="/archive?tab=self">我的资料<ArrowUpRight size={14}/></a><a href="/library">资料与依据<ArrowUpRight size={14}/></a>{!signedIn && <a href="/login?return_to=%2Fworkspace">登录</a>}</nav>
   </div>;
 }
 export function KnowledgeEvidence() {

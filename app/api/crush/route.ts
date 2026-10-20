@@ -42,7 +42,7 @@ export async function POST(request:Request){
       const settings=await getSettings(owner);
       if(!settings?.consent_at)throw new CrushError("请先开启聊天解读。",403);
       const enabled=body.enabled===true,side=body.selfSide;
-      if(enabled&&(body.allowImageProcessing!==true||!["right","left"].includes(String(side))))throw new CrushError("请单独同意图片发给阿里云百炼，并确认本人单聊截图哪侧是你。",403);
+      if(enabled&&(body.allowImageProcessing!==true||!["right","left"].includes(String(side))))throw new CrushError("请确认截图处理授权，并确认本人单聊截图哪侧是你。",403);
       const now=Date.now();
       await getD1().prepare("UPDATE coach_crush_settings SET image_consent_at=?,image_self_side=?,updated_at=? WHERE owner_id=? AND consent_at IS NOT NULL").bind(enabled?now:null,enabled?String(side):"ask",now,owner).run();
       if(!enabled)await getD1().prepare("UPDATE coach_crush_threads SET image_pending='{}',image_pending_expires_at=0 WHERE owner_id=?").bind(owner).run();
@@ -53,7 +53,7 @@ export async function POST(request:Request){
       const provider=body.provider==="jev"?"jev":"qwen";
       if(provider==="jev"&&(!classifierStatus().jev||body.allowJev!==true))throw new CrushError("第三方快判断尚未接通，或你还未确认允许它处理聊天文字。",403);
       const quickJev=body.quickJevConsent===true&&body.allowJev===true;
-      if(quickJev&&!classifierStatus().jev)throw new CrushError("快判断服务暂未接通，请先使用千问文字解读。",503);
+      if(quickJev&&!classifierStatus().jev)throw new CrushError("快判断服务暂未接通，请先使用文字解读。",503);
       const now=Date.now();
       await getD1().prepare("INSERT INTO coach_crush_settings (owner_id, consent_at, jev_consent_at, affinity_consent_at, provider, updated_at) VALUES (?, ?, ?, NULL, ?, ?) ON CONFLICT(owner_id) DO UPDATE SET consent_at = excluded.consent_at, jev_consent_at = excluded.jev_consent_at, affinity_consent_at = NULL, provider = excluded.provider, updated_at = excluded.updated_at").bind(owner,now,provider==="jev"||quickJev?now:null,provider,now).run();
       return json({ok:true});

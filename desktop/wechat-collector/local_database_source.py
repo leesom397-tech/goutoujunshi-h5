@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 import re
 import struct
+import threading
 import time
 import uuid
 
@@ -339,11 +340,11 @@ def _contact_files(root):
     return found
 
 
-def _needed_database_files(account_dir):
+def _needed_database_files(account_dir, *, contacts_only=False):
     """Only headers of this uniquely proven account's required shared stores."""
     base = (Path(account_dir) / "db_storage").resolve()
     files = [("contact/contact.db", base / "contact" / "contact.db")]
-    for path in sorted((base / "message").glob("*.db")):
+    for path in (() if contacts_only else sorted((base / "message").glob("*.db"))):
         if re.fullmatch(r"(?:message|media)_\d+\.db", path.name):
             files.append(("message/" + path.name, path))
     if len(files) > 129:
@@ -361,10 +362,10 @@ def _needed_database_files(account_dir):
     return result
 
 
-def _extract_current_account_keys(account_dir, proof, deadline):
+def _extract_current_account_keys(account_dir, proof, deadline, *, contacts_only=False):
     """WCDB 4.1.13+ raw keys, fixed live PID; no key files or broad DB queries."""
     primitive = _primitives()
-    files = _needed_database_files(account_dir)
+    files = _needed_database_files(account_dir, contacts_only=True) if contacts_only else _needed_database_files(account_dir)
     _verify_login(proof)
 
     class ScopedReader(primitive.ConfigKeyReader):
@@ -585,7 +586,7 @@ class LocalDatabaseSource:
         self.login_proof = {}
 
 
-def open_authorized_source():
+def open_authorized_source(*, contacts_only=False):
     state = probe_authorized_source()
     if not state["ready"]:
         raise _fail("BACKGROUND_SOURCE_UNAVAILABLE", state.get("message") or "当前电脑尚不支持本机后台读取。")
@@ -634,10 +635,127 @@ def open_authorized_source():
     _verify_login(proof)
     keys = None
     if contact_key is None:
-        keys = _extract_current_account_keys(account_dir, proof, deadline)
+        keys = (_extract_current_account_keys(account_dir, proof, deadline, contacts_only=True)
+                if contacts_only else _extract_current_account_keys(account_dir, proof, deadline))
         contact_key = keys.get("contact/contact.db")
         if contact_key is None:
             raise _fail("DATABASE_KEY_UNAVAILABLE", "当前微信数据库密钥无法通过本机校验，本次未读取聊天。")
         master = None
     _verify_login(proof)
-    return LocalDatabaseSource(account_dir, contact_key, proof, master, keys, image_cfg_dword=image_cfg_dword)
+    source = LocalDatabaseSource(account_dir, contact_key, proof, None if contacts_only else master,
+                                 None if contacts_only else keys,
+                                 image_cfg_dword=None if contacts_only else image_cfg_dword)
+    source.login_processes = tuple(process_identity)
+    return source
+
+
+class _ContactCredentials:
+    """Short-lived contact-only credential; no master, image key, or open VFS."""
+    def __init__(self, source):
+        self.account_dir = source.account_dir
+        self.proof = dict(source.login_proof)
+        self.processes = tuple(source.login_processes)
+        self.key = bytearray(source.keys["contact/contact.db"])
+
+    def close(self):
+        self.key[:] = b"\0" * len(self.key)
+        self.key.clear()
+        self.proof.clear()
+        self.processes = ()
+
+    def __repr__(self):
+        return "<ContactCredentials redacted>"
+
+
+class ContactSourceCache:
+    """Reuses contact credentials for 120s; every query opens a fresh snapshot.
+
+    Capture's sealed source is never reused. Fresh EncryptedSnapshot instances
+    authenticate DB pages and the full committed WAL, then the query verifies
+    the live login again. Revocation is nonblocking and invalidates in-flight
+    results without holding the bridge/health lock during a database operation.
+    """
+    TTL_SECONDS = 120
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._operation = threading.Lock()
+        self._credentials = None
+        self._expires = 0
+        self._timer = None
+        self._generation = 0
+
+    def _discard_locked(self):
+        if self._timer is not None:
+            self._timer.cancel()
+            self._timer = None
+        if self._credentials is not None:
+            self._credentials.close()
+            self._credentials = None
+        self._expires = 0
+
+    def clear(self):
+        with self._lock:
+            self._generation += 1
+            self._discard_locked()
+
+    def _expire(self, credentials):
+        with self._lock:
+            if self._credentials is credentials:
+                self._discard_locked()
+
+    def run(self, read, *, refresh=False):
+        if not self._operation.acquire(blocking=False):
+            raise _fail("CONTACT_SEARCH_BUSY", "正在准备联系人，请稍等当前搜索完成。")
+        source = None
+        pending = None
+        try:
+            if refresh:
+                self.clear()
+            with self._lock:
+                generation = self._generation
+                if self._expires <= time.monotonic():
+                    self._discard_locked()
+                cached = self._credentials
+                # Copies are local to this operation and never cross sessions.
+                material = ((cached.account_dir, bytes(cached.key), dict(cached.proof), cached.processes)
+                            if cached is not None else None)
+            if material is not None:
+                account_dir, key, proof, processes = material
+                if tuple(_running_processes()) != processes:
+                    raise _fail("ACCOUNT_CHANGED", "微信登录状态发生变化，请重新搜索联系人。")
+                _verify_login(proof)
+                source = LocalDatabaseSource(account_dir, key, proof, None)
+            else:
+                source = open_authorized_source(contacts_only=True)
+                if tuple(_running_processes()) != source.login_processes:
+                    raise _fail("ACCOUNT_CHANGED", "微信登录状态发生变化，请重新搜索联系人。")
+                _verify_login(source.login_proof)
+                pending = _ContactCredentials(source)
+                processes = pending.processes
+            result = read(source)
+            if tuple(_running_processes()) != processes:
+                raise _fail("ACCOUNT_CHANGED", "微信登录状态发生变化，请重新搜索联系人。")
+            # The callback must finish the fresh snapshot/login checks before
+            # any contact metadata leaves this request.
+            with self._lock:
+                if generation != self._generation:
+                    raise _fail("CONTACT_SEARCH_REVOKED", "连接已更新，请重新搜索联系人。")
+                if pending is not None:
+                    self._discard_locked()
+                    self._credentials = pending
+                    pending = None
+                    self._expires = time.monotonic() + self.TTL_SECONDS
+                    self._timer = threading.Timer(self.TTL_SECONDS, self._expire, (self._credentials,))
+                    self._timer.daemon = True
+                    self._timer.start()
+            return result
+        except BaseException:
+            self.clear()
+            raise
+        finally:
+            if pending is not None:
+                pending.close()
+            if source is not None:
+                source.close()
+            self._operation.release()

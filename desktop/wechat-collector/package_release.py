@@ -24,7 +24,8 @@ SOURCE_FILES += ('local_database_source.py', 'test_local_database_source.py',
                  'LICENSE-voice-dependencies.txt', 'database_runtime_self_test.py',
                  'test_database_runtime_self_test.py')
 SOURCE_FILES += ('pairing.py', 'test_pairing.py', 'test_history_paging.py')
-SOURCE_FILES += ('test_moments_capture.py', 'test_contact_search.py')
+SOURCE_FILES += ('test_moments_capture.py', 'test_contact_search.py', 'test_contact_cache.py',
+                 'capture_transport.py', 'test_capture_transport.py')
 SOURCE_FILES += ('compatibility_ui.py', 'test_compatibility.py')
 SOURCE_FILES += ('local_chat_images.py', 'test_local_chat_images.py')
 SOURCE_FILES += ('local_image_codec.py', 'test_local_image_codec.py')

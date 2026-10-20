@@ -52,7 +52,7 @@ const worker = {
       const identity = await requestOwner(request,env);
       if (!identity) return Response.json({error:"请重新登录。"},{status:401});
       const screenshot=path.endsWith("/screenshot");
-      return creditResponse(env.DB,identity.ownerId,request,screenshot?"analysis":"chat",screenshot?CREDIT_PRICES.analysisSmall:CREDIT_PRICES.text,()=>app.fetch(request,env,ctx));
+      return creditResponse(env.DB,identity.ownerId,request,screenshot?"analysis":"chat",screenshot?CREDIT_PRICES.analysisSingle:CREDIT_PRICES.text,()=>app.fetch(request,env,ctx));
     }
     if (request.method === 'POST') {
       let body;

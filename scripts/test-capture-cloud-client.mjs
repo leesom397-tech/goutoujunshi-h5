@@ -195,6 +195,16 @@ try{
    const result=await page.evaluate(async()=>{const lib=await seed([record('not-replayed')]);const requests=[];fetch=async(url,options={})=>{requests.push({url:String(url),method:options.method||'GET'});return new Response(JSON.stringify({error:'synthetic write unauthorized'}),{status:401});};let rejected=false;try{await client.syncCaptureLibrary(owner,lib)}catch{rejected=true}const after=await vault.getCaptureLibrary(owner,lib.id);return{rejected,requests,records:after.records.map(row=>row.localId),digests:Object.keys(after.cloud.digests)};});
    assert.equal(result.rejected,true);assert.deepEqual(result.requests,[{url:'/api/web/capture/library',method:'POST'}]);assert.deepEqual(result.records,['not-replayed']);assert.deepEqual(result.digests,[]);
  });
+ await check('127 completed pictures never replay progress or transfer on final sync',async()=>{
+   const result=await page.evaluate(async()=>{const set=await imageSet(127);const lib=await seed(set.rows);await client.syncCaptureLibrary(owner,lib);calls=[];const progress=[],transfers=[];await client.syncCaptureLibrary(owner,lib,{onProgress:(done,total,phase)=>{if(phase==='images')progress.push({done,total});},onTransfer:(...entry)=>transfers.push(entry)});return{progress,transfers,uploads:calls.filter(call=>call.body?.action==='sync-media').length};});
+   assert.deepEqual(result.progress,[{done:127,total:127}]);assert.equal(result.uploads,0);assert.deepEqual(result.transfers,[]);
+ });
+ await check('only newly uploaded image bytes contribute to transfer speed',async()=>{
+   const result=await page.evaluate(async()=>{const set=await imageSet(7);const lib=await seed(set.rows.slice(0,4));await client.syncCaptureLibrary(owner,lib);const prior=await vault.getCaptureLibrary(owner,lib.id);const next=await vault.cacheCloudCaptureLibrary(owner,{...prior,records:set.rows});calls=[];const progress=[],transfers=[];await client.syncCaptureLibrary(owner,next,{onProgress:(done,total,phase)=>{if(phase==='images')progress.push({done,total});},onTransfer:(bytes,total,elapsed)=>transfers.push({bytes,total,elapsed})});return{progress,transfers,expected:set.rows[0].images[0].data.length*3,uploads:calls.filter(call=>call.body?.action==='sync-media').length};});
+   assert.equal(result.uploads,3);assert.equal(result.progress[0].done,4);assert.equal(result.progress.at(-1).done,7);
+   assert.equal(result.transfers.length,3);assert.equal(result.transfers.at(-1).bytes,result.expected);
+   assert.ok(result.transfers.every(value=>value.total===result.expected&&value.elapsed>=0));
+ });
  assert.deepEqual(errors,[]);await writeFile(path.join(output,'result.json'),JSON.stringify(results,null,2));
  if(results.some(item=>item.status==='fail'))process.exitCode=1;
  console.log(`${results.filter(item=>item.status==='pass').length}/${results.length} cloud client integration checks passed; synthetic browser + IndexedDB only.`);

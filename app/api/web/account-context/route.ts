@@ -1,3 +1,4 @@
+import { ANALYSIS_PRICE_VERSION } from "@/lib/analysis-pricing.mjs";
 import { env } from 'cloudflare:workers';
 import { getD1 } from '@/db';
 import { webOwner } from '@/lib/request-identity.mjs';
@@ -34,7 +35,7 @@ export async function GET(request: Request) {
     ]);
     const config = env as { COACH_ADMIN_OWNER_IDS?: string; COACH_WEB_ADMIN_OWNER_IDS?: string; COACH_WEB_PRIMARY_ADMIN_OWNER_ID?: string };
     const people = subjects.results.map(row => ({ ...row, savedAnalysis: row.savedAnalysis ? JSON.parse(row.savedAnalysis) : null, savedChatAnalysis: row.savedChatAnalysis ? JSON.parse(row.savedChatAnalysis) : null }));
-    return json({ account, people, prices: CREDIT_PRICES, user: { name: identity.displayName || '' },
+    return json({ account, people, priceVersion: ANALYSIS_PRICE_VERSION, prices: CREDIT_PRICES, user: { name: identity.displayName || '' },
       admin: isCreditAdmin(identity.ownerId, [config.COACH_ADMIN_OWNER_IDS, config.COACH_WEB_ADMIN_OWNER_IDS, config.COACH_WEB_PRIMARY_ADMIN_OWNER_ID].filter(Boolean).join(',')),
       meteringReady: true, meteringScope: 'web', contact: 'lxlikex' });
   } catch { return json({ error: '账户资料暂时无法读取，请稍后重试。' }, 503); }

@@ -39,6 +39,14 @@ for(const section of [
   {riskAssessment:{items:[{resolution:{reading:wrongAdvice,evidenceIds:[valid[0].id]}}]}},
 ])assert.equal(contextGroundedSynthesis({...neutralSummary,...section},valid),false,"nested recommendations and interpretations must respect their own referenced topic");
 const invitation={id:"invitation",claim:"明确邀请周末一起活动",evidence:[{sourceId:"invite",senderRole:"other",sourceKind:"chat",quote:"周六我们一起去散步吧",at:"2026-10-21"}]};
+const replies=validatedSynthesis({replyOptions:[
+  {style:"自然接话",text:"好呀，周六下午怎么样？",reason:"回应已经发出的邀请",cost:"先确认双方时间",evidenceIds:["invitation"]},
+  {style:"明确安排",text:"我周六三点后方便，你想去哪个公园？",reason:"把邀约落实到地点",cost:"只在确实有空时使用",evidenceIds:["invitation"]},
+  {style:"重复",text:"好呀，周六下午怎么样？",reason:"重复不能增加方案数",evidenceIds:["invitation"]},
+  {style:"虚构",text:"我们上次约会好开心",reason:"没有来源",evidenceIds:["unknown"]}
+]},[invitation]).replyOptions;
+assert.equal(replies.length,2,"real distinct reply variants are preserved, duplicates and invalid references rejected");
+assert.equal(validatedSynthesis({replyOptions:[{style:"推进",text:"我对你有感情",reason:"软件评价被误当关系",evidenceIds:[valid[0].id]}]},valid).replyOptions.length,0,"product-only feedback cannot generate relationship replies");
 assert.equal(contextGroundedSynthesis({...neutralSummary,actionPlan:{steps:[{action:"接住她明确提出的散步邀约，再观察双方是否愿意推进关系",evidenceIds:["invitation"]}]}},[...valid,invitation]),true,"genuine cited personal invitation remains actionable even after software discussion");
 for(const text of ["软件页面挺好的。不过我们相处时你总是这么理性，我感受不到你的在乎。","我不是说软件，我是说你总是很理性，跟你相处感觉没有感情。"]){
   const originals=[row("self","你看我做的软件怎么样","self"),row("other",text)];

@@ -1,3 +1,4 @@
+import { ANALYSIS_PRICE_VERSION } from "@/lib/analysis-pricing.mjs";
 import { env } from 'cloudflare:workers';
 import { getD1 } from '@/db';
 import { miniappOwner } from '@/lib/miniapp-auth';
@@ -12,7 +13,7 @@ export async function GET(request: Request) {
   try {
     const account = await readCreditAccount(getD1(), identity.ownerId);
     const settings = env as { COACH_ADMIN_OWNER_IDS?: string };
-    return json({ account, admin: isCreditAdmin(identity.ownerId, settings.COACH_ADMIN_OWNER_IDS), meteringReady: true, meteringScope: 'miniapp', prices: CREDIT_PRICES });
+    return json({ account, admin: isCreditAdmin(identity.ownerId, settings.COACH_ADMIN_OWNER_IDS), meteringReady: true, meteringScope: 'miniapp', priceVersion: ANALYSIS_PRICE_VERSION, prices: CREDIT_PRICES });
   } catch {
     return json({ error: '积分账本暂不可用，请稍后重试。' }, 503);
   }

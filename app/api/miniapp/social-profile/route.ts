@@ -133,7 +133,7 @@ export async function POST(request: Request) {
     body = JSON.parse(raw);
   } catch { return json({ error: "无法读取图片。" }, 400); }
   if (!body || typeof body !== "object" || Array.isArray(body)) return json({ error: "图片格式不正确。" }, 400);
-  if (body.confirmed !== true) return json({ error: "请先确认资料提供权及本次阿里云识图处理。" }, 403);
+  if (body.confirmed !== true) return json({ error: "请先确认资料提供权与本次识图处理。" }, 403);
   const targetSelf = body.target === "self";
   const subjectId = !targetSelf && typeof body.subjectId === "string" ? body.subjectId : null;
   if (subjectId && !await getD1().prepare("SELECT id FROM coach_subjects WHERE id=? AND owner_id=? AND status='active'").bind(subjectId,identity.ownerId).first()) return json({error:"所选人物不存在，请重新选择。"},404);

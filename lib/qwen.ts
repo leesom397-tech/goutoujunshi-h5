@@ -67,12 +67,12 @@ export async function qwenChat(messages: QwenMessage[], options: {
 
 export function qwenPublicError(error: unknown, fallback: string) {
   const code = error instanceof Error ? error.message : "";
-  if (code === "QWEN_API_KEY_MISSING") return "千问尚未配置百炼 API 密钥。";
-  if (code === "QWEN_WORKSPACE_MISSING") return "千问尚未配置北京地域的百炼业务空间 ID。";
-  if (code === "QWEN_AUTH_FAILED") return "当前千问模型访问被拒绝，请稍后重试或联系站点管理员。";
-  if (code === "QWEN_BALANCE_EMPTY") return "百炼账户余额不足，请联系站点管理员。";
-  if (code === "QWEN_BUSY") return "千问当前繁忙，请稍后再试。";
-  if (code === "QWEN_UPSTREAM_ERROR" || code === "QWEN_EMPTY_RESPONSE") return "千问这一轮没有返回完整结果。原文仍在本机，可以直接再试一次。";
+  if (code === "QWEN_API_KEY_MISSING") return "成子分析服务暂未开通，请联系客服。";
+  if (code === "QWEN_WORKSPACE_MISSING") return "成子分析服务暂未就绪，请联系客服。";
+  if (code === "QWEN_AUTH_FAILED") return "成子分析服务暂时无法连接，请稍后重试或联系客服。";
+  if (code === "QWEN_BALANCE_EMPTY") return "成子分析服务暂不可用，请联系客服；这与您的积分余额无关。";
+  if (code === "QWEN_BUSY") return "成子分析服务当前繁忙，请稍后再试。";
+  if (code === "QWEN_UPSTREAM_ERROR" || code === "QWEN_EMPTY_RESPONSE") return "本轮分析没有返回完整结果，请稍后重试。";
   if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) return "这一轮分析超时了。原文仍在本机，可以直接再试一次。";
   return fallback;
 }

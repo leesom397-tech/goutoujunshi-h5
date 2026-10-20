@@ -1,4 +1,5 @@
 "use client";
+import { DataProcessingLink } from "@/components/DataProcessingLink";
 import { useEffect, useRef, useState } from "react";
 import { Check, Camera, HeartHandshake, Mic, Square, Sparkles, ArrowUpRight, MessageCircle, BookmarkCheck } from "lucide-react";
 import type { SelfData } from "@/lib/profile";
@@ -133,7 +134,7 @@ function QuickProfile({ data, busy, paused, enabled, onSave, owner, account }: P
       <label htmlFor="self-intro">最近喜欢做什么，期待怎样的相处？</label>
       <textarea id="self-intro" maxLength={3000} value={intro} disabled={blocked} onChange={event => setIntro(event.target.value)} placeholder="例如：我喜欢摄影和徒步。我重视独立空间。我希望认真了解一个人。我聊天比较直接。" />
       <div className={styles.actions}><button type="button" className={styles.primary} disabled={blocked || !intro.trim()} onClick={organise}><Sparkles size={17}/>整理成资料 · 免费</button><small>按本人原话整理，下面可以修改。</small></div>
-      <div className={styles.voice}><label><input type="checkbox" checked={audioConsent} disabled={recording || transcribing} onChange={event => setAudioConsent(event.target.checked)}/>语音可选：同意将这段录音发送至阿里云百炼转为文字，{priceLabel(account, "transcription")} / 次。</label><div className={styles.actions}>
+      <div className={styles.voice}><label><input type="checkbox" checked={audioConsent} disabled={recording || transcribing} onChange={event => setAudioConsent(event.target.checked)}/>语音可选：同意将这段录音转为文字，{priceLabel(account, "transcription")} / 次。<DataProcessingLink/></label><div className={styles.actions}>
         <button type="button" disabled={recording ? false : blocked || !owner || !audioConsent || !hasPrice(account, "transcription")} onClick={() => recording ? stopRecording() : void startRecording()}>{recording ? <Square size={17}/> : <Mic size={17}/>} {recording ? "停止并转文字 · " + elapsed + "s" : transcribing ? "转写中…" : "说一段 · 最多 30 秒"}</button>
         {recording && <button type="button" onClick={() => stopRecording(true)}>取消</button>}
         {pendingAudio && !recording && !transcribing && <><button type="button" disabled={!audioConsent} onClick={() => void transcribe(pendingAudio)}>重试这段转写</button><button type="button" onClick={() => setPendingAudio(null)}>丢弃录音</button></>}

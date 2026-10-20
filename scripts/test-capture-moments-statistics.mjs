@@ -1,0 +1,30 @@
+import assert from "node:assert/strict";
+import {build} from "esbuild";
+import {mkdir,writeFile} from "node:fs/promises";
+const bundle=await build({entryPoints:["lib/capture-moments-statistics.ts"],bundle:true,write:false,format:"cjs",platform:"node",logLevel:"silent"});
+const module={exports:{}};new Function("module","exports",bundle.outputFiles[0].text)(module,module.exports);
+const {captureMomentsStatistics}=module.exports;
+const post=(localId,at,text,source={})=>({localId,kind:"post",sender:"合成人物",senderRole:"other",at,text,imageCount:0,source:{label:"Synthetic only",method:"uia",...source}});
+const a={...post("a","2026-09-01","周末一起去了公园。",{imageType:"visible-ui-preview",pinned:true}),imageCount:9};
+const records=[a,post("b","2026-09-02","周末一起去了公园。"),post("c","2026-10-01","[图片]"),post("d","2026年10月2日","[视频]"),
+  post("e","昨天","周末去了展览。"),post("f","2026-02-30","此日期无效。"),post("g","2026-10-02","周末一起去了公园。"),a,
+  post("cover","2026-01-01","[朋友圈封面]",{materialRole:"moments-cover"}),post("signature","2026-01-01","认真生活",{materialRole:"profile-signature"})];
+const media=[{id:"frame-a",local_id:"a"},{id:"frame-c",local_id:"c"},{id:"frame-cover",local_id:"cover"}];
+const actual=captureMomentsStatistics([{libraryId:"synthetic-moments-library",records,media}]);
+assert.equal(actual.total,7);assert.equal(actual.sourceRows,8);assert.equal(actual.duplicates,1);assert.equal(actual.excludedProfileMaterials,2);
+assert.equal(actual.withText,5);assert.equal(actual.withoutText,2);assert.equal(actual.pinnedCount,1);
+assert.equal(actual.withPreview,2);assert.equal(actual.previewsAvailable,2,"a nine-photo UI grid is one synchronized frame; cover is excluded");
+assert.equal(actual.dated,5);assert.equal(actual.undated,2);
+assert.deepEqual(actual.months.map(({month,count})=>({month,count})),[{month:"2026-09",count:2},{month:"2026-10",count:3}]);
+assert.equal(actual.startDate,"2026-09-01");assert.equal(actual.endDate,"2026-10-02");
+assert.equal(actual.months.reduce((sum,row)=>sum+row.count,0),actual.dated);
+assert.ok(actual.months.every(row=>row.sourceRefs.every(ref=>ref.libraryId==="synthetic-moments-library"&&!["cover","signature","e","f"].includes(ref.sourceId))));
+assert.equal(captureMomentsStatistics([]),null,"no source is not a measured zero");
+const stable={...a,id:"stable-original",source:{...a.source,idStability:"stable",accountId:"account",sessionId:"person"}};
+assert.equal(captureMomentsStatistics([{libraryId:"one",records:[stable],media:[]},{libraryId:"two",records:[stable],media:[]}]).total,1);
+assert.equal(captureMomentsStatistics([{libraryId:"one",records:[{...a,source:{...a.source,timestampOrigin:"capture-time"}}],media:[]}]).dated,0,"capture time is never publication time");
+assert.equal(captureMomentsStatistics([{libraryId:"one",records:[{...a,localId:"repeat-a"},{...a,localId:"repeat-b"}],media:[]}]).total,2,"identical text and day without a verified identity are not silently collapsed");
+assert.equal("content" in actual,false,"no fabricated topic classifications");
+await mkdir("outputs/moments-report",{recursive:true});
+await writeFile("outputs/moments-report/statistics.json",JSON.stringify(actual,null,2));
+console.log("PASS: real monthly counts, strict dates, stable-source dedup, captions, pinned, preview frames not original photos; covers/signatures excluded, no fake topics, unknown stays unknown.");

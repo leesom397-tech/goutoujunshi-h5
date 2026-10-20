@@ -1,3 +1,4 @@
+import {screenshotPrice} from '../lib/analysis-pricing.mjs';
 // Actual workerd Durable Object storage/alarms and SQLite billing. Synthetic media only.
 import assert from 'node:assert/strict';
 import {readFileSync,mkdtempSync} from 'node:fs';
@@ -40,7 +41,7 @@ const url=task=>'http://local/api/miniapp/screenshot/batch?taskId='+task;
 const get=async(task,owner='fixture-a')=>(await runtime.dispatchFetch(url(task),{headers:{'x-test-owner':owner}})).json();
 const inspect=async()=>(await runtime.dispatchFetch('http://local/inspect')).json();
 async function post(task,body,expected=200,owner='fixture-a'){
- const response=await runtime.dispatchFetch(url(task),{method:'POST',headers:{'content-type':'application/json',Authorization:'Bearer '+owner,'x-test-owner':owner},body:JSON.stringify(body)});const value=await response.json();assert.equal(response.status,expected,JSON.stringify(value));return value;
+ const response=await runtime.dispatchFetch(url(task),{method:'POST',headers:{'content-type':'application/json',Authorization:'Bearer '+owner,'x-test-owner':owner},body:JSON.stringify(body.uploadAction==='init'?{...body,priceConfirmation:screenshotPrice(body.imageCount)}:body)});const value=await response.json();assert.equal(response.status,expected,JSON.stringify(value));return value;
 }
 const init=task=>({uploadAction:'init',confirmed:true,autoStart:true,imageCount:2,selfSide:'right',sessionId:task,reviewOnDoubt:true});
 async function waitStatus(task,status){let value;const end=Date.now()+10000;do{value=await get(task);if(value.status===status)return value;await delay(70)}while(Date.now()<end);assert.fail('Expected '+status+': '+JSON.stringify(value));}
@@ -65,11 +66,11 @@ try{
  await post(task,parameters,202);const done=await waitStatus(task,'done');assert.equal(done.result.entries[1].lines[0].text,'修正后的原话');assert.equal(done.result.selfSide,'right');
  assert.deepEqual((await inspect())['test:stats'],{ocr:2,analyses:2,budgets:2},'confirmation/repeated init never repeats OCR or daily usage');await post(task,payload,202);
  db=await runtime.getD1Database('DB');assert.equal((await db.prepare('SELECT status FROM coach_credit_tasks WHERE request_id=?').bind(task).first()).status,'settled');
- assert.equal((await db.prepare("SELECT balance FROM coach_credit_accounts WHERE owner_id='fixture-a'").first()).balance,980,'only original task price charged');
+ assert.equal((await db.prepare("SELECT balance FROM coach_credit_accounts WHERE owner_id='fixture-a'").first()).balance,990,'only original task price charged');
  const cancel=id(2);await post(cancel,init(cancel),201);await post(cancel,{uploadAction:'part',index:0,image:image('clear')});await post(cancel,{uploadAction:'part',index:1,image:image('doubt')});await waitStatus(cancel,'awaiting_review');
  assert.equal((await post(cancel,{reviewAction:'cancel'})).reviewCancelled,true);await post(cancel,{reviewAction:'cancel'});
  const cancelled=await get(cancel);assert.equal(cancelled.status,'error');assert.equal(cancelled.partialResult.entries.length,1,'cancel retains completed single-image report');
- assert.equal((await db.prepare('SELECT status FROM coach_credit_tasks WHERE request_id=?').bind(cancel).first()).status,'released');assert.equal((await db.prepare("SELECT balance FROM coach_credit_accounts WHERE owner_id='fixture-a'").first()).balance,980,'repeated cancellation releases original reservation once');
+ assert.equal((await db.prepare('SELECT status FROM coach_credit_tasks WHERE request_id=?').bind(cancel).first()).status,'released');assert.equal((await db.prepare("SELECT balance FROM coach_credit_accounts WHERE owner_id='fixture-a'").first()).balance,990,'repeated cancellation releases original reservation once');
  const state=await inspect();assert.equal(Object.keys(state).filter(key=>key.startsWith('screenshot:'+cancel)||key.startsWith('upload:'+cancel)).length,0,'cancel deletes temporary OCR/images');
  const blocked=id(3);await post(blocked,{...init(blocked),imageCount:1},201);await post(blocked,{uploadAction:'part',index:0,image:image('layout')});const layout=await waitStatus(blocked,'awaiting_review');assert.equal(layout.recognition.canContinue,false);await post(blocked,confirm(layout.recognition),422);await post(blocked,{reviewAction:'cancel'});
  const legacy=id(4);await post(legacy,{...init(legacy),imageCount:1,reviewOnDoubt:false},201);await post(legacy,{uploadAction:'part',index:0,image:image('doubt')});assert.equal((await waitStatus(legacy,'done')).status,'done','old clients retain automatic flow');

@@ -9,6 +9,7 @@ import { miniappOwner } from "@/lib/miniapp-auth";
 import { captureAnalysisInput, captureReadableText, type CaptureAnalysisInput, type CaptureMemoryRow } from "@/lib/capture-analysis-input";
 import { CREDIT_PRICES } from "@/lib/account-credits.mjs";
 import { creditResponse } from "@/lib/credit-response.mjs";
+import { requirePriceConfirmation } from "@/lib/analysis-pricing.mjs";
 import { analyzeLines, requireSettings, reserveBudget } from "@/lib/crush/service";
 import { readScreenshotFromQuick } from "@/lib/crush/screenshot";
 import { loadProfileContext } from "@/lib/profile-context";
@@ -71,6 +72,7 @@ async function momentsAnalysis(owner: string, input: CaptureAnalysisInput) {
 }
 
 async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, db: ReturnType<typeof getD1>, job?: {checkpoint: CaptureCheckpoint; manifest: any}) {
+  const analysisVersion=job?.manifest.analysisVersion||CAPTURE_REPORT_VERSION;
   await requireSettings(owner);
   const previousContext = job ? await job.checkpoint("context") : null;
   if (!previousContext) await reserveBudget(owner, "deep");
@@ -145,10 +147,10 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
   if(momentsOnly){
     const summary=semanticHistory.sourceInsights?.moments?.summary||semanticHistory.summary||`已核对 ${history.records.length} 条动态；当前没有足以形成具体人物判断的内容。`;
     const sourceIds=[...new Set(semanticHistory.findings.flatMap(item=>item.evidence.filter(source=>source.libraryId===input.libraryId).map(source=>source.sourceId)))];
-    const report:Record<string,any>={id:input.requestId,reportId:input.requestId,kind:"profile",captureKind:"moments",subjectId:input.subjectId,participants,analysisQuestion:input.question||"panorama",readable:true,captureOrigin:true,captureFormat:"full-history",analysisScope:"fullHistory",analysisVersion:CAPTURE_REPORT_VERSION,analysisFingerprint:job?.manifest.fingerprint,summary,semanticHistory,
-      sourceCoverage:related.sourceCoverage,mediaEvidence:related.mediaEvidence,profileMaterials:related.profileMaterials,knowledgeSources:semanticHistory.knowledgeSources||[],generatedAt:new Date().toISOString(),relatedSnapshots:[],contextSnapshot:job?.manifest.contextSnapshot||await reportContextSnapshot(db,owner,input.subjectId),archiveSnapshot:{libraryId:input.libraryId,epoch:input.expectedEpoch,revision:history.revision,total:history.records.length},
+    const report:Record<string,any>={id:input.requestId,reportId:input.requestId,kind:"profile",captureKind:"moments",subjectId:input.subjectId,participants,analysisQuestion:input.question||"panorama",readable:true,captureOrigin:true,captureFormat:"full-history",analysisScope:"fullHistory",analysisVersion,analysisFingerprint:job?.manifest.fingerprint,summary,semanticHistory,
+      sourceCoverage:related.sourceCoverage,mediaEvidence:related.mediaEvidence,profileMaterials:related.profileMaterials,momentsStatistics:related.momentsStatistics,knowledgeSources:semanticHistory.knowledgeSources||[],generatedAt:new Date().toISOString(),relatedSnapshots:[],contextSnapshot:job?.manifest.contextSnapshot||await reportContextSnapshot(db,owner,input.subjectId),archiveSnapshot:{libraryId:input.libraryId,epoch:input.expectedEpoch,revision:history.revision,total:history.records.length},
       moments:{summary,posts:[],themes:[],hypotheses:[],behaviorClues:[],starters:[],approach:"",compositionReading:"",timelineReading:""},
-      decision:{judgment:summary,nextStep:semanticHistory.actionPlan?.steps[0]?.action||semanticHistory.action||"",replyOptions:[]},
+      decision:{judgment:summary,nextStep:semanticHistory.actionPlan?.steps[0]?.action||semanticHistory.action||"",replyOptions:semanticHistory.replyOptions||[]},
       captureMediaNote:`本次范围为已导入的 ${history.records.length} 条朋友圈动态。图片解读仅覆盖已同步且清晰的预览；未提供的私聊和不可见动态不在本次判断范围。${modelComplete?"":" 综合解读尚未完成。"}`};
     report.personalConnection=await personalizeReport(owner,input.subjectId,report);
     return {report,sourceIds,totalCount:history.records.length};
@@ -166,17 +168,17 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
     ...semanticHistory.findings.flatMap(item => item.evidence.filter(e=>!e.libraryId||e.libraryId===input.libraryId).map(e => e.sourceId)), history.readable[0].localId])].slice(0, 128);
   const report: Record<string, any> = {
     id: input.requestId, reportId: input.requestId, kind: "chat", subjectId: input.subjectId,
-    captureOrigin: true, captureKind:"chat",captureFormat: "full-history", analysisScope: "fullHistory",analysisVersion:CAPTURE_REPORT_VERSION,participants,analysisQuestion:input.question||"panorama",
+    captureOrigin: true, captureKind:"chat",captureFormat: "full-history", analysisScope: "fullHistory",analysisVersion,participants,analysisQuestion:input.question||"panorama",
     analysisFingerprint: job?.manifest.fingerprint,
     summary: judgment, lines: [], annotations: [], recentSentenceAnalysis:semanticHistory.recentSentenceAnalysis,knowledgeSources:semanticHistory.knowledgeSources||[],generatedAt:new Date().toISOString(),chatActivity, relationshipDiagnosis, semanticHistory, affinity:semanticHistory.affinity,riskReview,
-    sourceCoverage: related.sourceCoverage, mediaEvidence: related.mediaEvidence,profileMaterials:related.profileMaterials,
+    sourceCoverage: related.sourceCoverage, mediaEvidence: related.mediaEvidence,profileMaterials:related.profileMaterials,momentsStatistics:related.momentsStatistics,
     relatedSnapshots: related.snapshots.filter(snapshot => snapshot.kind === "moments"),
     contextSnapshot: job?.manifest.contextSnapshot || await reportContextSnapshot(db,owner,input.subjectId),
     profileEvidence: capturePersonalEvidence(history.readable, input.subjectId, input.requestId), selfMemoryStatus,
     archiveSnapshot: { libraryId: input.libraryId, epoch: input.expectedEpoch, revision: history.revision, total: history.records.length },
     decision: {
       judgment, evidence: anchor?.quote || "", nextStep: semanticHistory.action || relationshipDiagnosis.decision.recommendation,
-      replyOptions: [],
+      replyOptions: semanticHistory.replyOptions||[],
     },
     captureMediaNote: [modelComplete ? `已分段核对全部 ${history.readable.length} 条可读聊天${related.sourceCoverage.some(source=>source.kind==="moments")?"，并结合本次确认的动态与图片线索":"；本次尚未提供朋友圈动态"}。` : `已统计全部 ${history.records.length} 条消息；整体语义分析尚未完成。`, `图片仅覆盖已同步的预览或界面截图，不保证原图；缺失、模糊和失败数量见材料覆盖。未转写语音和未保存的线下经历不在语义依据内。`, chatActivity!.unreadVoices
       ? `${chatActivity!.unreadVoices} 条语音没有可读转写，其内容未纳入语义判断；完整统计仍包含这些消息。`
@@ -212,13 +214,15 @@ export async function POST(request: Request) {
   // Web cookies require same-origin CSRF validation; native paths require a Bearer session.
   if (new URL(request.url).pathname.startsWith("/api/web/") && request.headers.get("origin") !== new URL(request.url).origin) return json({ error: "请求来源无效。" }, 403);
   if (!request.headers.get("content-type")?.includes("application/json")) return json({ error: "请求格式不正确。" }, 415);
-  let input: CaptureAnalysisInput, raw: string, manifest: any;
+  let input: CaptureAnalysisInput, raw: string, manifest: any, priceConfirmation: any, quoteOnly = false;
   try {
     if (Number(request.headers.get("content-length") || 0) > 10_000_000) return json({ error: "材料过大，请分批分析。" }, 413);
     raw = await request.text();
     if (raw.length > 10_000_000) return json({ error: "材料过大，请分批分析。" }, 413);
     const body=JSON.parse(raw);
-    const canonical = internal ? {...body.input,confirmed:true} : body;
+    quoteOnly = !internal && body.quoteOnly === true && body.analysisScope === "fullHistory";
+    priceConfirmation = body.priceConfirmation;
+    const canonical = internal ? {...body.input,confirmed:true} : quoteOnly ? {...body,confirmed:true} : body;
     if(internal){delete canonical.historyRecords;delete canonical.activityRecords;}
     input = captureAnalysisInput(canonical);
     manifest=internal ? {...body.manifest,fingerprint:body.fingerprint} : undefined;
@@ -229,16 +233,22 @@ export async function POST(request: Request) {
     try {
       const primary=await checkFullCaptureHistory(db, identity.ownerId, input), related=await checkRelatedCaptureSnapshots(db, identity.ownerId, input);
       if (!internal) {
-        await requireSettings(identity.ownerId);
         const contextSnapshot=await reportContextSnapshot(db,identity.ownerId,input.subjectId);
-        const task=await jobStore(identity.ownerId).start(identity.ownerId,input,{analysisVersion:CAPTURE_REPORT_VERSION,primary,related,contextSnapshot});
-        return json(task,task.status==="done"?200:202);
+        const scope={analysisVersion:CAPTURE_REPORT_VERSION,primary,related,contextSnapshot};
+        // Quote replies are data, not thrown custom RPC errors: they survive
+        // the Durable Object boundary and never create a paid task.
+        const checked=await jobStore(identity.ownerId).start(identity.ownerId,input,scope,{quoteOnly:true});
+        if(quoteOnly||checked.status!=="quoted")return json(checked,checked.status==="quoted"||checked.status==="done"?200:202);
+        requirePriceConfirmation(priceConfirmation,checked.quote);
+        await requireSettings(identity.ownerId);
+        const task=await jobStore(identity.ownerId).start(identity.ownerId,input,scope,{priceConfirmation});
+        return json(task,task.status==="done"||task.status==="quoted"?200:202);
       }
-      if(manifest?.analysisVersion!==CAPTURE_REPORT_VERSION)throw new CaptureFullHistoryError("报告分析方式已更新，请重新生成；本次旧任务已停止。",409);
+      if(![5,CAPTURE_REPORT_VERSION].includes(manifest?.analysisVersion))throw new CaptureFullHistoryError("报告分析方式已更新，请重新生成；本次旧任务已停止。",409);
       if (!manifest?.primary || primary.revision!==manifest.primary.revision || JSON.stringify(related)!==JSON.stringify(manifest.related)) throw new CaptureFullHistoryError("资料已更新，请重新生成。",409);
       await assertReportContextCurrent(db,identity.ownerId,input.subjectId,manifest.contextSnapshot);
     }
-    catch (error) { return json({ error: error instanceof Error ? error.message : "完整聊天尚未同步完成。" }, error instanceof CaptureFullHistoryError ? error.status : Number.isInteger((error as any)?.status) && (error as any).status>=400 && (error as any).status<=599 ? (error as any).status : 503); }
+    catch (error) { return json({ error: error instanceof Error ? error.message : "完整聊天尚未同步完成。",...((error as any)?.code==="PRICE_CONFIRMATION_REQUIRED"?{code:"PRICE_CONFIRMATION_REQUIRED",quote:(error as any).quote}:{}) }, error instanceof CaptureFullHistoryError ? error.status : Number.isInteger((error as any)?.status) && (error as any).status>=400 && (error as any).status<=599 ? (error as any).status : 503); }
   }
   const replay = new Request(request.url, { method: "POST", headers: request.headers, body: raw });
   const execute = async () => {

@@ -18,7 +18,7 @@ export async function POST(request: Request) {
   }
   catch { return json({ error: "无法读取授权设置。" }, 400); }
   if (body.consent !== true || body.allowImageProcessing !== true || !["left", "right"].includes(String(body.selfSide))) {
-    return json({ error: "请确认材料提供权、阿里云截图识别和本人气泡位置。" }, 403);
+    return json({ error: "请确认材料提供权、截图识别授权和本人气泡位置。" }, 403);
   }
   const owner = identity.ownerId;
   const previous = await getSettings(owner);
