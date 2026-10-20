@@ -1,4 +1,5 @@
 import * as pricing from '../lib/analysis-pricing.mjs';
+import * as miniappLegacyPricing from '../lib/miniapp-legacy-pricing.mjs';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import ts from 'typescript';
@@ -6,7 +7,7 @@ import * as credits from '../lib/account-credits.mjs';
 
 let identity = null, calls = [], suppliedActor;
 const account = { userId: '11111111-1111-4111-8111-111111111111', balance: 0, features: [], entries: [], enabledUntil: 0 };
-const mocks = {'@/lib/analysis-pricing.mjs':pricing,
+const mocks = {'@/lib/analysis-pricing.mjs':pricing,'@/lib/miniapp-legacy-pricing.mjs':miniappLegacyPricing,
   'cloudflare:workers': { env: { COACH_ADMIN_OWNER_IDS: 'real-admin' } },
   '@/db': { getD1() { calls.push('db'); return {}; } },
   '@/lib/miniapp-auth': { async miniappOwner() { return identity; } },
@@ -35,6 +36,10 @@ assert.equal((await adminRoute.POST(request())).status, 403);
 const user = await userRoute.GET(new Request('https://example.test?userId=another-account'));
 assert.equal(user.headers.get('cache-control'), 'no-store');
 const state = await user.json();
+assert.equal(state.prices.analysisSmall,20);assert.equal(state.prices.analysisMedium,35);assert.equal(state.prices.analysisLarge,50);
+assert.equal(state.prices.profile,30);assert.equal(state.pricingCompatibility.fullHistoryMaximum,20);
+const currentPrices=await (await userRoute.GET(new Request('https://example.test?priceVersion='+pricing.ANALYSIS_PRICE_VERSION))).json();
+assert.equal(currentPrices.prices.analysisSingle,5);assert.equal(currentPrices.prices.analysisSmall,10);assert.equal(currentPrices.priceVersion,pricing.ANALYSIS_PRICE_VERSION);
 assert.equal(state.admin, false); assert.equal(state.account.balance, 0);
 assert.ok(calls.includes('read:normal-user')); assert.ok(!calls.includes('read:another-account'));
 identity = { ownerId: 'real-admin' };

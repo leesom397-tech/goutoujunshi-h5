@@ -8,6 +8,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { build } from 'esbuild';
 import * as credits from '../lib/account-credits.mjs';
 import {fullHistoryPrice,ANALYSIS_PRICE_VERSION} from '../lib/analysis-pricing.mjs';
+import {requestOwner} from '../lib/request-identity.mjs';
 
 const require = createRequire(import.meta.url), sql = new DatabaseSync(':memory:');
 for (const file of readdirSync('drizzle').filter(name => name.endsWith('.sql')).sort()) sql.exec(readFileSync('drizzle/' + file, 'utf8'));
@@ -24,10 +25,11 @@ const db = { prepare(query) { return { args: [], bind(...args) { this.args = arg
 
 const calls = [], failures = [], states = new Map(), instances = new Map(), alarmOwner = new AsyncLocalStorage();
 let providerFailure = null, reserveBudgets = 0;
-const env = { DB: db, WECHAT_CALLBACK_TOKEN: 'synthetic-internal-token' };
+const env = { DB: db, WECHAT_CALLBACK_TOKEN: 'synthetic-internal-token', MINIAPP_APPID:'synthetic', MINIAPP_APPSECRET:'synthetic' };
 const syntheticSentenceReadings=detail=>(detail.sentenceTargets||[]).map(sourceId=>({sourceId,emotion:{calm:.8,happy:.2},intent:{inform:.6,continue:.4},note:"合成原话讨论活动安排，不能据此确认恋爱意愿。"}));
 const fixture = {
   env, db,
+  nativeOwner:request=>requestOwner(request,env),
   async model(messages, options) {
     const detail = JSON.parse(typeof messages.at(-1).content === 'string' ? messages.at(-1).content : messages.at(-1).content[0].text);
     const phase = options?.vision ? 'images' : Array.isArray(detail.rows) ? 'segments' : 'synthesis';
@@ -45,7 +47,7 @@ const mockSources = new Map([
   ['cloudflare:workers', 'export const env=globalThis.__captureDurableFixture.env; export class DurableObject{constructor(ctx,env){this.ctx=ctx;this.env=env;}}'],
   ['app', 'export default {fetch:(...args)=>globalThis.__captureDurableFixture.dispatch(...args)}'],
   ['@/db', 'export const getD1=()=>globalThis.__captureDurableFixture.db'],
-  ['@/lib/miniapp-auth', 'export const miniappOwner=async request=>request.headers.get("x-test-owner")?{ownerId:request.headers.get("x-test-owner")}:null'],
+  ['@/lib/miniapp-auth', 'export const miniappOwner=async request=>new URL(request.url).pathname.startsWith("/api/miniapp/")?globalThis.__captureDurableFixture.nativeOwner(request):(request.headers.get("x-test-owner")?{ownerId:request.headers.get("x-test-owner"),openId:null}:null)'],
   ['@/lib/qwen', 'export const qwenChat=(...args)=>globalThis.__captureDurableFixture.model(...args); export const parseQwenJson=JSON.parse; export const qwenPublicError=(_error,fallback)=>fallback'],
   ['@/lib/crush/service', 'export const requireSettings=async()=>({}); export const reserveBudget=async()=>globalThis.__captureDurableFixture.budget(); export const analyzeLines=()=>{throw Error("Unexpected selected-line analysis")}'],
   ['@/lib/crush/screenshot', 'export const readScreenshotFromQuick=()=>{throw Error("Unexpected screenshot analysis")}'],
@@ -188,6 +190,34 @@ await test('auth, ownership, internal header gate and unchanged admission cost',
   for (const headers of [{ 'x-capture-job-key': env.WECHAT_CALLBACK_TOKEN }, { 'x-capture-job-owner': owner }]) assert.equal((await worker.fetch(request(owner, body, headers), env, {})).status, 403);
   assert.equal(taskCount(owner), 0); assert.equal(balance(owner), 1000);
   await assert.rejects(instance(owner).start(owner, { requestId: 'bad', analysisScope: 'fullHistory' }, {}), /参数无效/);
+});
+await test('published miniapp uses verified Bearer and confirmed 20 maximum; web and explicit quote cannot bypass',async()=>{
+  const data=await setup(675),token='b'.repeat(64),openId='pricing-legacy-'+crypto.randomUUID();
+  sql.prepare('INSERT INTO coach_miniapp_links(open_id,owner_id,created_at,updated_at) VALUES(?,?,1,1)').run(openId,data.owner);
+  sql.prepare('INSERT INTO coach_miniapp_sessions(token_hash,open_id,expires_at,created_at) VALUES(?,?,?,1)')
+    .run(Buffer.from(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(token))).toString('hex'),openId,Date.now()+60000);
+  const native=(body,headers={})=>new Request('https://coach.lovetalk.love/api/miniapp/capture/analyze',{method:'POST',headers:{'content-type':'application/json',authorization:'Bearer '+token,...headers},body:JSON.stringify(body)});
+  assert.equal((await route.POST(native({...data.body,legacyMiniapp:true,openId},{authorization:'',cookie:'fake','x-open-id':openId,'x-owner-id':data.owner}))).status,401);
+  for(const priceConfirmation of [null,{version:'old',amount:20}])assert.equal((await route.POST(native({...data.body,priceConfirmation}))).status,409);
+  assert.equal((await route.POST(native({...data.body,confirmed:false}))).status,400);
+  const forged=await route.POST(request(data.owner,{...data.body,priceConfirmation:null,legacyMiniapp:true,openId}));
+  assert.equal(forged.status,409);assert.equal(taskCount(data.owner),0);
+  const result=await route.POST(native(data.body));assert.equal(result.status,202);
+  const accepted=await result.json();assert.equal(accepted.creditAmount,20);assert.equal(accepted.quote.version,'miniapp-confirmed-v1');
+  assert.equal(balance(data.owner),980);assert.equal(creditTask(data.owner,data.body.requestId).amount,20);
+  const replay=await route.POST(native(data.body));assert.equal(replay.status,202);assert.equal(taskCount(data.owner),1);assert.equal(balance(data.owner),980);
+  const completed=await finish(data.owner);assert.equal(completed.status,'done',completed.error);
+  assert.equal(creditTask(data.owner,data.body.requestId).status,'settled');assert.equal(balance(data.owner),980);
+  const modern=await setup(675),modernOpenId='pricing-modern-'+crypto.randomUUID(),modernToken='c'.repeat(64);
+  sql.prepare('INSERT INTO coach_miniapp_links(open_id,owner_id,created_at,updated_at) VALUES(?,?,1,1)').run(modernOpenId,modern.owner);
+  sql.prepare('INSERT INTO coach_miniapp_sessions(token_hash,open_id,expires_at,created_at) VALUES(?,?,?,1)')
+    .run(Buffer.from(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(modernToken))).toString('hex'),modernOpenId,Date.now()+60000);
+  const quoteResponse=await route.POST(native({...modern.body,confirmed:false,quoteOnly:true},{authorization:'Bearer '+modernToken}));
+  assert.equal(quoteResponse.status,200);const quote=(await quoteResponse.json()).quote;assert.equal(quote.amount,40);
+  assert.equal(taskCount(modern.owner),0);assert.equal(balance(modern.owner),1000);
+  const started=await route.POST(native({...modern.body,priceConfirmation:{version:quote.version,amount:quote.amount}},{authorization:'Bearer '+modernToken}));
+  assert.equal(started.status,202);assert.equal((await started.json()).creditAmount,40);
+  await instance(modern.owner).purge(modern.owner);assert.equal(balance(modern.owner),1000);
 });
 
 await test('real queued route completes all 675 rows in one bounded alarm and charges once', async () => {
