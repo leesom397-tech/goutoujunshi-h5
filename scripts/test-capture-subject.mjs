@@ -50,6 +50,7 @@ try {
   const first = await call(payload()); assert.equal(first.status, 200, JSON.stringify(first.body)); assert.equal(first.body.created, true); assert.equal(first.body.label, '合成备注');
   assert.match(first.body.subjectId, /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/);
   const firstId = first.body.subjectId, consentAt = sql.prepare('SELECT consent_at FROM coach_profiles WHERE owner_id=?').get(owner).consent_at;
+  assert.ok(consentAt > 0); assert.equal(sql.prepare('SELECT paused FROM coach_profiles WHERE owner_id=?').get(owner).paused, 0);
   const renamed = await call(payload({ contact: { ...contact, nickname: '后来改昵称', remark: '后来改备注' } }));
   assert.equal(renamed.body.subjectId, firstId); assert.equal(renamed.body.created, false); assert.equal(renamed.body.label, '合成备注'); assert.equal(count(owner), 1); checks++;
 
@@ -95,13 +96,30 @@ try {
   for (const invalid of [{ ...library, friend: '另一个联系人' }, { ...library, kind: 'moments' }, { ...library, id: library.id.replace(publicId, otherPublicId) }, { ...library, id: 'capture:[]' }]) assert.ok((await call(payload({ contact: undefined, library: invalid }))).status >= 400);
   assert.equal((await call(payload({ contact: { label: '无身份' }, library }))).status, 400, 'invalid precise identity cannot silently fall back'); checks++;
 
-  sql.prepare('UPDATE coach_profiles SET paused=1,data=? WHERE owner_id=?').run(JSON.stringify({ city: '合成城市', avatar: ownAvatar }), owner);
+  sql.prepare('UPDATE coach_profiles SET paused=1,data=?,updated_at=123 WHERE owner_id=?').run(JSON.stringify({ city: '合成城市', avatar: ownAvatar, memoryEnabled: false }), owner);
+  const pausedProfile = sql.prepare('SELECT * FROM coach_profiles WHERE owner_id=?').get(owner);
   assert.equal((await call(payload())).status, 200);
-  let profile = sql.prepare('SELECT * FROM coach_profiles WHERE owner_id=?').get(owner);
-  assert.equal(profile.paused, 0); assert.equal(profile.consent_at, consentAt); assert.equal(JSON.parse(profile.data).city, '合成城市');
+  assert.deepEqual(sql.prepare('SELECT * FROM coach_profiles WHERE owner_id=?').get(owner), pausedProfile);
+  const pausedContact = payload({ contact: { ...contact, contactId: 'wxid_paused-new-contact' } });
+  const pausedImport = await call(pausedContact);
+  assert.equal(pausedImport.status, 200); assert.equal(pausedImport.body.created, true);
+  assert.equal(person(pausedImport.body.subjectId).owner_id, owner);
+  assert.equal((await call(pausedContact)).body.subjectId, pausedImport.body.subjectId);
+  const pausedTarget = addPerson(owner, { notes: '暂停记忆仍可关联已有的人物' });
+  assert.equal((await call({ ...pausedContact, subjectId: pausedTarget })).body.subjectId, pausedTarget);
+  assert.equal((await call(pausedContact)).body.subjectId, pausedTarget);
+  assert.deepEqual(sql.prepare('SELECT * FROM coach_profiles WHERE owner_id=?').get(owner), pausedProfile);
+  checks++;
+
   sql.prepare('UPDATE coach_profiles SET consent_at=NULL,paused=1 WHERE owner_id=?').run(owner);
-  assert.equal((await call(payload({ consent: false }))).status, 403); assert.equal(sql.prepare('SELECT consent_at FROM coach_profiles WHERE owner_id=?').get(owner).consent_at, null);
-  assert.equal((await call(payload())).status, 200); assert.ok(sql.prepare('SELECT consent_at FROM coach_profiles WHERE owner_id=?').get(owner).consent_at); checks++;
+  const revokedProfile = sql.prepare('SELECT * FROM coach_profiles WHERE owner_id=?').get(owner);
+  assert.equal((await call(payload({ consent: false }))).status, 403);
+  assert.equal((await call(payload())).body.subjectId, explicit);
+  const revokedImport = await call(payload({ contact: { ...contact, contactId: 'wxid_revoked-new-contact' } }));
+  assert.equal(revokedImport.status, 200); assert.equal(revokedImport.body.created, true);
+  assert.equal(person(revokedImport.body.subjectId).owner_id, owner);
+  assert.deepEqual(sql.prepare('SELECT * FROM coach_profiles WHERE owner_id=?').get(owner), revokedProfile);
+  checks++;
 
   const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aY1cAAAAASUVORK5CYII=';
   const avatarCases = [
@@ -146,5 +164,5 @@ try {
 
   const stored = sql.prepare('SELECT data FROM coach_subjects').all().map(row => row.data).join(''); assert.ok(!stored.includes('wxid_')); assert.ok(!stored.includes(contact.accountKey));
   assert.equal(sql.prepare('SELECT COUNT(*) AS n FROM coach_credit_tasks').get().n, 0); assert.equal(sql.prepare('SELECT COUNT(*) AS n FROM coach_capture_records').get().n, 0); assert.equal(sql.prepare('SELECT COUNT(*) AS n FROM coach_facts').get().n, 0); checks++;
-  console.log(`Capture subject passed ${checks} real SQLite integration groups: exact identities, explicit precedence, concurrent retries/rebinding, legacy namespaces, consent, avatar validation/preservation, owner isolation, capacity, rollback, and deletion races. No network, model, capture, or billing calls.`);
+  console.log(`Capture subject passed ${checks} real SQLite integration groups: exact identities, explicit precedence, concurrent retries/rebinding, legacy namespaces, import consent, paused/revoked memory preservation with working person bindings, avatar validation/preservation, owner isolation, capacity, rollback, and deletion races. No network, model, capture, or billing calls.`);
 } finally { globalThis.fetch = oldFetch; sql.close(); }

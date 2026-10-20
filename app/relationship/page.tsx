@@ -8,6 +8,7 @@ import { listSyncedCaptureLibraries, type SyncedLibrarySummary } from "@/lib/cap
 import { capturePersonSearchHref, groupAnalysisPeople } from "@/lib/person-analysis-navigation";
 import { collectorInstallerHref, collectorVersion } from "@/lib/collector-download";
 import styles from "./relationship.module.css";
+import { RELATIONSHIP_ANALYSIS_LABEL } from "@/lib/product-labels";
 
 export default function RelationshipPage() {
   const account = useAccount(), owner = account.account?.account?.userId || "";
@@ -35,7 +36,7 @@ export default function RelationshipPage() {
   }
   const uploadHref="/analyze?mode=chat"+(subject?"&subjectId="+encodeURIComponent(subject):"");
   return <><WebNav/><main className={styles.page}>
-    <header className={styles.heading}><span>完整关系报告</span><h1>{person ? `看清与 ${person.label} 的关系` : "分析一个人的全部资料"}</h1><p>聊天、语音、朋友圈，一起看清这段关系。</p></header>
+    <header className={styles.heading}><span>聊天 · 语音 · 朋友圈</span><h1>{person ? `${RELATIONSHIP_ANALYSIS_LABEL} · ${person.label}` : RELATIONSHIP_ANALYSIS_LABEL}</h1><p>聊天、语音、朋友圈，一起看清这段关系。</p></header>
     <ol className={styles.steps} aria-label="完整分析流程"><li><b>1</b>选择微信好友</li><li><b>2</b>导入全部资料</li><li><b>3</b>确认费用，生成报告</li></ol>
     <section className={styles.downloadBar} aria-label="微信助手下载"><div><Monitor size={22}/><span><strong>电脑微信助手</strong><small>Windows 10 / 11 · 当前版本 {collectorVersion}</small></span></div><a href={collectorInstallerHref} download><Download size={18}/>下载／更新助手</a><a href="/support">帮助与下载<ArrowRight size={16}/></a></section>
     <AccountNotice state={account}/>

@@ -107,6 +107,7 @@ class CollectorState:
                                 backgroundVoiceById=bool(background.get("voiceReady")),
                                 backgroundContacts=bool(background.get("ready")))
         capabilities["backgroundHistory"] = bool(capabilities.get("backgroundChat"))
+        capabilities["backgroundImagesById"] = bool(capabilities.get("backgroundChat"))
         result = {"version": VERSION, "protocol": 1, **health, "capabilities": capabilities}
         ui_message = health.get("message")
         ui_message = ui_message.strip()[:500] if isinstance(ui_message, str) else ""
@@ -230,7 +231,7 @@ class CollectorState:
             raise BridgeError(503, "CONTACT_SEARCH_FAILED", "本机联系人目录暂时无法读取，请确认电脑微信已登录后重试。") from None
 
     def start(self, request):
-        if not isinstance(request, dict) or set(request) - ({"kind", "friend", "contactId", "accountKey", "limit", "includeVoice", "mode", "allVisible", "voiceOnly", "voiceIds"} | HISTORY_FIELDS):
+        if not isinstance(request, dict) or set(request) - ({"kind", "friend", "contactId", "accountKey", "limit", "includeVoice", "mode", "allVisible", "voiceOnly", "voiceIds", "imageOnly", "imageIds"} | HISTORY_FIELDS):
             raise BridgeError(400, "INVALID_REQUEST", "仅接受采集类型、好友完整备注、数量和语音补全选项。")
         paged = bool(HISTORY_FIELDS.intersection(request))
         selected = "contactId" in request or "accountKey" in request
@@ -258,8 +259,10 @@ class CollectorState:
         maximum = BACKGROUND_MAX_ROWS if mode == "background" else (500 if kind == "chat" else 2000)
         if type(limit) is not int or not 1 <= limit <= maximum:
             raise BridgeError(400, "INVALID_LIMIT", "后台聊天每次最多1000条，界面聊天最多500条，朋友圈单次最多2000条可见动态。")
-        if paged or selected or voice_only or "voiceIds" in request:
+        if paged or selected or voice_only or "voiceIds" in request or "imageOnly" in request or "imageIds" in request:
             try:
+                if request.get("imageOnly") and kind != "chat":
+                    raise BackgroundCaptureError("INVALID_REQUEST", "定向图片补全仅支持后台聊天读取。")
                 validation = ({**request, "kind": "chat", "limit": 1} if kind == "moments" else dict(request))
                 validation.pop("allVisible", None)
                 _validate_request(validation)
@@ -285,13 +288,14 @@ class CollectorState:
             if kind == "moments":
                 payload["allVisible"] = all_visible
             payload.update({key: request[key] for key in HISTORY_FIELDS if key in request})
-            payload.update({key: request[key] for key in ("contactId", "accountKey", "voiceOnly", "voiceIds") if key in request})
+            payload.update({key: request[key] for key in ("contactId", "accountKey", "voiceOnly", "voiceIds", "imageOnly", "imageIds") if key in request})
             proc = ctx.Process(target=self.capture_target, args=(child, payload), daemon=True)
             job = {"jobId": job_id, "mode": mode, "kind": kind, "allVisible": all_visible,
                    "status": "running", "progress": 0, "partialRevision": 0,
                    "phase": "preparing", "recordCount": 0, "pinnedCount": 0,
                    "lastAction": "start",
-                   "message": "正在检查本机聊天与语音" if mode == "background" else "正在连接微信界面", "updated": time.monotonic(), "process": proc}
+                   "message": ("正在补齐选定聊天图片" if request.get("imageOnly") else
+                               "正在检查本机聊天与语音" if mode == "background" else "正在连接微信界面"), "updated": time.monotonic(), "process": proc}
             self.jobs[job_id], self.active = job, job_id
             self.local_message = "正在后台导入，可以继续使用电脑；可随时停止" if mode == "background" else "采集中，请暂时不要操作微信；可随时停止"
             try:

@@ -1,0 +1,9 @@
+.excerpt { min-width:0; overflow-wrap:anywhere; color:inherit; font-size:16px; line-height:1.85; }
+.excerpt p,.excerpt blockquote { margin:8px 0; font:inherit; white-space:pre-line; }
+.excerpt[data-quote] blockquote { margin:8px 0; padding:8px 14px; border-left:3px solid #80a899; background:#f1f6f1; color:#344d44; }
+.excerpt details { margin:0; }
+.excerpt summary { display:flex; align-items:center; gap:5px; width:fit-content; min-height:40px; padding:2px 0; color:#9b604c; font-size:14px; font-weight:500; cursor:pointer; list-style:none; }
+.excerpt summary::-webkit-details-marker { display:none; }
+.excerpt summary:focus-visible { outline:2px solid #a9644e; outline-offset:3px; border-radius:3px; }
+.excerpt details[open]>summary svg { transform:rotate(180deg); }
+.remainder { padding:1px 0 0; }

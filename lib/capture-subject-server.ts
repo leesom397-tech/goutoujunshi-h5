@@ -74,19 +74,21 @@ export async function bindCaptureSubject(owner: string, publicOwner: string, bod
   const key = identity.key, candidateId = crypto.randomUUID();
   const path = `$.captureBindings.${key}`, now = Date.now();
   const boundQuery = `SELECT id FROM coach_subjects WHERE owner_id=? AND status='active' AND json_type(${safeData},?)='object' ORDER BY id LIMIT 1`;
-  const activeProfile = "EXISTS(SELECT 1 FROM coach_profiles WHERE owner_id=? AND consent_at IS NOT NULL AND paused=0)";
+  // Import consent authorizes this person's archive, not restarting paused memory.
+  // Existing memory preferences remain authoritative while person bindings stay usable.
+  const profileExists = "EXISTS(SELECT 1 FROM coach_profiles WHERE owner_id=?)";
   const statements = [db.prepare(`INSERT INTO coach_profiles (owner_id,consent_at,paused,data,updated_at)
     SELECT ?,?,0,'{}',? WHERE (?='' OR EXISTS(SELECT 1 FROM coach_subjects WHERE owner_id=? AND id=? AND status='active'))
-    ON CONFLICT(owner_id) DO UPDATE SET consent_at=COALESCE(coach_profiles.consent_at,excluded.consent_at),paused=0,updated_at=excluded.updated_at`)
+    ON CONFLICT(owner_id) DO NOTHING`)
     .bind(owner, now, now, explicit, owner, explicit)];
   const insertIndex = statements.length;
   statements.push(db.prepare(`INSERT OR IGNORE INTO coach_subjects (id,owner_id,label,status,data,created_at,updated_at)
     SELECT ?,?,?,'active','{}',?,? WHERE ?='' AND NOT EXISTS(${boundQuery})
-    AND (SELECT COUNT(*) FROM coach_subjects WHERE owner_id=?)<40 AND ${activeProfile}`)
+    AND (SELECT COUNT(*) FROM coach_subjects WHERE owner_id=?)<40 AND ${profileExists}`)
     .bind(candidateId, owner, identity.label, now, now, explicit, owner, path, owner, owner));
   if (explicit) {
     statements.push(db.prepare(`UPDATE coach_subjects SET data=json_remove(${safeData},?),updated_at=?
-      WHERE owner_id=? AND id<>? AND json_type(${safeData},?)='object' AND ${activeProfile}
+      WHERE owner_id=? AND id<>? AND json_type(${safeData},?)='object' AND ${profileExists}
       AND EXISTS(SELECT 1 FROM coach_subjects target WHERE target.owner_id=? AND target.id=? AND target.status='active')`)
       .bind(path, now, owner, explicit, path, owner, owner, explicit));
   }
@@ -96,7 +98,7 @@ export async function bindCaptureSubject(owner: string, publicOwner: string, bod
   const withBinding = `json_set(${bindingData},?,json(?))`;
   const withAvatar = `CASE WHEN ?<>'' AND COALESCE(json_extract(${safeData},'$.avatar'),'')='' THEN json_set(${withBinding},'$.avatar',?) ELSE ${withBinding} END`;
   const binding = JSON.stringify({ version: 1, kind: identity.kind });
-  statements.push(db.prepare(`UPDATE coach_subjects SET data=${withAvatar},updated_at=? WHERE owner_id=? AND id=${selected} AND status='active' AND ${activeProfile}`)
+  statements.push(db.prepare(`UPDATE coach_subjects SET data=${withAvatar},updated_at=? WHERE owner_id=? AND id=${selected} AND status='active' AND ${profileExists}`)
     .bind(identity.avatar, path, binding, identity.avatar, path, binding, now, owner, ...selectedParams, owner));
   const results = await db.batch(statements);
   const row = await db.prepare(`SELECT id,label,data FROM coach_subjects WHERE owner_id=? AND status='active' AND json_type(${safeData},?)='object'${explicit ? " AND id=?" : ""} ORDER BY id LIMIT 1`).bind(owner, path, ...(explicit ? [explicit] : [])).first<SubjectRow>();

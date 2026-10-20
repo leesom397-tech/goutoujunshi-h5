@@ -24,15 +24,16 @@ import { PersonalConnection } from "./PersonalConnection";
 import { ChatActivity } from "@/components/ChatActivity";
 import { RelationshipDiagnosisPanel } from "./RelationshipDiagnosisPanel";
 import { buildRelationshipDiagnosis } from "@/lib/relationship-diagnosis";
+import { directedCommitment } from "@/lib/conversation-context";
 import { ConversationMemoryReview } from "@/components/ConversationMemoryReview";
 import { ChatReportBrief, ReportChapterArt } from "./ReportBrief";
 import { ReportVisualMetrics } from "./ReportVisualMetrics";
 import { ReportDetails } from "./ReportDetails";
 import { AffinityOverview } from "./AffinityOverview";
-import { HistoryReportReading, HistoryChangeReading, HistoryActionReading } from "./HistoryReportInsights";
+import { HistoryReportReading, HistoryChangeReading, HistoryActionReading, HistoryMomentsOverview } from "./HistoryReportInsights";
 import { intakeHref } from "./intake-navigation";
 import { withAnalysisFocus } from "@/lib/person-analysis-navigation";
-import {ReplyDifference} from "./ReportReadingTools";
+import {MethodReferences,ReplyDifference} from "./ReportReadingTools";
 import {reportReadingScope,reportLineKey,readReportPosition,saveReportPosition} from "@/lib/report-reading-position";
 export function Replies({ options, report, account, styleReportIds, publicExample = false }: { options: Json[]; report?: Json; account: Json | null; styleReportIds?: string[]; publicExample?: boolean }) {
   const [rewrites, setRewrites] = useState<Record<number, Json>>({}), [busy, setBusy] = useState(-1), [error, setError] = useState(""), [copied, setCopied] = useState(-1);
@@ -63,7 +64,11 @@ export function FitReport({fit,title="资料适配 · 你们合适吗？",curren
 }
 const tagIcon=(key:string)=>({happy:Smile,caring:HandHeart,calm:Meh,sad:Frown,angry:Angry,confused:CircleHelp,surprised:Eye,shy:Heart,teasing:Smile,ask:CircleHelp,answer:MessageCircle,acknowledge:CircleCheck,care:HandHeart,invite:Send,clarify:CircleHelp}[key]||MessageCircle);
 function AnnotationSignal({annotation}:{annotation:Json}){
- return <div><p className="wa-muted">横条是解释权重，不是喜欢程度。</p>{([['emotion','情绪倾向',Smile],['intent','表达意图',MessageCircle]] as const).map(([key,label,GroupIcon])=><div className={readerStyles.signalGroup} data-kind={key} key={key}><h3><GroupIcon size={17}/>{label}</h3>{annotation[key]?.length?annotation[key].map((tag:Json,index:number)=>{const Icon=tagIcon(tag.key),value=typeof tag.probability==='number'&&tag.probability>=0&&tag.probability<=1?tag.probability*100:typeof tag.weight==='number'&&tag.weight>=0&&tag.weight<=100?tag.weight:null;return <div className={readerStyles.signalRow} key={index}><Icon size={17}/><span>{tag.label}</span><span className={readerStyles.signalTrack} aria-hidden="true"><i style={{width:`${value??0}%`}}/></span><b>{value===null?'—':`权重 ${value>0&&value<1?'<1':Math.round(value)}`}</b></div>}):<p className="wa-muted">这句没有足够线索，暂不评分。</p>}</div>)}{annotation.note&&<div className={readerStyles.interpretation}><strong><Lightbulb size={17}/>结合上下文看</strong><p>{annotation.note}</p></div>}</div>;
+ return <div><p className="wa-muted">横条是解释权重，不是喜欢程度。</p>{([['emotion','情绪倾向',Smile],['intent','表达意图',MessageCircle]] as const).map(([key,label,GroupIcon])=>{
+  const tags=reportRows(annotation[key]).filter(tag=>typeof tag.label==="string");
+  const legacyText=typeof annotation[key]==="string"?annotation[key].trim():"";
+  return <div className={readerStyles.signalGroup} data-kind={key} key={key}><h3><GroupIcon size={17}/>{label}</h3>{tags.length?tags.map((tag:Json,index:number)=>{const Icon=tagIcon(tag.key),value=typeof tag.probability==='number'&&tag.probability>=0&&tag.probability<=1?tag.probability*100:typeof tag.weight==='number'&&tag.weight>=0&&tag.weight<=100?tag.weight:null;return <div className={readerStyles.signalRow} key={index}><Icon size={17}/><span>{tag.label}</span><span className={readerStyles.signalTrack} aria-hidden="true"><i style={{width:`${value??0}%`}}/></span><b>{value===null?'—':`权重 ${value>0&&value<1?'<1':Math.round(value)}`}</b></div>}):<p className="wa-muted">{legacyText||"这句没有足够线索，暂不评分。"}</p>}</div>;
+ })}{typeof annotation.note==="string"&&annotation.note&&<div className={readerStyles.interpretation}><strong><Lightbulb size={17}/>结合上下文看</strong><p>{annotation.note}</p></div>}</div>;
 }
 function ToneEvidence({report,storageKey}:{report:Json;storageKey?:string}){
  const lines:Json[]=report.lines||[],[selected,setSelected]=useState(()=>Math.max(0,lines.findIndex(line=>line.speaker==='other'))),list=useRef<HTMLDivElement>(null);
@@ -98,7 +103,7 @@ function ToneEvidence({report,storageKey}:{report:Json;storageKey?:string}){
    }
   });
  }
- const detail=(inline=false)=><article className={`${readerStyles.toneDetail} ${inline?readerStyles.inlineToneDetail:readerStyles.desktopToneDetail}`} data-tone-detail={inline?'inline':'desktop'}><div className={readerStyles.linePosition}><span><Quote size={16}/>正在解读 · 第 {index+1} / {lines.length} 句 · {line?.speaker==='self'?'我':line?.speaker==='other'?'对方':'身份待确认'}</span><span>{annotation?.evidence==='limited'?'线索有限':annotation?.evidence==='insufficient'?'依据不足':'文字线索'}</span></div>{!inline&&<blockquote>{line?.text}</blockquote>}<CaptureEvidence quote={line?.text} sourceIds={line?.sourceId?[line.sourceId]:undefined}/>{annotation?<AnnotationSignal annotation={annotation}/>:<p className={readerStyles.empty}>这句已保留原文，暂未完成逐句解读。请结合完整对话与报告依据阅读。</p>}<div className={readerStyles.linePager}><button type="button" disabled={index===0} onClick={()=>choose(index-1,true)}><ArrowLeft size={16}/>上一句</button><button type="button" disabled={index===lines.length-1} onClick={()=>choose(index+1,true)}>下一句<ArrowRight size={16}/></button></div></article>;
+ const detail=(inline=false)=><article className={`${readerStyles.toneDetail} ${inline?readerStyles.inlineToneDetail:readerStyles.desktopToneDetail}`} data-tone-detail={inline?'inline':'desktop'}><div className={readerStyles.linePosition}><span><Quote size={16}/>正在解读 · 第 {index+1} / {lines.length} 句 · {line?.speaker==='self'?'我':line?.speaker==='other'?'对方':'身份待确认'}</span><span>{annotation?.evidence==='limited'?'线索有限':annotation?.evidence==='insufficient'?'依据不足':'文字线索'}</span></div>{!inline&&<blockquote>{line?.text}</blockquote>}<CaptureEvidence quote={line?.text} sourceIds={line?.sourceId?[line.sourceId]:undefined} libraryId={line?.libraryId} sourceKind={line?.sourceKind}/>{annotation?<AnnotationSignal annotation={annotation}/>:<p className={readerStyles.empty}>这句已保留原文，暂未完成逐句解读。请结合完整对话与报告依据阅读。</p>}<div className={readerStyles.linePager}><button type="button" disabled={index===0} onClick={()=>choose(index-1,true)}><ArrowLeft size={16}/>上一句</button><button type="button" disabled={index===lines.length-1} onClick={()=>choose(index+1,true)}>下一句<ArrowRight size={16}/></button></div></article>;
  return <section className="wa-card" id="tone"><h2><MessageCircle size={21}/>逐句语气与意图</h2><p className="wa-muted">点击一句看解读。百分比表示解释权重，不是喜欢你的概率。</p>{line?<div className={readerStyles.toneLayout}><div className={readerStyles.conversation} ref={list} onScroll={remember} data-reading-list role="group" aria-label="选择一句原话">{lines.map((item,n)=><div className={readerStyles.conversationItem} data-selected={n===index} key={item.id||n}><button type="button" className={readerStyles.sentenceButton} data-line={n} data-reading-anchor={reportLineKey(item,n)} aria-pressed={n===index} onClick={()=>choose(n)}><small><span>第 {n+1} 句 · {item.speaker==='self'?'我':item.speaker==='other'?'对方':'身份待确认'}{item.screenshotNumber?` · 图 ${item.screenshotNumber}`:''}</span>{n===index&&<b><CircleCheck size={14}/>正在解读</b>}</small><span>{item.text}</span></button>{n===index&&detail(true)}</div>)}</div>{detail()}</div>:<p className={readerStyles.empty}>这张截图没有可解读的文字气泡。</p>}{report.decision?.mediaBubbles?.length>0&&<div className={readerStyles.interpretation}><strong><Image size={17}/>对话里的表情与图片</strong>{report.decision.mediaBubbles.map((bubble:Json,n:number)=><p key={n}><span className="wa-pill">{bubble.kind==='sticker'?<Sticker size={15}/>:<Image size={15}/>} {bubble.screenshotNumber ? `图 ${bubble.screenshotNumber} · ` : ""}第 {(bubble.lineIndex??n)+1} 个气泡 · {bubble.speaker==='self'?'我':bubble.speaker==='other'?'对方':'身份待确认'}</span> {bubble.kind==='sticker'?'表情包':bubble.kind==='voice'?'语音':'图片'}{bubble.kind==='sticker'&&!bubble.text?'（无文字）':''}</p>)}</div>}<ChatPhotoClues clues={report.decision?.photoClues}/></section>;
 }
 const chatSections:ReadingSection[]=[
@@ -117,15 +122,17 @@ const fullMomentsSections:ReadingSection[]=[
  {id:'next',label:'聊什么',caption:'话题切口与相处建议',tone:'slate'},
 ];
 const reportRows=(value:unknown):Json[]=>Array.isArray(value)?value.filter(item=>item&&typeof item==='object'):[];
+const visibleClaimQuote=(value:unknown)=>typeof value==="string"?value.replace(/^(第 \d+ 句)(?: · .+?)?：“/,"$1：“"):"";
 function RelationshipChanges({diagnosis,semantic}:{diagnosis:Json|null;semantic?:Json}){
- const claims=reportRows(diagnosis?.claimActions);
+ const claims=reportRows(diagnosis?.claimActions).filter(item=>item.id!=="claim-action:commitment"||directedCommitment(String(item.claimEvidence||"")));
  return <>
-  {claims.length>0&&<section className={reportStyles.reportSection}><h2><Quote size={21}/>说法与行动</h2><div className={reportStyles.claimActions}>{claims.map((item,index)=><article key={item.id||index}><header><h3>{item.claim}</h3><small>{item.status}</small></header><p>{item.action}</p>{item.claimEvidence&&<blockquote>{item.claimEvidence}<CaptureEvidence quote={item.claimEvidence} label="回看说法"/></blockquote>}{item.actionEvidence&&<blockquote>{item.actionEvidence}<CaptureEvidence quote={item.actionEvidence} label="回看后续行动"/></blockquote>}{item.note&&<small>{item.note}</small>}</article>)}</div></section>}
+  {claims.length>0&&<section className={reportStyles.reportSection}><h2><Quote size={21}/>说法与行动</h2><div className={reportStyles.claimActions}>{claims.map((item,index)=><article key={item.id||index}><header><h3>{item.claim}</h3><small>{item.status}</small></header><p>{item.action}</p>{item.claimEvidence&&<blockquote>{visibleClaimQuote(item.claimEvidence)}<CaptureEvidence quote={item.claimEvidence} label="回看说法"/></blockquote>}{item.actionEvidence&&<blockquote>{visibleClaimQuote(item.actionEvidence)}<CaptureEvidence quote={item.actionEvidence} label="回看后续行动"/></blockquote>}{item.note&&<small>{item.note}</small>}</article>)}</div></section>}
  </>;
 }
 export function ChatReport({report,account,styleReportIds,preview=false,publicExample=false,initialFocus}:{report:Json;account:Json|null;styleReportIds?:string[];preview?:boolean;publicExample?:boolean;initialFocus?:'affinity'|'intent'|'reply'}){
  const [followupError,setFollowupError]=useState('');
  const [historySection,setHistorySection]=useState(report.captureKind==='moments'?'moments':reportGoal(report)==='risk'?'risk':'interaction');
+ const [riskCategory,setRiskCategory]=useState<string>();
  const decision=report.decision||{},fit=Object.prototype.hasOwnProperty.call(report,'latestCompatibility')?report.latestCompatibility:report.compatibility;
  const presentation=riskAwarePresentation(report), options=presentation.replyOptions, actionReport=presentation.viewReport;
  const readingScope=reportReadingScope(account?.account?.userId,report.reportId||report.id,report.subjectId,"chat",publicExample);
@@ -135,6 +142,10 @@ export function ChatReport({report,account,styleReportIds,preview=false,publicEx
  const affinityFirst=!fullHistory&&initialFocus==='affinity'&&presentation.mode==='normal';
  const momentOnly=fullHistory&&report.captureKind==='moments';
  const identity=reportIdentity(report),goal=reportGoal(report);
+ const recent=report.recentSentenceAnalysis||semantic?.recentSentenceAnalysis;
+ const recentLines=fullHistory&&recent?.scope==='recent'?reportRows(recent.lines).filter(line=>['self','other'].includes(line.speaker)&&typeof line.text==='string'&&line.text.trim()):[];
+ const recentTotal=Number.isSafeInteger(recent?.totalReadable)&&recent.totalReadable>=recentLines.length?recent.totalReadable:null;
+ const recentReading=recentLines.length?<section data-history-recent-sentences><p className={readerStyles.sampleScope}>最近 {recentLines.length} 条逐句解读{recentTotal!==null?` · 全量已读 ${recentTotal} 条`:""}。这里只展示最近片段，整体判断和统计仍使用全部已读资料。</p>{recent.windowLabel&&<p className="wa-muted">{recent.windowLabel}</p>}<ToneEvidence key={readingScope+":recent"} report={{...report,lines:recentLines,annotations:reportRows(recent.annotations),decision:{}}} storageKey={readingScope?readingScope+":recent":undefined}/></section>:null;
  const hasCurrentLines=!fullHistory&&!report.sentenceSampleNote&&Array.isArray(report.lines)&&report.lines.length>0;
  const journey=report.relationshipContext||projectRelationshipContext({ownerId:"current",subjectId:report.subjectId||"current",reports:[{id:report.reportId||report.id||"current",owner_id:"current",subject_id:report.subjectId||"current",kind:"chat",status:"done",result:report,created_at:0}],activity:report.chatActivity||null,activityStatus:report.chatActivity?"saved":"missing"});
  const action= presentation.nextStep||diagnosis?.decision?.recommendation||'结合下一次真实回应，再更新判断。';
@@ -153,10 +164,12 @@ export function ChatReport({report,account,styleReportIds,preview=false,publicEx
     <ChatReportBrief report={report} diagnosis={diagnosis} showMetrics={fullHistory&&!momentOnly}/>
     {!fullHistory&&!affinityFirst&&<AffinityOverview report={report}/>}
     {decision.partial&&<p className="wa-status">部分材料未识别；下方依据只覆盖可读内容。</p>}
-    <RiskReview report={report} summaryOnly={fullHistory}/>
-    {fullHistory&&<HistoryReportReading report={report} diagnosis={diagnosis} section={historySection} onSectionChange={setHistorySection}/>}
+    <RiskReview report={report} summaryOnly={fullHistory} onInspect={fullHistory&&!momentOnly?kind=>{setRiskCategory(kind);setHistorySection('risk');requestAnimationFrame(()=>document.querySelector('[data-history-reading]')?.scrollIntoView({block:'start',behavior:'instant'}));}:undefined}/>
+    {fullHistory&&!momentOnly&&<HistoryMomentsOverview report={report} onOpen={()=>{setHistorySection('moments');requestAnimationFrame(()=>document.querySelector('[data-history-reading]')?.scrollIntoView({block:'start',behavior:'instant'}));}}/>}
+    {fullHistory&&<HistoryReportReading report={report} diagnosis={diagnosis} section={historySection} onSectionChange={setHistorySection} recentReading={recentReading} riskCategory={riskCategory}/>}
     {!preview&&!publicExample&&<ReportFollowUp report={actionReport} owner={account?.account?.userId}/>}
     <div className={reportStyles.detailLinks}><h2><BookOpen size={19}/>深入读这份报告</h2><ReportCoverage report={report}/>
+     <MethodReferences sources={report.knowledgeSources||semantic?.knowledgeSources||report.decision?.knowledgeSources}/>
      {!fullHistory&&(diagnosis||semantic)&&<ReportDetails title="为什么这样判断" description="详细解读、相反证据与其他可能"><RelationshipDiagnosisPanel diagnosis={diagnosis} semanticHistory={semantic} hideCoverage={!!report.sourceCoverage?.length}/></ReportDetails>}
      {!momentOnly&&<ReportDetails title="我们之间：共同点与相处差异" description="共同点、期待与需要磨合的地方"><PersonalConnection report={report} publicExample={publicExample}/>{fit&&<FitReport fit={fit} current={Object.prototype.hasOwnProperty.call(report,'latestCompatibility')}/>}</ReportDetails>}
      {!preview&&!publicExample&&report.profileMemory&&<ReportDetails title="这次对我的新了解" description="查看从你的表达中整理的信息，也可以纠正"><ConversationMemoryReview memory={report.profileMemory} ownerId={account?.account?.userId} subjectId={report.subjectId}/></ReportDetails>}

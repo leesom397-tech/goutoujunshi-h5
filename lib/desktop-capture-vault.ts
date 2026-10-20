@@ -2,7 +2,7 @@ import { applyVerifiedVoiceUpdatesToRecords, captureLibraryId, captureNamespaceK
 export type { StoredCaptureRecord } from "./desktop-capture";
 
 export type CaptureReportLink = { reportId: string; sourceIds: string[]; memorySourceIds?: string[]; createdAt: string };
-export type CaptureCloudState = { id: string; epoch: number; enabled: boolean; syncedAt: string; total: number; subjectId?: string; digests?: Record<string,string>; mediaDigests?: Record<string,string>; metadataDigest?: string; reportDigests?: Record<string,string>; retired?: boolean; offline?: boolean };
+export type CaptureCloudState = { id: string; epoch: number; revision?: number; enabled: boolean; syncedAt: string; total: number; subjectId?: string; digests?: Record<string,string>; mediaDigests?: Record<string,string>; metadataDigest?: string; reportDigests?: Record<string,string>; retired?: boolean; offline?: boolean };
 export type CaptureLibrary = CaptureNamespace & { id: string; createdAt: string; updatedAt: string; records: StoredCaptureRecord[]; warnings: string[]; reportLinks: CaptureReportLink[]; coverage?: CaptureCoverage; cloud?: CaptureCloudState };
 export type CaptureLibrarySummary = Omit<CaptureLibrary, "records"> & { total: number; pending: number };
 export type CaptureReportSources = { libraryId: string; sourceIds: string[]; records: StoredCaptureRecord[]; memoryRecords?: StoredCaptureRecord[]; kind: CaptureNamespace["kind"]; friend: string; account: string };
@@ -198,6 +198,7 @@ export async function setCaptureCloudState(ownerId: string, libraryId: string, c
           saved = {
             ...current, ...cloud,
             total: Math.max(current.total, cloud.total),
+            revision: current.revision===undefined&&cloud.revision===undefined?undefined:Math.max(current.revision||0,cloud.revision||0),
             syncedAt: current.syncedAt > cloud.syncedAt ? current.syncedAt : cloud.syncedAt,
             digests: merge(current.digests, cloud.digests, expected?.digests),
             mediaDigests: merge(current.mediaDigests, cloud.mediaDigests, expected?.mediaDigests),

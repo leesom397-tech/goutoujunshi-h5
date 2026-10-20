@@ -460,7 +460,7 @@ def _extract_current_account_keys(account_dir, proof, deadline):
 
 
 class LocalDatabaseSource:
-    def __init__(self, account_dir, contact_key, login_proof, master, keys=None):
+    def __init__(self, account_dir, contact_key, login_proof, master, keys=None, *, image_cfg_dword=None):
         self.account_dir = Path(account_dir)
         self.account_id = login_proof["username"]
         self.account_label = self.account_id
@@ -469,6 +469,7 @@ class LocalDatabaseSource:
         self.keys = dict(keys or {})
         self.keys["contact/contact.db"] = contact_key
         self.master = master
+        self.image_key_context = None
         self.connections = {}
         self.snapshots = {}
         self.vfs = {}
@@ -483,6 +484,8 @@ class LocalDatabaseSource:
                 raise _fail("ACCOUNT_IDENTITY_UNVERIFIED", "当前账号身份无法唯一核对，未读取聊天。")
             self.account_id = self.self_username = str(rows[0][0])
             self.account_label = str(rows[0][1] or self.account_id)
+            from local_image_codec import ImageKeyContext
+            self.image_key_context = ImageKeyContext(self.account_dir, self.account_id, image_cfg_dword)
         except BaseException:
             self.close()
             raise
@@ -576,6 +579,9 @@ class LocalDatabaseSource:
         self.snapshots.clear()
         self.keys.clear()
         self.master = None
+        if self.image_key_context is not None:
+            self.image_key_context.close()
+            self.image_key_context = None
         self.login_proof = {}
 
 
@@ -604,7 +610,7 @@ def open_authorized_source():
             live = None
         if not live:
             continue
-        master_hex, _, username, cfg, fingerprint, root_pointer = live
+        master_hex, image_cfg_dword, username, cfg, fingerprint, root_pointer = live
         if not username or len(username) > 200:
             continue
         master = bytes.fromhex(master_hex)
@@ -618,13 +624,13 @@ def open_authorized_source():
                 first = handle.read(PAGE_SIZE)
             key = primitive._pbkdf2(master, first[:16], 256000)
             key = key if primitive._verify_enc_key(key, first) else None
-            found.append((account_dir, key, proof, master))
+            found.append((account_dir, key, proof, master, image_cfg_dword))
     if len(found) != 1:
         code = "ACCOUNT_AMBIGUOUS" if len(found) > 1 else "DATABASE_KEY_UNAVAILABLE"
         message = ("检测到多个可读取账号，无法唯一核对；请保持单一账号登录后重试。" if len(found) > 1 else
                    "当前微信的本机数据库读取校验未通过，本次未读取聊天；助手需要完成兼容适配。")
         raise _fail(code, message)
-    account_dir, contact_key, proof, master = found[0]
+    account_dir, contact_key, proof, master, image_cfg_dword = found[0]
     _verify_login(proof)
     keys = None
     if contact_key is None:
@@ -634,4 +640,4 @@ def open_authorized_source():
             raise _fail("DATABASE_KEY_UNAVAILABLE", "当前微信数据库密钥无法通过本机校验，本次未读取聊天。")
         master = None
     _verify_login(proof)
-    return LocalDatabaseSource(account_dir, contact_key, proof, master, keys)
+    return LocalDatabaseSource(account_dir, contact_key, proof, master, keys, image_cfg_dword=image_cfg_dword)

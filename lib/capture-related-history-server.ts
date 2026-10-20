@@ -7,6 +7,7 @@ import type { QwenContent, QwenMessage } from "./qwen";
 import { CaptureFullHistoryError, MAX_FULL_CAPTURE_ROWS } from "./capture-full-history-server";
 import {captureMaterialRole,captureMaterialCounts,CAPTURE_MATERIAL_GUIDANCE,type CaptureMaterialMetadata} from "./capture-material";
 import { validatedCaptureImageObservations } from "./capture-image-observations";
+import { attachCaptureContext } from "./capture-history-context";
 
 type Database = ReturnType<typeof getD1>;
 type Snapshot = { libraryId: string; kind: "chat" | "moments"; epoch: number; revision: number; total: number };
@@ -199,5 +200,5 @@ export async function readRelatedCaptureEvidence(db: Database, owner: string, in
     coverage.status = coverage.imagesMissing || coverage.imagesFailed || coverage.imagesUnreadable ? "partial" : "complete";
   }
   await assertCaptureSnapshotsCurrent(db, owner, snapshots);
-  return {snapshots, supplementalRecords, sourceCoverage, mediaEvidence,profileMaterials};
+  return {snapshots, supplementalRecords:attachCaptureContext(supplementalRecords,chat.records,supplementalRecords,input.libraryId!), sourceCoverage, mediaEvidence,profileMaterials};
 }

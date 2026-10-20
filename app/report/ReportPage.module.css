@@ -39,3 +39,5 @@
 .reportHeader nav a,.reportHeader .eyebrow,.freshness p,.freshness a{font-size:16px}
 .compactHeader nav{flex-direction:row;flex-wrap:wrap}
 @media(max-width:700px){.compactHeader{gap:8px;padding-bottom:12px;margin-bottom:6px}.compactHeader>div{max-width:none;flex:none}.compactHeader nav{gap:4px}.compactHeader nav a{min-height:44px;padding:8px;font-size:16px}.compactHeader nav a svg{display:none}.compactHeader .eyebrow{font-size:14px}}
+.reportHeader :global([data-report-generated-time]) { font-size:14px; line-height:1.8; color:#716154; margin:6px 0 0; }
+@media(max-width:700px){.reportHeader.compactHeader{flex-wrap:wrap}.compactHeader nav{margin-left:auto}.compactHeader>div{max-width:100%}}

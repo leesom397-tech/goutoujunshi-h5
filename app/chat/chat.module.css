@@ -10,6 +10,8 @@
   font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
 }
 .page *, .page *::before, .page *::after { box-sizing: border-box; }
+.returnReport { display: inline-flex; align-items: center; gap: 9px; min-height: 44px; margin: 0 0 18px; padding: 10px 16px; border: 1px solid #d5bba7; border-radius: 11px; background: #fffaf5; color: #754c39; font-size: 16px; font-weight: 600; text-decoration: none; }
+.returnReport:hover { background: #f6e9dd; border-color: #a9644e; }
 .page :global(.chat-experience-grid) { display: grid; grid-template-columns: minmax(0, 1fr); gap: 28px; align-items: start; margin-top: 26px; }
 .page :global(.chat-experience-grid.has-context) { grid-template-columns: minmax(0, 1fr) 292px; }
 .page :global(.chat-main) { min-width: 0; }

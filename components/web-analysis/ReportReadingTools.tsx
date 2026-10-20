@@ -11,12 +11,10 @@ import {reportEvidenceSpeaker,reportIdentity} from "./report-context";
 
 export function MethodReferences({sources}:{sources?:Json[]}){
  if(!Array.isArray(sources)||!sources.length)return null;
- const unique=sources.filter((source,index,all)=>source?.label&&all.findIndex(other=>other?.label===source.label)===index).slice(0,6);
+ const known=sources.flatMap(source=>{const doc=knowledgeManifest.documents.find(doc=>(source?.anchor&&doc.anchor===source.anchor)||(source?.id&&doc.id===source.id)||source?.label===doc.label);return doc?[{label:doc.label,anchor:doc.anchor}]:[];});
+ const unique=known.filter((source,index,all)=>all.findIndex(other=>other.anchor===source.anchor)===index);
  if(!unique.length)return null;
- return <details className={styles.references} data-method-references><summary><BookOpen size={15}/>参考方法 · {unique.length} 条</summary><div>{unique.map((source,index)=>{
-  const doc=knowledgeManifest.documents.find(doc=>(source.anchor&&doc.anchor===source.anchor)||(source.id&&doc.id===source.id)||doc.label===source.label);
-  return doc?<a href={"/library#"+encodeURIComponent(doc.anchor)} target="_blank" rel="noopener noreferrer" key={index}>{source.label}<ArrowUpRight size={14}/></a>:<span key={index}>{source.label}</span>;
- })}</div><p>文献提供分析方法；这次判断的个人依据仍是上面的材料。</p></details>;
+ return <details className={styles.references} data-method-references><summary><BookOpen size={17}/>本次实际参考的方法 · {unique.length} 份</summary><div>{unique.map(source=><a href={"/library#"+encodeURIComponent(source.anchor)} target="_blank" rel="noopener noreferrer" key={source.anchor}>{source.label}<ArrowUpRight size={14}/></a>)}</div><p>文献提供分析方法；这次判断的个人依据仍是上面的材料。</p></details>;
 }
 export function KeyEvidenceList({report,priorityEvidence,showReferences=true}:{report:Json;priorityEvidence?:string;showReferences?:boolean}){
  const semantic=report.semanticHistory||report.relationshipDiagnosis?.semanticHistory;

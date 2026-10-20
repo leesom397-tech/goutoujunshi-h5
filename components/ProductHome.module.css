@@ -69,7 +69,7 @@
 .evidenceFooter a:hover { background: #f7eade; border-color: #cba98f; }
 .evidenceFooter a:focus-visible { outline: 2px solid #a26043; outline-offset: 4px; }
 
-.tools { padding: 10px 6% 28px; scroll-margin-top: 24px; }
+.tools { padding: 10px 6% 28px; scroll-margin-top: 96px; }
 .tools header { margin-bottom: 17px; }
 .page .tools h2 { margin: 0; color: #302a25; font-size: 26px; font-weight: 600; line-height: 1.5; letter-spacing: -.035em; }
 .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }

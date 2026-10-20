@@ -59,6 +59,8 @@
 .page .nextChoices>button:not([data-main=true]){border:0;background:transparent;padding:10px;font-size:14px;box-shadow:none}
 .page .nextChoices>button strong{font-weight:500}
 .page .nextAction{margin-top:12px}
+.page .completedReport h3{font-size:25px;line-height:1.45}.previewActions{display:flex;align-items:center;gap:9px;flex:none}.previewActions>button{white-space:nowrap}@media(max-width:600px){.page .completedReport h3{font-size:23px}.preview[data-stage=ready] .previewHead{flex-wrap:wrap}.preview[data-stage=ready] .previewHead>div:first-child{flex-basis:100%}.preview[data-stage=ready] .previewActions{width:100%;justify-content:space-between}}
+.completedReport{padding:4px 0 24px}.completedReport h3{margin:12px 0;font-size:27px;line-height:1.4}.completedReport>p{font-size:16px;line-height:1.8;color:#6a5b51;margin:10px 0 20px}.completedReport>a{width:100%;min-height:64px;justify-content:center}.completedReport .reanalyze{display:flex;align-items:center;justify-content:center;gap:8px;min-height:48px;margin:12px auto 0;padding:10px 16px;border:1px solid #dec5b6;border-radius:12px;background:transparent;color:#985a43;font-size:16px;cursor:pointer}.completedReport .updatedMaterials{padding:13px 16px;background:#fff4e4;border-radius:12px;color:#745332}@media(max-width:600px){.completedReport h3{font-size:24px}}
 .page .personSummary{margin-top:20px}
 .page .fullReportCard{margin-top:24px}
 .page .confirmAnalysis{margin:0;border:0;padding:0;background:transparent}
@@ -158,6 +160,7 @@
 .page .confirmAnalysis>p,.page .consent,.page .reportGoals small,.page .rangeOptions{font-size:16px}
 .page .confirmAnalysis>.analysisScope{display:grid;gap:12px;font-size:18px;line-height:1.7;color:#466451;padding:18px 20px;border:1px solid #d3e0d5;border-radius:12px;background:#f4f8f2;margin:20px 0}
 .analysisScope strong{font-size:20px;color:#694734}
+.analysisScope .imageCoverage{font-size:16px;line-height:1.6;color:#62554a}
 .pageHeader[data-confirm=true]{padding:6px 0 18px}
 .pageHeader[data-confirm=true] p{display:none}
 .pageHeader[data-confirm=true] h1{font-size:27px;margin:0}

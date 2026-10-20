@@ -354,7 +354,7 @@ export default function AnalyzePage() {
   const selectedPerson = account.people.find(person => person.id === subject);
   const resultSubject = visibleResult?.subjectId || combined?.subjectId;
   const resultCount = visibleResult?.totalCount || reports.length;
-  const startLabel = purpose === "affinity" && mode === "chat" ? "开始好感探测" : purpose === "reply" && mode === "chat" ? "生成回复建议" : purpose === "intent" && mode === "chat" ? "解读每句意图" : "开始分析";
+  const startLabel = purpose === "affinity" && mode === "chat" ? "开始好感探测" : purpose === "reply" && mode === "chat" ? "生成回复建议" : purpose === "intent" && mode === "chat" ? "解读每句意图" : mode === "chat" ? "生成截图报告" : mode === "moments" ? "生成朋友圈报告" : "生成主页报告";
   const confirmHint = !effectiveFiles.length && files.length ? "这些截图已有报告，可返回材料页直接查看。" : mode === "chat" && !side ? "先选一下：截图里哪侧是你？" : !priceReady ? "费用暂未加载，请重试。" : history.checking || !history.ready ? "正在核对已分析过的截图…" : !consent ? "勾选材料授权后，即可开始。" : needsCredits ? "积分不足，充值后即可继续。" : "";
   const steps = [
     { label: "选择截图", detail: files.length ? files.length + " 张已选择" : "", Icon: CloudUpload },

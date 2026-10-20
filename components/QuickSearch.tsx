@@ -7,11 +7,12 @@ import {TOUR_EVENT} from "./FirstUseTour";
 import type { WorkspaceData } from "@/components/WorkspaceDashboard";
 import { useAccount } from '@/components/web-analysis/client';
 import { webAccountStore } from '@/lib/web-account-session';
+import { RELATIONSHIP_ANALYSIS_LABEL } from "@/lib/product-labels";
 
 const tools = [
   { title: "好感探测器", hint: "好感 / 喜欢 / 态度 / 心动 / 感情", href: "/analyze?mode=chat&focus=affinity", icon: Heart },
   { title: "帮助与下载", hint: "助手 / 采集器 / 下载 / 安装 / 更新 / 技术支持 / 连接", href: "/support", icon: Download },
-  { title: "分析一个人的全部资料", hint: "完整分析 / 全部聊天 / 朋友圈 / 关系报告 / 选人", href: "/relationship", icon: Users },
+  { title: RELATIONSHIP_ANALYSIS_LABEL, hint: "开始分析 / 完整分析 / 分析一个人的全部资料 / 全部聊天 / 朋友圈 / 关系报告 / 选人", href: "/relationship", icon: Users },
   { title: "添加材料", hint: "导入 / 电脑 / 录屏 / 截图 / 文件", href: "/analyze#materials", icon: Plus },
   { title: "人物对照", hint: "比较 / 对照 / 多人 / 选择 / 适合", href: "/archive?compare=1", icon: GitCompareArrows },
   { title: "分析聊天截图", hint: "截图 / 聊天 / 回复 / 好感", href: "/analyze?mode=chat", icon: ScanLine },
@@ -59,7 +60,7 @@ export function QuickSearch() {
     return () => { clearTimeout(timer); controller.abort(); };
   }, [open, loggedIn, owner, query]);
   const term = query.trim().toLocaleLowerCase(), matches = (value: string) => value.toLocaleLowerCase().includes(term);
-  const features = [...(loggedIn && ["/capture","/analyze"].includes(pathname) ? [{title:"重看本页操作引导",hint:"帮助 / 使用 / 引导 / 怎么操作",href:"#operation-guide",icon:CircleHelp}] : []), ...tools, ...(admin ? [{ title: "会员管理后台", hint: "后台 / 管理员 / 会员 / 调整积分", href: "/admin/credits", icon: ShieldCheck }] : [])].filter(item => term ? matches(item.title + item.hint) : ["好感探测器", "分析聊天截图", "分析一个人的全部资料", "问成子", "帮助与下载", "分析记录"].includes(item.title));
+  const features = [...(loggedIn && ["/capture","/analyze"].includes(pathname) ? [{title:"重看本页操作引导",hint:"帮助 / 使用 / 引导 / 怎么操作",href:"#operation-guide",icon:CircleHelp}] : []), ...tools, ...(admin ? [{ title: "会员管理后台", hint: "后台 / 管理员 / 会员 / 调整积分", href: "/admin/credits", icon: ShieldCheck }] : [])].filter(item => term ? matches(item.title + item.hint) : ["好感探测器", "分析聊天截图", RELATIONSHIP_ANALYSIS_LABEL, "问成子", "帮助与下载", "分析记录"].includes(item.title));
   const people = data?.people.filter(person => !term || matches(person.label + person.stage)).slice(0, 6) || [];
   const reports = data?.reports.slice(0, 5) || [];
   function close() { dialog.current?.close(); setOpen(false); }

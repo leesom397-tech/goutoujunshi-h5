@@ -4,6 +4,7 @@ import ui from "@/components/AuroraUI.module.css";
 import {PersonAvatarChoice} from "@/components/PersonAvatarChoice";
 import { fetchWebJson } from '@/lib/web-api-request.mjs';
 import { CREDIT_PRICES } from '@/lib/account-credits.mjs';
+import { reportReturnHref } from "@/lib/report-return";
 import { expireAccountSession, webAccountStore, watchAccountSession } from '@/lib/web-account-session';
 export type Json = Record<string, any>;
 export class WebError extends Error { constructor(message: string, public status = 0, public details: Json = {}) { super(message); } }
@@ -63,7 +64,8 @@ export function followup(report: Json, accountId: string, source = "聊天分析
     ? ["这是用户选中的待验证分析，不是已确认事实。", focus.summary.trim().slice(0, 900), "本轮总评：" + short(value.summary || value.judgment || value.possibleIntent, 120)].join("\n").slice(0, 1100)
     : parts.filter(Boolean).join("\n").slice(0, 1100);
   const key = crypto.randomUUID();
-  try { sessionStorage.setItem(`web-followup:${key}`, JSON.stringify({ accountId, reportId: report.reportId || report.id || "", title: focus ? short(focus.title, 80) : source, subjectId: report.subjectId || "", summary, originalQuotes, ...(focus ? { question: focus.question.trim().slice(0, 1500) } : {}), expiresAt: Date.now() + 30 * 60_000 })); }
+  const returnTo = reportReturnHref({ reportId: report.reportId || report.id, returnTo: window.location.pathname + window.location.search });
+  try { sessionStorage.setItem(`web-followup:${key}`, JSON.stringify({ accountId, reportId: report.reportId || report.id || "", returnTo, title: focus ? short(focus.title, 80) : source, subjectId: report.subjectId || "", summary, originalQuotes, ...(focus ? { question: focus.question.trim().slice(0, 1500) } : {}), expiresAt: Date.now() + 30 * 60_000 })); }
   catch { throw new Error("浏览器未能保存追问上下文，请允许此站点使用存储后重试。"); }
   window.location.href = `/chat?context=${key}`;
 }

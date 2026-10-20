@@ -18,3 +18,14 @@ matched current account directory are returned. Keys remain in memory; no key
 cache, decrypted database, or process memory dump is written. Candidate identity
 includes explicit salt, and each candidate is checked against all required
 database headers to support shared raw keys correctly.
+
+Image format reference:
+https://github.com/fanyuantaier/wechatauto-replica/blob/d322c4a9b1124228820bab363e5676016f188fc6/wechatauto/media.py
+
+Apache-2.0. local_image_codec.py uses the documented Windows V2 container layout
+and cfg-dword derivation. It does not include the upstream media downloader,
+key acquisition, key persistence or UI automation. The existing authorized
+database reader already returns this cfg value; an account-scoped context now
+retains it only in derived form for selected-message image decoding and clears
+its references when that database session closes. All segment bounds, PKCS7,
+image structure and raster decoding are checked before a preview is returned.

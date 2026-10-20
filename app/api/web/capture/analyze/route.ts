@@ -20,6 +20,7 @@ import { cleanMomentsReport, MOMENTS_PROMPT, MOMENTS_STATISTICS_PROMPT, MOMENTS_
 import { relationshipRiskReview, fullHistoryRiskReview, RELATIONSHIP_RISK_GUIDANCE } from "@/lib/relationship-risk";
 import { selectKnowledge } from "@/lib/knowledge";
 import { publicKnowledgeSources } from "@/lib/knowledge-public";
+import { attachCaptureContext } from "@/lib/capture-history-context";
 import { cleanSocialPhotoClues, SOCIAL_PHOTO_GUIDANCE } from "@/lib/social-photo-clues";
 import { conversationMemoryLines } from "@/lib/conversation-profile-memory";
 import { conversationMemoryScope, emptyConversationMemory, saveConversationProfileMemory } from "@/lib/conversation-profile-memory-server";
@@ -99,6 +100,7 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
   ]);
   if (job && !previousContext) await job.checkpoint("context", {personContext,selfContext,selfMemoryStatus});
   const related = await readRelatedCaptureEvidence(db, owner, input, history, model);
+  const contextualHistory=attachCaptureContext(history.readable,history.records,related.supplementalRecords,input.libraryId!);
   if (job) await job.checkpoint("progress", {phase:"segments", completedImages:related.sourceCoverage.reduce((total, source) => total + source.imagesAnalyzed + source.imagesUnreadable, 0)});
   if (job && JSON.stringify(related.snapshots.filter(s=>s.libraryId!==input.libraryId)) !== JSON.stringify(job.manifest.related)) throw new CaptureFullHistoryError("分析期间朋友圈资料已更新，请重新核对后生成。",409);
   if(momentsOnly&&!related.supplementalRecords.length)throw new CaptureFullHistoryError("已读取全部动态，但目前没有可读配文或清晰图片；原始动态已保留，请补齐可读内容后再分析。",422);
@@ -107,7 +109,7 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
   let semanticHistory;
   try {
     semanticHistory = await analyzeCaptureSemanticHistory({
-      historyRecords: history.readable,
+      historyRecords: contextualHistory,
       totalImported: momentsOnly?0:history.records.length,
       selectedLineCount: 0,
       question: input.question,
@@ -117,6 +119,7 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
       personContext,
       selfContext,
       supplementalRecords: related.supplementalRecords,
+      mediaCoverage:related.sourceCoverage,
       riskReview,
     }, model);
   } catch (error) {
@@ -143,7 +146,7 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
     const summary=semanticHistory.sourceInsights?.moments?.summary||semanticHistory.summary||`已核对 ${history.records.length} 条动态；当前没有足以形成具体人物判断的内容。`;
     const sourceIds=[...new Set(semanticHistory.findings.flatMap(item=>item.evidence.filter(source=>source.libraryId===input.libraryId).map(source=>source.sourceId)))];
     const report:Record<string,any>={id:input.requestId,reportId:input.requestId,kind:"profile",captureKind:"moments",subjectId:input.subjectId,participants,analysisQuestion:input.question||"panorama",readable:true,captureOrigin:true,captureFormat:"full-history",analysisScope:"fullHistory",analysisVersion:CAPTURE_REPORT_VERSION,analysisFingerprint:job?.manifest.fingerprint,summary,semanticHistory,
-      sourceCoverage:related.sourceCoverage,mediaEvidence:related.mediaEvidence,profileMaterials:related.profileMaterials,relatedSnapshots:[],contextSnapshot:job?.manifest.contextSnapshot||await reportContextSnapshot(db,owner,input.subjectId),archiveSnapshot:{libraryId:input.libraryId,epoch:input.expectedEpoch,revision:history.revision,total:history.records.length},
+      sourceCoverage:related.sourceCoverage,mediaEvidence:related.mediaEvidence,profileMaterials:related.profileMaterials,knowledgeSources:semanticHistory.knowledgeSources||[],generatedAt:new Date().toISOString(),relatedSnapshots:[],contextSnapshot:job?.manifest.contextSnapshot||await reportContextSnapshot(db,owner,input.subjectId),archiveSnapshot:{libraryId:input.libraryId,epoch:input.expectedEpoch,revision:history.revision,total:history.records.length},
       moments:{summary,posts:[],themes:[],hypotheses:[],behaviorClues:[],starters:[],approach:"",compositionReading:"",timelineReading:""},
       decision:{judgment:summary,nextStep:semanticHistory.actionPlan?.steps[0]?.action||semanticHistory.action||"",replyOptions:[]},
       captureMediaNote:`本次范围为已导入的 ${history.records.length} 条朋友圈动态。图片解读仅覆盖已同步且清晰的预览；未提供的私聊和不可见动态不在本次判断范围。${modelComplete?"":" 综合解读尚未完成。"}`};
@@ -165,7 +168,7 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
     id: input.requestId, reportId: input.requestId, kind: "chat", subjectId: input.subjectId,
     captureOrigin: true, captureKind:"chat",captureFormat: "full-history", analysisScope: "fullHistory",analysisVersion:CAPTURE_REPORT_VERSION,participants,analysisQuestion:input.question||"panorama",
     analysisFingerprint: job?.manifest.fingerprint,
-    summary: judgment, lines: [], annotations: [], chatActivity, relationshipDiagnosis, semanticHistory, affinity:semanticHistory.affinity,riskReview,
+    summary: judgment, lines: [], annotations: [], recentSentenceAnalysis:semanticHistory.recentSentenceAnalysis,knowledgeSources:semanticHistory.knowledgeSources||[],generatedAt:new Date().toISOString(),chatActivity, relationshipDiagnosis, semanticHistory, affinity:semanticHistory.affinity,riskReview,
     sourceCoverage: related.sourceCoverage, mediaEvidence: related.mediaEvidence,profileMaterials:related.profileMaterials,
     relatedSnapshots: related.snapshots.filter(snapshot => snapshot.kind === "moments"),
     contextSnapshot: job?.manifest.contextSnapshot || await reportContextSnapshot(db,owner,input.subjectId),
@@ -199,7 +202,7 @@ function jobStore(owner: string) { const binding=jobBinding(); if(!binding)throw
 export async function GET(request: Request) {
   const identity=await miniappOwner(request);
   if(!identity)return json({error:"请先登录。"},401);
-  try {const task=await jobStore(identity.ownerId).status(identity.ownerId,new URL(request.url).searchParams.get("taskId") || undefined);return json(task || {status:"none"});}
+  try {const params=new URL(request.url).searchParams;const task=await jobStore(identity.ownerId).status(identity.ownerId,params.get("taskId") || undefined,{libraryId:params.get("libraryId")||undefined,subjectId:params.get("subjectId")||undefined,summaryOnly:params.get("summary")==="1"});return json(task || {status:"none"});}
   catch{return json({error:"暂时无法读取后台任务，请稍后重试。"},503);}
 }
 export async function POST(request: Request) {

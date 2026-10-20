@@ -25,7 +25,7 @@ export function captureCoverage(records:readonly CaptureCoverageRow[],kind:"chat
   if(text){total.readableText++;if(kind==="chat"&&!["self","other"].includes(row.senderRole||""))total.unknownSpeaker++;if(voice(row)&&status(row)==="visible-text")total.transcribed++;}
   if(kind==="moments"&&row.kind==="post"&&row.images?.length){total.postImages++;continue;}
   if(text)continue;
-  if(voice(row)){total.unreadVoice++;const availability=String(row.source?.voiceAvailability||"");if(availability==="available")total.voiceAvailable++;else if(availability==="missing-local")total.voiceMissingLocal++;else if(["decode-failed","transcribe-failed"].includes(availability))total.voiceFailed++;continue;}
+  if(voice(row)){total.unreadVoice++;const availability=String(row.source?.voiceAvailability||"");if(availability==="missing-local")total.voiceMissingLocal++;else if(["decode-failed","transcribe-failed"].includes(availability)||status(row)==="failed")total.voiceFailed++;else if(availability==="available")total.voiceAvailable++;continue;}
   if(row.kind==="image"||row.kind==="other"&&imagePlaceholder.test(compact(row.text))){total.unreadImage++;continue;}
   if(row.kind==="sticker"||row.kind==="other"&&stickerPlaceholder.test(compact(row.text))){total.unreadSticker++;continue;}
   total.other++;
@@ -47,7 +47,7 @@ export function captureMediaNotice(row:CaptureCoverageRow,kind:"chat"|"moments"=
   return state==="pending"?"语音仍在转文字，暂未读到正文，本次不分析其中内容。":state==="failed"?"这条语音转文字未成功，已保留原占位，本次不分析其中内容。":"语音尚未转成文字，本次不分析其中内容。";
  }
  if(row.kind==="sticker"||row.kind==="other"&&stickerPlaceholder.test(compact(row.text)))return "表情包文字与画面尚未读取，不作为聊天原话。";
- if(row.kind==="image"||row.kind==="other"&&imagePlaceholder.test(compact(row.text)))return kind==="moments"&&row.images?.length?"配图已保留，确认分析后才会读取图片内容。":row.images?.length?"仅保留图片预览；聊天文字分析不读取画面，可用截图分析。":"只读到图片占位，尚未读取图片内容。";
+ if(row.kind==="image"||row.kind==="other"&&imagePlaceholder.test(compact(row.text)))return kind==="moments"&&row.images?.length?"配图已保留，确认分析后才会读取图片内容。":row.images?.length?"图片已保留，确认完整分析后会结合前后聊天读取画面。":"只读到图片占位，尚未读取图片内容。";
  if(row.kind==="post"&&kind==="moments")return row.images?.length?"配图已保留，确认分析后才会读取图片内容。":"这条动态没有读到正文或配图。";
  if(row.kind==="other"&&videoPlaceholder.test(compact(row.text)))return "视频画面与声音尚未读取，本次不分析其中内容。";
  return "其他媒体或系统提示未读取为聊天正文，本次不作原话分析。";

@@ -1,7 +1,7 @@
 """Read selected-message cached images only; no UI, network or key extraction.
 
-One bounded filename index is shared by a message batch. Modern encrypted DAT
-formats stay unavailable rather than treating a placeholder as an image.
+One bounded filename index is shared by a message batch. Versioned DAT keys
+come only from the already verified account session, and stay in memory.
 """
 import base64
 import io
@@ -10,6 +10,7 @@ from pathlib import Path
 import re
 import time
 from xml.etree import ElementTree
+from local_image_codec import ImageDecodeError, V1_MAGIC, V2_MAGIC, decode_versioned_dat
 
 MAX_SOURCE_BYTES = 16 * 1024 * 1024
 MAX_PREVIEW_BYTES = 750_000
@@ -31,10 +32,12 @@ def image_reference(content):
         return ""
 
 
-def readable_image_bytes(data):
-    """Plain images and old single-byte XOR DAT only, never unknown encryption."""
+def readable_image_bytes(data, image_keys=None):
+    """Decode known containers; never treat unknown encryption as an image."""
     if len(data) < 12 or len(data) > MAX_SOURCE_BYTES:
         return None
+    if data[:6] in (V1_MAGIC, V2_MAGIC):
+        return decode_versioned_dat(data, image_keys)
     signatures = (b"\xff\xd8\xff", b"\x89PNG\r\n\x1a\n", b"GIF87a", b"GIF89a", b"RIFF")
     for signature in signatures:
         key = data[0] ^ signature[0]
@@ -46,15 +49,24 @@ def readable_image_bytes(data):
     return None
 
 
-def _preview(data):
+def _preview(data, image_keys=None):
     from PIL import Image, ImageOps
-    plain = readable_image_bytes(data)
+    try:
+        plain = readable_image_bytes(data, image_keys)
+    except ImageDecodeError as error:
+        return None, error.reason
     if plain is None:
         return None, "unsupported-encryption"
     try:
+        # verify checks PNG checksums; load below also rejects truncated rasters.
+        with Image.open(io.BytesIO(plain)) as check:
+            if check.width * check.height > MAX_PIXELS:
+                return None, "image-too-large"
+            check.verify()
         with Image.open(io.BytesIO(plain)) as source:
             if source.width * source.height > MAX_PIXELS:
                 return None, "image-too-large"
+            source.load()
             source.thumbnail((1600, 1600))
             oriented = ImageOps.exif_transpose(source)
             with oriented.convert("RGBA") as rgba, Image.new("RGBA", oriented.size, "white") as canvas:
@@ -67,13 +79,16 @@ def _preview(data):
                             return {"mime": "image/jpeg", "name": "chat-photo-preview.jpg",
                                     "data": base64.b64encode(output.getvalue()).decode("ascii")}, "preview"
         return None, "image-too-large"
-    except (OSError, ValueError, Image.DecompressionBombError):
+    except (OSError, ValueError, SyntaxError, EOFError, Image.DecompressionBombError):
         return None, "invalid-image"
 
 
 class LocalChatImages:
-    def __init__(self, account_dir, contents, *, max_entries=MAX_INDEX_ENTRIES, seconds=INDEX_SECONDS):
+    def __init__(self, account_dir, contents, *, account_id=None, image_key_context=None,
+                 max_entries=MAX_INDEX_ENTRIES, seconds=INDEX_SECONDS):
         self.root = Path(account_dir).resolve()
+        self.account_id = account_id
+        self.image_key_context = image_key_context
         self.targets = {value for content in contents if (value := image_reference(content))}
         self.files = {value: [] for value in self.targets}
         self.complete = True
@@ -126,7 +141,9 @@ class LocalChatImages:
                     continue
                 with path.open("rb") as handle:
                     data = handle.read(MAX_SOURCE_BYTES + 1)
-                image, status = _preview(data)
+                keys = (self.image_key_context.for_account(self.root, self.account_id)
+                        if self.image_key_context is not None else None)
+                image, status = _preview(data, keys)
                 if image:
                     if len(self.cache) >= 16:
                         self.cache.pop(next(iter(self.cache)))

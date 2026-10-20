@@ -160,7 +160,7 @@ export default function QuickPage() {
   const requiresImageConsent = !status?.imageEnabled || status.imageSelfSide !== selfSide;
 
   return <main className="quick-page">
-    <header className="quick-head"><a href="/" aria-label="成子 首页"><BrandMark/> 成子</a><a href="/analyze?mode=chat">完整分析 <ChevronRight size={15}/></a></header>
+    <header className="quick-head"><a href="/" aria-label="成子 首页"><BrandMark/> 成子</a><a href="/analyze?mode=chat">截图分析 <ChevronRight size={15}/></a></header>
     <section className="quick-hero">
       <span className="quick-kicker">聊天截图 · 逐句解读</span>
       <h1>发张图，<br/><em>看清下一步。</em></h1>

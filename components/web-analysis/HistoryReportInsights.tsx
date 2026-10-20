@@ -1,7 +1,7 @@
 "use client";
 
 import {captureMaterialLabel,captureProfileMaterial} from "@/lib/capture-material";
-import { useId, useRef, useState } from "react";
+import { useId, useRef, useState, type ReactNode } from "react";
 import { ArrowLeft, ArrowRight, Heart, Images, ScanEye, UserRound, MessageCircle, ChartNoAxesCombined, ShieldCheck, Send } from "lucide-react";
 import { reportEvidenceDate } from "@/lib/report-reading";
 import { riskAwarePresentation } from "@/lib/risk-aware-presentation";
@@ -15,6 +15,7 @@ import { relationshipRiskReview } from "@/lib/relationship-risk";
 import {reportIdentity,reportEvidenceSpeaker,reportGoal} from "./report-context";
 import type { Json } from "./client";
 import styles from "./HistoryReportInsights.module.css";
+import { ReportExcerpt } from "./ReportExcerpt";
 
 const rows=(value:unknown):Json[]=>Array.isArray(value)?value.filter(item=>item&&typeof item==="object"):[];
 const text=(value:unknown)=>typeof value==="string"?value.trim():"";
@@ -36,22 +37,31 @@ function SourceLinks({findings}:{findings:Json[]}){
 }
 function referenced(value:unknown,findings:Json[]){return Array.isArray(value)?findings.filter(row=>value.includes(row.id)):[];}
 function EvidenceQuotes({report,findings,limit=2}:{report:Json;findings:Json[];limit?:number}){
- const quotes=findings.flatMap(sources).filter((item,index,all)=>all.findIndex(other=>other.sourceId===item.sourceId&&other.libraryId===item.libraryId)===index).slice(0,limit);
- return <div className={styles.namedEvidence}>{quotes.map((item,index)=><div key={index} data-named-evidence><small>{reportEvidenceSpeaker(report,item.senderRole,item.basis)} · {captureMaterialLabel(item)}{item.at&&!captureProfileMaterial(item)?` · ${reportEvidenceDate(item.at)}`:""}</small><blockquote>{item.quote}</blockquote><CaptureEvidence quote={item.quote} sourceIds={item.sourceId?[item.sourceId]:undefined} libraryId={item.libraryId} sourceKind={item.sourceKind}/></div>)}</div>;
+ const {isMoment}=data(report);
+ const quotes=findings.flatMap(sources).filter((item,index,all)=>all.findIndex(other=>other.sourceId===item.sourceId&&other.libraryId===item.libraryId&&other.quote===item.quote&&other.senderRole===item.senderRole)===index);
+ const render=(item:Json,index:number)=>{const moment=item.sourceKind==="chat"?false:isMoment(item)||report.captureKind==="moments";return <div key={index} data-named-evidence data-reading-kind="fact"><small>原文依据 · {reportEvidenceSpeaker(report,item.senderRole,item.basis)} · {moment?captureMaterialLabel(item):"聊天原话"}{item.at&&!captureProfileMaterial(item)?` · ${reportEvidenceDate(item.at)}`:""}</small><ReportExcerpt value={item.quote} quote limit={160}/><CaptureEvidence quote={item.quote} sourceIds={item.sourceId?[item.sourceId]:undefined} libraryId={item.libraryId} sourceKind={moment?"moments":"chat"}/></div>};
+ return <div className={styles.namedEvidence}>{quotes.slice(0,limit).map(render)}{quotes.length>limit&&<details className={styles.moreEvidence}><summary>再看 {quotes.length-limit} 条依据</summary>{quotes.slice(limit).map(render)}</details>}</div>;
 }
 function riskItems(report:Json){
  const {semantic,findings}=data(report),assessment=semantic.riskAssessment;
- const assessedItems=rows(assessment?.items).map(item=>({...item,evidence:referenced(item.evidenceIds,findings)} as Json)).filter(item=>item.subject==='other'&&item.evidence.length);
+ const review=relationshipRiskReview(report);
+ const assessedItems=rows(assessment?.items).map(item=>{const evidence=referenced(item.evidenceIds,findings),category=review.signals.find(signal=>signal.sources?.some(source=>evidence.some(finding=>sources(finding).some(row=>source.sourceId&&row.sourceId===source.sourceId&&(!source.libraryId||!row.libraryId||source.libraryId===row.libraryId)))))?.kind;return {...item,evidence,category} as Json;}).filter(item=>item.subject==='other'&&item.evidence.length);
  if(assessedItems.length)return assessedItems;
- return relationshipRiskReview(report).signals.filter(item=>item.sources?.length).map((item,index)=>({id:`saved-risk-${index}`,title:item.title,subject:'other',meaning:item.reading,alternative:item.alternative,evidence:[{evidence:item.sources!.flatMap(source=>[{...source,senderRole:'other',sourceKind:'chat'},...(source.response?[{...source.response,senderRole:'self',sourceKind:'chat',libraryId:source.libraryId}]:[])])}],resolution:{status:'unknown',reading:'这份报告未保存后来是否已澄清的判断，请结合后续原话核对。'},verify:{action:item.action},timeRange:{start:item.firstAt,end:item.lastAt}} as Json));
+ return review.signals.filter(item=>item.sources?.length).map((item,index)=>({id:`saved-risk-${index}`,title:item.title,subject:'other',category:item.kind,meaning:item.reading,alternative:item.alternative,evidence:[{evidence:item.sources!.flatMap(source=>[{...source,senderRole:'other',sourceKind:'chat'},...(source.response?[{...source.response,senderRole:'self',sourceKind:'chat',libraryId:source.libraryId}]:[])])}],resolution:{status:'unknown',reading:'这份报告未保存后来是否已澄清的判断，请结合后续原话核对。'},verify:{action:item.action},timeRange:{start:item.firstAt,end:item.lastAt}} as Json));
 }
-function RiskVerification({report}:{report:Json}){
- const {semantic,findings}=data(report),items=riskItems(report),identity=reportIdentity(report),[page,setPage]=useState(0),root=useRef<HTMLElement>(null);
+function RiskVerification({report,category}:{report:Json;category?:string}){
+ const {semantic,findings}=data(report),items=riskItems(report),identity=reportIdentity(report),[page,setPage]=useState(()=>category?Math.max(0,items.findIndex(item=>item.category===category)):0),root=useRef<HTMLElement>(null);
  const index=Math.min(page,Math.max(0,items.length-1)),item=items[index];
  function turn(next:number){setPage(next);requestAnimationFrame(()=>root.current?.scrollIntoView({block:'start',behavior:'instant'}));}
  return <section ref={root} className={styles.section} data-history-risk-verification><header className={styles.heading}><div><span><ShieldCheck size={18}/>核对原话和后续</span><h2>{identity.other}的哪些表达需要核实</h2></div></header>
-  {item?<article className={styles.riskVerification} data-risk-verification-item><h3>{item.title}</h3><p>{item.meaning}</p><EvidenceQuotes report={report} findings={item.evidence} limit={3}/><h4>后来有没有澄清</h4><p>{item.resolution?.reading||'当前没有保存可核对的后续澄清，暂不能认定已经解决。'}</p><EvidenceQuotes report={report} findings={referenced(item.resolution?.evidenceIds,findings)}/>{text(item.alternative)&&<p className={styles.alternative}>另一种解释：{item.alternative}</p>}{text(item.verify?.action)&&<div className={styles.verificationTask}><h4>你要核实的这件事</h4><p>{item.verify.action}</p></div>}</article>:<p className={styles.empty}>{semantic.riskAssessment?.summary||relationshipRiskReview(report).summary||'这份报告没有保存足够的风险原话，不能把缺少线索当成已经排除风险。'}</p>}
-  {items.length>1&&<nav className={styles.pager} aria-label="风险证据分页"><button disabled={!index} onClick={()=>turn(index-1)}><ArrowLeft size={16}/>上一项</button><span>{index+1} / {items.length}</span><button disabled={index===items.length-1} onClick={()=>turn(index+1)}>下一项<ArrowRight size={16}/></button></nav>}
+  {item?<article className={styles.riskVerification} data-risk-verification-item data-risk-category={item.category}>
+   <h3>{item.title}</h3><div className={styles.inference} data-reading-kind="inference"><small>为什么值得核实 · 推测</small><ReportExcerpt value={item.meaning}/></div>
+   <EvidenceQuotes report={report} findings={item.evidence} limit={2}/>
+   <div className={styles.resolution}><h4>后来有没有澄清</h4><ReportExcerpt value={item.resolution?.reading||'当前没有保存可核对的后续澄清，暂不能认定已经解决。'}/><EvidenceQuotes report={report} findings={referenced(item.resolution?.evidenceIds,findings)}/></div>
+   {text(item.alternative)&&<div className={styles.alternative} data-reading-kind="alternative"><strong>另一种解释</strong><ReportExcerpt value={item.alternative}/></div>}
+   {text(item.verify?.action)&&<div className={styles.verificationTask}><h4>你要核实的这件事</h4><ReportExcerpt value={item.verify.action}/></div>}
+  </article>:<p className={styles.empty}>{semantic.riskAssessment?.summary||relationshipRiskReview(report).summary||'这份报告没有保存足够的风险原话，不能把缺少线索当成已经排除风险。'}</p>}
+  {items.length>1&&<nav className={styles.pager} aria-label="风险证据分页"><button disabled={!index} onClick={()=>turn(page-1)}><ArrowLeft size={16}/>上一项</button><span>{index+1} / {items.length}</span><button disabled={index===items.length-1} onClick={()=>turn(page+1)}>下一项<ArrowRight size={16}/></button></nav>}
  </section>;
 }
 
@@ -59,8 +69,18 @@ function momentsState(report:Json){
  const {semantic,coverage,findings,isMoment}=data(report),momentRows=coverage.filter(row=>row.kind==="moments"),snapshots=rows(report.relatedSnapshots).filter(row=>row.kind==="moments");
  const counts=(momentRows.length?momentRows.map(row=>count(row.momentCount??row.total)):snapshots.map(row=>count(row.total??row.expectedTotal))).filter((value):value is number=>value!==null);
  const total=counts.length?counts.reduce((sum,value)=>sum+value,0):null,matched=findings.filter(row=>sources(row).some(isMoment));
- const refs=referenced(semantic.sourceInsights?.moments?.evidenceIds,findings),summary=refs.some(row=>sources(row).some(isMoment))?text(semantic.sourceInsights.moments.summary):"";
+ const insight=semantic.sourceInsights?.moments,refs=referenced(insight?.evidenceIds,findings),summary=insight?.status==="no_supported_insight"||refs.some(row=>sources(row).some(isMoment))?text(insight?.summary):"";
  return {total,matched,summary,profileTotal:rows(report.profileMaterials).length,imported:rows(report.profileMaterials).length>0|| (total!==null?total>0:matched.length>0||rows(report.mediaEvidence).some(isMoment)),hasCoverage:momentRows.length>0||snapshots.length>0};
+}
+export function HistoryMomentsOverview({report,onOpen}:{report:Json;onOpen:()=>void}){
+ const state=momentsState(report);
+ if(report.captureKind==="moments"||!state.imported&&!state.hasCoverage)return null;
+ const summary=state.summary||text(state.matched[0]?.claim);
+ return <aside className={styles.momentsOverview} data-history-moments-overview>
+  <header><Images size={21}/><h2>朋友圈专段</h2><span>{state.total!==null?`${state.total} 条动态`:"已有关联资料"}</span></header>
+  {summary?<ReportExcerpt value={summary} limit={150}/>:<p>{state.imported?"朋友圈已导入，但这份报告还没有保存可核对的解读。":"这份报告尚未收到可读的朋友圈内容。"}</p>}
+  <button type="button" onClick={onOpen}>{summary?"查看朋友圈、图片与聊天的联系":"核对朋友圈材料"}<ArrowRight size={17}/></button>
+ </aside>;
 }
 export function HistoryReportEntry({report,onSelect}:{report:Json;onSelect:(section:string)=>void}){
  const {semantic}=data(report),moments=momentsState(report),affinity=reportAffinity(report),momentOnly=report.captureKind==="moments",identity=reportIdentity(report);
@@ -73,17 +93,18 @@ export function HistoryReportEntry({report,onSelect}:{report:Json;onSelect:(sect
  </section>;
 }
 
-export function HistoryReportReading({report,diagnosis,section,onSectionChange}:{report:Json;diagnosis?:Json|null;section?:string;onSectionChange?:(section:string)=>void}){
+export function HistoryReportReading({report,diagnosis,section,onSectionChange,recentReading,riskCategory}:{report:Json;diagnosis?:Json|null;section?:string;onSectionChange?:(section:string)=>void;recentReading?:ReactNode;riskCategory?:string}){
  const [local,setLocal]=useState(report.captureKind==="moments"?"moments":"interaction"),id=useId(),root=useRef<HTMLElement>(null),active=section||local;
- const sections=report.captureKind==="moments"?[{id:"moments",label:"朋友圈与图片",Icon:Images},{id:"profile",label:"人物解读",Icon:UserRound}]:[{id:"interaction",label:"好感与推理",Icon:Heart},{id:"profile",label:"人物解读",Icon:UserRound},{id:"moments",label:"朋友圈与图片",Icon:Images},{id:"risk",label:"风险与边界",Icon:ShieldCheck}];
+ const sections=report.captureKind==="moments"?[{id:"moments",label:"朋友圈与图片",Icon:Images},{id:"profile",label:"人物解读",Icon:UserRound}]:[{id:"interaction",label:"好感与推理",Icon:Heart},{id:"profile",label:"人物解读",Icon:UserRound},{id:"moments",label:"朋友圈与图片",Icon:Images},{id:"risk",label:"风险与边界",Icon:ShieldCheck},...(recentReading?[{id:"recent",label:"最近逐句",Icon:MessageCircle}]:[])];
  function select(next:string){setLocal(next);onSectionChange?.(next);if((root.current?.getBoundingClientRect().top??0)<100)root.current?.scrollIntoView({block:"start",behavior:"instant"});}
- return <section ref={root} className={styles.reading} aria-label="完整报告解读" data-history-reading>
+ return <section ref={root} className={styles.reading} aria-label="完整报告解读" data-history-reading data-selected-risk={riskCategory}>
   <div className={styles.sectionTabs} style={{gridTemplateColumns:`repeat(${sections.length},minmax(0,1fr))`}} role="tablist" aria-label="选择详细解读">{sections.map(({id:key,label,Icon},index)=><button key={key} type="button" role="tab" id={`${id}-tab-${key}`} aria-controls={`${id}-panel`} aria-selected={active===key} tabIndex={active===key?0:-1} onClick={()=>select(key)} onKeyDown={event=>{if(!["ArrowRight","ArrowLeft","Home","End"].includes(event.key))return;event.preventDefault();const next=event.key==="Home"?0:event.key==="End"?sections.length-1:(index+(event.key==="ArrowRight"?1:-1)+sections.length)%sections.length;select(sections[next].id);document.getElementById(`${id}-tab-${sections[next].id}`)?.focus({preventScroll:true});}}><Icon size={19}/><span>{label}</span></button>)}</div>
   <div id={`${id}-panel`} role="tabpanel" aria-labelledby={`${id}-tab-${active}`}>
    {active==="interaction"&&<HistoryReportInsights report={report} diagnosis={diagnosis}/>}
    {active==="profile"&&<HistoryProfileInsights report={report}/>}
    {active==="moments"&&<HistoryMomentsInsights report={report}/> }
-   {active==="risk"&&<><RiskVerification report={report}/><RiskResponsePaths report={report}/></>}
+   {active==="risk"&&<><RiskVerification key={`verification:${riskCategory||"all"}`} report={report} category={riskCategory}/><RiskResponsePaths key={`responses:${riskCategory||"all"}`} report={report} category={riskCategory}/></>}
+   {active==="recent"&&recentReading}
   </div>
  </section>;
 }
@@ -101,7 +122,7 @@ export function HistoryReportInsights({report,diagnosis}:{report:Json;diagnosis?
   {partial&&<p className={styles.scope}>这份旧信号评分只覆盖了部分记录，需重新生成完整报告后查看全部资料的参考分。</p>}
   {!partial&&rows(affinity?.dimensions).some(item=>validScore(item.value))&&<div className={styles.dimensions} data-history-affinity-dimensions>{rows(affinity?.dimensions).map((item,index)=><article key={item.key||index}><header><strong>{item.label||item.key}</strong><span>{validScore(item.value)?Math.round(item.value):"待了解"}</span></header>{validScore(item.value)&&<i><b style={{width:`${item.value}%`}}/></i>}{text(item.reason)&&<p>{item.reason}</p>}<SourceLinks findings={referenced(item.evidenceIds,findings)}/></article>)}</div>}
   {!findings.length&&!text(semantic.explanation)&&<p className={styles.empty}>这份报告尚未保存可回看的深层互动解读。已有统计仍可查看，暂不补造好感分数。</p>}
-  {signals.length>0&&<div className={styles.affinitySignals} data-affinity-signals>{signals.slice(0,6).map((item,index)=><article key={index} data-direction={item.direction}><small>{item.direction==="support"?"支持靠近的信号":item.direction==="counter"?"需要保留的判断":"还不能确定"}</small><h3>{item.signal}</h3><p>{item.meaning}</p>{text(item.alternative)&&<p className={styles.alternative}>也可能：{item.alternative}</p>}<SourceLinks findings={item.evidence}/></article>)}</div>}
+  {signals.length>0&&<div className={styles.affinitySignals} data-affinity-signals>{signals.slice(0,6).map((item,index)=><article key={index} data-direction={item.direction}><small>{item.direction==="support"?"支持靠近的信号":item.direction==="counter"?"需要保留的判断":"还不能确定"}</small><h3>{item.signal}</h3><ReportExcerpt value={item.meaning}/>{text(item.alternative)&&<div className={styles.alternative} data-reading-kind="alternative"><strong>另一种解释</strong><ReportExcerpt value={item.alternative}/></div>}<SourceLinks findings={item.evidence}/></article>)}</div>}
   <RelationshipDiagnosisPanel report={report} diagnosis={diagnosis} semanticHistory={{...semantic,findings:chatFindings}} hideCoverage hideFacts={!!report.chatActivity} pageSize={3}/>
  </section>;
 }
@@ -133,8 +154,8 @@ export function HistoryActionReading({report,onAsk}:{report:Json;onAsk?:(goal:"c
   {goal==='risk'&&step&&<RiskResponsePaths report={report} existingReply={step.reply}/>}
  </section>;
 }
-function RiskResponsePaths({report,existingReply}:{report:Json;existingReply?:string}){
- const items=riskItems(report).filter(item=>rows(item.verify?.outcomes).length),[page,setPage]=useState(0),root=useRef<HTMLElement>(null),index=Math.min(page,Math.max(0,items.length-1)),item=items[index];
+function RiskResponsePaths({report,existingReply,category}:{report:Json;existingReply?:string;category?:string}){
+ const items=riskItems(report).filter(item=>rows(item.verify?.outcomes).length),[page,setPage]=useState(()=>category?Math.max(0,items.findIndex(item=>item.category===category)):0),root=useRef<HTMLElement>(null),index=Math.min(page,Math.max(0,items.length-1)),item=items[index];
  if(!item)return null;
  return <section ref={root} className={styles.responsePaths} data-risk-response-paths><h3>{reportIdentity(report).other}这样回答，你怎么做</h3><p>{item.title}</p>{text(item.verify.question)&&norm(item.verify.question)!==norm(existingReply)&&<ReportReplyPreview text={item.verify.question} label="你可以这样确认"/>}<dl>{rows(item.verify.outcomes).map((outcome,n)=><div key={n}><dt>{outcome.when}</dt><dd>{outcome.nextStep}</dd></div>)}</dl>{items.length>1&&<nav className={styles.pager} aria-label="回应分支分页"><button disabled={!index} onClick={()=>{setPage(index-1);requestAnimationFrame(()=>root.current?.scrollIntoView({block:'start',behavior:'instant'}));}}>上一项</button><span>{index+1} / {items.length}</span><button disabled={index===items.length-1} onClick={()=>{setPage(index+1);requestAnimationFrame(()=>root.current?.scrollIntoView({block:'start',behavior:'instant'}));}}>下一项</button></nav>}</section>;
 }
@@ -151,7 +172,7 @@ function HistoryProfileInsights({report}:{report:Json}){
  function turn(next:number){setPage(next);requestAnimationFrame(()=>root.current?.scrollIntoView({block:"start",behavior:"instant"}));}
  return <section ref={root} className={styles.section} data-profile-insights>
   <header className={styles.heading}><div><span><UserRound size={18}/>{report.captureKind==="moments"?"从动态与自我呈现了解":"从双方表达理解相处"}</span><h2>{report.captureKind==="moments"?`${reportIdentity(report).other}：人物解读`:`${reportIdentity(report).direction}：人物解读`}</h2></div></header>
-  {profile.length>0?<div className={styles.profileReadings}>{profile.slice(current*3,(current+1)*3).map((item,index)=><article key={item.dimension+index}><small>{item.subject==='self'?'关于你':item.subject==='other'?`关于${reportIdentity(report).other}`:item.subject==='interaction'?'关于双方互动':'原报告未标记人物归属，请结合下方发言人核对'}</small><h3>{item.dimension}</h3><p>{item.reading}</p><EvidenceQuotes report={report} findings={item.evidence} limit={1}/>{text(item.alternative)&&<p className={styles.alternative}>另一种可能：{item.alternative}</p>}</article>)}</div>:<><p className={styles.empty}>{Array.isArray(semantic.profileInsights)?text(semantic.profileUnavailableReason)||"现有材料还不足以形成独立的人物解读。":"这份旧报告没有保存独立的人物解读。"}下面保留已有线索，不把它们推断成固定性格。</p><RelationshipDiagnosisPanel report={report} semanticHistory={{findings,unknowns:semantic.unknowns}} hideCoverage hideFacts pageSize={3}/></>}
+  {profile.length>0?<div className={styles.profileReadings}>{profile.slice(current*3,(current+1)*3).map((item,index)=><article key={item.dimension+index}><small>{item.subject==='self'?'关于你':item.subject==='other'?`关于${reportIdentity(report).other}`:item.subject==='interaction'?'关于双方互动':'原报告未标记人物归属，请结合下方发言人核对'}</small><h3>{item.dimension}</h3><div className={styles.inference} data-reading-kind="inference"><small>从材料作出的推测</small><ReportExcerpt value={item.reading}/></div><EvidenceQuotes report={report} findings={item.evidence} limit={1}/>{text(item.alternative)&&<div className={styles.alternative} data-reading-kind="alternative"><strong>另一种可能</strong><ReportExcerpt value={item.alternative}/></div>}</article>)}</div>:<><p className={styles.empty}>{Array.isArray(semantic.profileInsights)?text(semantic.profileUnavailableReason)||"现有材料还不足以形成独立的人物解读。":"这份旧报告没有保存独立的人物解读。"}下面保留已有线索，不把它们推断成固定性格。</p><RelationshipDiagnosisPanel report={report} semanticHistory={{findings,unknowns:semantic.unknowns}} hideCoverage hideFacts pageSize={3}/></>}
   {pages>1&&<nav className={styles.pager} aria-label="人物解读分页"><button disabled={!current} onClick={()=>turn(current-1)}>上一组</button><span>{current+1} / {pages}</span><button disabled={current===pages-1} onClick={()=>turn(current+1)}>下一组</button></nav>}
  </section>;
 }
@@ -166,7 +187,7 @@ export function HistoryMomentsInsights({report}:{report:Json}){
  const total=knownCounts.length?knownCounts.reduce((sum,value)=>sum+value,0):null;
  const visual=rows(report.mediaEvidence).filter(item=>text(item.observation)),uniqueVisual=visual.filter(item=>item.materialRole!=="moments-cover").filter((item,index,all)=>all.findIndex(other=>other.libraryId===item.libraryId&&other.sourceId===item.sourceId&&norm(other.observation)===norm(item.observation))===index);
  const insight=semantic.sourceInsights?.moments,insightEvidence=referenced(insight?.evidenceIds,findings),cross=insight?.crossSource,crossEvidence=referenced(cross?.evidenceIds,findings);
- const summary=insightEvidence.some(row=>sources(row).some(isMoment))?text(insight?.summary):"";
+ const summary=insight?.status==="no_supported_insight"||insightEvidence.some(row=>sources(row).some(isMoment))?text(insight?.summary):"";
  const crossSupported=crossEvidence.some(row=>sources(row).some(isMoment))&&crossEvidence.some(row=>sources(row).some(item=>!isMoment(item)));
  const pages=Math.max(1,Math.ceil(momentFindings.length/3)),current=Math.min(page,pages-1),imagePages=Math.max(1,Math.ceil(uniqueVisual.length/3)),currentImage=Math.min(imagePage,imagePages-1);
  const materials=rows(report.profileMaterials),[materialPage,setMaterialPage]=useState(0),materialPages=Math.max(1,Math.ceil(materials.length/2)),currentMaterial=Math.min(materialPage,materialPages-1);
@@ -177,13 +198,13 @@ export function HistoryMomentsInsights({report}:{report:Json}){
   <div className={styles.materialScope}><span>{total!==null?`已导入 ${total} 条动态`:imported?"已保留朋友圈线索":coverage.length?"未导入朋友圈到这份报告":"旧报告未记录朋友圈范围"}</span>{momentCoverage.some(row=>count(row.pinnedCount))&&<span>其中 {momentCoverage.reduce((sum,row)=>sum+(count(row.pinnedCount)||0),0)} 条置顶</span>}{materials.length>0&&<span>另有 {materials.length} 项封面／签名</span>}{coverage.filter(row=>count(row.imagesExpected)).map((row,index)=><span key={row.libraryId||index}>{row.kind==="moments"?"朋友圈":"聊天"}图片已读 {count(row.imagesAnalyzed)||0} / {count(row.imagesExpected)} 张</span>)}</div>
   {materials.length>0&&<section className={styles.visuals} data-history-profile-materials><h3>封面与个性签名</h3><p className={styles.scope}>采集时的个人展示，单独保留；不计入动态和发布趋势。</p>{materials.slice(currentMaterial*2,(currentMaterial+1)*2).map((item,index)=>{const image=visual.find(source=>source.libraryId===item.libraryId&&source.sourceId===item.sourceId);return <article key={`${item.libraryId}:${item.sourceId}:${index}`}><small>{captureMaterialLabel(item)}</small>{item.materialRole==="profile-signature"?<blockquote>{item.text}</blockquote>:<p>{image?.observation||"封面来源已保留，尚未完成可见内容解读。"}</p>}<CaptureEvidence sourceIds={[item.sourceId]} libraryId={item.libraryId} sourceKind="moments" label={`查看${captureMaterialLabel(item)}来源`}/></article>})}{materialPages>1&&<nav className={styles.pager} aria-label="个人展示资料分页"><button disabled={!currentMaterial} onClick={()=>setMaterialPage(currentMaterial-1)}><ArrowLeft size={16}/>上一组</button><span>{currentMaterial+1} / {materialPages}</span><button disabled={currentMaterial===materialPages-1} onClick={()=>setMaterialPage(currentMaterial+1)}>下一组<ArrowRight size={16}/></button></nav>}</section>}
   {!imported&&<div className={styles.empty}><p>{coverage.length?"当前报告没有收到这个人的朋友圈。聊天导入完成，不代表朋友圈也已导入。":"这份旧报告没有保存朋友圈分析及覆盖信息，请先核对同一人物的材料。"}</p><a className={styles.importLink} data-import-moments href={importHref}>{chatLibrary?'补充朋友圈并更新报告':'导入 TA 的朋友圈'}<ArrowRight size={17}/></a></div>}
-  {summary&&<div className={styles.sourceSummary} data-moments-synthesis><p>{summary}</p><SourceLinks findings={insightEvidence}/></div>}
+  {summary&&<div className={styles.sourceSummary} data-moments-synthesis><strong>{insight?.status==="no_supported_insight"?"这次已读材料的判断范围":"动态中看到了什么"}</strong><ReportExcerpt value={summary}/><SourceLinks findings={insightEvidence}/></div>}
   {imported&&!momentFindings.length&&!summary&&<p className={styles.empty}>朋友圈材料已保留，这份报告尚未提供可核对的朋友圈解读，不能把已导入当成已经分析。</p>}
-  <div className={styles.findings}>{momentFindings.slice(current*3,(current+1)*3).map((finding,index)=><article key={finding.id||index} data-moments-finding><h3>{finding.claim}</h3>{sources(finding).filter(isMoment).slice(0,2).map((item,n)=><div key={`${item.sourceId}:${n}`}><small>{reportEvidenceSpeaker(report,item.senderRole,item.basis)} · {captureMaterialLabel(item)}{item.at&&!captureProfileMaterial(item)?` · ${reportEvidenceDate(item.at)}`:""}</small><blockquote>{item.quote}</blockquote><CaptureEvidence quote={item.quote} sourceIds={item.sourceId?[item.sourceId]:undefined} libraryId={item.libraryId} sourceKind="moments" label={captureProfileMaterial(item)?`查看${captureMaterialLabel(item)}来源`:item.basis==="visual"?"查看图片来源":"回看这条朋友圈"}/></div>)}{text(finding.alternative)&&<p className={styles.alternative}>也可能：{finding.alternative}</p>}</article>)}</div>
+  <div className={styles.findings}>{momentFindings.slice(current*3,(current+1)*3).map((finding,index)=><article key={finding.id||index} data-moments-finding><h3>{finding.claim}</h3>{sources(finding).filter(isMoment).slice(0,2).map((item,n)=><div key={`${item.sourceId}:${n}`}><small>{reportEvidenceSpeaker(report,item.senderRole,item.basis)} · {captureMaterialLabel(item)}{item.at&&!captureProfileMaterial(item)?` · ${reportEvidenceDate(item.at)}`:""}</small><ReportExcerpt value={item.quote} quote limit={160}/><CaptureEvidence quote={item.quote} sourceIds={item.sourceId?[item.sourceId]:undefined} libraryId={item.libraryId} sourceKind="moments" label={captureProfileMaterial(item)?`查看${captureMaterialLabel(item)}来源`:item.basis==="visual"?"查看图片来源":"回看这条朋友圈"}/></div>)}{text(finding.alternative)&&<div className={styles.alternative} data-reading-kind="alternative"><strong>另一种解释</strong><ReportExcerpt value={finding.alternative}/></div>}</article>)}</div>
   {pages>1&&<nav className={styles.pager} aria-label="朋友圈线索分页"><button disabled={!current} onClick={()=>setPage(current-1)}><ArrowLeft size={16}/>上一组</button><span>{current+1} / {pages}</span><button disabled={current===pages-1} onClick={()=>setPage(current+1)}>下一组<ArrowRight size={16}/></button></nav>}
-  {crossSupported&&text(cross.summary)&&<div className={styles.sourceSummary} data-cross-source-reading><h3>放回聊天一起看</h3><p>{cross.summary}</p><SourceLinks findings={crossEvidence}/></div>}
+  {crossSupported&&text(cross.summary)&&<div className={styles.sourceSummary} data-cross-source-reading><h3>放回聊天一起看</h3><ReportExcerpt value={cross.summary}/><SourceLinks findings={crossEvidence}/></div>}
   {Array.isArray(insight?.unknowns)&&insight.unknowns.some((value:unknown)=>text(value))&&<div className={styles.unknowns}><strong>还需要核实</strong><ul>{insight.unknowns.filter((value:unknown)=>text(value)).map((value:string)=><li key={value}>{value}</li>)}</ul></div>}
-  {uniqueVisual.length>0&&<section className={styles.visuals} data-history-images><h3><ScanEye size={19}/>图片里实际看到了什么</h3><p className={styles.scope}>以下来自已同步的预览或采集画面，只描述可见内容。</p>{uniqueVisual.slice(currentImage*3,(currentImage+1)*3).map((item,index)=><article key={item.mediaId||index}><small>{item.kind==="moments"?captureMaterialLabel(item)+"图片":"聊天图片"}{item.at?` · ${reportEvidenceDate(item.at)}`:""}</small><p>{item.observation}</p><CaptureEvidence quote={item.observation} sourceIds={item.sourceId?[item.sourceId]:undefined} libraryId={item.libraryId} sourceKind={item.kind} label="查看图片来源"/></article>)}{imagePages>1&&<nav className={styles.pager} aria-label="图片解读分页"><button disabled={!currentImage} onClick={()=>setImagePage(currentImage-1)}><ArrowLeft size={16}/>上一组</button><span>{currentImage+1} / {imagePages}</span><button disabled={currentImage===imagePages-1} onClick={()=>setImagePage(currentImage+1)}>下一组<ArrowRight size={16}/></button></nav>}</section>}
+  {uniqueVisual.length>0&&<section className={styles.visuals} data-history-images><h3><ScanEye size={19}/>图片里实际看到了什么</h3><p className={styles.scope}>以下来自已同步的预览或采集画面，只描述可见内容。</p>{uniqueVisual.slice(currentImage*3,(currentImage+1)*3).map((item,index)=><article key={item.mediaId||index}><small>{item.kind==="moments"?captureMaterialLabel(item)+"图片":"聊天图片"}{item.at?` · ${reportEvidenceDate(item.at)}`:""}</small><ReportExcerpt value={item.observation}/><CaptureEvidence quote={item.observation} sourceIds={item.sourceId?[item.sourceId]:undefined} libraryId={item.libraryId} sourceKind={item.kind} label="查看图片来源"/></article>)}{imagePages>1&&<nav className={styles.pager} aria-label="图片解读分页"><button disabled={!currentImage} onClick={()=>setImagePage(currentImage-1)}><ArrowLeft size={16}/>上一组</button><span>{currentImage+1} / {imagePages}</span><button disabled={currentImage===imagePages-1} onClick={()=>setImagePage(currentImage+1)}>下一组<ArrowRight size={16}/></button></nav>}</section>}
   {expected>analyzed&&<p className={styles.empty}>另有 {expected-analyzed} 张图片尚未完成解读，不计入已读图片依据。</p>}
  </section>;
 }

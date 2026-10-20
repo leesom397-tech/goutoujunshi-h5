@@ -4,7 +4,7 @@ export type CloudMediaRef = { id: string; index: number; mime: "image/png" | "im
 export type CloudCaptureRecord = Omit<StoredCaptureRecord, "namespace" | "images"> & { imageCount: number; media?: CloudMediaRef[]; seq?: number; order?: {known:boolean;time:number;sequence:number} };
 export type CloudCaptureLibrary = {
   id: string; cloudId?: string; ownerId?: string; account: string; friend: string; kind: CaptureKind;
-  createdAt: string; updatedAt: string; total: number; epoch: number; subjectId: string | null;
+  createdAt: string; updatedAt: string; total: number; epoch: number; revision?: number; subjectId: string | null;
   warnings: string[]; reportLinks: { reportId: string; sourceIds: string[]; memorySourceIds?: string[]; createdAt: string }[];
   mediaIncluded: boolean; deleted?: boolean;
 };
@@ -16,7 +16,7 @@ const text = (value: unknown, max: number, required = false): string => {
 const iso = (value: unknown) => { const result = text(value, 80, true); if (!/^\d{4}-\d{2}-\d{2}T/.test(result) || !Number.isFinite(Date.parse(result))) throw Error("采集时间不正确。"); return result; };
 // Explicit metadata only. A capture can carry local file paths and database access
 // material; neither is part of the synchronizable record contract.
-const sourceKeys = new Set(["label","method","accountId","sessionId","messageId","messageShard","idStability","timestampOrigin","mediaKind","transcriptionStatus","transcriptionSource","transcriptCapturedAt","voiceAvailability","durationSeconds","rawMediaLabel","atRaw","index","uiIndex","uiClass","order","capturedAt","videoTime","videoId","frameId","version","matchedBy","at","senderRole","id","recordId","localId","imageCount","imageType","previewUnavailable","cloudMediaUnavailable","materialRole","pinned"]);
+const sourceKeys = new Set(["label","method","accountId","sessionId","messageId","messageShard","idStability","timestampOrigin","mediaKind","transcriptionStatus","transcriptionSource","transcriptCapturedAt","voiceAvailability","durationSeconds","rawMediaLabel","atRaw","index","uiIndex","uiClass","order","capturedAt","videoTime","videoId","frameId","version","matchedBy","at","senderRole","id","recordId","localId","imageCount","imageType","mediaAvailability","previewUnavailable","cloudMediaUnavailable","materialRole","pinned"]);
 function safeSource(input: unknown, depth = 0): CaptureSource {
   if (!object(input)) throw Error("聊天记录缺少来源。");
   const result: Record<string,unknown> = {};

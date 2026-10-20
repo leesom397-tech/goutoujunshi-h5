@@ -1,5 +1,6 @@
 import type { ChatActivitySummary } from "./chat-activity";
 import type { SemanticHistoryReport, SemanticHistoryEvidence } from "./capture-semantic-history";
+import { directedCommitment } from "./conversation-context";
 
 export type RelationshipQuestion = "panorama" | "attitude" | "trend" | "worth" | "next" | "risk";
 export type RelationshipEvidence = { id: string; claim: string; value?: string; metric?: string; source: "activity" | "conversation" | "profile" | "media" | "moments"; sample?: number; sourceIds?: string[]; quotes?: SemanticHistoryEvidence[] };
@@ -96,7 +97,7 @@ function buildClaimActions(lines: readonly DiagnosisLine[]): RelationshipClaimAc
   ];
   const output: RelationshipClaimAction[] = [];
   for (const pattern of patterns) {
-    const candidate = other.find(item => pattern.claim.test(item.text));
+    const candidate = other.find(item => pattern.claim.test(item.text) && (pattern.id !== "commitment" || directedCommitment(item.text)));
     if (!candidate) continue;
     const follow = other.find(item => item.index > candidate.index && item.index - candidate.index <= 24 && pattern.action.test(item.text));
     output.push({
@@ -190,6 +191,9 @@ export function applySemanticDiagnosis(diagnosis: RelationshipDiagnosis, semanti
     diagnosis.decision.observeWindow=first.observeFor;
     diagnosis.decision.stopCondition=first.stopWhen;
     diagnosis.decision.options=semantic.actionPlan.steps.map(step=>({label:step.title,action:step.action,observeWindow:step.observeFor,stopCondition:step.stopWhen}));
+  }
+  if(!semantic.actionPlan?.steps.length&&!semantic.action&&semantic.actionUnavailableReason){
+    diagnosis.decision={recommendation:semantic.actionUnavailableReason,options:[],observeWindow:"",stopCondition:""};
   }
   return diagnosis;
 }

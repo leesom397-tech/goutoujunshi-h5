@@ -22,8 +22,9 @@ export function checkpointedCaptureModel(qwen: typeof qwenChat, checkpoint: Capt
     const encoded = JSON.stringify({version: phase === "synthesis" ? 4 : 1, messages, options});
     const key = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(encoded))), b => b.toString(16).padStart(2, "0")).join("");
     const cached = await checkpoint(key);
-    const groundedSegment = (value: unknown) => hasGroundedChunkResult(value, (detail.rows || []).map((row: any) => ({
+    const groundedSegment = (value: unknown) => hasGroundedChunkResult(value, (detail.rows || []).map((row: any,index:number) => ({
       ...row, alias: row.sourceId, localId: row.sourceId, senderRole: row.role,
+      context:row.context||[...(detail.rows||[]).slice(Math.max(0,index-3),index+4).filter((item:any)=>item.sourceId!==row.sourceId).map((item:any)=>({sourceId:item.originalSourceId||item.sourceId,at:item.at,role:item.role,text:item.text,basis:item.basis==="visual"?"visual":undefined})),...(detail.context||[])],
     })));
     if (typeof cached?.text === "string") {
       // Older checkpoints only checked that findings was an array. Do not

@@ -10,6 +10,7 @@ import visual from "./RiskVisual.module.css";
 import { CaptureEvidence } from "./CaptureEvidence";
 import type { RiskAwarePresentation } from "@/lib/risk-aware-presentation";
 import { reportIdentity } from "./report-context";
+import { ReportExcerpt } from "./ReportExcerpt";
 
 const kinds = {
   safety: { label: "安全与边界", Icon: Shield },
@@ -22,16 +23,17 @@ export function RiskActionNotice({ presentation }: { presentation: RiskAwarePres
   return <aside className={styles.actionNotice} data-risk-action={presentation.mode}><strong><Shield size={19}/>{presentation.title}</strong><p>{presentation.nextStep}</p><small>{presentation.mode === "safety" ? "回复已优先围绕这条明确要求处理边界；是否继续回应，由你决定。" : "先对齐双方当前想法；短期取向本身不代表品德问题。"}</small><CaptureEvidence quote={presentation.priority.evidence}/></aside>;
 }
 
-export function RiskReview({ report,summaryOnly=false }: { report: Json;summaryOnly?:boolean }) {
+export function RiskReview({ report,summaryOnly=false,onInspect }: { report: Json;summaryOnly?:boolean;onInspect?:(kind:keyof typeof kinds)=>void }) {
   const [selected, setSelected] = useState<keyof typeof kinds | null>(null);
   if (report.targetSelf || report.target === "self") return null;
   const review = relationshipRiskReview(report);
   const identity=reportIdentity(report);
-  const signals = review.signals.slice(0, 4);
+  const signals = review.signals;
   const fullHistory = review.scope === "full-history";
   if (!fullHistory && !signals.length) return null;
   const state = signals.length ? "signals" : review.assessed ? "clear" : "unassessed";
   const active = selected || signals[0]?.kind || "safety";
+  const selectedSignals=signals.filter(signal=>signal.kind===active),preview=selectedSignals[0];
   const count = (signal: typeof signals[number]) => fullHistory ? signal.occurrences || signal.sources?.length || 0 : riskEvidenceOccurrences(report, signal.evidence).count;
   return <section className={visual.review} data-risk-review data-risk-state={state} aria-label={fullHistory ? "全历史风险核实" : "风险与关系预期"}>
     <header className={visual.heading}>
@@ -41,10 +43,10 @@ export function RiskReview({ report,summaryOnly=false }: { report: Json;summaryO
     <div className={visual.categories} role="group" aria-label="按类型查看待核实的表达">{(Object.keys(kinds) as Array<keyof typeof kinds>).map(key => {
       const { Icon, label } = kinds[key], matches = signals.filter(signal => signal.kind === key), total = matches.reduce((sum, signal) => sum + count(signal), 0);
       const card=<><span className={visual.categoryIcon}><Icon size={22}/></span><span className={visual.categoryLabel}>{label}</span><span className={visual.categoryCount}><b>{total || (matches.length || !review.assessed ? "—" : "0")}</b><small>{total ? "条表达" : matches.length ? "待核对处数" : review.assessed ? "条明确表达" : "尚未评估"}</small></span></>;
-      return summaryOnly?<div className={visual.categoryStatic} key={key}>{card}</div>:<button type="button" key={key} data-risk-category={key} aria-pressed={active === key} onClick={()=>setSelected(key)}>{card}</button>;
+      return <button type="button" key={key} data-risk-category={key} aria-pressed={active === key} onClick={()=>setSelected(key)}>{card}</button>;
     })}</div>
     {!signals.length && <p className={visual.clear}>{review.summary || "资料还不足以排除风险，继续结合实际相处核实。"}</p>}
-    {summaryOnly&&signals.length>0&&<p className={visual.clear}>{report.semanticHistory?.riskAssessment?.summary||review.summary||`已保留 ${signals.length} 项需要核实的表达。`}</p>}
+    {summaryOnly&&signals.length>0&&<div className={visual.summaryDetail} data-risk-summary-detail>{preview?<><h3>{preview.title}</h3><ReportExcerpt value={preview.reading}/><div className={visual.summaryQuote}><small>{identity.other}的原话依据</small><ReportExcerpt value={preview.sources?.[0]?.quote||preview.evidence} limit={130} quote/></div>{preview.alternative&&<div className={visual.summaryAlternative}><strong>另一种解释</strong><ReportExcerpt value={preview.alternative} limit={140}/></div>}{onInspect&&<button type="button" onClick={()=>onInspect(active)}>逐项核实原话与后续<ArrowRight size={17}/></button>}</>:<p className={visual.clear}>本报告未检出这类明确表达，不能据此认定已经排除风险。{onInspect&&<button type="button" onClick={()=>onInspect(active)}>查看已保留的核实项<ArrowRight size={17}/></button>}</p>}</div>}
     {!summaryOnly&&signals.length > 0 && <>
       <div className={visual.signals}>{signals.filter(signal => signal.kind === active).map((signal, index) => {
         const sources = signal.sources?.length ? signal.sources : [{sourceId:"", at:"", quote:signal.evidence}];

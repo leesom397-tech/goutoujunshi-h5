@@ -21,6 +21,7 @@ class DatabaseRuntimeSelfTest(unittest.TestCase):
         self.assertTrue(result["decryptionPassed"])
         self.assertTrue(result["readOnlyGuard"])
         self.assertTrue(result["compressionReady"])
+        self.assertTrue(result["imageDecryptionPassed"])
         self.assertFalse(result["userDataUsed"])
         self.assertFalse(result["processMemoryRead"])
         self.assertEqual(result["syntheticPages"], 2)

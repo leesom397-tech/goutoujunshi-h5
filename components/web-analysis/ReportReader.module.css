@@ -37,3 +37,4 @@
 .pager button,.linePager button,.replyActions button{font-size:16px;min-height:46px}
 .interpretation>strong{font-size:16px}
 @media(max-width:700px){.tabs{gap:4px;padding:4px;border-radius:15px}.tabs button{min-height:52px;padding:10px 5px;gap:5px;font-size:16px;border-radius:10px}.tabs button>svg{display:none}.pager button{font-size:16px}.inlineToneDetail .linePager button{font-size:16px}}
+.sampleScope { margin:20px 0 8px; padding:14px 18px; border-left:3px solid #356e63; background:#f1f6f1; color:#344d44; font-size:16px; line-height:1.8; }

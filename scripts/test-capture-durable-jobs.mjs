@@ -24,6 +24,7 @@ const db = { prepare(query) { return { args: [], bind(...args) { this.args = arg
 const calls = [], failures = [], states = new Map(), instances = new Map(), alarmOwner = new AsyncLocalStorage();
 let providerFailure = null, reserveBudgets = 0;
 const env = { DB: db, WECHAT_CALLBACK_TOKEN: 'synthetic-internal-token' };
+const syntheticSentenceReadings=detail=>(detail.sentenceTargets||[]).map(sourceId=>({sourceId,emotion:{calm:.8,happy:.2},intent:{inform:.6,continue:.4},note:"合成原话讨论活动安排，不能据此确认恋爱意愿。"}));
 const fixture = {
   env, db,
   async model(messages, options) {
@@ -32,7 +33,7 @@ const fixture = {
     calls.push({ phase, detail, owner: alarmOwner.getStore() });
     if (providerFailure) return providerFailure(messages, options);
     if (phase === 'images') return JSON.stringify({images:detail.images.map(image=>({mediaId:image.mediaId,readable:true,observation:'合成预览中可见海边步道。'}))});
-    if (phase === 'segments') return JSON.stringify({ findings: detail.rows.slice(0, 2).map(row => ({ claim: '这段原文涉及安排。', confidence: '低', alternative: '日常交流不能证明关系意图。', evidence: [{ sourceId: row.sourceId, quote: row.text.slice(0, 30) }] })) });
+    if (phase === 'segments') return JSON.stringify({ sentenceReadings:syntheticSentenceReadings(detail), findings: detail.rows.slice(0, 2).map(row => ({ claim: '这段原文涉及安排。', confidence: '低', alternative: '日常交流不能证明关系意图。', evidence: [{ sourceId: row.sourceId, quote: row.text.slice(0, 30) }] })) });
     const moments=detail.findings?.filter(item=>item.evidence?.some(source=>source.sourceKind==='moments'))||[];
     return JSON.stringify({ profileUnavailableReason:'这些合成原话仅讨论安排，没有独立人物画像依据。',riskAssessment:{status:'no_supported_signal',summary:'合成日常安排没有可核验的风险原话，不能据此保证不存在风险。',items:[]},summary: '根据这些合成聊天，可以进一步确认实际安排。', explanation: '原话出现了对安排的讨论，但尚没有明确确认赴约的证据，所以可以核实时间，不能把讨论直接当作承诺。', summaryEvidenceIds: detail.findings?.length ? [detail.findings[0].id] : [], action: '确认双方方便的时间。', actionEvidenceIds: detail.findings?.length ? [detail.findings[0].id] : [], observeWindow: '下一次约定', stopCondition: '明确拒绝就停止',affinityAssessment:{dimensions:[],unavailableReason:'这些合成原话只泛泛讨论安排，没有足够的具体互动维度。'},actionPlan:{goal:'connection',rationale:'目前只有安排的讨论。',steps:[{title:'确认安排',action:'确认双方方便的时间。',why:'讨论尚未形成明确确认。',evidenceIds:detail.findings?.length?[detail.findings[0].id]:[],observeFor:'下一次相关回应',advanceWhen:'双方确认时间后再安排。',stopWhen:'明确拒绝就停止。'}]},...(moments.length?{sourceInsights:{moments:{summary:'已核对的动态呈现了具体活动线索，不能据此推断恋爱意愿。',evidenceIds:[moments[0].id],unknowns:['不清楚是否与用户共同参与']}}}:{}) });
   },
@@ -56,8 +57,8 @@ const mockSources = new Map([
   ['./lib/social-profile-jobs.mjs', 'export class SocialProfileJobs{}; export const routeSocialProfileJob=()=>{throw Error("Unexpected profile job")}'],
   ['./lib/miniapp-voice-memory.mjs', 'export const loadVoiceMemory=async()=>null;export const validVoiceSubjectId=()=>false'],
   ['./lib/request-identity.mjs', 'export const requestOwner=async request=>request.headers.get("x-test-owner")?{ownerId:request.headers.get("x-test-owner")}:null; export const webOwner=requestOwner;export const isWebApi=()=>true;export const browserRequestAllowed=request=>request.headers.get("origin")===new URL(request.url).origin'],
-  ['./lib/web-native-auth.mjs', 'export const authCookie=()=>"synthetic-session"'],
-  ['./lib/web-identity-state.mjs', 'export const withWebIdentityScope=(_cookie,run)=>run()'],
+  ['./lib/web-native-auth.mjs', 'export const authCookie=()=>"synthetic-session"; export const upgradeVerifiedLegacyResponse=async(_request,response)=>response'],
+  ['./lib/web-identity-state.mjs', 'export const withWebIdentityScope=(_cookie,run)=>run(); export const currentIdentityScope=()=>null'],
 ]);
 const built = await build({ stdin: { contents: `export {CaptureHistoryJobs} from './lib/capture-history-jobs.mjs';export * as route from './app/api/web/capture/analyze/route.ts';export * as cloud from './lib/capture-cloud-server.ts';export {default as worker} from './worker-entry.mjs';export * from './lib/capture-job-control.ts';export {CAPTURE_REPORT_VERSION} from './lib/capture-report-version.ts';`, resolveDir: process.cwd(), sourcefile: 'capture-durable-test.ts' },
   bundle: true, write: false, format: 'cjs', platform: 'node', logLevel: 'silent', plugins: [{ name: 'synthetic-only', setup(build) {
@@ -286,7 +287,7 @@ await test('real route serializes cited affinity, chronological changes, useful 
   providerFailure=(messages,options)=>{
     const detail=JSON.parse(typeof messages.at(-1).content==='string'?messages.at(-1).content:messages.at(-1).content[0].text);
     if(options?.vision)return JSON.stringify({images:detail.images.map(image=>({mediaId:image.mediaId,readable:true,observation:'图片可见海边步道，仅能判断可见场景。'}))});
-    if(detail.rows){const selected=detail.rows.filter(row=>Object.values(statements).includes(row.text)||row.sourceKind==='moments').slice(0,8);return JSON.stringify({findings:selected.map((row,index)=>({claim:row.sourceKind==='moments'?`动态或图片中的步道线索${index}`:`原话中的具体互动${index}`,confidence:'中',alternative:'普通朋友相处仍是合理解释。',evidence:[{sourceId:row.sourceId,quote:row.text}]}))});}
+    if(detail.rows){const selected=detail.rows.filter(row=>Object.values(statements).includes(row.text)||row.sourceKind==='moments').slice(0,8);return JSON.stringify({sentenceReadings:syntheticSentenceReadings(detail),findings:selected.map((row,index)=>({claim:row.sourceKind==='moments'?`动态或图片中的步道线索${index}`:`原话中的具体互动${index}`,confidence:'中',alternative:'普通朋友相处仍是合理解释。',evidence:[{sourceId:row.sourceId,quote:row.text}]}))});}
     const chat=detail.findings.filter(item=>item.evidence.some(source=>!source.basis)),moments=detail.findings.filter(item=>item.evidence.some(source=>source.sourceKind==='moments'));
     const earliest=chat.find(item=>item.evidence.some(source=>source.quote===statements[1])),latest=chat.find(item=>item.evidence.some(source=>source.quote===statements[185]));
     const cite=(chat[0]||moments[0]).id,actionSource=(latest||moments[0]||chat[0]).id;
@@ -295,7 +296,7 @@ await test('real route serializes cited affinity, chronological changes, useful 
   };
   await start(data.owner,data.body);const joint=await finish(data.owner);assert.equal(joint.status,'done',joint.error);
   assert.equal(joint.result.analysisVersion,CAPTURE_REPORT_VERSION);assert.equal(joint.result.affinity.contextCount,194);assert.equal(typeof joint.result.affinity.value,'number');assert.equal(joint.result.affinity.dimensions.length,6);
-  assert.equal(joint.result.semanticHistory.changeInsights.length,1);assert.ok(joint.result.semanticHistory.actionPlan.steps[0].reply);assert.ok(joint.result.semanticHistory.sourceInsights.moments.crossSource);
+  assert.equal(joint.result.recentSentenceAnalysis.sampleCount,12);assert.equal(joint.result.recentSentenceAnalysis.totalReadable,194);assert.equal(joint.result.recentSentenceAnalysis.annotations[0].emotion[0].probability,.8);assert.equal(joint.result.recentSentenceAnalysis.annotations[0].emotion[0].label,"平静");assert.ok(joint.result.recentSentenceAnalysis.annotations.every(item=>Array.isArray(item.emotion)&&Array.isArray(item.intent)));assert.equal(joint.result.semanticHistory.changeInsights.length,1);assert.ok(joint.result.semanticHistory.actionPlan.steps[0].reply);assert.ok(joint.result.semanticHistory.sourceInsights.moments.crossSource);
   assert.equal(joint.result.sourceCoverage.find(source=>source.kind==='chat').total,210);assert.equal(joint.result.sourceCoverage.find(source=>source.kind==='chat').textRead,194);
   assert.equal(joint.result.sourceCoverage.find(source=>source.kind==='moments').total,3);assert.equal(calls.slice(before).filter(call=>call.phase==='segments').flatMap(call=>call.detail.rows).filter(row=>row.basis==='chat-original').length,194);
   const folder=process.env.REPORT_ROUTE_FIXTURE_DIR||'outputs/report-route-fixtures';mkdirSync(folder,{recursive:true});writeFileSync(folder+'/full-person.json',JSON.stringify(joint.result,null,2));
