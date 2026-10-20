@@ -55,6 +55,14 @@ try{
   assert.equal(calls.filter(call=>call.method==='POST').length,0,'opening never automatically accepts memory');
   assert.match(await page.$eval('[data-conversation-memory-row="subject-conflict"]',el=>el.textContent),/上海.*原资料不会被替换/);
   assert.equal(await page.$$eval('[data-conversation-memory-row] blockquote',items=>items.length),4,'every candidate carries its source quote');
+  const readsBeforeReturn=calls.filter(call=>call.method==='GET').length;
+  await page.evaluate(()=>{ const realNow=Date.now; Date.now=()=>realNow()+65_000; for(let i=0;i<6;i++){window.dispatchEvent(new Event('focus'));document.dispatchEvent(new Event('visibilitychange'));} });
+  await new Promise(resolve=>setTimeout(resolve,100));
+  assert.equal(calls.filter(call=>call.method==='GET').length,readsBeforeReturn,'tab return never reloads the profile or interrupts the current selection');
+  assert.deepEqual(await checked(),['self-statement','subject-statement']);
+  await clickText('收起资料');await page.waitForFunction(()=>!document.querySelector('[data-conversation-memory-row]'));
+  await clickText('核对并保存');await page.waitForSelector('[data-conversation-memory-row] input:not(:disabled)');
+  assert.equal(calls.filter(call=>call.method==='GET').length,readsBeforeReturn+1,'explicitly reopening an older review checks the current facts once');
   await page.screenshot({path:path.join(output,'desktop.png'),fullPage:true});
   await page.setViewport({width:390,height:844});
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),true,'mobile fits viewport');
@@ -88,6 +96,6 @@ try{
   assert.equal(await page.$('[data-conversation-memory-row="subject-statement"]'),null,'another person fact cannot be accepted for this person');
   assert.deepEqual(await checked(),[],'cross-target matches never become default selections');
   assert.deepEqual(errors,[]);
-  const result={success:true,checks:['compact-first','speaker-separated','source-quote','statement-default-only','explicit-save','owner-guard','target-guard','reject','refresh-current-status','preserve-selection-on-retry','paused-gate','empty-hidden','mobile-no-overflow'],postCount:calls.filter(call=>call.method==='POST').length};
+  const result={success:true,checks:['compact-first','speaker-separated','source-quote','statement-default-only','explicit-save','owner-guard','target-guard','reject','no-profile-reload-on-tab-return','refresh-on-explicit-review','refresh-current-status','preserve-selection-on-retry','paused-gate','empty-hidden','mobile-no-overflow'],postCount:calls.filter(call=>call.method==='POST').length};
   await writeFile(path.join(output,'result.json'),JSON.stringify(result,null,2));console.log(JSON.stringify(result));
 }finally{await browser.close();await new Promise(resolve=>server.close(resolve));}

@@ -6,7 +6,16 @@ const endpoint = "/api/web/capture/library";
 export type SyncedLibrarySummary = CaptureLibrarySummary & { cloudOnly?: boolean; cloudInfo?: CloudCaptureLibrary };
 export type CaptureLibraryPreview = (library:CaptureLibrary)=>void;
 export type CaptureSyncProgress = (done:number,total:number,phase:"records"|"images"|"reports")=>void;
-type SyncOptions = {subjectId?:string;restore?:boolean;onProgress?:CaptureSyncProgress};
+export type SyncOptions = {
+  subjectId?:string;restore?:boolean;onProgress?:CaptureSyncProgress;
+  /** A live uploader sends one bounded snapshot; its caller coalesces later changes. */
+  followChanges?:boolean;
+  /** Stop starting requests after switching account/person; successful ACKs still persist. */
+  isCurrent?:()=>boolean;
+};
+function assertSyncCurrent(options:SyncOptions) {
+  if(options.isCurrent?.()===false)throw new DOMException("当前导入已结束，后续同步已停止。","AbortError");
+}
 async function concurrentMap<T,R>(items:T[],work:(item:T,index:number)=>Promise<R>):Promise<R[]> {
   const results:R[]=new Array(items.length);let next=0,failed=false,failure:unknown;
   await Promise.all(Array.from({length:Math.min(3,items.length)},async()=>{
@@ -171,16 +180,38 @@ export async function openSyncedCaptureLibrary(owner:string, item:SyncedLibraryS
   return getCaptureLibrary(owner,item.id);
 }
 const syncing=new Map<string,Promise<CaptureLibrary>>();
+function sameSyncContent(first:CaptureLibrary,second:CaptureLibrary):boolean {
+  if(first.records.length!==second.records.length||JSON.stringify(first.warnings)!==JSON.stringify(second.warnings)
+    ||JSON.stringify(first.reportLinks)!==JSON.stringify(second.reportLinks))return false;
+  for(let index=0;index<first.records.length;index++){
+    const before=first.records[index],after=second.records[index];
+    // Compare one record at a time, rather than allocating/stringifying two
+    // whole libraries on every import page. Media bytes also matter even when
+    // a replacement has the same image count.
+    const {firstCapturedAt:oldFirst,lastCapturedAt:oldLast,...oldBody}=sanitizeCloudCaptureRecord(before);
+    const {firstCapturedAt:newFirst,lastCapturedAt:newLast,...newBody}=sanitizeCloudCaptureRecord(after);
+    if(JSON.stringify(oldBody)!==JSON.stringify(newBody)||(before.images?.length||0)!==(after.images?.length||0))return false;
+    for(let image=0;image<(before.images?.length||0);image++){
+      const oldImage=before.images![image],newImage=after.images![image];
+      if(oldImage.data!==newImage.data||oldImage.mime!==newImage.mime||oldImage.name!==newImage.name)return false;
+    }
+  }
+  return true;
+}
 export function syncCaptureLibrary(owner:string, library:CaptureLibrary, options:SyncOptions={}):Promise<CaptureLibrary> {
   const key=JSON.stringify([owner,library.id]), running=syncing.get(key);
-  const signature=(value:CaptureLibrary)=>JSON.stringify([value.records.map(sanitizeCloudCaptureRecord),value.reportLinks]);
   const operation=(async()=>{
     if(running)await running.catch(()=>undefined);
+    assertSyncCurrent(options);
+    if(library.ownerId!==owner)throw Error("账号已变化，未上传材料。");
     let snapshot=await getCaptureLibrary(owner,library.id);if(!snapshot)throw Error("本机聊天已删除，同步已停止。");
     for(let attempt=0;attempt<3;attempt++){
-      const before=signature(snapshot),result=await performSync(owner,snapshot,{...options,restore:attempt===0&&options.restore});
+      const result=await performSync(owner,snapshot,{...options,restore:attempt===0&&options.restore});
+      // Return the exact uploaded snapshot, not newly arriving unsynced rows.
+      // A live capture may keep growing indefinitely; that is normal progress.
+      if(options.followChanges===false)return result;
       const latest=await getCaptureLibrary(owner,library.id);if(!latest)throw Error("本机聊天已删除，同步已停止。");
-      if(signature(latest)===before)return {...latest,cloud:result.cloud};
+      if(sameSyncContent(snapshot,latest))return {...latest,cloud:result.cloud};
       snapshot=latest;
     }
     throw Error("还有刚导入的新内容待同步，本机材料已保留。请稍后点击继续同步。");
@@ -191,14 +222,27 @@ async function performSync(owner:string, library:CaptureLibrary, options:SyncOpt
   if(library.records.some(row=>row.source.cloudMediaPending===true))throw Error("图片仍在取回，请重新打开这份聊天完成下载后再同步。");
   if(library.ownerId!==owner)throw Error("账号已变化，未上传材料。");
   if(library.cloud?.retired)throw Error("这份旧的离线副本不会重新同步，请打开当前云端聊天。");
+  if(library.cloud&&!library.cloud.enabled&&!options.restore)throw Error("这份云端聊天已停用，请重新打开后确认恢复。");
+  assertSyncCurrent(options);
   let state=library.cloud; const digests={...(options.restore?{}:state?.digests||{})}, mediaDigests:Record<string,string>={...(options.restore?{}:state?.mediaDigests||{})};
+  const cloneState=(value:CaptureCloudState|undefined)=>value?{...value,digests:{...value.digests},mediaDigests:{...value.mediaDigests},reportDigests:{...value.reportDigests}}:undefined;
+  let receiptState=cloneState(state);
+  const persist=async(next:CaptureCloudState,expected=receiptState)=>{
+    state=await setCaptureCloudState(owner,library.id,next,{expected,restore:options.restore});
+    receiptState=cloneState(state);
+    Object.assign(digests,state.digests);
+    Object.assign(mediaDigests,state.mediaDigests);
+  };
+  const metadataDigest=await digest(JSON.stringify({account:library.account,friend:library.friend,kind:library.kind,subjectId:options.subjectId===undefined?state?.subjectId||"":options.subjectId,warnings:library.warnings}));
   const pending:{record:CloudCaptureRecord;hash:string}[]=[];
   for(const row of library.records){const record=sanitizeCloudCaptureRecord(row),hash=await rowDigest(record);if(options.restore||digests[row.localId]!==hash)pending.push({record,hash});}
   const batches:typeof pending[]=[];let batch:typeof pending=[],size=0;
   for(const entry of pending){const bytes=new TextEncoder().encode(JSON.stringify(entry.record)).byteLength;if(batch.length&&(batch.length>=100||size+bytes>700000)){batches.push(batch);batch=[];size=0;}batch.push(entry);size+=bytes;}
-  if(batch.length||!batches.length)batches.push(batch);
+  if(batch.length||!batches.length&&(!state||options.restore||state.metadataDigest!==metadataDigest))batches.push(batch);
   let count=library.records.length-pending.length;
+  if(!batches.length)options.onProgress?.(count,library.records.length,"records");
   for(const entries of batches){
+    assertSyncCurrent(options);
     const body={
       action:"sync",requestId:crypto.randomUUID(),confirmed:true,...(state?{libraryId:state.id,expectedEpoch:state.epoch}:{}),...(options.restore?{restore:true}:{}),
       library:{account:library.account,friend:library.friend,kind:library.kind,createdAt:library.createdAt,updatedAt:library.updatedAt,...(options.subjectId!==undefined?{subjectId:options.subjectId||null}:{})},
@@ -208,41 +252,61 @@ async function performSync(owner:string, library:CaptureLibrary, options:SyncOpt
     let result:SyncResult;
     try{result=await request<SyncResult>(owner,"",body);}catch(error){
       const info=error instanceof CaptureCloudError&&error.status===409?error.details.library as CloudCaptureLibrary|undefined:undefined;
-      if(!state&&info&&!info.deleted&&info.account===library.account&&info.friend===library.friend&&info.kind===library.kind){state=cloudState(info);result=await request<SyncResult>(owner,"",{...body,libraryId:state.id,expectedEpoch:state.epoch});}
+      if(!state&&info&&!info.deleted&&info.account===library.account&&info.friend===library.friend&&info.kind===library.kind){state=cloudState(info);assertSyncCurrent(options);result=await request<SyncResult>(owner,"",{...body,libraryId:state.id,expectedEpoch:state.epoch});}
       else throw error;
     }
     if(result.conflicts && (typeof result.conflicts==="number"?result.conflicts:result.conflicts.length))throw Error("部分原文与云端不同，已保留双方材料。请刷新后核对，未覆盖原文。");
     for(const entry of entries)digests[entry.record.localId]=entry.hash;
-    state={...cloudState(result.library,state),digests,mediaDigests};await setCaptureCloudState(owner,library.id,state);
+    await persist({...cloudState(result.library,state),digests:{...digests},mediaDigests:{...mediaDigests},metadataDigest});
     count+=entries.length;options.onProgress?.(count,library.records.length,"records");
   }
   if(!state)throw Error("同步状态未建立，请重试。");
   const imageJobs=library.records.flatMap(row=>(row.images||[]).map((img,index)=>({row,index,img})));
-  let completedImages=0,unflushedImages=0,saveAck:Promise<unknown>=Promise.resolve();options.onProgress?.(0,imageJobs.length,"images");
+  let completedImages=0,saveAck:Promise<unknown>=Promise.resolve();options.onProgress?.(0,imageJobs.length,"images");
+  const imageReceipts=new Map<string,{hash:string;expected:string|undefined}>();
   const flushImages=()=>{
-    if(!unflushedImages)return saveAck;
-    unflushedImages=0;
-    const acknowledged={...mediaDigests};
-    saveAck=saveAck.then(async()=>{state={...state!,mediaDigests:acknowledged};await setCaptureCloudState(owner,library.id,state);});
+    if(!imageReceipts.size)return saveAck;
+    const acknowledged=[...imageReceipts];imageReceipts.clear();
+    saveAck=saveAck.then(()=>{
+      const expected=cloneState(receiptState)!,next={...state!.mediaDigests};
+      for(const [key,ack] of acknowledged){
+        next[key]=ack.hash;
+        if(ack.expected===undefined)delete expected.mediaDigests![key];else expected.mediaDigests![key]=ack.expected;
+      }
+      return persist({...state!,mediaDigests:next},expected);
+    });
     return saveAck;
   };
   try{await concurrentMap(imageJobs,async({row,index,img})=>{
+    assertSyncCurrent(options);
     const hash=await digest(bytesFromBase64(img.data)),key=JSON.stringify([row.localId,index]);if(mediaDigests[key]===hash){options.onProgress?.(++completedImages,imageJobs.length,"images");return;}
+    const expected=receiptState?.mediaDigests?.[key];
     const chunks=Math.ceil(img.data.length/400000);
     for(let n=0;n<chunks;n++){
+      assertSyncCurrent(options);
       const result=await request<{ownerId:string;ready:boolean}>(owner,"",{action:"sync-media",libraryId:state!.id,expectedEpoch:state!.epoch,localId:row.localId,index,mime:img.mime,name:img.name,sha256:hash,chunkIndex:n,chunkCount:chunks,data:img.data.slice(n*400000,(n+1)*400000)});
       if(n===chunks-1&&!result.ready)throw Error("图片尚未完整同步，请继续同步。");
     }
     // One IndexedDB library write used to clone every saved picture after
     // each individual upload. Batch ACKs, and flush settled workers on both
     // success and failure so retries reuse all verified uploads.
-    mediaDigests[key]=hash;unflushedImages++;
-    if(unflushedImages>=8)await flushImages();
+    mediaDigests[key]=hash;imageReceipts.set(key,{hash,expected});
+    if(imageReceipts.size>=8)await flushImages();
     options.onProgress?.(++completedImages,imageJobs.length,"images");
   });}finally{await flushImages();await saveAck;}
   let completedReports=0;options.onProgress?.(0,library.reportLinks.length,"reports");
-  for(const link of library.reportLinks){await request(owner,"",{action:"link-report",libraryId:state.id,expectedEpoch:state.epoch,...link});options.onProgress?.(++completedReports,library.reportLinks.length,"reports");}
+  for(const link of library.reportLinks){
+    assertSyncCurrent(options);
+    const hash=await digest(JSON.stringify(link));
+    if(state.reportDigests?.[link.reportId]!==hash){
+      await request(owner,"",{action:"link-report",libraryId:state.id,expectedEpoch:state.epoch,...link});
+      await persist({...state,reportDigests:{...state.reportDigests,[link.reportId]:hash}});
+    }
+    options.onProgress?.(++completedReports,library.reportLinks.length,"reports");
+  }
+  assertSyncCurrent(options);
   const current=await getCaptureLibrary(owner,library.id);if(!current)throw Error("本机材料已被删除，同步已停止。");
+  if(current.cloud?.retired||!current.cloud?.enabled||current.cloud.id!==state.id||current.cloud.epoch!==state.epoch)throw Error("这份聊天的同步状态已变化，请重新打开后继续。");
   return {...library,cloud:state};
 }
 /** Persist the local receipt first; cloud errors must never restart a paid analysis. */

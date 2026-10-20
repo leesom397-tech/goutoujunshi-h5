@@ -39,6 +39,7 @@ async function scenario(width,name){
      else throw Error('unexpected helper '+url.pathname);
    }else{
      if(url.pathname==='/api/auth/session')value={loggedIn:true,user:{id:owner}};
+     else if(url.pathname==='/api/web/account-context')value={account:{userId:owner,balance:1000,active:true},prices:{analysisSmall:20,profile:30},people:[{id:person,label:friend}],user:{name:'合成验收用户'},admin:false,meteringReady:true,meteringScope:'web'};
      else if(url.pathname==='/api/account/credits')value={account:{userId:owner,balance:1000,active:true},prices:{analysisSmall:20,profile:30}};
      else if(url.pathname==='/api/web/profile')value={enabled:true,paused:false,self:{},subjects:[{id:person,label:friend}],facts:[],signals:[],trends:[]};
      else if(url.pathname==='/api/web/capture/subject'){bindings.push(body);assert.equal(body.contact.contactId,contactId);assert.equal(body.contact.accountKey,accountKey);await wait(600);value={subjectId:person,label:friend,created:false};}
@@ -97,8 +98,9 @@ async function scenario(width,name){
      if(name==='residual-plan'){assert.equal(await page.$('[data-moments-result]'),null);assert.equal(await page.evaluate(()=>document.body.innerText.includes('不应显示的旧结果')),false);}
    }
    if(oldExisting){await page.addScriptTag({content:vault.outputFiles[0].text});await page.evaluate(({owner,friend,account,posts})=>FixtureVault.saveCaptureBatch(owner,{version:1,kind:'moments',friend,account,capturedAt:'2020-01-01T00:00:00Z',warnings:[],records:posts}),{owner,friend:reportEntry?'合成新备注 · #0123456789abcdef':friend,account,posts});}
-   await click('导入全部可见朋友圈');await text('正在准备导入…');
-   assert.equal(await page.$eval('[data-job-phase="checking"]',element=>element.checkVisibility()),true,'preparing status visible immediately, before helper request');
+   await click('导入全部可见朋友圈');
+   await page.waitForSelector('[data-import-stage="moments"]',{visible:true});
+   assert.equal(await page.$eval('#capture-preview',element=>element.checkVisibility()),false,'only the active import is shown before the helper completes');
    if(reloadTask){await page.waitForFunction(owner=>JSON.parse(sessionStorage.getItem(`chengzi-capture:${owner}:job`)||'null')?.jobId==='moments-fixture',{},owner);reloaded=true;await page.reload({waitUntil:'networkidle0'});}
    if(name==='stalled-retry'){
      await page.waitForFunction(()=>[...document.querySelectorAll('button')].some(button=>button.textContent.includes('重新连接并重试')),{timeout:45000});

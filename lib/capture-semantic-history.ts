@@ -1,5 +1,5 @@
 import {captureProfileMaterial,CAPTURE_MATERIAL_GUIDANCE,type CaptureMaterialMetadata} from "./capture-material";
-import { isCaptureJobControl, allCaptureSteps } from "./capture-job-signals.mjs";
+import { isCaptureJobControl, allCaptureSteps, CAPTURE_STEP_CONCURRENCY } from "./capture-job-signals.mjs";
 import type { CaptureMemoryRow } from "./capture-analysis-input";
 import type { ChatActivitySummary } from "./chat-activity";
 import type { QwenMessage } from "./qwen";
@@ -135,6 +135,13 @@ export function validatedChunkFindings(input: unknown, rows: readonly (CaptureMe
     if (output.length >= 8) break;
   }
   return output;
+}
+
+/** An explicitly empty observation list is valid. A nonempty list whose
+ * citations all fail verification is a failed read, not an empty conversation. */
+export function hasGroundedChunkResult(input: unknown, rows: readonly (CaptureMemoryRow & { alias: string })[]) {
+  return object(input) && Array.isArray(input.findings) &&
+    (!input.findings.length || validatedChunkFindings(input, rows, 0).length > 0);
 }
 
 /** Deterministic full-archive warnings remain citeable even when a segment's
@@ -366,12 +373,11 @@ export async function analyzeCaptureSemanticHistory(input: {
   const findings: SemanticHistoryFinding[] = [];
   let analyzedText = 0, supplementalAnalyzed = 0;
   const sourceCounts: Record<string, {captions: number; visual: number}> = {};
-  // Two requests at a time keeps the largest allowed history bounded without
-  // turning a single long import into an unbounded burst of model calls.
-  // One failed segment is retried once, then skipped. The rest of the chat
-  // still produces a report instead of failing the whole request.
-  for (let start = 0; start < chunks.length; start += 2) {
-    const group = chunks.slice(start, start + 2);
+  // Bounded parallel reads cover the entire corpus. Durable execution keeps
+  // successful siblings and resumes only unfinished steps; all siblings settle
+  // before a retry/yield, so a new alarm cannot race their checkpoints.
+  for (let start = 0; start < chunks.length; start += CAPTURE_STEP_CONCURRENCY) {
+    const group = chunks.slice(start, start + CAPTURE_STEP_CONCURRENCY);
     const results = await allCaptureSteps(group.map(async (chunk, offset) => {
       let parsed: SemanticHistoryFinding[] | null = null;
       for (let attempt = 0; attempt < 2 && !parsed; attempt++) {
@@ -381,7 +387,7 @@ export async function analyzeCaptureSemanticHistory(input: {
             { role: "user", content: JSON.stringify({ question: input.question || "panorama", participantLabels:input.participantLabels||{self:"你",other:"对方"},analysisGoal:questionAim, segment: start + offset + 1, rows: chunk.map(row => ({ sourceId: row.alias, role: row.senderRole, at: row.at, text: row.text, basis: row.basis || "chat-original", sourceKind: row.sourceKind || "chat", materialRole:row.materialRole,pinned:row.pinned })) }) },
           ], { fast: true, json: true, maxTokens: 3200, timeoutMs: 55_000 });
           const result = parse(raw);
-          if (!Array.isArray(result.findings)) throw Error("历史分段缺少核对结果。");
+          if (!hasGroundedChunkResult(result, chunk)) throw Error("历史分段缺少可核对的原文依据。");
           parsed = validatedChunkFindings(result, chunk, start + offset);
         } catch (error) { if(isCaptureJobControl(error)) throw error; parsed = null; }
       }

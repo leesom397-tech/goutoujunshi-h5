@@ -52,6 +52,23 @@ assert.equal(result.findings.length, chunks.length);
 assert.equal(result.findings.at(-1).evidence[0].sourceId, "real-source-675");
 assert.equal(result.summaryEvidenceIds.length, chunks.length);
 
+// Bounded concurrent reads shorten the critical path without sampling away
+// source rows. The model here is synthetic; this measures scheduling only.
+let activeSegments=0, peakSegments=0;
+const parallelSeen=[];
+const parallelRows=Array.from({length:1250},(_,i)=>row(i+1));
+const parallelResult=await analyzeCaptureSemanticHistory({historyRecords:parallelRows,totalImported:1250,selectedLineCount:0},async messages=>{
+  const payload=JSON.parse(messages[1].content);
+  if(!payload.rows)return qwen(messages);
+  activeSegments++;peakSegments=Math.max(peakSegments,activeSegments);parallelSeen.push(...payload.rows.map(item=>item.sourceId));
+  try{await new Promise(resolve=>setTimeout(resolve,5));return await qwen(messages);}finally{activeSegments--;}
+});
+assert.equal(peakSegments,4);assert.equal(activeSegments,0);assert.equal(parallelResult.status,"complete");
+assert.equal(parallelResult.coverage.analyzedText,1250);assert.equal(new Set(parallelSeen).size,1250);assert.equal(parallelSeen.length,1250);
+let invalidReads=0;
+const invalidSegments=await analyzeCaptureSemanticHistory({historyRecords:[row(1)],totalImported:1,selectedLineCount:0},async()=>{invalidReads++;return JSON.stringify({findings:[{claim:"伪造判断",evidence:[{sourceId:"H9999",quote:"不在原话里"}]}]});});
+assert.equal(invalidSegments.status,"unavailable");assert.equal(invalidSegments.coverage.analyzedText,0);assert.equal(invalidReads,2);
+
 const sparse = await analyzeCaptureSemanticHistory({ historyRecords: all.slice(0, 396), totalImported: 675, selectedLineCount: 40 }, qwen);
 assert.equal(sparse.coverage.analyzedText, 396);
 assert.equal(sparse.coverage.missingFromText, 279);

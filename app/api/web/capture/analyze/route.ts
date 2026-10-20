@@ -75,18 +75,28 @@ async function fullHistoryAnalysis(owner: string, input: CaptureAnalysisInput, d
   if (!previousContext) await reserveBudget(owner, "deep");
   const validateContext = job ? () => assertReportContextCurrent(db,owner,input.subjectId,job.manifest.contextSnapshot) : undefined;
   const model = job ? checkpointedCaptureModel(qwenChat, job.checkpoint, validateContext) : qwenChat;
-  const history = await readFullCaptureHistory(db, owner, input);
-  const participants=await loadReportParticipants(db,owner,input.subjectId,{archiveSnapshot:{libraryId:input.libraryId}});
+  const [history, participants] = await Promise.all([
+    readFullCaptureHistory(db, owner, input),
+    loadReportParticipants(db,owner,input.subjectId,{archiveSnapshot:{libraryId:input.libraryId}}),
+  ]);
   const momentsOnly=input.kind==="moments";
   if (!momentsOnly&&!history.readable.length) throw new CaptureFullHistoryError("已读取全部聊天，但没有可用的文字或语音转写；请先补齐文字再生成完整报告。", 422);
   const chatActivity = momentsOnly?null:computeChatActivity(history.records);
   const riskReview = fullHistoryRiskReview(history.readable, input.libraryId || undefined);
   if (job && history.revision !== job.manifest.primary.revision) throw new CaptureFullHistoryError("分析期间聊天资料已更新，请重新生成；已完成且未变化的段落会复用。",409);
   let selfMemoryStatus: string = previousContext?.selfMemoryStatus || "unavailable";
-  if (!previousContext&&!momentsOnly) try { selfMemoryStatus=await updateSelfArchiveMemory(owner,input.libraryId!,input.expectedEpoch!,history.readable,db); } catch { selfMemoryStatus="unavailable"; console.warn("self_archive_memory_update_unavailable"); }
   let personContext = previousContext?.personContext || "", selfContext = previousContext?.selfContext || "";
-  if (!previousContext) try { if (input.subjectId) personContext = await loadProfileContext(owner, input.subjectId, input.question || "关系状态 投入 变化 朋友圈", 1800); } catch { personContext = ""; }
-  if (!previousContext) try { selfContext = await loadProfileContext(owner,null,input.question || "关系偏好 沟通 边界",1800,false); } catch { selfContext = ""; }
+  if (!previousContext) await Promise.all([
+    (async () => {
+      try { if (input.subjectId) personContext = await loadProfileContext(owner, input.subjectId, input.question || "关系状态 投入 变化 朋友圈", 1800); } catch { personContext = ""; }
+    })(),
+    (async () => {
+      // The self profile must see this import's memory update; the other
+      // person's context has no dependency and can load alongside it.
+      if (!momentsOnly) try { selfMemoryStatus=await updateSelfArchiveMemory(owner,input.libraryId!,input.expectedEpoch!,history.readable,db); } catch { selfMemoryStatus="unavailable"; console.warn("self_archive_memory_update_unavailable"); }
+      try { selfContext = await loadProfileContext(owner,null,input.question || "关系偏好 沟通 边界",1800,false); } catch { selfContext = ""; }
+    })(),
+  ]);
   if (job && !previousContext) await job.checkpoint("context", {personContext,selfContext,selfMemoryStatus});
   const related = await readRelatedCaptureEvidence(db, owner, input, history, model);
   if (job) await job.checkpoint("progress", {phase:"segments", completedImages:related.sourceCoverage.reduce((total, source) => total + source.imagesAnalyzed + source.imagesUnreadable, 0)});

@@ -2,7 +2,7 @@ import { applyVerifiedVoiceUpdatesToRecords, captureLibraryId, captureNamespaceK
 export type { StoredCaptureRecord } from "./desktop-capture";
 
 export type CaptureReportLink = { reportId: string; sourceIds: string[]; memorySourceIds?: string[]; createdAt: string };
-export type CaptureCloudState = { id: string; epoch: number; enabled: boolean; syncedAt: string; total: number; subjectId?: string; digests?: Record<string,string>; mediaDigests?: Record<string,string>; retired?: boolean; offline?: boolean };
+export type CaptureCloudState = { id: string; epoch: number; enabled: boolean; syncedAt: string; total: number; subjectId?: string; digests?: Record<string,string>; mediaDigests?: Record<string,string>; metadataDigest?: string; reportDigests?: Record<string,string>; retired?: boolean; offline?: boolean };
 export type CaptureLibrary = CaptureNamespace & { id: string; createdAt: string; updatedAt: string; records: StoredCaptureRecord[]; warnings: string[]; reportLinks: CaptureReportLink[]; coverage?: CaptureCoverage; cloud?: CaptureCloudState };
 export type CaptureLibrarySummary = Omit<CaptureLibrary, "records"> & { total: number; pending: number };
 export type CaptureReportSources = { libraryId: string; sourceIds: string[]; records: StoredCaptureRecord[]; memoryRecords?: StoredCaptureRecord[]; kind: CaptureNamespace["kind"]; friend: string; account: string };
@@ -166,17 +166,49 @@ export async function removeCaptureLibrary(ownerId: string, libraryId: string): 
 }
 
 /** Cloud metadata never changes the original material or its attribution. */
-export async function setCaptureCloudState(ownerId: string, libraryId: string, cloud: CaptureCloudState): Promise<void> {
+export async function setCaptureCloudState(ownerId: string, libraryId: string, cloud: CaptureCloudState, receipt?: { expected?: CaptureCloudState; restore?: boolean }): Promise<CaptureCloudState> {
   owner(ownerId); const db = await database();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(LIBRARIES, "readwrite"), store = tx.objectStore(LIBRARIES), request = store.get(libraryId);
-    let reason: unknown;
+    let reason: unknown, saved = cloud;
     request.onsuccess = () => {
       const library = request.result as CaptureLibrary | undefined;
       if (!library || library.ownerId !== ownerId) { reason = Error("当前账号找不到这份聊天。"); tx.abort(); return; }
-      store.put({ ...library, cloud });
+      if (receipt) {
+        const current = library.cloud, expected = receipt.expected;
+        // A response from an older request cannot revive a deleted library or
+        // attach its ACKs to a restored cloud epoch. Check inside the same IDB
+        // transaction as the write, including changes made by another tab.
+        if (current?.retired || current && !current.enabled && !receipt.restore
+          || expected && (!current || current.id !== expected.id || current.epoch !== expected.epoch)
+          || !expected && current && (current.id !== cloud.id || current.epoch !== cloud.epoch)) {
+          reason = Error("这份聊天的同步状态已变化，请重新打开后继续。"); tx.abort(); return;
+        }
+        if (current && current.epoch === cloud.epoch && current.id === cloud.id) {
+          const merge = (prior: Record<string,string> = {}, incoming: Record<string,string> = {}, baseline: Record<string,string> = {}) => {
+            const result = { ...prior };
+            for (const [key,value] of Object.entries(incoming)) {
+              // Preserve a receipt changed since this request started. A
+              // subsequent pass can reconcile it against the current source.
+              if (prior[key] === undefined || prior[key] === baseline[key] || prior[key] === value) result[key] = value;
+            }
+            return result;
+          };
+          const metadataChanged = current.metadataDigest !== expected?.metadataDigest && current.metadataDigest !== cloud.metadataDigest;
+          saved = {
+            ...current, ...cloud,
+            total: Math.max(current.total, cloud.total),
+            syncedAt: current.syncedAt > cloud.syncedAt ? current.syncedAt : cloud.syncedAt,
+            digests: merge(current.digests, cloud.digests, expected?.digests),
+            mediaDigests: merge(current.mediaDigests, cloud.mediaDigests, expected?.mediaDigests),
+            reportDigests: merge(current.reportDigests, cloud.reportDigests, expected?.reportDigests),
+            ...(metadataChanged ? { metadataDigest:current.metadataDigest, subjectId:current.subjectId } : {}),
+          };
+        }
+      }
+      store.put({ ...library, cloud:saved });
     };
-    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.oncomplete = () => { db.close(); resolve(saved); };
     tx.onerror = tx.onabort = () => { db.close(); reject(reason || tx.error || Error("同步状态未保存，请重试。")); };
   });
 }

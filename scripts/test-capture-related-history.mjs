@@ -82,7 +82,7 @@ async function completeDurable(request){
  assert.equal(response.status,202,JSON.stringify(task));
  const jobs=durableEnv.CAPTURE_HISTORY_JOBS.get(owner);
  for(let round=0;round<20;round++){
-  const callsBefore=routeCalls;await jobs.alarm();assert.ok(routeCalls-callsBefore<=2,'each alarm is bounded to two model calls');
+  const callsBefore=routeCalls;await jobs.alarm();assert.ok(routeCalls-callsBefore<=4,'each alarm is bounded to four model calls');
   const status=await jobs.status(owner,task.taskId);
   assert.notEqual(status.status,'error',status.error);
   if(status.status==='done')return Response.json(status.result);
@@ -112,4 +112,29 @@ const evidence=semantic.findings.flatMap(row=>row.evidence),verified=await verif
 const visual=evidence.find(source=>source.basis==='visual');sql.prepare('DELETE FROM coach_capture_media WHERE id=?').run(visual.mediaId);assert.ok(!(await verifySupplementalEvidence(db,owner,subject,evidence)).has(supplementalEvidenceKey(visual)),'deleted media cannot remain a question/profile fact');
 const caption=second.supplementalRecords.find(row=>row.basis==='caption'),captionEvidence={sourceId:caption.sourceLocalId,libraryId:caption.libraryId,sourceKind:'moments',basis:'caption',quote:caption.text,senderRole:'other',at:'2020-01-01'};assert.equal((await verifySupplementalEvidence(db,owner,subject,[captionEvidence])).get(supplementalEvidenceKey(captionEvidence)).at,'2026-01-02','source date is restored from current original');
 sql.prepare('UPDATE coach_capture_libraries SET subject_id=? WHERE id=?').run(crypto.randomUUID(),momentsId);assert.equal((await verifySupplementalEvidence(db,owner,subject,evidence)).size,0,'reassigned library is not reused for the prior person');
+
+// Actual image-reader scheduling, with synthetic small PNGs and provider
+// latency. Large declared byte sizes additionally exercise the memory guard.
+const parallelLibrary='cl_'+'d'.repeat(64),parallelRows=Array.from({length:17},(_,i)=>({...make(i,'image'),localId:'parallel-'+i}));
+sql.prepare("INSERT INTO coach_capture_libraries(id,owner_id,account,friend,kind,subject_id,created_at,updated_at) VALUES(?,?,'wx-account','parallel images','chat',?,'2026-01-01','2026-01-01')").run(parallelLibrary,owner,subject);
+for(const [index,row] of parallelRows.entries()){
+  sql.prepare("INSERT INTO coach_capture_records(library_id,owner_id,epoch,local_id,digest,record_json,sort_known,sort_time,updated_at) VALUES(?,?,1,?,?,?,0,1,1)").run(parallelLibrary,owner,row.localId,row.localId,JSON.stringify(row));
+  const bytes=Buffer.concat([png,Buffer.from(parallelLibrary+index)]),sha=Buffer.from(await crypto.subtle.digest('SHA-256',bytes)).toString('hex'),id='cm_'+sha;
+  sql.prepare("INSERT INTO coach_capture_media(id,owner_id,library_id,epoch,local_id,image_index,mime,name,sha256,bytes,chunk_count,status,created_at) VALUES(?,?,?,1,?,0,'image/png','synthetic',?,?,1,'ready',1)").run(id,owner,parallelLibrary,row.localId,sha,bytes.length);
+  sql.prepare('INSERT INTO coach_capture_media_chunks VALUES(?,0,?)').run(id,bytes.toString('base64'));
+}
+const parallelInput={...input,friend:'parallel images',libraryId:parallelLibrary,expectedTotal:17,relatedSnapshots:[]};
+let activeImages=0,peakImages=0;const imageBatches=[];
+const delayedVision=async messages=>{
+  const images=JSON.parse(messages[1].content[0].text).images;imageBatches.push(images.map(item=>item.mediaId));
+  activeImages++;peakImages=Math.max(peakImages,activeImages);
+  try{await new Promise(resolve=>setTimeout(resolve,5));return JSON.stringify({images:images.map(item=>({mediaId:item.mediaId,readable:true,observation:'可见海边步道。'}))});}finally{activeImages--;}
+};
+const parallelRead=await readRelatedCaptureEvidence(db,owner,parallelInput,{records:parallelRows,revision:0},delayedVision);
+assert.equal(peakImages,4);assert.equal(activeImages,0);assert.equal(imageBatches.length,5);assert.equal(new Set(imageBatches.flat()).size,17);assert.equal(parallelRead.sourceCoverage[0].imagesAnalyzed,17);
+sql.prepare("UPDATE coach_capture_media SET analysis_version=0,analysis_json='',bytes=5000000 WHERE library_id=?").run(parallelLibrary);
+peakImages=0;imageBatches.length=0;
+await readRelatedCaptureEvidence(db,owner,parallelInput,{records:parallelRows,revision:0},delayedVision);
+assert.equal(peakImages,1,'5 MB originals must not expand to sixteen simultaneous base64 images');
+assert.equal(imageBatches.length,17);assert.ok(imageBatches.every(batch=>batch.length===1));
 console.log('PASS: full joint snapshots, 28 posts + cover/signature, 29 captions + 12 previews (no 12/4 truncation), metadata/hash checks, missing/unreadable/failure coverage, cached retry, all supplemental evidence enters synthesis, source kind/role/date retained, ownership/person/account isolation and deleted/reassigned media exclusion. Synthetic models only.');

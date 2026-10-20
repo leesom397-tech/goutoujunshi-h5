@@ -1,6 +1,6 @@
 import type { qwenChat } from "./qwen";
-import { CaptureJobYield, CaptureJobRetry } from "./capture-job-signals.mjs";
-import { hasCompleteHistorySynthesis } from "./capture-semantic-history";
+import { CaptureJobYield, CaptureJobRetry, CAPTURE_ALARM_MODEL_CALLS } from "./capture-job-signals.mjs";
+import { hasCompleteHistorySynthesis, hasGroundedChunkResult } from "./capture-semantic-history";
 import { validatedCaptureImageObservations } from "./capture-image-observations";
 export { CaptureJobYield, CaptureJobRetry, isCaptureJobControl, allCaptureSteps } from "./capture-job-signals.mjs";
 
@@ -10,6 +10,7 @@ export type CaptureCheckpoint = (key: string, update?: Record<string, any>) => P
 
 export function checkpointedCaptureModel(qwen: typeof qwenChat, checkpoint: CaptureCheckpoint, validate?: () => Promise<void>): typeof qwenChat {
   let calls = 0;
+  const startedAt = Date.now();
   const inFlight = new Set<Promise<unknown>>();
   return async (messages, options) => {
     await validate?.();
@@ -21,9 +22,19 @@ export function checkpointedCaptureModel(qwen: typeof qwenChat, checkpoint: Capt
     const encoded = JSON.stringify({version: phase === "synthesis" ? 4 : 1, messages, options});
     const key = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(encoded))), b => b.toString(16).padStart(2, "0")).join("");
     const cached = await checkpoint(key);
-    if (typeof cached?.text === "string") return cached.text;
+    const groundedSegment = (value: unknown) => hasGroundedChunkResult(value, (detail.rows || []).map((row: any) => ({
+      ...row, alias: row.sourceId, localId: row.sourceId, senderRole: row.role,
+    })));
+    if (typeof cached?.text === "string") {
+      // Older checkpoints only checked that findings was an array. Do not
+      // reuse an entirely fabricated citation list as a successful empty read.
+      if (phase !== "segments") return cached.text;
+      try { if (groundedSegment(JSON.parse(cached.text.replace(/^\s*```(?:json)?\s*|\s*```\s*$/g, "")))) return cached.text; } catch {}
+    }
     // Finish this alarm's outstanding work before yielding to the next alarm.
-    if (calls >= 2) { await Promise.allSettled([...inFlight]); throw new CaptureJobYield(); }
+    // Leave room for the longest (85 s) synthesis call before the 180 s
+    // recovery alarm. A large import must yield, never overlap alarm workers.
+    if (calls >= CAPTURE_ALARM_MODEL_CALLS || Date.now() - startedAt >= 75_000) { await Promise.allSettled([...inFlight]); throw new CaptureJobYield(); }
     calls++;
     const count = Array.isArray(detail.rows) ? detail.rows.filter((row: any) => row.basis === "chat-original").length : 0;
     const captionCount = Array.isArray(detail.rows) ? detail.rows.filter((row: any) => row.basis === "caption").length : 0;
@@ -37,7 +48,7 @@ export function checkpointedCaptureModel(qwen: typeof qwenChat, checkpoint: Capt
       // Do not keep malformed model output as a successful checkpoint.
       let parsed: any;
       try { parsed = JSON.parse(text.replace(/^\s*```(?:json)?\s*|\s*```\s*$/g, "")); } catch { throw new CaptureJobRetry("本段结果需要重新核对。"); }
-      if (phase === "segments" && !Array.isArray(parsed?.findings) || phase === "images" && (imageIds.length ? !validatedCaptureImageObservations(parsed, imageIds) : typeof parsed?.readable !== "boolean" || typeof parsed?.observation !== "string") || phase === "synthesis" && typeof parsed?.summary !== "string") {
+      if (phase === "segments" && !groundedSegment(parsed) || phase === "images" && (imageIds.length ? !validatedCaptureImageObservations(parsed, imageIds) : typeof parsed?.readable !== "boolean" || typeof parsed?.observation !== "string") || phase === "synthesis" && typeof parsed?.summary !== "string") {
         throw new CaptureJobRetry("本段结果需要重新核对。");
       }
       if (phase === "synthesis" && !hasCompleteHistorySynthesis(parsed, Array.isArray(detail.findings) ? detail.findings : [],detail.fullHistory===true,detail.question)) {

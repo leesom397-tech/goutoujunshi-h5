@@ -1,4 +1,4 @@
-import { isCaptureJobControl, allCaptureSteps } from "./capture-job-signals.mjs";
+import { isCaptureJobControl, allCaptureSteps, CAPTURE_STEP_CONCURRENCY } from "./capture-job-signals.mjs";
 import type { getD1 } from "@/db";
 import type { CaptureAnalysisInput, CaptureMemoryRow } from "./capture-analysis-input";
 import type { SemanticHistoryEvidence } from "./capture-semantic-history";
@@ -11,7 +11,7 @@ import { validatedCaptureImageObservations } from "./capture-image-observations"
 type Database = ReturnType<typeof getD1>;
 type Snapshot = { libraryId: string; kind: "chat" | "moments"; epoch: number; revision: number; total: number };
 type Library = { id: string; owner_id: string; account: string; friend:string; subject_id: string | null; kind: "chat" | "moments"; epoch: number; revision: number; deleted_at: number | null };
-type Media = { id: string; local_id: string; image_index: number; mime: string; sha256: string; chunk_count: number; analysis_json: string; analysis_version: number };
+type Media = { id: string; local_id: string; image_index: number; mime: string; sha256: string; bytes: number; chunk_count: number; analysis_json: string; analysis_version: number };
 type ImageRead = {media: Media; source: CloudCaptureRecord} & ({readable: boolean; observation: string} | {failed: true});
 type VisionCall = (messages: QwenMessage[], options: {vision: true; fast: true; json: true; maxTokens: number; timeoutMs: number}) => Promise<string>;
 export type CaptureSourceCoverage = { libraryId: string; kind: "chat" | "moments"; total: number; textRead: number; imagesExpected: number; imagesAvailable: number; imagesAnalyzed: number; imagesFailed: number; imagesMissing: number; imagesUnreadable: number; imageScope: "synced-preview"; status: "complete" | "partial";momentCount?:number;profileMaterialCount?:number;pinnedCount?:number;coverCount?:number;signatureCount?:number };
@@ -21,6 +21,33 @@ const parse = (raw: string): Record<string, any> => { try { const value = JSON.p
 const digest = async (bytes: Uint8Array) => Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes as Uint8Array<ArrayBuffer>)), byte => byte.toString(16).padStart(2, "0")).join("");
 const eligibleCaption = (row: CloudCaptureRecord) => captureMaterialRole(row.source)!=="moments-cover" && row.text.trim() && !/^\s*[\[【]?(?:图片|照片|视频|表情包|动态)[\]】]?\s*$/u.test(row.text);
 export const supplementalEvidenceKey = (source: Partial<SemanticHistoryEvidence>) => JSON.stringify([source.libraryId, source.sourceId, source.mediaId, source.basis, source.quote]);
+
+// Usual capture previews can run four independent requests together. Large
+// originals need smaller groups: base64 and JSON create extra copies in a
+// Worker, so fan-out must be bounded by bytes as well as provider count.
+function imageReadGroups(pictures: Media[]): Media[][][] {
+  const size = (picture: Media) => Number.isSafeInteger(picture.bytes) && picture.bytes > 0 ? picture.bytes : 5_000_000;
+  const batches: Media[][] = [];
+  let batch: Media[] = [], batchBytes = 0;
+  for (const picture of pictures) {
+    if (batch.length && (batch.length >= 4 || batchBytes + size(picture) > 4_000_000)) {
+      batches.push(batch); batch = []; batchBytes = 0;
+    }
+    batch.push(picture); batchBytes += size(picture);
+  }
+  if (batch.length) batches.push(batch);
+  const groups: Media[][][] = [];
+  let group: Media[][] = [], groupBytes = 0;
+  for (const next of batches) {
+    const bytes = next.reduce((total, picture) => total + size(picture), 0);
+    if (group.length && (group.length >= CAPTURE_STEP_CONCURRENCY || groupBytes + bytes > 8_000_000)) {
+      groups.push(group); group = []; groupBytes = 0;
+    }
+    group.push(next); groupBytes += bytes;
+  }
+  if (group.length) groups.push(group);
+  return groups;
+}
 
 /** Four images per request reduces provider round trips without losing each
  * image's identity, cache, readability or error accounting. */
@@ -142,7 +169,7 @@ export async function readRelatedCaptureEvidence(db: Database, owner: string, in
   const supplementalRecords: CaptureMemoryRow[] = [], mediaEvidence: CaptureMediaEvidence[] = [], sourceCoverage: CaptureSourceCoverage[] = [],profileMaterials:CaptureProfileMaterial[]=[];
   for (const {snapshot, records} of sources) {
     const byId = new Map(records.map(row => [row.localId, row]));
-    const media = await db.prepare("SELECT id,local_id,image_index,mime,sha256,chunk_count,analysis_json,analysis_version FROM coach_capture_media WHERE owner_id=? AND library_id=? AND epoch=? AND status='ready' ORDER BY local_id,image_index,id").bind(owner, snapshot.libraryId, snapshot.epoch).all<Media>();
+    const media = await db.prepare("SELECT id,local_id,image_index,mime,sha256,bytes,chunk_count,analysis_json,analysis_version FROM coach_capture_media WHERE owner_id=? AND library_id=? AND epoch=? AND status='ready' ORDER BY local_id,image_index,id").bind(owner, snapshot.libraryId, snapshot.epoch).all<Media>();
     const pictures = media.results.filter(row => byId.has(row.local_id));
     // One visible-ui-preview is one captured frame, even if that frame contains
     // a nine-photo grid. Do not subtract frame count from original-photo count.
@@ -156,8 +183,7 @@ export async function readRelatedCaptureEvidence(db: Database, owner: string, in
     if (snapshot.kind === "moments") for (const row of records) if (eligibleCaption(row)) {
       supplementalRecords.push({localId: `${snapshot.libraryId}:caption:${row.localId}`, sourceLocalId: row.localId, kind: "text", senderRole: "other", at: row.at, text: row.text, libraryId: snapshot.libraryId, sourceKind: "moments", basis: "caption",materialRole:captureMaterialRole(row.source),pinned:captureMaterialRole(row.source)==="moment"&&row.source?.pinned===true});
     }
-    for (let offset = 0; offset < pictures.length; offset += 8) {
-      const batches = [pictures.slice(offset, offset + 4), pictures.slice(offset + 4, offset + 8)].filter(batch => batch.length);
+    for (const batches of imageReadGroups(pictures)) {
       const observations = (await allCaptureSteps(batches.map(batch => readImageBatch(db, owner, snapshot, batch, byId, qwen)))).flat();
       for (const result of observations) {
         if ("failed" in result) { coverage.imagesFailed++; continue; }
