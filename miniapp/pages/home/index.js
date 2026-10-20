@@ -36,8 +36,9 @@ Page({
     if (entry === "library") { wx.navigateTo({ url: "/pages/library/index" }); return; }
     if (entry === "reports") { wx.navigateTo({ url: "/pages/reports/index" }); return; }
     if (entry === "comparison") {wx.navigateTo({url:"/pages/archive/index?compare=1"});return;}
-    if (!["quick", "social-profile", "archive", "self", "chat", "positioning", "voice"].includes(entry)) return;
+    if (!["quick", "affinity", "social-profile", "archive", "self", "chat", "positioning", "voice"].includes(entry)) return;
     if (entry === "self") { wx.navigateTo({ url: "/pages/archive/index?tab=self" }); return; }
+    if (entry === "affinity") { wx.navigateTo({url:"/pages/quick/index?focus=affinity"});return; }
     if (entry === "quick") {
       wx.navigateTo({ url: "/pages/quick/index" });
       return;

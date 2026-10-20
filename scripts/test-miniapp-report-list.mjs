@@ -27,7 +27,7 @@ await page.load(1,'测试聊天 2');assert.equal(page.data.reports[0].kindLabel,
 page.openReport({currentTarget:{dataset:{id:page.data.reports[0].id}}});assert.match(nav[0],/^\/pages\/report\/index\?id=/);
 page.openReport({currentTarget:{dataset:{id:id(100)}}});assert.equal(nav.length,1,'unlisted report cannot be navigated through injected dataset');
 await page.next();assert.equal(page.data.page,2);assert.equal(page.data.reports.length,2);
-page.editQuery({detail:{value:'测试朋友圈'}});await page.search();assert.equal(page.data.total,1);assert.equal(page.data.page,1);assert.equal(page.data.reports[0].kindLabel,'朋友圈');
+page.editQuery({detail:{value:'测试朋友圈'}});await page.search();assert.equal(page.data.total,1);assert.equal(page.data.page,1);assert.equal(page.data.reports[0].kindLabel,'朋友圈截图');
 foreignReply=true;await page.retry();assert.match(page.data.error,/账号已变化/);assert.equal(page.data.reports.length,0);foreignReply=false;
 storage.token='native-b';await page.onShow();assert.equal(page.data.reports.length,1);assert.equal(page.data.query,'');assert.equal(page.data.ownerId,'public-owner-b');
 storage.token='expired';page.openReport({currentTarget:{dataset:{id:id(100)}}});assert.equal(nav.length,1);assert.equal(page.data.reports.length,0);

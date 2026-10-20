@@ -24,3 +24,5 @@
 .motion-paused .hero-art,.motion-paused .sunlight{animation-play-state:paused}@media(prefers-reduced-motion:reduce){.aurora-scene .hero-art,.aurora-scene .sunlight{animation:none}}
 .knowledge-reference-count{display:block;margin:14rpx 0 8rpx;font-size:26rpx;font-weight:600;line-height:1.8;color:#84563f}
 .history-entry{margin:22rpx 0 10rpx;background:#fff4e9;border-color:#e9c7b4}.history-entry>view>text:first-child{font-size:30rpx;font-weight:650;color:#714831}
+
+.entry-main{display:block;width:100%;padding:0;margin:0;background:transparent;color:inherit;text-align:left;line-height:1.5}.entry-main:after,.entry-voice:after{border:0}.entry-voice{display:flex;align-items:center;gap:10rpx;margin:18rpx 0 0;padding:14rpx 0 0;min-height:72rpx;background:transparent;border-top:1rpx solid #eadbce;border-radius:0;color:#965a42;font-size:24rpx;line-height:1.5}.entry-voice image{width:28rpx;height:28rpx}.home-archive-links{display:flex;flex-wrap:wrap;gap:8rpx;margin-top:20rpx}.home-archive-links button{padding:16rpx 18rpx;min-height:80rpx;margin:0;background:transparent;color:#84563f;font-size:25rpx;line-height:1.6}.home-archive-links button:after{border:0}

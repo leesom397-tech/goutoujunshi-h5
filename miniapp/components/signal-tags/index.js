@@ -11,9 +11,9 @@ Component({
   properties: { tags: {type:null,value:[]}, title:{type:String,value:''}, note:{type:String,value:''} },
   data: {rows:[]},
   observers: { 'tags': function(items) {
-    const rows=tagList(items).filter(item=>item && typeof item.label==='string' && item.label.trim()).slice(0,3).map(item=>{
-      const valid=typeof item.probability==='number' && Number.isFinite(item.probability) && item.probability>=0 && item.probability<=1;
-      const value=valid?Math.round(item.probability*100):null;
+    const rows=(typeof items==='string'?[{label:items}]:tagList(items)).filter(item=>item && typeof item.label==='string' && item.label.trim()).slice(0,3).map(item=>{
+      const probability=typeof item.probability==='number' && Number.isFinite(item.probability) && item.probability>=0 && item.probability<=1?item.probability:typeof item.weight==='number'&&Number.isFinite(item.weight)&&item.weight>=0&&item.weight<=100?item.weight/100:null;
+      const valid=probability!==null,value=valid?Math.round(probability*100):null;
       return {label:item.label.trim(),value,display:valid?`${value}%`:'待判断',tone:/refuse|boundary|anger|angry|disgust/.test(item.key||'')?'caution':/happy|joy|agree|warm|interest/.test(item.key||'')?'positive':'tentative'};
     });
     this.setData({rows});

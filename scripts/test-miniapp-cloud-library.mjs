@@ -5,6 +5,7 @@ import ts from 'typescript';
 const helperModule = { exports: {} };
 new Function('module', readFileSync('miniapp/lib/cloud-library.js', 'utf8'))(helperModule);
 const view = helperModule.exports;
+const entryModule={exports:{}};new Function('module',readFileSync('miniapp/lib/analysis-entry.js','utf8'))(entryModule);const entry=entryModule.exports;
 const rows = Array.from({ length: 160 }, (_, index) => ({ seq: index + 1, localId: 'row-' + (index + 1), kind: 'text', senderRole: index % 2 ? 'self' : 'other', sender: index % 2 ? '我' : '虚构联系人', at: '2026-10-15T09:30:00Z', text: '虚构测试原话 ' + (index + 1), source: { label: '合成测试', mediaKind: index === 159 ? 'voice' : 'text' } }));
 const library = { id: 'library-a', friend: '虚构联系人', kind: 'chat', total: 160, epoch: 1, subjectId: null, reportLinks: [], startAt: rows[0].at, endAt: rows[159].at };
 assert.equal(view.presentRecord(rows[159], {}, 'chat').voiceLabel, '语音转文字');
@@ -32,7 +33,7 @@ const api = {
     if (path.startsWith('/api/miniapp/report?')) { const error = new Error('不存在'); error.status = 404; throw error; }
     if (path === '/api/miniapp/settings') return { consent: true };
     if (path.startsWith('/api/miniapp/capture/analyze?')) return { taskId: reportId, status: 'done', kind: 'chat', friend: library.friend, totalCount: library.total, completedText: library.total, completedCaptions: 0, completedImages: 0 };
-    if (path === '/api/miniapp/capture/analyze') { if (method === 'POST' && analysisFailure) { analysisFailure = false; throw Error('模拟网络中断'); } return { taskId: reportId, status: 'done', kind: 'chat' }; }
+    if (path === '/api/miniapp/capture/analyze') { if(body?.quoteOnly){assert.equal(body.confirmed,false);return {quote:{version:entry.VERSION,amount:20,label:'全部资料 · 500 条以内'}};} if (method === 'POST' && analysisFailure) { analysisFailure = false; throw Error('模拟网络中断'); } return { taskId: reportId, status: 'done', kind: 'chat' }; }
     throw Error('未预期的接口 ' + path);
   }
 };
@@ -41,7 +42,7 @@ const wx = {
   showModal: options => options.success({ confirm: true }), showToast() {}, pageScrollTo() {}, navigateTo: options => nav.push(options.url),
   getFileSystemManager: () => ({ unlink() {} })
 };
-new Function('require', 'Page', 'wx', readFileSync('miniapp/pages/library/index.js', 'utf8'))(name => name.includes('cloud-library') ? view : api, definition => { page = { ...definition, data: structuredClone(definition.data), setData(change) { Object.assign(this.data, change); } }; }, wx);
+new Function('require', 'Page', 'wx', readFileSync('miniapp/pages/library/index.js', 'utf8'))(name => name.includes('cloud-library') ? view : name.includes('analysis-entry') ? entry : api, definition => { page = { ...definition, data: structuredClone(definition.data), setData(change) { Object.assign(this.data, change); } }; }, wx);
 page._selected = {}; page._cursors = ['']; page._tempFiles = []; page._generation = 0;
 await page.load();
 assert.equal(page.data.libraries.length, 1);
@@ -57,11 +58,11 @@ await page.previousPage(); assert.equal(page.data.records.find(row => row.localI
 foreign = true; await page.retryPage(); assert.match(page.data.error, /账号已变化/); assert.equal(page.data.records.length, 0); assert.equal(page.data.library, null); foreign = false;
 await page.load(); await page.openLibraryId(library.id);
 await page.analyze(); assert.match(page.data.error, /模拟网络中断/);
-const firstRequest = requests.find(row => row.method === 'POST' && row.path.endsWith('/capture/analyze'));
-assert.equal(firstRequest.body.confirmed, true); assert.equal(firstRequest.body.analysisScope, 'fullHistory'); assert.equal(firstRequest.body.records.length, 0); assert.equal(firstRequest.body.libraryId, library.id); assert.equal(firstRequest.body.expectedTotal, library.total);
-await page.analyze();
-assert.equal(newIds, 1, 'network retry must reuse the original request id');
-assert.equal(new Set(requests.filter(row => row.method === 'POST' && row.path.endsWith('/capture/analyze')).map(row => row.body.requestId)).size, 1);
+const firstRequest = requests.find(row => row.method === 'POST' && row.path.endsWith('/capture/analyze') && row.body.confirmed);
+assert.equal(firstRequest.body.confirmed, true); assert.deepEqual(firstRequest.body.priceConfirmation,{version:entry.VERSION,amount:20});assert.equal(firstRequest.body.quoteOnly,false); assert.equal(firstRequest.body.analysisScope, 'fullHistory'); assert.equal(firstRequest.body.records.length, 0); assert.equal(firstRequest.body.libraryId, library.id); assert.equal(firstRequest.body.expectedTotal, library.total);
+const idsBeforeRetry=newIds;await page.analyze();
+assert.equal(newIds, idsBeforeRetry, 'network retry must reuse the original request id');
+assert.equal(new Set(requests.filter(row => row.method === 'POST' && row.path.endsWith('/capture/analyze') && row.body.confirmed).map(row => row.body.requestId)).size, 1);
 assert.equal(nav.at(-1), '/pages/report/index?id=' + reportId);
 assert.equal(page.data.latestReportId, reportId);
 assert.equal(page.data.latestReportKind, 'fullHistory'); assert.equal(page.data.fullTaskRunning, false);

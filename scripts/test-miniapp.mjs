@@ -46,7 +46,8 @@ assert.match(markup, /result\.interactionScore/);
 assert.match(markup, /可能(?:的)?意思/);
 assert.match(markup, /<signal-tags[^>]*note="\{\{item\.note\}\}"/,'per-line explanation must be passed to the expandable visual component');
 assert.doesNotMatch(markup, /这张图怎么看|沟通作用|这句话代表什么/);
-const fixturePrices = { analysisSmall: 20, analysisMedium: 35, analysisLarge: 50, text: 5, profile: 30 };
+const entryModule={exports:{}};new Function("module",readFileSync("miniapp/lib/analysis-entry.js","utf8"))(entryModule);const analysisEntry=entryModule.exports;
+const fixturePrices = { analysisSingle:5,analysisSmall:10,analysisMedium:15,analysisLarge:20,text:5,profile:30 };
 const validId = "11111111-1111-4111-8111-111111111111";
 const sent = [];
 let attempts = 0;
@@ -71,7 +72,7 @@ const api = {
     return { token: "test-token", state: { subjects: sessionSubjects, screenshot: { enabled: false, selfSide: "ask" } } };
   },
   async request(path, method, body, token) {
-    if (path === "/api/miniapp/credits") { assert.equal(method, "GET"); return { prices: fixturePrices }; }
+    if (path.startsWith("/api/miniapp/credits")) { assert.equal(method, "GET"); return { prices: fixturePrices,priceVersion:analysisEntry.VERSION }; }
     assert.equal(method, "POST");
     assert.equal(token, "test-token");
     sent.push({ path, body });
@@ -90,6 +91,7 @@ const api = {
 };
 const navigation = [];
 const wx = {
+  getStorageSync(key){return key===api.STORAGE?{token:"test-token",expiresAt:Date.now()+60000}:null;},
   chooseMedia(options) { options.success({ tempFiles: [{ tempFilePath: "/fake/chat.png", size: 1024 }] }); },
   getImageInfo(options) { options.success({ type: "png" }); },
   getFileSystemManager() { return { readFile(options) { options.success({ data: "aGVsbG8=" }); } }; },
@@ -99,7 +101,7 @@ const wx = {
 };
 let definition;
 new Function("require", "Page", "wx", source)(
-  id => { if(id==="../../lib/risk-aware-presentation")return nativeRisk; if (id === "../../lib/followup-context") return followup; assert.equal(id, "../../lib/api"); return api; },
+  id => { if(id==="../../lib/analysis-entry")return analysisEntry; if(id==="../../lib/risk-aware-presentation")return nativeRisk; if (id === "../../lib/followup-context") return followup; assert.equal(id, "../../lib/api"); return api; },
   value => { definition = value; },
   wx
 );
@@ -190,7 +192,7 @@ const multiQuickApi = {
   ...api,
   async newId() { multiQuickIds++; return `${String(multiQuickIds).padStart(8, "0")}-1111-4111-8111-111111111111`; },
   async request(path, method, body) {
-    if (path === "/api/miniapp/credits") { assert.equal(method, "GET"); return { prices: fixturePrices }; }
+    if (path.startsWith("/api/miniapp/credits")) { assert.equal(method, "GET"); return { prices: fixturePrices,priceVersion:analysisEntry.VERSION }; }
     multiQuickRequests.push({ path, method, body });
     if (path.endsWith("/settings")) return { ok: true };
     if (path.endsWith("/screenshot")) return report;
@@ -199,7 +201,7 @@ const multiQuickApi = {
 };
 let multiQuickDefinition;
 new Function("require", "Page", "wx", source)(
-  id => id === "../../lib/risk-aware-presentation" ? nativeRisk : id === "../../lib/followup-context" ? followup : multiQuickApi, value => { multiQuickDefinition = value; }, wx
+  id => id === "../../lib/analysis-entry" ? analysisEntry : id === "../../lib/risk-aware-presentation" ? nativeRisk : id === "../../lib/followup-context" ? followup : multiQuickApi, value => { multiQuickDefinition = value; }, wx
 );
 const multiQuickPage = { ...multiQuickDefinition, data: structuredClone(multiQuickDefinition.data), setData(next) { Object.assign(this.data, next); } };
 await multiQuickPage.refresh();
@@ -219,7 +221,7 @@ assert.equal(new Set(multiQuickPage.data.result.lines.map(item => item.id)).size
 let interruptedCalls = 0;
 const interruptedIds = [];
 multiQuickApi.request = async (path, method, body) => {
-    if (path === "/api/miniapp/credits") { assert.equal(method, "GET"); return { prices: fixturePrices }; }
+    if (path.startsWith("/api/miniapp/credits")) { assert.equal(method, "GET"); return { prices: fixturePrices,priceVersion:analysisEntry.VERSION }; }
   if (path.endsWith("/settings")) return { ok: true };
   if (path.endsWith("/screenshot")) {
     interruptedCalls++;
@@ -250,7 +252,7 @@ new Function("require", "Page", "wx", nativeReportSource)(
     session: api.session,
     newId: async()=>validId,
     async request(path, method, body, token) {
-    if (path === "/api/miniapp/credits") { assert.equal(method, "GET"); return { prices: fixturePrices }; }
+    if (path.startsWith("/api/miniapp/credits")) { assert.equal(method, "GET"); return { prices: fixturePrices,priceVersion:analysisEntry.VERSION }; }
       if(path==='/api/miniapp/rewrite'){nativeRewrites.push(body);return {text:'调整后的回复',status:'adjusted',note:'参考本轮原话',experienceEvidence:[{id:'shared-1',quote:'上次一起看过展',sourceReportId:validId}]};}
       assert.equal(path, "/api/miniapp/report?id=" + validId);
       assert.equal(method, "GET");
@@ -394,8 +396,8 @@ await homePage.onShow();
 assert.equal(homePage.data.loginState, "ready", "WeChat identity should connect without a button tap");
 const homeMarkup = readFileSync(resolve("miniapp/pages/home/index.wxml"), "utf8");
 assert.doesNotMatch(homeMarkup, /open-type="getPhoneNumber"/, "phone authorization must not be mistaken for required login");
-assert.match(homeMarkup, /data-entry="quick"[^>]*bindtap="open"[^>]*>[\s\S]*?分析聊天截图/);
-assert.match(homeMarkup, /data-entry="social-profile"[^>]*bindtap="open"[^>]*>[\s\S]*?分析社交资料/);
+assert.match(homeMarkup, /data-entry="quick"[^>]*bindtap="open"[^>]*>[\s\S]*?上传聊天截图/);
+assert.match(homeMarkup, /data-entry="social-profile"[^>]*bindtap="open"[^>]*>[\s\S]*?选择资料截图/);
 assert.equal((homeMarkup.match(/data-entry="social-profile"/g) || []).length, 1, "social-profile must have one home entry");
 assert.doesNotMatch(homeMarkup, /NEW|action-index|单张 5 MB|单张 12 MB|不是 46 本书/, "home must not display upload limits or maintainer copy");
 assert.match(homeMarkup, /结合聊天原话与已确认档案/);
@@ -422,7 +424,7 @@ assert.equal(homePage.data.knowledgeSources, knowledgeManifest.referenceDocument
 assert.equal(homePage.data.knowledgeWan, (knowledgeManifest.hanCharacters / 10000).toFixed(1), "home volume must agree with the web method-library count");
 assert.equal(homePage.data.knowledgeReferences, Number(readFileSync(resolve("lib/knowledge-origins.ts"), "utf8").match(/referenceCount:\s*(\d+)/)[1]), "the attributed source count must agree across platforms");
 assert.match(homeMarkup, /\{\{knowledgeWan\}\}[\s\S]*?万字[\s\S]*?系统整理的情感与关系知识[\s\S]*?\{\{knowledgeSources\}\}[\s\S]*?份主题指南/, "knowledge figures need a prominent and accurate label");
-assert.match(homeMarkup, /长期关系跟踪/, "home should explain continuity without claiming a different model");
+assert.match(homeMarkup, /全部分析，随时接着看/, "home should explain continuity without claiming a different model");
 assert.doesNotMatch(homeMarkup, /通用 AI/, "home should not position its own model as an opponent");
 assert.match(homeMarkup, /assets\/ui-book\.png/, "knowledge section uses the shared line icon system");
 assert.match(homeMarkup, /查看知识库内容与来源/, "source examples should be available on demand");
@@ -437,8 +439,8 @@ const socialSource = readFileSync(resolve("miniapp/pages/social-profile/index.js
 const socialRequests = [];
 let socialDefinition;
 new Function("require", "Page", "wx", socialSource)(
-  id => id === "../../lib/risk-aware-presentation" ? nativeRisk : ({ async session() { return { token: "test-token" }; }, async request(path, method, body) {
-    if (path === "/api/miniapp/credits") { assert.equal(method, "GET"); return { prices: fixturePrices }; }
+  id => id === "../../lib/analysis-entry" ? analysisEntry : id === "../../lib/risk-aware-presentation" ? nativeRisk : ({ STORAGE:api.STORAGE, async session() { return { token: "test-token" }; }, async request(path, method, body) {
+    if (path.startsWith("/api/miniapp/credits")) { assert.equal(method, "GET"); return { prices: fixturePrices,priceVersion:analysisEntry.VERSION }; }
     socialRequests.push({ path, method, body });
     if (path.endsWith("/social-profile")) return { kind: "profile", summary: "仅有自述资料", visibleFacts: [{ title: "兴趣", evidence: "第1张图", meaning: "自述" }], positives: [], cautions: [], hypotheses: [{ title: "重视兴趣", evidence: "第1张图", possibility: "可能重视共同话题", alternative: "也可能只是随手填写", verify: "聊聊真实体验" }], unknowns: ["实际相处"], questions: [] };
     if (method === "GET") return { enabled: false, subjects: [] };
@@ -481,8 +483,8 @@ assert.equal(togetherPage.data.people[togetherPage.data.personIndex].id, validId
 const selfImportRequests = [];
 let selfImportDefinition;
 new Function("require", "Page", "wx", socialSource)(
-  id => id === "../../lib/risk-aware-presentation" ? nativeRisk : ({ async session() { return { token: "test-token", state: { subjects: [] } }; }, async request(path, method, body) {
-    if (path === "/api/miniapp/credits") { assert.equal(method, "GET"); return { prices: fixturePrices }; }
+  id => id === "../../lib/analysis-entry" ? analysisEntry : id === "../../lib/risk-aware-presentation" ? nativeRisk : ({ STORAGE:api.STORAGE, async session() { return { token: "test-token", state: { subjects: [] } }; }, async request(path, method, body) {
+    if (path.startsWith("/api/miniapp/credits")) { assert.equal(method, "GET"); return { prices: fixturePrices,priceVersion:analysisEntry.VERSION }; }
     selfImportRequests.push({ path, method, body });
     if (method === "GET") return { enabled: false, paused: false, subjects: [] };
     if (body.action === "consent") return { enabled: true, paused: false, subjects: [] };
@@ -506,8 +508,8 @@ assert.match(selfImportPage.data.archiveMessage, /已建立我的档案/);
 assert.match(readFileSync(resolve("miniapp/pages/social-profile/index.wxml"), "utf8"), /基础信息和截图线索待逐条确认/);
 let multiDefinition;
 new Function("require", "Page", "wx", socialSource)(
-  id => id === "../../lib/risk-aware-presentation" ? nativeRisk : ({ async session() { return { token: "test-token" }; }, async request(path, method, body) {
-    if (path === "/api/miniapp/credits") { assert.equal(method, "GET"); return { prices: fixturePrices }; } socialRequests.push({ path, method, body }); return { summary: "两张资料已整理", visibleFacts: [], positives: [], cautions: [], unknowns: [], questions: [], nextMaterials: [] }; } }),
+  id => id === "../../lib/analysis-entry" ? analysisEntry : id === "../../lib/risk-aware-presentation" ? nativeRisk : ({ STORAGE:api.STORAGE, async session() { return { token: "test-token" }; }, async request(path, method, body) {
+    if (path.startsWith("/api/miniapp/credits")) { assert.equal(method, "GET"); return { prices: fixturePrices,priceVersion:analysisEntry.VERSION }; } socialRequests.push({ path, method, body }); return { summary: "两张资料已整理", visibleFacts: [], positives: [], cautions: [], unknowns: [], questions: [], nextMaterials: [] }; } }),
   value => { multiDefinition = value; },
   { ...wx,
     chooseMedia(options) { assert.equal(options.count, 9, "social profile picker should allow one batch of nine"); options.success({ tempFiles: Array.from({ length: 9 }, (_, index) => ({ tempFilePath: `/fake/large-${index}.png`, size: 12000000 })) }); },
@@ -532,7 +534,7 @@ await assert.rejects(multiPage.prepareImage({ tempFilePath: "/fake/too-large.png
 let oversizedPixelCompression;
 let highPixelDefinition;
 new Function("require", "Page", "wx", socialSource)(
-  id => id === "../../lib/risk-aware-presentation" ? nativeRisk : ({ async session() { return { token: "test-token" }; } }),
+  id => id === "../../lib/analysis-entry" ? analysisEntry : id === "../../lib/risk-aware-presentation" ? nativeRisk : ({ async session() { return { token: "test-token" }; } }),
   value => { highPixelDefinition = value; },
   { ...wx,
     getImageInfo(options) { options.success(options.src.endsWith(".optimized") ? { type: "png", width: 1200, height: 2600 } : { type: "png", width: 1000, height: 18000 }); },
@@ -563,8 +565,8 @@ assert.ok(JSON.stringify(denseProfileResult).length > 12000, "dense first-batch 
 let batchChoices = 0;
 let batchDefinition;
 new Function("require", "Page", "wx", socialSource)(
-  id => id === "../../lib/risk-aware-presentation" ? nativeRisk : ({ async session() { return { token: "test-token" }; }, async request(path, method, body) {
-    if (path === "/api/miniapp/credits") { assert.equal(method, "GET"); return { prices: fixturePrices }; }
+  id => id === "../../lib/analysis-entry" ? analysisEntry : id === "../../lib/risk-aware-presentation" ? nativeRisk : ({ STORAGE:api.STORAGE, async session() { return { token: "test-token" }; }, async request(path, method, body) {
+    if (path.startsWith("/api/miniapp/credits")) { assert.equal(method, "GET"); return { prices: fixturePrices,priceVersion:analysisEntry.VERSION }; }
     batchRequests.push(body);
     return batchRequests.length === 1 ? denseProfileResult : { kind: "profile", summary: "资料待核实", visibleFacts: [], positives: [], cautions: [], unknowns: [], questions: [] };
   } }),
@@ -621,7 +623,7 @@ const otherPersonId = "33333333-3333-4333-8333-333333333333";
 let externallySelectedId = validId;
 let returnedDefinition;
 new Function("require", "Page", "wx", socialSource)(
-  id => id === "../../lib/risk-aware-presentation" ? nativeRisk : ({ async session() { return { token: "test-token", state: { subjects: [{ id: validId, label: "阿青" }, { id: otherPersonId, label: "阿月" }] } }; }, currentSubject() { return externallySelectedId; } }),
+  id => id === "../../lib/analysis-entry" ? analysisEntry : id === "../../lib/risk-aware-presentation" ? nativeRisk : ({ STORAGE:api.STORAGE, async session() { return { token: "test-token", state: { subjects: [{ id: validId, label: "阿青" }, { id: otherPersonId, label: "阿月" }] } }; }, currentSubject() { return externallySelectedId; } }),
   value => { returnedDefinition = value; }, wx
 );
 const returnedPage = { ...returnedDefinition, data: structuredClone(returnedDefinition.data), setData(next) { Object.assign(this.data, next); } };
@@ -642,9 +644,9 @@ const chatSource = readFileSync(resolve("miniapp/pages/chat/index.js"), "utf8");
 const chatRequests = [];
 let chatDefinition;
 new Function("require", "Page", "wx", chatSource)(
-  id => id === "../../lib/risk-aware-presentation" ? nativeRisk : id === "../../lib/followup-context" ? followup : ({ STORAGE: api.STORAGE, async newId() { return validId; }, async session() { return { token: "test-token", state: { subjects: [{ id: validId, label: "阿青" }] } }; },
+  id => id === "../../lib/analysis-entry" ? analysisEntry : id === "../../lib/risk-aware-presentation" ? nativeRisk : id === "../../lib/followup-context" ? followup : ({ STORAGE: api.STORAGE, async newId() { return validId; }, async session() { return { token: "test-token", state: { subjects: [{ id: validId, label: "阿青" }] } }; },
     async request(path, method, body, token) {
-    if (path === "/api/miniapp/credits") { assert.equal(method, "GET"); return { prices: fixturePrices }; } chatRequests.push({ path, method, body, token }); return { possibleIntent: "商量时间", evidence: "「周日有空」", nextStep: "确认周日几点", replies: [{ text: "周日几点合适？", weight: 90, reason: "承接时间", cost: "需要安排时间" }] }; } }),
+    if (path.startsWith("/api/miniapp/credits")) { assert.equal(method, "GET"); return { prices: fixturePrices,priceVersion:analysisEntry.VERSION }; } chatRequests.push({ path, method, body, token }); return { possibleIntent: "商量时间", evidence: "「周日有空」", nextStep: "确认周日几点", replies: [{ text: "周日几点合适？", weight: 90, reason: "承接时间", cost: "需要安排时间" }] }; } }),
   value => { chatDefinition = value; }, wx
 );
 const chatPage = { ...chatDefinition, data: structuredClone(chatDefinition.data), setData(next) { Object.assign(this.data, next); } };
@@ -671,7 +673,7 @@ const archiveActions = [];
 const archiveApi = {
   STORAGE: api.STORAGE, session: api.session,
   async request(path, method, body, token) {
-    if (path === "/api/miniapp/credits") { assert.equal(method, "GET"); return { prices: fixturePrices }; }
+    if (path.startsWith("/api/miniapp/credits")) { assert.equal(method, "GET"); return { prices: fixturePrices,priceVersion:analysisEntry.VERSION }; }
     assert.equal(path, "/api/miniapp/profile");
     assert.equal(token, "test-token");
     if (method === "GET") return { enabled: false, paused: false, subjects: [] };
@@ -745,7 +747,7 @@ const newPersonApi = {
   STORAGE: api.STORAGE,
   async session() { return { token: "test-token", state: { subjects: [], screenshot: { enabled: false, selfSide: "ask" } } }; },
   async request(path, method, body, token) {
-    if (path === "/api/miniapp/credits") { assert.equal(method, "GET"); return { prices: fixturePrices }; }
+    if (path.startsWith("/api/miniapp/credits")) { assert.equal(method, "GET"); return { prices: fixturePrices,priceVersion:analysisEntry.VERSION }; }
     assert.equal(path, "/api/miniapp/profile");
     assert.equal(token, "test-token");
     if (method === "GET") return { enabled: archiveEnabled, paused: false, subjects: [] };
@@ -757,7 +759,7 @@ const newPersonApi = {
 };
 let newPersonDefinition;
 new Function("require", "Page", "wx", source)(
-  id => id === "../../lib/risk-aware-presentation" ? nativeRisk : id === "../../lib/followup-context" ? followup : newPersonApi,
+  id => id === "../../lib/analysis-entry" ? analysisEntry : id === "../../lib/risk-aware-presentation" ? nativeRisk : id === "../../lib/followup-context" ? followup : newPersonApi,
   value => { newPersonDefinition = value; },
   wx
 );
@@ -783,7 +785,7 @@ assert.match(quickMarkup, /不保存就保持默认/);
 const unlinkedApi = { ...api, async session() { throw new Error("微信身份暂时无法建立小程序账号，请稍后重试。"); } };
 let unlinkedDefinition;
 new Function("require", "Page", "wx", source)(
-  id => id === "../../lib/risk-aware-presentation" ? nativeRisk : id === "../../lib/followup-context" ? followup : unlinkedApi,
+  id => id === "../../lib/analysis-entry" ? analysisEntry : id === "../../lib/risk-aware-presentation" ? nativeRisk : id === "../../lib/followup-context" ? followup : unlinkedApi,
   value => { unlinkedDefinition = value; },
   wx
 );
@@ -799,12 +801,12 @@ const chatApi = { STORAGE: api.STORAGE, async newId() { return validId; },
   async session() { return { token: "test-token", state: { subjects: [] } }; },
   async readAudio() { return "UklGRg=="; },
   async request(path, method, body) {
-    if (path === "/api/miniapp/credits") { assert.equal(method, "GET"); return { prices: fixturePrices }; }
+    if (path.startsWith("/api/miniapp/credits")) { assert.equal(method, "GET"); return { prices: fixturePrices,priceVersion:analysisEntry.VERSION }; }
     if (path === "/api/miniapp/transcribe") { transcriptionCalls++; assert.equal(body.confirmed, true); return { text: "我想聊聊关系" }; }
     throw Error("transcription must not auto-submit advice");
   }
 };
-new Function("require", "Page", "wx", chatSource)(id => id === "../../lib/risk-aware-presentation" ? nativeRisk : id === "../../lib/followup-context" ? followup : chatApi, value => { chatDefinition = value; }, {
+new Function("require", "Page", "wx", chatSource)(id => id === "../../lib/analysis-entry" ? analysisEntry : id === "../../lib/risk-aware-presentation" ? nativeRisk : id === "../../lib/followup-context" ? followup : chatApi, value => { chatDefinition = value; }, {
   getRecorderManager() { return { onStop(callback) { onVoiceStop = callback; }, onError() {}, start() { recorderStarts++; }, stop() {} }; }
 });
 const chatPage = { ...chatDefinition, data: structuredClone(chatDefinition.data), setData(next) { Object.assign(this.data, next); } };

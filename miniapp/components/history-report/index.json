@@ -1,1 +1,1 @@
-{"component":true,"usingComponents":{"personal-connection":"/components/personal-connection/index","risk-review":"/components/risk-review/index"}}
+{"component":true,"usingComponents":{"personal-connection":"/components/personal-connection/index","risk-review":"/components/risk-review/index","signal-tags":"/components/signal-tags/index"}}

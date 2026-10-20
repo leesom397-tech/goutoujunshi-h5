@@ -1,13 +1,15 @@
 <import src="../../components/analysis-status.wxml"/>
 <import src="../../templates/photo-clues.wxml"/>
 <view class="screen">
+  <view wx:if="{{returnReportId}}" class="panel supplement-context"><text class="step">{{supplementLabel}} · 补充解读</text><text class="helper">参考原完整报告，分析本次新截图。原报告保留，不会被覆盖。</text><button class="secondary" bindtap="returnToReport">返回原完整报告</button></view>
+  <view wx:elif="{{supplementLabel}}" class="panel"><text class="step">{{supplementLabel}} · 本次截图解读</text><text class="helper">这次独立分析新截图，并关联到这位人物；不会重算电脑完整资料。</text></view>
   <view class="hero page-scene-hero">
     <view class="glass-stamp page-scene-stamp"><image class="glass-stamp-art" src="/assets/page-scenes/analysis.png" mode="aspectFit"/><image class="glass-stamp-symbol" src="/assets/ui-scan.png" mode="aspectFit"/><text>LOOK A LITTLE CLOSER</text></view>
     <text class="eyebrow">从真实材料开始</text>
-    <text class="title">{{result.reportId ? '聊天分析报告' : '看懂互动，'}}<text wx:if="{{!result.reportId}}" class="title-line">再决定下一步</text></text>
-    <text class="sub">{{result.reportId ? '核对材料，理解可能性，再选择适合自己的回应。' : '聊天里的信号、彼此的适配，分别说清楚。'}}</text>
+    <text class="title">{{result.reportId ? (returnReportId ? '本次补充解读' : '本次聊天解读') : focus === 'affinity' ? '好感探测器' : '读懂这段聊天'}}</text>
+    <text class="sub">{{result.reportId ? '核对材料，理解可能性，再选择适合自己的回应。' : '好感信号、逐句意图、怎么回复，围绕本次截图展开。'}}</text>
   </view>
-  <button wx:if="{{!result.reportId && !busy && !backgroundPending}}" class="cloud-library-entry" bindtap="openLibrary"><image src="/assets/ui-chat.png"/><view><text>从已导入的聊天中选取</text><text>电脑同步过的原话和语音文字，手机直接用</text></view><text>→</text></button>
+  <button wx:if="{{!result.reportId && !busy && !backgroundPending}}" class="cloud-library-entry" bindtap="openLibrary"><image src="/assets/ui-chat.png"/><view><text>查看电脑完整关系报告</text><text>基于全部已同步资料，和本次截图解读分开查看</text></view><text>→</text></button>
   <view wx:if="{{phase === 'loading'}}" class="panel center"><busy-indicator label="接入微信身份"/></view>
   <view wx:elif="{{phase === 'error'}}" class="panel">
     <text class="panel-title">暂时没有连接上</text><text class="helper">{{error}}</text>
@@ -54,9 +56,9 @@
           <view class="field"><text class="field-label">我在截图哪侧？</text><view class="side-options"><button class="side-option {{side === 'left' ? 'selected' : ''}}" data-side="left" disabled="{{busy}}" bindtap="chooseSide" aria-pressed="{{side === 'left'}}"><view class="side-bubble left-bubble"/><text>我是左侧</text><text class="side-check">{{side === 'left' ? '✓ 已选择' : '点击选择'}}</text></button><button class="side-option {{side === 'right' ? 'selected' : ''}}" data-side="right" disabled="{{busy}}" bindtap="chooseSide" aria-pressed="{{side === 'right'}}"><view class="side-bubble right-bubble"/><text>我是右侧</text><text class="side-check">{{side === 'right' ? '✓ 已选择' : '点击选择'}}</text></button></view><text class="helper">{{side === 'ask' ? '请点选自己的气泡位置，避免把双方判断反。' : '已选好本人位置，接着确认分析即可。'}}</text></view>
           <view class="field archive-choice">
             <text class="archive-choice-title">这是谁的聊天？ <text class="archive-choice-optional">可选</text></text>
-            <text wx:if="{{archivePrompt && !newPersonOpen}}" class="archive-choice-hint">需要持续跟进时再选人物，不保存就保持默认。</text>
-            <picker range="{{people}}" range-key="label" value="{{personIndex}}" disabled="{{busy || creatingPerson}}" bindchange="personChange"><view class="select">{{people[personIndex].label}}<text class="select-action">选择</text></view></picker>
-            <button class="new-person-link" disabled="{{busy || creatingPerson}}" bindtap="openNewPerson">新认识的人？新建档案</button>
+            <text wx:if="{{archivePrompt && !newPersonOpen && !returnReportId}}" class="archive-choice-hint">需要持续跟进时再选人物，不保存就保持默认。</text>
+            <picker range="{{people}}" range-key="label" value="{{personIndex}}" disabled="{{busy || creatingPerson || returnReportId}}" bindchange="personChange"><view class="select">{{people[personIndex].label}}<text class="select-action">选择</text></view></picker>
+            <button wx:if="{{!returnReportId}}" class="new-person-link" disabled="{{busy || creatingPerson}}" bindtap="openNewPerson">新认识的人？新建档案</button>
             <text wx:if="{{personIndex}}" class="helper">分析会归入选中的人物。</text>
           </view>
           <view wx:if="{{newPersonOpen}}" class="new-person">
@@ -70,14 +72,14 @@
         </view>
         <view class="upload-section">
           <view class="step">03 · 确认后开始</view>
-          <text class="privacy-summary">截图交由阿里云百炼识别；完整报告长期保存，由你决定何时删除。</text>
+          <text class="privacy-summary">截图交由阿里云百炼识别；本次报告长期保存，由你决定何时删除。</text>
           <button class="disclosure-button" bindtap="togglePrivacyDetails" aria-expanded="{{showPrivacyDetails}}"><text>{{showPrivacyDetails ? '收起处理与保存说明' : '查看处理与保存说明'}}</text><view class="disclosure-chevron {{showPrivacyDetails ? 'expanded' : ''}}"/></button>
           <view wx:if="{{showPrivacyDetails}}" class="privacy-details">
-            <text>截图会逐张交由阿里云百炼识别。完整报告及其中的聊天原话保存至你主动删除；用于接续分析的临时聊天记录保留 7 天。选定人物后另存互动摘要，用于长期趋势。</text>
+            <text>截图会逐张交由阿里云百炼识别。本次报告及其中的聊天原话保存至你主动删除；用于接续分析的临时聊天记录保留 7 天。选定人物后另存互动摘要，用于长期趋势。</text>
             <text>为断点续传，本机会保存临时图片副本；取回结果或取消上传时清理，清理失败会在下次进入时重试。未完成上传的本机副本在任务过期后再次处理时清理；服务端副本仅临时处理。</text>
           </view>
           <checkbox-group bindchange="agree"><label class="consent"><checkbox value="yes" checked="{{agreed}}" color="#965a42"/><text>我有权提供这 {{imageCount}} 张本人单聊截图，已核对顺序及本人气泡侧，同意上述处理与保存范围。</text></label></checkbox-group>
-          <text class="cost-note">本批 {{imageCount}} 张 · {{pricesReady ? (imageCount <= 3 ? prices.analysisSmall : imageCount <= 6 ? prices.analysisMedium : prices.analysisLarge) + ' 积分' : '价格读取中'}}；分析成功后使用，失败退回。</text>
+          <text class="cost-note">本批 {{imageCount}} 张 · {{pricesReady ? (imageCount === 1 ? prices.analysisSingle : imageCount <= 3 ? prices.analysisSmall : imageCount <= 6 ? prices.analysisMedium : prices.analysisLarge) + ' 积分' : '价格读取中'}}；分析成功后使用，失败退回。</text>
           <button class="primary" disabled="{{busy || creatingPerson || !pricesReady}}" bindtap="analyze">{{busy ? '正在逐张读取…' : '开始分析'}}</button>
           <text wx:if="{{batchProgress}}" class="elapsed">{{batchProgress}}</text>
           <text wx:if="{{busy}}" class="elapsed">上传与分析中 · 已等待 {{elapsedSeconds}} 秒</text>

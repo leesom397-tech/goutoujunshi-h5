@@ -1,11 +1,13 @@
 <import src="../../templates/photo-clues.wxml"/>
 <view class="screen">
+  <view class="report-return"><button bindtap="back">‹ 返回</button><text>分析报告</text><button wx:if="{{report.parentReportId}}" bindtap="parentReport">返回完整报告 →</button></view>
   <view wx:if="{{phase === 'loading'}}" class="panel center"><busy-indicator label="正在读取报告"/></view>
   <view wx:elif="{{phase === 'error'}}" class="panel"><text class="heading">报告暂时无法打开</text><text class="muted">{{error}}</text><button class="retry" bindtap="refresh">重新读取</button></view>
   <block wx:else>
+    <view wx:if="{{report.parentReportId}}" class="supplement-context"><text>本次新增截图的补充解读</text><text class="muted">{{report.scope.note}}</text><text class="muted">{{report.parentGeneratedTime?'背景报告生成于 '+report.parentGeneratedTime:'原完整报告未记录生成时间'}}</text><button bindtap="parentReport">返回原完整报告 →</button></view>
     <history-report wx:if="{{report.fullHistory}}" value="{{report.fullHistory}}" bind:ask="openFollowup"/>
     <block wx:else>
-    <view class="hero page-scene-hero"><view class="glass-stamp page-scene-stamp"><image class="glass-stamp-art" src="/assets/page-scenes/report.png" mode="aspectFit"/><image class="glass-stamp-symbol" src="/assets/ui-sparkles.png" mode="aspectFit"/><text>关系记录</text></view><text class="eyebrow">从原话到行动</text><text class="title">{{report.isRiskAnalysis ? '关系风险报告' : report.isImported ? '导入材料分析报告' : '聊天分析报告'}}</text><text class="sub">核对材料，理解可能性，再选择适合自己的回应。</text></view>
+    <view class="hero page-scene-hero"><view class="glass-stamp page-scene-stamp"><image class="glass-stamp-art" src="/assets/page-scenes/report.png" mode="aspectFit"/><image class="glass-stamp-symbol" src="/assets/ui-sparkles.png" mode="aspectFit"/><text>关系记录</text></view><text class="eyebrow">从原话到行动</text><text class="title">{{report.scope.label}}</text><text class="sub">{{report.scope.note}}</text><text class="muted">{{report.generatedTime?'生成于 '+report.generatedTime:'这份旧报告未记录生成时间'}}</text></view>
     <view class="report-shortcuts">
       <button data-section="judgment" bindtap="jumpReport">本轮判断</button><button wx:if="{{!report.isRiskAnalysis}}" data-section="replies" bindtap="jumpReport">怎么回复</button>
       <button wx:if="{{!report.isRiskAnalysis}}" data-section="lines" bindtap="jumpReport">{{report.isImported ? '关键原话' : '逐句解读'}}</button><button data-section="metrics" bindtap="jumpReport">{{report.isRiskAnalysis ? '风险与依据' : report.isImported ? '分批依据' : '互动指标'}}</button>
@@ -62,7 +64,8 @@
       <text class="step">02 · 回复选择</text><text class="heading">现在怎么回</text>
       <block wx:if="{{report.hasReplies}}">
         <text class="muted">按本轮推荐顺序，选符合你意思的一句。</text>
-        <view wx:for="{{report.replies}}" wx:for-index="replyIndex" wx:key="text" class="reply {{replyIndex === 0 ? 'reply-first' : ''}}">
+        <view class="reply-filters"><button class="{{replyFilter===-1?'active':''}}" data-index="-1" bindtap="chooseReply">全部方案</button><button wx:for="{{report.replies}}" wx:key="text" class="{{replyFilter===index?'active':''}}" data-index="{{index}}" bindtap="chooseReply">{{item.style}}</button></view>
+        <view wx:for="{{report.replies}}" wx:for-index="replyIndex" wx:key="text" hidden="{{replyFilter!==-1&&replyFilter!==replyIndex}}" class="reply {{replyIndex === 0 ? 'reply-first' : ''}}">
           <text class="label">{{item.rankLabel}} · {{item.style}}</text><text class="reply-text" selectable>{{item.personalizedText || item.text}}</text>
           <text wx:if="{{item.personalizedText}}" class="muted">原推荐：{{item.text}}</text>
           <text class="reply-reason">为什么这样回：{{item.reason || '请结合上下文判断。'}}</text>
@@ -120,7 +123,8 @@
       </block>
     </view>
     <button class="back-top" data-section="judgment" bindtap="jumpReport">回到本轮判断</button>
-    <view class="foot">完整报告及其中的聊天原话长期保存，由你决定何时删除。</view>
+    <view class="foot">报告和本次材料已保存，由你决定何时删除。</view>
     </block>
+    <view wx:if="{{report.fullHistory&&report.subjectId}}" class="supplement-actions"><text class="heading">给这个人补充新截图</text><text class="muted">沿用这份报告作为背景，单独解读新截图，原完整报告保持不变。</text><button data-kind="chat" bindtap="supplement">补充聊天截图 →</button><button data-kind="moments" bindtap="supplement">补充朋友圈截图 →</button></view>
   </block>
 </view>

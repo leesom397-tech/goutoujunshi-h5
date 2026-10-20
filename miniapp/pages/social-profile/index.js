@@ -1,4 +1,5 @@
 const api = require("../../lib/api");
+const analysisEntry = require("../../lib/analysis-entry");
 const {riskAwarePresentation}=require("../../lib/risk-aware-presentation");
 const { drawRadar } = require("../../lib/radar");
 const { openReportFollowup } = require("../../lib/followup-context");
@@ -73,18 +74,20 @@ function followupSummary(result, targetSelf) {
 }
 
 Page({
+  sessionCurrent(token=this._token) { try { const stored=wx.getStorageSync(api.STORAGE);return !this._unloaded&&!!token&&this._token===token&&stored?.token===token&&stored.expiresAt>Date.now(); } catch { return false; } },
+  openSupplementResult(result){const url=analysisEntry.reportUrl(result?.reportId||result?.id);if(this.data.returnReportId&&url)wx.navigateTo({url});},
+  returnToReport() { const url=analysisEntry.reportUrl(this.data.returnReportId);if(url)wx.navigateTo({url}); },
   async loadPrices() {
     const token = this._token;
     if (!token) return false;
     const read = this._priceRead = (this._priceRead || 0) + 1;
     this.setData({ pricesReady: false, priceError: "" });
     try {
-      const value = await api.request("/api/miniapp/credits", "GET", null, token);
-      if (this._unloaded || read !== this._priceRead || this._token !== token) return false;
-      const prices = value.prices || {};
-      if (!["profile"].every(key => Number.isFinite(prices[key]) && prices[key] >= 0)) throw new Error("价格暂未完整取回，请重试或到账户页核对。");
+      const value = await api.request(analysisEntry.CREDIT_PATH, "GET", null, token);
+      if (!this.sessionCurrent(token) || read !== this._priceRead) return false;
+      const prices = analysisEntry.validatePrices(value);
       this.setData({ prices, pricesReady: true, priceError: "" }); return true;
-    } catch (error) { if (!this._unloaded && read === this._priceRead && this._token === token) this.setData({ pricesReady: false, priceError: error.message || "价格暂未取回，请重试后再开始。" }); return false; }
+    } catch (error) { if (this.sessionCurrent(token) && read === this._priceRead) this.setData({ pricesReady: false, priceError: error.message || "价格暂未取回，请重试后再开始。" }); return false; }
   },
 
   async continueDiscussion() {
@@ -116,20 +119,27 @@ Page({
     if (selectors[section]) wx.pageScrollTo({ selector: selectors[section], duration: 240 });
   },
   data: { phase: "loading", prices: null, pricesReady: false, priceError: "", busy: false, linkBusy: false, profileUrl: "", linkMessage: "", images: [], imageCount: 0, canAdd: true, completedCount: 0, totalCount: 0, canContinue: false, agreed: false, error: "", result: null, label: "", archiveConsent: false, archiveTogether: false, archiveBusy: false, archiveMessage: "", people: [{ id: "", label: "暂不归档" }], personIndex: 0, compareSelf: false, targetSelf: false, showUploadHelp: false, showPrivacyDetails: false, showReportDetails: false, showFitDetails: false, showMomentsDetails: false, showMomentsTimeline: false },
-  onLoad(options = {}) { this._explicitSubject = options.subjectId || ""; this._savedReportId = /^[a-f0-9-]{36}$/.test(options.reportId || '') ? options.reportId : ''; this.setData({materialType: "profile"}); if (options.target === "self") this.setData({ targetSelf: true }); },
+  onLoad(options = {}) { this._entry=analysisEntry.context(options);this._explicitSubject=this._entry.subjectId||'';this._savedReportId=analysisEntry.ID.test(options.reportId||'')?options.reportId:'';this.setData({returnReportId:this._entry.returnReportId||'',supplementLabel:'',materialType:options.materialType==='moments'?'moments':'profile'});if(options.target==='self'&&!this._entry.returnReportId)this.setData({targetSelf:true}); },
   async loadSavedReport() {
     if (this._readingSaved) return; this._readingSaved = true;
+    const read=this._savedRead=(this._savedRead||0)+1;
     this.setData({ phase: 'loading', result: null, error: '' });
     try {
-      const session = await api.session(); this._token = session.token;
-      const saved = await api.request('/api/miniapp/report?id=' + encodeURIComponent(this._savedReportId), 'GET', null, this._token);
-      if (this._unloaded || wx.getStorageSync(api.STORAGE)?.token !== this._token) return;
+      const session = await api.session();if(this._unloaded||read!==this._savedRead)return;
+      const token=this._token=session.token;
+      const saved = await api.request('/api/miniapp/report?id=' + encodeURIComponent(this._savedReportId), 'GET', null, token);
+      if (read!==this._savedRead || !this.sessionCurrent(token)) return;
       if (saved.reportId !== this._savedReportId || !saved.report || !['moments','social'].includes(saved.kind)) throw Error('这份资料报告暂时无法打开。');
       this._explicitSubject = saved.subjectId || ''; this._selectedSubject = this._explicitSubject;
       const people = [{ id: '', label: '暂不归档' }, ...(session.state?.subjects || [])];
+      const parent=saved.report.supplementOf;
+      const parentId=saved.report.analysisScope==='supplement'&&parent?.scope==='fullHistory'&&analysisEntry.ID.test(parent.reportId||'')&&analysisEntry.ID.test(saved.subjectId||'')?parent.reportId:'';
+      const parentDate=parentId&&typeof parent.generatedAt==='string'?Date.parse(parent.generatedAt):NaN;
+      this._entry=analysisEntry.context({subjectId:saved.subjectId||'',returnReportId:parentId});
+      this.setData({returnReportId:parentId,supplementLabel:parentId?people.find(person=>person.id===saved.subjectId)?.label||'这位人物':'',parentGeneratedTime:Number.isFinite(parentDate)?new Date(parentDate+8*3600000).toISOString().slice(0,16).replace('T',' ')+'（北京时间）':''});
       this.setData({ phase: 'ready', result: decorateResult({ ...saved.report, reportId: saved.reportId }, saved.totalCount), people, personIndex: Math.max(0, people.findIndex(person => person.id === saved.subjectId)), materialType: saved.kind === 'moments' ? 'moments' : 'profile', totalCount: saved.totalCount || 0, targetSelf: saved.targetSelf === true });
-    } catch (error) { if (!this._unloaded) this.setData({ phase: 'error', error: error.message || '报告暂时无法打开，请稍后回来。' }); }
-    finally { this._readingSaved = false; }
+    } catch (error) { if (!this._unloaded&&read===this._savedRead) this.setData({ phase: 'error', error: error.message || '报告暂时无法打开，请稍后回来。' }); }
+    finally { if(read===this._savedRead)this._readingSaved = false; }
   },
   materialChange(event) { if(this.data.busy || this.data.backgroundPending) return; this._previousResult=null; this.setData({...this.resetReportView(),materialType:event.currentTarget.dataset.type === "moments" ? "moments" : "profile",result:null,completedCount:0,canContinue:false,agreed:false}); },
   onHide() { this._hiddenAt = Date.now(); this._hidden = true; },
@@ -137,17 +147,27 @@ Page({
   resumeAfterReturn() { if (this._resumeWhenIdle && !this._hidden && this.data.backgroundPending && !this._unloaded) { this._resumeWhenIdle = false; this.resumeAnalysis(); } },
   async onShow() {
     this._hidden = false;
+    if(this._token&&!this.sessionCurrent()){
+      this._savedRead=(this._savedRead||0)+1;this._showRead=(this._showRead||0)+1;this._token='';this._loaded=false;this._refreshing=false;this._readingSaved=false;this._polling=false;this._pollPromise=null;this._previousResult=null;this._reportSubjectId='';this._resumeWhenIdle=false;
+      this._explicitSubject=this._entry?.subjectId||'';this._selectedSubject='';
+      this.setData({...this.resetReportView(),phase:'loading',result:null,analysisPreview:null,people:[{id:'',label:'暂不归档'}],personIndex:0,supplementLabel:'',parentGeneratedTime:'',images:[],imageCount:0,completedCount:0,totalCount:0,agreed:false,busy:false,backgroundPending:false,prices:null,pricesReady:false,archiveConsent:false,archiveTogether:false,archiveMessage:'',label:'',error:''});
+    }
     if (this._savedReportId) return this.loadSavedReport();
     if (this.data.busy) { this._resumeWhenIdle = true; return; }
     const requestedSubject = this._explicitSubject || "";
     if (this._loaded && this.data.phase === "ready" && !savedTaskId() && requestedSubject === (this._selectedSubject || "")) { this.loadPrices(); return; }
     if (this._refreshing) return;
     this._refreshing = true;
+    const read=this._showRead=(this._showRead||0)+1;
     try {
       const session = await api.session();
-      this._token = session.token;
+      if(this._unloaded||read!==this._showRead)return;
+      const token=this._token=session.token;
       this.loadPrices();
       const people = [{ id: "", label: "暂不归档" }, ...(session.state?.subjects || [])];
+      const supplement=await analysisEntry.verifyContext(this._entry||{},api,this._token,people);
+      if(read!==this._showRead||!this.sessionCurrent(token))return;
+      this.setData({supplementLabel:supplement?.label||''});
       const selected = requestedSubject;
       const index = Math.max(0, people.findIndex(item => item.id === selected));
       const previousId = this.data.people[this.data.personIndex]?.id || "";
@@ -159,8 +179,8 @@ Page({
       this._selectedSubject = selected;
       this._loaded = true;
     }
-    catch (error) { if (this.data.phase !== "ready") this.setData({ phase: "error", error: "网络暂时不稳定，请点重试；已选图片和报告不会丢失。" }); else this.setData({ error: "网络暂时不稳定，当前页面已保留。" }); }
-    finally { this._refreshing = false; const taskId = savedTaskId(); if (taskId && !this.data.result) { this._resumeTask(taskId); } }
+    catch (error) { if(!this._unloaded&&read===this._showRead){if (this.data.phase !== "ready") this.setData({ phase: "error", error: error.message || "网络暂时不稳定，请点重试；已选图片和报告不会丢失。" }); else this.setData({ error: error.message || "网络暂时不稳定，当前页面已保留。" });} }
+    finally { if(read===this._showRead){this._refreshing = false; const taskId = savedTaskId(); if (this.data.phase==='ready'&&this.sessionCurrent()&&taskId&&!this.data.result) { this._resumeTask(taskId); }} }
   },
   resumeAnalysis() { const taskId = savedTaskId(); if (taskId && !this.data.busy) return this._resumeTask(taskId); },
   cancelAnalysis() {
@@ -177,32 +197,40 @@ Page({
   jobStatus(state) { if (["queued", "running"].includes(state.status)) this.setData({ taskStage: "running" }); else if (state.status === "uploading") this.setData({ taskStage: "uploading", uploadProgress: `已上传 ${state.received}/${state.total} 张` }); },
   async _resumeTask(taskId) {
     if (this._polling) return;
+    const token=this._token,current=()=>this.sessionCurrent(token);if(!current())return;
+    const pendingContext=api.pendingUpload?.('/api/miniapp/social-profile');
+    if(this.data.returnReportId&&(!pendingContext||pendingContext.subjectId!==this._entry?.subjectId||pendingContext.parentReportId!==this.data.returnReportId)){this.setData({error:'另有一组资料任务尚未完成，请先从首页“接着上次”查看。'});return;}
     this._polling = true;
     this.setData({ busy: true, taskStage: "checking", backgroundPending: true, error: "" });
     try {
       const pending = api.pendingUpload?.("/api/miniapp/social-profile");
       this._reportSubjectId = pending?.taskId === taskId ? pending.subjectId || "" : "";
       if (pending?.taskId === taskId) {
-        await api.resumeUpload(taskId, this._token, state => this.jobStatus(state));
+        await api.resumeUpload(taskId, token, state => {if(current())this.jobStatus(state);});
+        if(!current())return;
         const index = Math.max(0, this.data.people.findIndex(person => person.id === pending.subjectId));
         this.setData({ personIndex: index });
-        this._explicitSubject = this.data.people[index]?.id || "";
+        this._explicitSubject = this.data.people[index]?.id || "";if(this._entry?.subjectId)this._entry.subjectId=this._explicitSubject;
       }
-      const result = await this._pollTask(taskId);
-      if (this._unloaded) return;
+      const result = await this._pollTask(taskId,token);
+      if (!current()) return;
       clearTaskId(); await api.finishUpload?.(taskId);
-      this.setData({ canContinue: false, result: decorateResult(result, this.data.totalCount), error: "" });
+      if(!current())return;
+      this.setData({ canContinue: false, result: decorateResult(result, this.data.totalCount), error: "" });this.openSupplementResult(result);
     } catch (error) {
+      if(!current())return;
       if (error.status === 410) { clearTaskId(); await api.finishUpload?.(taskId); }
       this.setData({ error: error.message || "后台识图未完成，请重试。" });
-    } finally { this._polling = false; this.setData({ busy: false, backgroundPending: !!savedTaskId() }, () => this.renderFit()); this.resumeAfterReturn(); }
+    } finally { if(current()){this._polling = false; this.setData({ busy: false, backgroundPending: !!savedTaskId() }, () => this.renderFit()); this.resumeAfterReturn();} }
   },
-  _pollTask(taskId) { if (this._pollPromise && this._pollTaskId === taskId) return this._pollPromise; this._pollTaskId = taskId; this._pollPromise = this._readTask(taskId).finally(() => { this._pollPromise = null; }); return this._pollPromise; },
-  async _readTask(taskId) {
+  _pollTask(taskId,token=this._token) { if (this._pollPromise && this._pollTaskId === taskId&&this._pollToken===token) return this._pollPromise; this._pollTaskId = taskId;this._pollToken=token;const promise=this._readTask(taskId,token).finally(() => { if(this._pollPromise===promise)this._pollPromise=null; });this._pollPromise=promise;return promise; },
+  async _readTask(taskId,token=this._token) {
     for (let i = 0; i < 120; i++) {
+      if(!this.sessionCurrent(token))throw Error('账号已变化，本次结果保留在原账号。');
       let state;
-      try { state = await api.request("/api/miniapp/social-profile?taskId=" + encodeURIComponent(taskId), "GET", null, this._token); }
-      catch (error) { if (error.status === 401 || error.status === 404) { if (error.status === 404) { clearTaskId(); await api.finishUpload?.(taskId); } throw error; } await new Promise(resolve => setTimeout(resolve, 3000)); continue; }
+      try { state = await api.request("/api/miniapp/social-profile?taskId=" + encodeURIComponent(taskId), "GET", null, token); }
+      catch (error) { if(!this.sessionCurrent(token))throw error;if (error.status === 401 || error.status === 404) { if (error.status === 404) { clearTaskId(); await api.finishUpload?.(taskId); } throw error; } await new Promise(resolve => setTimeout(resolve, 3000)); continue; }
+      if(!this.sessionCurrent(token))throw Error('账号已变化，本次结果保留在原账号。');
       if (["running", "queued"].includes(state.status)) this.setData({ taskStage: "running", uploadProgress:state.phase === "summarize" ? "图片识别完成，正在整理人物评价与报告" : state.phase === "extract" ? `已识别 ${state.recognizedCount || 0}/${state.imageCount} 张，进度已保存${state.retryAt ? ' · 当前步骤重试中' : ''}` : "", analysisPreview:state.preview || null });
       if (state.status === "done") { this.setData({ analysisPreview:null, targetSelf: state.target === "self", compareSelf: state.compareWithSelf === true, totalCount: state.totalCount || this.data.imageCount }); return state.result; }
       if (state.status === "error" || state.status === "expired") { clearTaskId(); await api.finishUpload?.(taskId); throw new Error(state.error || "后台识图未完成。"); }
@@ -219,12 +247,12 @@ Page({
     if (!result || !Number.isInteger(index) || index < 0 || index >= (result.hypotheses || []).length) return;
     this.setData({ result: { ...result, hypotheses: result.hypotheses.map((item, position) => position === index ? { ...item, expanded: !item.expanded } : item) } });
   },
-  startNewProfile() { if (this.data.busy) return; this._previousResult = null; this._explicitSubject = ""; this._selectedSubject = ""; this.setData({ ...this.resetReportView(), result: null, images: [], imageCount: 0, completedCount: 0, totalCount: 0, canAdd: true, canContinue: false, personIndex: 0, agreed: false, archiveConsent: false, archiveTogether: false, archiveMessage: "", label: "", error: "" }); },
+  startNewProfile() { if (this.data.busy) return; this._previousResult = null; this._explicitSubject = this._entry?.subjectId || ""; this._selectedSubject = this._explicitSubject; this.setData({ ...this.resetReportView(), result: null, images: [], imageCount: 0, completedCount: 0, totalCount: 0, canAdd: true, canContinue: false, personIndex: this._entry?.subjectId ? Math.max(0,this.data.people.findIndex(person=>person.id===this._entry.subjectId)) : 0, agreed: false, archiveConsent: false, archiveTogether: false, archiveMessage: "", label: "", error: "" }); },
   personChange(event) {
-    if (this.data.busy) return;
+    if (this.data.busy || this.data.returnReportId) return;
     const index = Number(event.detail.value) || 0;
     if (index < 0 || index >= this.data.people.length) return;
-    this._explicitSubject = this.data.people[index]?.id || "";
+    this._explicitSubject = this.data.people[index]?.id || "";if(this._entry?.subjectId)this._entry.subjectId=this._explicitSubject;
     if (index !== this.data.personIndex && (this.data.completedCount || this.data.totalCount)) {
       this._previousResult = null;
       this.setData({ ...this.resetReportView(), personIndex: index, completedCount: 0, totalCount: 0, result: null, images: [], imageCount: 0, canAdd: true, canContinue: false, agreed: false, archiveConsent: false, archiveTogether: false, archiveMessage: "", error: "已切换对象，请重新选择这位对象的资料图。" });
@@ -232,7 +260,7 @@ Page({
     }
     this.setData({ personIndex: index, archiveConsent: false, archiveTogether: false, archiveMessage: "" });
   },
-  targetChange(event) { if (this.data.busy) return; const targetSelf = event.currentTarget.dataset.target === "self"; this._previousResult = null; this.setData({ ...this.resetReportView(), targetSelf, compareSelf: !targetSelf, completedCount: 0, totalCount: 0, result: null, archiveMessage: "", archiveConsent: false, archiveTogether: false, agreed: false, images: [], imageCount: 0, canAdd: true, canContinue: false }); },
+  targetChange(event) { if (this.data.busy || this.data.returnReportId) return; const targetSelf = event.currentTarget.dataset.target === "self";if(targetSelf&&this._entry){this._entry.subjectId="";this._explicitSubject="";} this._previousResult = null; this.setData({ ...this.resetReportView(), targetSelf, compareSelf: !targetSelf, completedCount: 0, totalCount: 0, result: null, archiveMessage: "", archiveConsent: false, archiveTogether: false, agreed: false, images: [], imageCount: 0, canAdd: true, canContinue: false }); },
   archiveTogetherChange(event) { this.setData({ archiveTogether: event.detail.value.includes("yes") }); },
   compareChange(event) { if (this.data.busy) return; this.setData({ compareSelf: event.detail.value.includes("yes"), result: null, agreed: false }); },
   profileUrlInput(event) { this.setData({ profileUrl: event.detail.value, linkMessage: "", error: "" }); },
@@ -312,32 +340,39 @@ Page({
   labelInput(event) { this.setData({ label: event.detail.value }); },
   archiveAgree(event) { this.setData({ archiveConsent: event.detail.value.includes("yes") }); },
   async analyze() {
+    const token=this._token,current=()=>this.sessionCurrent(token),update=(value,done)=>{if(current())this.setData(value,done);};
+    if(!current())return;
     if (savedTaskId() && !this.data.busy) { await this._resumeTask(savedTaskId()); return; }
-    if (this.data.busy || !this.data.imageCount) { this.setData({ error: "先选择一张或多张资料截图。" }); return; }
-    if (!this.data.agreed) { this.setData({ error: "请先确认你有权提供这些资料并同意本次识图。" }); return; }
+    if (this.data.busy || !this.data.imageCount) { update({ error: "先选择一张或多张资料截图。" }); return; }
+    if (!this.data.agreed) { update({ error: "请先确认你有权提供这些资料并同意本次识图。" }); return; }
     if (savedTaskId()) return this._resumeTask(savedTaskId());
-    if (!this.data.pricesReady) { this.setData({ error: "请先重试读取本次价格，再开始分析。" }); return; }
+    if (!this.data.pricesReady) { update({ error: "请先重试读取本次价格，再开始分析。" }); return; }
     this._reportSubjectId = this.data.targetSelf ? "" : this.data.people[this.data.personIndex]?.id || "";
-    this.setData({ ...this.resetReportView(), busy: true, taskStage: "uploading", backgroundPending: false, error: "", result: null, analysisPreview:null, uploadProgress:"" });
+    if(this._entry?.subjectId&&this._reportSubjectId!==this._entry.subjectId){update({error:'人物已变化，请从原报告重新进入。'});return;}
+    const priceConfirmation=analysisEntry.screenshotQuote(this.data.imageCount,this.data.prices),parentReportId=this.data.returnReportId||undefined;
+    update({ ...this.resetReportView(), busy: true, taskStage: "uploading", backgroundPending: false, error: "", result: null, analysisPreview:null, uploadProgress:"" });
     try {
       if (api.createUpload) {
         const previous = this._previousResult ? { ...this._previousResult, fit: this.data.compareSelf ? this._previousResult.fit : [] } : null;
-        const queued = await api.createUpload("/api/miniapp/social-profile", this.data.images, { materialType:this.data.materialType, confirmed: true, target: this.data.targetSelf ? "self" : "other", compareWithSelf: !this.data.targetSelf && this.data.compareSelf, previous, previousCount: this.data.completedCount, subjectId: this.data.targetSelf ? null : this.data.people[this.data.personIndex]?.id || null }, this._token);
+        const queued = await api.createUpload("/api/miniapp/social-profile", this.data.images, { materialType:this.data.materialType, confirmed: true, priceConfirmation, parentReportId, target: this.data.targetSelf ? "self" : "other", compareWithSelf: !this.data.targetSelf && this.data.compareSelf, previous, previousCount: this.data.completedCount, subjectId: this.data.targetSelf ? null : this.data.people[this.data.personIndex]?.id || null }, token);
+        if(!current())return;
         saveTaskId(queued.taskId);
-        await api.resumeUpload(queued.taskId, this._token, state => this.jobStatus(state));
-        const result = await this._pollTask(queued.taskId);
-        if (this._unloaded) return;
-        clearTaskId(); await api.finishUpload?.(queued.taskId);
-        return this.setData({ canContinue: false, result: decorateResult(result, this.data.totalCount) });
+        await api.resumeUpload(queued.taskId, token, state => {if(current())this.jobStatus(state);});
+        const result = await this._pollTask(queued.taskId,token);
+        if (!current()) return;
+        clearTaskId(); await api.finishUpload?.(queued.taskId);if(!current())return;
+        update({ canContinue: false, result: decorateResult(result, this.data.totalCount) });this.openSupplementResult(result);return;
       }
       const images = [];
       for (const item of this.data.images) images.push(await new Promise((resolve, reject) => wx.getFileSystemManager().readFile({ filePath: item.path, encoding: "base64", success: value => resolve("data:image/" + item.type + ";base64," + value.data), fail: reject })));
       const previous = this._previousResult ? { ...this._previousResult, fit: this.data.compareSelf ? this._previousResult.fit : [] } : null;
       const taskId = typeof api.newId === "function" ? await api.newId() : undefined;
+      if(!current())return;
       if (taskId) saveTaskId(taskId);
-      const submitted = await api.request("/api/miniapp/social-profile", "POST", { materialType:this.data.materialType, taskId, images, confirmed: true, target: this.data.targetSelf ? "self" : "other", compareWithSelf: !this.data.targetSelf && this.data.compareSelf, previous, previousCount: this.data.completedCount }, this._token);
-      if (submitted.status === "running") { this._taskId = submitted.taskId; saveTaskId(submitted.taskId); this.setData({ taskStage: "running" }); const result = await this._pollTask(submitted.taskId); clearTaskId(); return this.setData({ totalCount: this.data.completedCount + images.length, canContinue: false, result: decorateResult(result, this.data.completedCount + images.length) }); }
-      const result = submitted;
+      const submitted = await api.request("/api/miniapp/social-profile", "POST", { materialType:this.data.materialType, taskId, images, confirmed: true, priceConfirmation, parentReportId,subjectId:this._reportSubjectId||null, target: this.data.targetSelf ? "self" : "other", compareWithSelf: !this.data.targetSelf && this.data.compareSelf, previous, previousCount: this.data.completedCount }, token);
+      if(!current())return;
+      if (submitted.status === "running") { this._taskId = submitted.taskId; saveTaskId(submitted.taskId); update({ taskStage: "running" }); const result = await this._pollTask(submitted.taskId,token);if(!current())return;clearTaskId();this.openSupplementResult(result); return update({ totalCount: this.data.completedCount + images.length, canContinue: false, result: decorateResult(result, this.data.completedCount + images.length) }); }
+      const result = submitted;this.openSupplementResult(result);
       clearTaskId();
       const totalCount = this.data.completedCount + images.length;
       const counts = [
@@ -347,9 +382,9 @@ Page({
         { label: "待核实", count: (result.unknowns || []).length, tone: "unknown" }
       ];
       const maximum = Math.max(1, ...counts.map(item => item.count));
-      this.setData({ totalCount, canContinue: totalCount < 9, result: decorateResult(result, totalCount) });
-    } catch (error) { if (savedTaskId() && (error.network || error.status >= 500)) { await this._resumeTask(savedTaskId()); } else { if (error.status && error.status < 500) clearTaskId(); this.setData({ error: error.message || "本次分析未完成。" }); } }
-    finally { this.setData({ busy: false, backgroundPending: !!savedTaskId() }, () => this.renderFit()); this.resumeAfterReturn(); }
+      update({ totalCount, canContinue: totalCount < 9, result: decorateResult(result, totalCount) });
+    } catch (error) { if(!current())return; if(analysisEntry.isPriceError(error)){const pending=api.pendingUpload?.("/api/miniapp/social-profile");if(pending)await api.finishUpload?.(pending.taskId);clearTaskId();update({agreed:false});await this.loadPrices();} if (savedTaskId() && (error.network || error.status >= 500)) { await this._resumeTask(savedTaskId()); } else { if (error.status && error.status < 500) clearTaskId(); update({ error: error.message || "本次分析未完成。" }); } }
+    finally { update({ busy: false, backgroundPending: !!savedTaskId() }, () => this.renderFit()); if(current())this.resumeAfterReturn(); }
   },
   nextBatch() {
     if (this.data.busy || !this.data.result || !this.data.canContinue) return;
