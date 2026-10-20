@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import ts from 'typescript';
 import { createWebAccountStore } from '../lib/web-account-store.mjs';
 
@@ -59,6 +60,14 @@ assert.equal(changed.requests.length, 2, 'mutation refresh runs once after an ol
 changed.requests[1].resolve({ ...value('a'), account: { userId: 'a', balance: 49 } }); await afterMutation;
 assert.equal(changed.store.getSnapshot().account.account.balance, 49);
 
+const obsolete = harness();
+const obsoleteRead = obsolete.store.refresh(); await tick();
+const obsoleteQueued = obsolete.store.refresh({ force: true });
+obsolete.store.invalidate({ loggedOut: true });
+obsolete.requests[0].resolve(value('a')); await obsoleteRead; await obsoleteQueued;
+assert.equal(obsolete.requests.length, 1, 'a queued previous-account mutation cannot restart identity checks after logout');
+assert.equal(obsolete.store.getSnapshot().unauthorized, true);
+
 const routeSource = ts.transpileModule(readFileSync('app/api/web/account-context/route.ts', 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 function routeHarness() {
   const identity = deferred(), credits = deferred(), subjects = deferred(), queries = [], started = [];
@@ -92,24 +101,62 @@ anonymous.identity.resolve(null); assert.equal((await denied).status, 401); asse
 const sessionSource = ts.transpileModule(readFileSync('lib/web-account-session.ts', 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const windowEvents = new EventTarget(), documentEvents = new EventTarget(); documentEvents.hidden = false;
 const sessionRequests = [], saved = new Map(), sessionExports = {};
+let sessionTime = 1_000;
 const sessionDependencies = {
-  './web-account-store.mjs': { createWebAccountStore },
+  './web-account-store.mjs': { createWebAccountStore: options => createWebAccountStore({ ...options, now: () => sessionTime }) },
   './web-api-request.mjs': { fetchWebJson() { const read = deferred(); sessionRequests.push(read); return read.promise; } },
 };
-new Function('exports', 'require', 'window', 'document', 'localStorage', 'crypto', sessionSource)(sessionExports, key => sessionDependencies[key], windowEvents, documentEvents, { setItem: (key, text) => saved.set(key, text) }, crypto);
+new Function('exports', 'require', 'window', 'document', 'localStorage', 'crypto', sessionSource)(sessionExports, key => sessionDependencies[key], windowEvents, documentEvents, { setItem: (key, text) => saved.set(key, text), getItem: key => saved.get(key) ?? null }, crypto);
 const unwatch1 = sessionExports.watchAccountSession(), unwatch2 = sessionExports.watchAccountSession(); await tick();
 assert.equal(sessionRequests.length, 1, 'two watchers install one shared request');
 sessionRequests[0].resolve({ response: Response.json({}), data: value('a') }); await tick(); await tick();
 windowEvents.dispatchEvent(new Event('focus')); documentEvents.dispatchEvent(new Event('visibilitychange')); await tick();
 assert.equal(sessionRequests.length, 1, 'focus plus visibilitychange coalesce without a reload');
+for (let i = 0; i < 6; i++) {
+  sessionTime += 15 * 60_000;
+  windowEvents.dispatchEvent(new Event('focus')); documentEvents.dispatchEvent(new Event('visibilitychange')); windowEvents.dispatchEvent(new Event('pageshow')); await tick();
+}
+assert.equal(sessionRequests.length, 1, 'returning from WeChat after long idle does not reauthenticate an unchanged account');
+assert.equal(sessionExports.webAccountStore.getSnapshot().loading, false);
 const remoteLogout = new Event('storage'); Object.assign(remoteLogout, { key: 'chengzi:account-revision', newValue: JSON.stringify({ loggedOut: true }) });
+saved.set('chengzi:account-revision', remoteLogout.newValue);
 windowEvents.dispatchEvent(remoteLogout);
 assert.equal(sessionExports.webAccountStore.getSnapshot().account, null);
 assert.equal(sessionExports.webAccountStore.getSnapshot().unauthorized, true);
 const remoteLogin = new Event('storage'); Object.assign(remoteLogin, { key: 'chengzi:account-revision', newValue: JSON.stringify({ loggedOut: false }) });
+saved.set('chengzi:account-revision', remoteLogin.newValue);
 windowEvents.dispatchEvent(remoteLogin); await tick();
 sessionRequests[1].resolve({ response: Response.json({}), data: value('b') }); await tick(); await tick();
 assert.equal(sessionExports.webAccountStore.getSnapshot().account.account.userId, 'b', 'another tab login loads only current owner');
+const oldLoginRevision = sessionExports.webAccountStore.getRevision();
+saved.set('chengzi:account-revision', JSON.stringify({ loggedOut: true, revision: 'missed-while-suspended' }));
+windowEvents.dispatchEvent(new Event('pageshow'));
+assert.equal(sessionExports.webAccountStore.getSnapshot().unauthorized, true, 'restored pages reconcile missed logout without a network request');
+assert.equal(sessionRequests.length, 2);
+saved.set('chengzi:account-revision', JSON.stringify({ loggedOut: false, revision: 'new-account' }));
+windowEvents.dispatchEvent(new Event('focus')); await tick();
+sessionRequests[2].resolve({ response: Response.json({}), data: value('c') }); await tick(); await tick();
+sessionExports.expireAccountSession(oldLoginRevision);
+assert.equal(sessionExports.webAccountStore.getSnapshot().account.account.userId, 'c', 'late unauthorized result cannot erase a newer login');
+
+const require = createRequire(import.meta.url), clientExports = {}, apiReads = [];
+const clientSource = ts.transpileModule(readFileSync('components/web-analysis/client.tsx', 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText;
+const clientDependencies = {
+  '@/components/AuroraUI.module.css': { default: {} },
+  '@/components/PersonAvatarChoice': { PersonAvatarChoice() {} },
+  '@/lib/web-api-request.mjs': { fetchWebJson() { const read = deferred(); apiReads.push(read); return read.promise; } },
+  '@/lib/account-credits.mjs': { CREDIT_PRICES: {} },
+  '@/lib/web-account-session': sessionExports,
+};
+new Function('exports', 'require', clientSource)(clientExports, key => clientDependencies[key] || require(key));
+const requestExpired = clientExports.api('/api/web/profile');
+apiReads[0].resolve({ response: Response.json({}, { status: 401 }), data: {} });
+await assert.rejects(requestExpired, { status: 401 });
+assert.equal(sessionExports.webAccountStore.getSnapshot().unauthorized, true, 'protected API 401 expires the current display session without a focus poll');
+const { renderToStaticMarkup } = require('react-dom/server'), { createElement } = require('react');
+const outage = renderToStaticMarkup(createElement(clientExports.AccountNotice, { state: { unauthorized: false, error: '账号校验服务暂不可用', refresh() {} } }));
+assert.doesNotMatch(outage, /重新登录|href=/, 'temporary identity service failure never asks the user to log in again');
+assert.match(outage, /重新连接/);
 sessionExports.announceAccountChange(true);
 assert.equal(sessionExports.webAccountStore.getSnapshot().unauthorized, true);
 assert.deepEqual(Object.keys(JSON.parse(saved.get('chengzi:account-revision'))).sort(), ['loggedOut', 'revision'], 'cross-tab notification contains no credentials or personal data');
@@ -117,4 +164,4 @@ unwatch1(); unwatch2();
 const beforeCleanup = sessionRequests.length;
 windowEvents.dispatchEvent(new Event('chengzi:credits-changed')); await tick();
 assert.equal(sessionRequests.length, beforeCleanup, 'last unmount removes refresh listeners');
-console.log('PASS: shared initial read, silent focus refresh, throttling, stable list references, transient recovery, revocation, account-switch race, mutation refresh, cross-tab logout/login and lightweight authenticated context');
+console.log('PASS: shared initial read, no reauthentication on focus, missed logout reconciliation, API 401 expiry, stable list references, transient recovery, account-switch races, mutation refresh, cross-tab logout/login and lightweight authenticated context');

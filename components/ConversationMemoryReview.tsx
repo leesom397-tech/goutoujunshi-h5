@@ -45,6 +45,7 @@ function MemoryReview({ memory, items, ownerId, subjectId }: Props & { items: Co
   const [loading, setLoading] = useState(false), [error, setError] = useState(""), [notice, setNotice] = useState("");
   const active = useRef(true), initialised = useRef(false), request = useRef(0), heading = useId(), listId = useId();
   const abort = useRef<AbortController | null>(null);
+  const lastRead = useRef(0);
   const archiveHref = subjectId ? `/archive?subjectId=${encodeURIComponent(subjectId)}` : "/archive?tab=self";
 
   function apply(profile: Json) {
@@ -56,6 +57,7 @@ function MemoryReview({ memory, items, ownerId, subjectId }: Props & { items: Co
       ? new Set([...prior].filter(id => pendingIds.has(id)))
       : new Set(next.items.filter(item => item.currentStatus === "pending" && item.basis === "statement" && !item.conflict).map(item => item.id)));
     initialised.current = true;
+    lastRead.current = Date.now();
   }
 
   async function refresh() {
@@ -75,11 +77,12 @@ function MemoryReview({ memory, items, ownerId, subjectId }: Props & { items: Co
     return () => { active.current = false; request.current++; abort.current?.abort(); };
   }, [ownerId]);
 
-  useEffect(() => {
-    const focus = () => { if (!busy && !document.hidden) void refresh(); };
-    window.addEventListener("focus", focus);
-    return () => window.removeEventListener("focus", focus);
-  }, [busy, ownerId]);
+  function toggleReview() {
+    setOpen(value => !value);
+    // Only recheck when the user opens this review. Returning from WeChat must
+    // not refetch the full profile or interrupt the current report.
+    if (!open && !busy && !loading && Date.now() - lastRead.current > 60_000) void refresh();
+  }
 
   async function decide(ids: string[], decision: "accept" | "reject") {
     if (!ownerId || busy || loading || !state?.enabled || state.paused || !ids.length) return;
@@ -116,7 +119,7 @@ function MemoryReview({ memory, items, ownerId, subjectId }: Props & { items: Co
       </div></div>
       {disabled ? <a className={styles.review} href="/archive?tab=self">{state?.paused ? "恢复档案" : "启用档案"}<ArrowUpRight size={17}/></a>
         : !ownerId ? <a className={styles.review} href="/login?return_to=%2Farchive">登录后核对<ArrowUpRight size={17}/></a>
-        : shown.length > 0 && <button type="button" className={styles.review} aria-expanded={open} aria-controls={listId} onClick={() => setOpen(value => !value)}>{open ? "收起资料" : pending.length ? "核对并保存" : "查看已保存资料"}<ChevronDown size={18} className={open ? styles.rotated : undefined}/></button>}
+        : shown.length > 0 && <button type="button" className={styles.review} aria-expanded={open} aria-controls={listId} onClick={toggleReview}>{open ? "收起资料" : pending.length ? "核对并保存" : "查看已保存资料"}<ChevronDown size={18} className={open ? styles.rotated : undefined}/></button>}
     </div>
     {!disabled && pending.length > 0 && <div className={styles.counts}><span className={styles.selfBadge}><UserRound size={16}/>关于我 <strong>{selfCount}</strong> 条</span><span className={styles.subjectBadge}><UsersRound size={16}/>关于对方 <strong>{subjectCount}</strong> 条</span></div>}
     {loading && !state && <p className={styles.status} role="status"><LoaderCircle size={16} className={styles.spinning}/>正在核对保存状态…</p>}

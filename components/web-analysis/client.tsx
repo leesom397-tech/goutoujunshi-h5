@@ -4,14 +4,18 @@ import ui from "@/components/AuroraUI.module.css";
 import {PersonAvatarChoice} from "@/components/PersonAvatarChoice";
 import { fetchWebJson } from '@/lib/web-api-request.mjs';
 import { CREDIT_PRICES } from '@/lib/account-credits.mjs';
-import { webAccountStore, watchAccountSession } from '@/lib/web-account-session';
+import { expireAccountSession, webAccountStore, watchAccountSession } from '@/lib/web-account-session';
 export type Json = Record<string, any>;
 export class WebError extends Error { constructor(message: string, public status = 0, public details: Json = {}) { super(message); } }
 export async function api(path: string, body?: Json, signal?: AbortSignal): Promise<Json> {
   let response: Response, data: Json;
+  const accountRevision = webAccountStore.getRevision();
   try { ({ response, data } = await fetchWebJson(path, { method: body ? "POST" : "GET", credentials: "same-origin", cache: "no-store", ...(body ? { headers: { "Content-Type": "application/json", ...(body.taskId || body.requestId ? { "X-Request-Id": String(body.taskId || body.requestId) } : {}) }, body: JSON.stringify(body) } : {}), signal })); }
   catch (error) { if (signal?.aborted) throw error; throw new WebError(error instanceof Error && error.name === "TimeoutError" ? "连接暂时较慢，输入与任务已保留，请重新连接。" : "连接中断，输入与任务已保留，请重试。"); }
-  if (!response.ok) throw new WebError(data.error || (response.status === 401 ? "请登录后继续。" : "暂时无法完成，请稍后重试。"), response.status, data);
+  if (!response.ok) {
+    if (response.status === 401 && /^\/api\/(?:web\/|account\/credits(?:[?#]|$))/.test(path)) expireAccountSession(accountRevision);
+    throw new WebError(data.error || (response.status === 401 ? "请登录后继续。" : "暂时无法完成，请稍后重试。"), response.status, data);
+  }
   return data;
 }
 export const message = (error: unknown) => error instanceof Error ? error.message : "暂时无法完成，请稍后重试。";
@@ -26,7 +30,7 @@ export function AccountNotice({ state }: { state: ReturnType<typeof useAccount> 
   if (state.unauthorized) return <section className={`${ui.panel} ${ui.notice}`}><h2>登录后开始</h2><p>使用你的网页账号查看积分与人物档案。</p><a className={ui.primary} href={`/login?return_to=${encodeURIComponent(typeof window !== "undefined" ? window.location.pathname + window.location.search : "/analyze")}`}>登录账号</a></section>;
   if (state.error) {
     const identityDown = state.error.includes("账号校验");
-    return <section className={`${ui.panel} ${ui.notice}`}><ErrorNotice error={identityDown ? "登录状态暂时对不上，已保存的资料还在。请重新登录。" : state.error}/>{identityDown ? <a className={ui.primary} href={`/login?return_to=${encodeURIComponent(typeof window !== "undefined" ? window.location.pathname + window.location.search : "/analyze")}`}>重新登录</a> : null}<button className={ui.secondary} onClick={() => void state.refresh()}>重新连接</button></section>;
+    return <section className={`${ui.panel} ${ui.notice}`}><ErrorNotice error={identityDown ? "账户服务暂时连接较慢，已保存的资料还在。请重试。" : state.error}/><button className={ui.secondary} onClick={() => void state.refresh()}>重新连接</button></section>;
   }
   return null;
 }
