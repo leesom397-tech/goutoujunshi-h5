@@ -4,6 +4,7 @@ import { ChartNoAxesCombined, FileText, Images, Pin } from "lucide-react";
 import type { Json } from "./client";
 import { CaptureEvidence } from "./CaptureEvidence";
 import { SocialContentPanel } from "./SocialReadingPanels";
+import { HistoryMomentsContent } from "./HistoryMomentsContent";
 import styles from "./HistoryMomentsStatistics.module.css";
 
 const count=(value:unknown):number|null=>Number.isSafeInteger(value)&&Number(value)>=0?Number(value):null;
@@ -12,7 +13,7 @@ export function savedMomentsStatistics(report:Json):Json|null{
   const value=report.momentsStatistics;
   return value?.basis==="capture-records"&&count(value.total)!==null?value:null;
 }
-export function HistoryMomentsStatistics({report,compact=false}:{report:Json;compact?:boolean}){
+function SavedMomentsStatistics({report,compact=false}:{report:Json;compact?:boolean}){
   const stats=savedMomentsStatistics(report),[selected,setSelected]=useState("");
   if(!stats){
     const legacy=report.moments?.statistics?report.moments:report.captureKind==="moments"&&report.statistics?report:null;
@@ -37,3 +38,5 @@ export function HistoryMomentsStatistics({report,compact=false}:{report:Json;com
     {!compact&&<details className={styles.method}><summary>统计范围与口径</summary><p>{stats.scope}</p><p>去重后 {stats.total} 条动态{count(stats.duplicates)!==null?`，合并 ${stats.duplicates} 条重复来源`:""}{count(stats.excludedProfileMaterials)!==null?`，另有 ${stats.excludedProfileMaterials} 项封面／签名不计入`:""}。</p></details>}
   </section>;
 }
+
+export function HistoryMomentsStatistics(props:{report:Json;compact?:boolean}) {return <><HistoryMomentsContent {...props}/><SavedMomentsStatistics {...props}/></>;}

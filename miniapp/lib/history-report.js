@@ -1,4 +1,5 @@
 // Read-only projection of saved reports; missing counts stay unknown.
+const {momentsContent}=require('./moments-content');
 const rows=v=>Array.isArray(v)?v.filter(r=>r&&typeof r==='object'):[];
 const text=v=>typeof v==='string'?v.trim():'';
 const number=v=>typeof v==='number'&&Number.isFinite(v)&&v>=0?v:null;
@@ -65,7 +66,7 @@ function historyReport(report){
  const recentLines=recent?.scope==='recent'?rows(recent.lines).filter(r=>text(r.text)&&!isMoment(r)).map(r=>{const note=annotations.get(r.id)||{};return {...r,who:who(r.speaker),emotionTags:signalTags(note.emotion),intentTags:signalTags(note.intent),note:text(note.note)};}):[];
  const replies=rows(report.decision?.replyOptions).filter(r=>text(r.text)).slice(0,3).map((r,i)=>({...r,style:text(r.style)||'方案 '+(i+1),evidence:evidence(r.evidenceIds)}));
  return {other,scope,generatedTime:reportGeneratedTime(report),momentsOnly:report.captureKind==='moments',summary:text(semantic.summary)||text(report.decision?.judgment)||text(report.summary),trend:text(semantic.trend),action:text(semantic.action)||text(report.decision?.nextStep),explanation:text(semantic.explanation),coverage:semantic.coverage||{},sources,
-  findings,moments,momentsSummary,momentsEvidence:insightEvidence,momentsUnknowns:strings(insight.unknowns),crossSource,crossEvidence,momentsStatistics,momentsTotal,legacyStatistics:legacy||null,legacyGroups,
+  findings,moments,momentsSummary,momentsContent:momentsContent(report),momentsEvidence:insightEvidence,momentsUnknowns:strings(insight.unknowns),crossSource,crossEvidence,momentsStatistics,momentsTotal,legacyStatistics:legacy||null,legacyGroups,
   hasMoments:!!(momentsTotal>0||moments.length||momentsSummary||materials.length||visuals.some(isMoment)),visuals,profileMaterials:materials,
   profiles:rows(semantic.profileInsights).map(r=>({...r,who:who(r.subject),evidence:evidence(r.evidenceIds)})),
   risks:rows(semantic.riskAssessment?.items).filter(r=>r.subject==='other').map(r=>({...r,evidence:evidence(r.evidenceIds)})),riskSummary:text(semantic.riskAssessment?.summary),
