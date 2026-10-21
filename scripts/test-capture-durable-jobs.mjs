@@ -407,7 +407,7 @@ await test('summary-only synthesis retries without losing completed evidence or 
     if(detail.rows)return JSON.stringify({findings:[{claim:'后段讨论具体安排',evidence:[{sourceId:detail.rows[0].sourceId,quote:detail.rows[0].text.slice(0,30)}]}]});
     return JSON.stringify({summary:'尚需确认安排。',summaryEvidenceIds:[detail.findings[0].id]});
   };
-  const retrying=await alarm(owner);assert.equal(retrying.status,'retrying');assert.equal(retrying.completedText,675);assert.equal(retrying.phase,'synthesis');assert.match(retrying.error,/重试/);
+  const retrying=await alarm(owner);assert.equal(retrying.status,'retrying');assert.equal(retrying.completedText,675);assert.equal(retrying.phase,'synthesis');assert.match(retrying.error,/综合判断.*补全/);
   const checkpoints=await states.get(owner).storage.list({prefix:'step:'});assert.equal(checkpoints.size,3);assert.ok([...checkpoints.values()].every(step=>step.phase==='segments'));
   assert.equal(creditTask(owner,body.requestId).status,'reserved');assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM coach_saved_reports WHERE id=? AND status='done'").get(body.requestId).n,0);
   providerFailure=null;const done=await finish(owner);assert.equal(done.status,'done',done.error);assert.ok(done.result.semanticHistory.explanation);
