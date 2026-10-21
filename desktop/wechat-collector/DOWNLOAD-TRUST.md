@@ -2,7 +2,7 @@
 
 ## 已确认
 
-当前 1.2.16 未签名。浏览器“不常下载/可疑下载”和 Windows SmartScreen 是不同检查，不能以安装器签名代替 Chrome 下载检测。当前没有证书，不能承诺消除警告。
+本轮 1.2.19 安装包经 Windows `Get-AuthenticodeSignature` 检查为 `NotSigned`。浏览器“不常下载/可疑下载”和 Windows SmartScreen 是不同检查，不能以安装器签名代替 Chrome 下载检测。当前没有证书，不能承诺消除警告。
 
 - 微软说明：未签名的新版本要重新积累文件信誉，旧版能下载不代表新版不会警告。签名后也可能有初期警告，EV 已不保证直接绕过 SmartScreen。[官方说明](https://learn.microsoft.com/en-us/windows/apps/package-and-deploy/smartscreen-reputation)
 - Chrome 把不常见下载与危险下载区分处理；应先确认具体类别，必要时请求安全复核。[Chrome 帮助](https://support.google.com/chrome/answer/6261569?hl=en)
