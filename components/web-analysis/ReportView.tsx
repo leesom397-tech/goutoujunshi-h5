@@ -116,7 +116,7 @@ export function ChatReport({report,account,styleReportIds,preview=false,publicEx
  const readingScope=reportReadingScope(account?.account?.userId,report.reportId||report.id,report.subjectId,"chat",publicExample);
  const diagnosis=report.relationshipDiagnosis||(report.chatActivity?buildRelationshipDiagnosis(report.chatActivity,undefined,Array.isArray(report.lines)?report.lines:[]):null);
  const semantic=report.semanticHistory||diagnosis?.semanticHistory;
- const fullHistory=report.analysisScope==='fullHistory'||report.captureFormat==='full-history';
+ const fullHistory=report.analysisScope==='fullHistory'||report.analysisScope==='uploadedHistory'||report.captureFormat==='full-history';
  const affinityFirst=!fullHistory&&initialFocus==='affinity'&&presentation.mode==='normal';
  const momentOnly=fullHistory&&report.captureKind==='moments';
  const identity=reportIdentity(report),goal=reportGoal(report);
@@ -135,7 +135,7 @@ export function ChatReport({report,account,styleReportIds,preview=false,publicEx
  const historyCount=momentOnly?(momentSourceRows.length?momentSourceRows.reduce((sum,row)=>sum+(Number.isFinite(row.momentCount)?row.momentCount:Number(row.total)||0),0):report.archiveSnapshot?.total):semantic?.coverage?.totalImported??diagnosis?.coverage?.total??report.chatActivity?.messages;
  const newChatHref=withAnalysisFocus(intakeHref("/analyze",{mode:"chat",subjectId:report.subjectId||"",returnTo:report.reportId||report.id?`/report?id=${report.reportId||report.id}`:""}),"intent");
  return <CaptureEvidenceProvider ownerId={publicExample?undefined:account?.account?.userId} reportId={report.reportId||report.id} captureOrigin={report.captureOrigin===true} fullHistory={fullHistory} historyKind={momentOnly?'moments':'chat'} historyCount={historyCount} showSourceBar={false}><div className={reportStyles.document} data-report-mode={momentOnly?'moments':fullHistory?'full-history':'upload'}>
-  <div className={reportStyles.participantScope} data-report-participants><span>{report.analysisScope==='supplement'?'补充解读':momentOnly?'完整朋友圈报告':fullHistory?'完整关系报告':'本次聊天报告'}</span><strong>{momentOnly?identity.other:identity.direction}</strong><small data-report-source-scope>{reportSourceSummary(report)}<CaptureEvidence label="查看原话依据"/></small></div>
+  <div className={reportStyles.participantScope} data-report-participants><span>{report.analysisScope==='supplement'?'补充解读':momentOnly?'完整朋友圈报告':report.analysisScope==='uploadedHistory'?(report.materialCoverage?.history==='user-declared-complete'?'完整关系报告':'阶段关系报告'):fullHistory?'完整关系报告':'本次聊天报告'}</span><strong>{momentOnly?identity.other:identity.direction}</strong><small data-report-source-scope>{report.analysisScope==='uploadedHistory'?report.scopeNote:reportSourceSummary(report)}<CaptureEvidence label="查看原话依据"/></small></div>
   <ReportReader key={readingScope||report.reportId||report.id||"chat-report"} storageKey={readingScope} initialSection={initialFocus==='reply'?'next':initialFocus==='intent'&&!fullHistory?'change':initialFocus==='affinity'||initialFocus==='intent'?'status':undefined} items={!fullHistory?screenshotSections:momentOnly?fullMomentsSections:chatSections}>{active=><>
    {active==='status'&&<>
     {affinityFirst&&<><AffinityOverview report={report}/><Replies compact options={options} report={report} account={account} publicExample={publicExample}/></>}

@@ -4,7 +4,7 @@ const text=v=>typeof v==='string'?v.trim():'';
 const number=v=>typeof v==='number'&&Number.isFinite(v)&&v>=0?v:null;
 const count=v=>Number.isSafeInteger(v)&&v>=0?v:null;
 const strings=v=>Array.isArray(v)?v.map(text).filter(Boolean):[];
-const full=r=>r.analysisScope==='fullHistory'||r.captureFormat==='full-history';
+const full=r=>r.analysisScope==='fullHistory'||r.analysisScope==='uploadedHistory'||r.captureFormat==='full-history';
 function signalTags(v){
  if(typeof v==='string')return text(v)?[{label:text(v)}]:[];
  if(v&&typeof v==='object'&&!Array.isArray(v)){const keys=Object.keys(v);v=keys.length<=80&&keys.every((key,i)=>key===String(i))?keys.map(key=>v[key]):[];}
@@ -20,6 +20,7 @@ function reportGeneratedTime(r){
  return '';
 }
 function reportScope(r){
+ if(r.analysisScope==='uploadedHistory')return {label:r.materialCoverage?.history==='user-declared-complete'?'完整关系报告':'阶段关系报告',note:text(r.scopeNote)};
  if(r.analysisScope==='supplement'||r.supplementOf?.reportId)return {label:'补充截图解读',note:text(r.scopeNote)||'以原完整报告为背景，仅解读本次新增截图；不重新统计全部历史。'};
  if(full(r))return {label:r.captureKind==='moments'?'完整朋友圈报告':'完整关系报告',note:'基于生成时已导入的全部可读资料。未同步的内容不在这份报告内。'};
  if(r.isImported||r.importAnalysis)return {label:'导入材料分析',note:'基于本次导入的材料；逐句区展示最近一批关键原话。'};

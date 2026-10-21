@@ -15,6 +15,17 @@ try{
  response=fail({error:{code:'PRIVATE_INTERNAL',message:{unreadable:true}}});await assert.rejects(exports.bridgeRequest('/capture',{body:{}}),error=>error.message==='采集助手暂未完成请求，请检查本机窗口。');
  response=fail({error:{message:'   '}});await assert.rejects(exports.bridgeRequest('/capture',{body:{}}),/暂未完成请求/);
  response=new TypeError('network unavailable');await assert.rejects(exports.bridgeRequest('/health'),/本机.*权限/);
+ const permissionsDescriptor=Object.getOwnPropertyDescriptor(navigator,'permissions');
+ try {
+  Object.defineProperty(navigator,'permissions',{configurable:true,value:{query:async()=>({state:'prompt'})}});
+  await assert.rejects(exports.bridgeRequest('/health'),/尚未允许.*当前浏览器窗口/);
+  Object.defineProperty(navigator,'permissions',{configurable:true,value:{query:async()=>({state:'denied'})}});
+  await assert.rejects(exports.bridgeRequest('/health'),/已禁止.*网站设置/);
+  Object.defineProperty(navigator,'permissions',{configurable:true,value:{query:async()=>({state:'granted'})}});
+  await assert.rejects(exports.bridgeRequest('/health'),/未能连接本机助手/);
+  Object.defineProperty(navigator,'permissions',{configurable:true,value:{query:async()=>{throw new TypeError('unsupported')}}});
+  await assert.rejects(exports.bridgeRequest('/health'),/未能连接本机助手/);
+ } finally {if(permissionsDescriptor)Object.defineProperty(navigator,'permissions',permissionsDescriptor);else delete navigator.permissions;}
  response=new Response(JSON.stringify({ready:true,version:'1.0.1',capabilities:{chat:true,moments:true}}));assert.equal((await exports.bridgeRequest('/health')).ready,true);
  response=new Response(JSON.stringify({contacts:[],accountKey:'synthetic-account',message:'没有匹配联系人'}));
  assert.deepEqual((await exports.bridgeRequest('/contacts/search',{token:'synthetic-token',body:{query:'雅欣'},timeoutMs:45000})).contacts,[]);
