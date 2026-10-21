@@ -477,7 +477,7 @@ def _open_moments_source(request, visible_account):
     provider = _provider_module()
     if provider is None:
         raise CaptureError("CONTACT_SEARCH_UNAVAILABLE", "联系人目录暂不可读，请重新连接助手后选择好友。")
-    source = provider.open_authorized_source()
+    source = provider.open_authorized_source(contacts_only=True)
     try:
         source.assert_unchanged()
         # Current clients bind the explicit contact to the account fingerprint.
@@ -504,7 +504,7 @@ def _resolve_moments_contact(request, source=None):
         provider = _provider_module()
         if provider is None:
             raise CaptureError("CONTACT_SEARCH_UNAVAILABLE", "联系人目录暂不可读，请重新连接助手后选择好友。")
-        source = provider.open_authorized_source()
+        source = provider.open_authorized_source(contacts_only=True)
     try:
         username = _resolve_contact(source, request["friend"], request.get("contactId"), request.get("accountKey"))
         conn = source.contacts()
@@ -794,11 +794,18 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
     def refresh_listing():
         nonlocal listing, detail, back
         try:
-            current_lists = [item for item in main.descendants(control_type="List")
-                             if getattr(item.element_info, "automation_id", "") == "sns_list"
-                             and _is_visible(item)]
-            if len(current_lists) == 1:
-                listing = current_lists[0]
+            # Resolve the narrowly scoped album control first. Traversing the
+            # entire main-window UI tree twice per post is expensive with long
+            # chat lists; only stale/replaced album wrappers need that fallback.
+            current = window.child_window(**ui.Lists.MomentsList)
+            if _wait_exists(current, timeout=0, visible=True):
+                listing = current
+            else:
+                current_lists = [item for item in main.descendants(control_type="List")
+                                 if getattr(item.element_info, "automation_id", "") == "sns_list"
+                                 and _is_visible(item)]
+                if len(current_lists) == 1:
+                    listing = current_lists[0]
         except Exception:
             pass
         try:

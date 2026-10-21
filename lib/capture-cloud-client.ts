@@ -148,6 +148,15 @@ export async function downloadCloudCaptureLibrary(owner:string, id:string, progr
   // A snapshot never exposes a sparse image list as complete material.
   let initial:CaptureLibrary|undefined;
   if(preview){initial=await cacheCloudCaptureLibrary(owner,snapshot());preview(initial);}
+  let lastPreviewAt=performance.now(),previewDirty=false;
+  const publishPreview=(force=false)=>{
+    if(!preview||!initial||!previewDirty||!force&&performance.now()-lastPreviewAt<150)return;
+    const fresh=snapshot(),byId=new Map(fresh.records.map(row=>[row.localId,row]));
+    // Coalesce fast/cached image completions: copying the entire transcript and
+    // rendering it after every picture otherwise dominates large archive opens.
+    preview({...initial,records:initial.records.map(row=>{const remote=byId.get(row.localId);return remote&&row.text===remote.text&&row.kind===remote.kind&&!row.source.cloudConflict?remote:row;}),cloud:fresh.cloud});
+    previewDirty=false;lastPreviewAt=performance.now();
+  };
   let completedImages=0;progress?.(0,images.length,"images");
   try{await concurrentMap(images,async({record,media})=>{
     const key=JSON.stringify([record.localId,media.index]),prior=reusable.get(record.localId)?.images?.[media.index];
@@ -155,16 +164,15 @@ export async function downloadCloudCaptureLibrary(owner:string, id:string, progr
     record.images![media.index]=matches?prior:await loadCloudCaptureImage(owner,id,media);
     mediaDigests[key]=media.sha256;progress?.(++completedImages,images.length,"images");
     if(preview&&initial&&record.images!.filter(Boolean).length===Number(record.source.imageCount)){
-      const fresh=snapshot();const byId=new Map(fresh.records.map(row=>[row.localId,row]));
-      // Preserve newer local transcripts/conflicts already resolved by the vault.
-      preview({...initial,records:initial.records.map(row=>{const remote=byId.get(row.localId);return remote&&row.text===remote.text&&row.kind===remote.kind&&!row.source.cloudConflict?remote:row;}),cloud:fresh.cloud});
+      previewDirty=true;publishPreview();
     }
   });}catch(error){
     // Keep verified, fully downloaded records when a later image fails. All
     // workers have settled, so a reopen can safely reuse these exact hashes.
-    if(preview&&initial&&!(error instanceof CaptureCloudError&&[404,410].includes(error.status)))await cacheCloudCaptureLibrary(owner,snapshot());
+    if(preview&&initial&&!(error instanceof CaptureCloudError&&[404,410].includes(error.status))){publishPreview(true);await cacheCloudCaptureLibrary(owner,snapshot());}
     throw error;
   }
+  publishPreview(true);
   const final=snapshot(),digests:Record<string,string>={};
   for(const row of final.records)digests[row.localId]=await rowDigest(sanitizeCloudCaptureRecord(row));
   return cacheCloudCaptureLibrary(owner,{...final,cloud:{...final.cloud,digests}});

@@ -26,7 +26,7 @@ await page.evaluate(()=>{
    else if(body?.action==='sync-media')result={...result,ready:true};
    else if(body?.action==='link-report')result={...result,linked:true,library:remoteInfo};
    else if(query.has('mediaId'))result={...result,media:remoteMedia,data:remoteMedia.data,chunkIndex:Number(query.get('chunk'))};
-   else if(query.has('id'))result={...result,library:remoteInfo,records:remoteRecords,nextCursor:null};
+   else if(query.has('id')){const offset=Number(query.get('cursor')||0),limit=Number(query.get('limit')||500);result={...result,library:remoteInfo,records:remoteRecords.slice(offset,offset+limit),nextCursor:offset+limit<remoteRecords.length?String(offset+limit):null};}
    else result={...result,libraries:remoteRecords.length?[remoteInfo]:[],nextCursor:null};
    if(body?.action==='sync'&&window.syncHook){const hook=window.syncHook;window.syncHook=null;await hook(body);}
    return new Response(JSON.stringify(result),{status:200,headers:{'content-type':'application/json'}});
@@ -204,6 +204,10 @@ try{
    assert.equal(result.uploads,3);assert.equal(result.progress[0].done,4);assert.equal(result.progress.at(-1).done,7);
    assert.equal(result.transfers.length,3);assert.equal(result.transfers.at(-1).bytes,result.expected);
    assert.ok(result.transfers.every(value=>value.total===result.expected&&value.elapsed>=0));
+ });
+ await check('cached large archives coalesce UI snapshots and still publish the complete final preview',async()=>{
+   const result=await page.evaluate(async()=>{const set=await imageSet(127);remoteRecords=[...Array.from({length:3000},(_,i)=>contract.sanitizeCloudCaptureRecord(record('text-'+i))),...set.cloudRows];remoteInfo=info(remoteRecords);trackMedia(set.media);await client.downloadCloudCaptureLibrary(owner,cloudId);const stats=trackMedia(set.media);let renders=0,latest;const start=performance.now();await client.downloadCloudCaptureLibrary(owner,cloudId,undefined,value=>{renders++;latest=value;});return{renders,mediaRequests:stats.gets,records:latest.records.length,completeImages:latest.records.filter(row=>row.images?.length).length,pending:latest.records.some(row=>row.source.cloudMediaPending),elapsedMs:Math.round(performance.now()-start)};});
+   assert.equal(result.mediaRequests,0);assert.equal(result.records,3127);assert.equal(result.completeImages,127);assert.equal(result.pending,false);assert.ok(result.renders<128,'cached image burst must not rebuild the complete UI after every image');console.log('ARCHIVE_REOPEN_MEASURE',JSON.stringify(result));
  });
  assert.deepEqual(errors,[]);await writeFile(path.join(output,'result.json'),JSON.stringify(results,null,2));
  if(results.some(item=>item.status==='fail'))process.exitCode=1;

@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const RELEASE_ROOT = 'https://github.com/leesom397-tech/goutoujunshi-h5/releases/download/';
-const LEGACY_RELEASES = new Map([['1.2.4', 'collector-1.2.5'], ['1.2.5', 'collector-1.2.5'], ['1.2.6', 'collector-1.2.6'], ['1.2.7', 'collector-1.2.7'], ['1.2.8', 'collector-1.2.8'], ['1.2.9', 'collector-1.2.9'], ['1.2.10', 'collector-1.2.10'], ['1.2.11', 'collector-1.2.11'], ['1.2.12', 'collector-1.2.12'], ['1.2.13', 'collector-1.2.13'], ['1.2.14', 'collector-1.2.14'], ['1.2.15', 'collector-1.2.15'], ['1.2.16', 'collector-1.2.16'], ['1.2.17', 'collector-1.2.17']]);
+const LEGACY_RELEASES = new Map([['1.2.4', 'collector-1.2.5'], ['1.2.5', 'collector-1.2.5'], ['1.2.6', 'collector-1.2.6'], ['1.2.7', 'collector-1.2.7'], ['1.2.8', 'collector-1.2.8'], ['1.2.9', 'collector-1.2.9'], ['1.2.10', 'collector-1.2.10'], ['1.2.11', 'collector-1.2.11'], ['1.2.12', 'collector-1.2.12'], ['1.2.13', 'collector-1.2.13'], ['1.2.14', 'collector-1.2.14'], ['1.2.15', 'collector-1.2.15'], ['1.2.16', 'collector-1.2.16'], ['1.2.17', 'collector-1.2.17'], ['1.2.18', 'collector-1.2.18']]);
 
 function compareVersions(left, right) {
   const a = left.split('.').map(Number), b = right.split('.').map(Number);

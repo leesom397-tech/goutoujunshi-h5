@@ -227,7 +227,8 @@ class MomentsCaptureTests(unittest.TestCase):
              Regex_Patterns=SimpleNamespace(Snsdetail_Timestamp_pattern=re.compile(r"2026年10月18日")))
         tools = SimpleNamespace(activate_momentsList=lambda listing: None)
         ui.Texts = None
-        main = SimpleNamespace(handle=321, process_id=lambda: 123)
+        main = SimpleNamespace(handle=321, process_id=lambda: 123,
+                               descendants=Mock(side_effect=AssertionError("unnecessary full-window traversal")))
         partials, progress = [], []
         with patch("adapter._open_target", return_value=main), patch("adapter._assert_target"), patch("adapter._ensure_foreground"), patch("adapter._open_moments_from_chat", return_value=window), \
              patch("adapter._image", return_value={"data": "test", "mime": "image/jpeg"}), patch("adapter.time.sleep"):
@@ -264,7 +265,7 @@ class MomentsCaptureTests(unittest.TestCase):
                 with patch.dict(sys.modules, modules), patch("adapter._prepare_capture_ui"), \
                      patch("adapter._account", side_effect=profile) as account_read, \
                      patch("adapter._open_moments_from_chat", side_effect=open_album), \
-                     patch("background_reader._provider_module", return_value=SimpleNamespace(open_authorized_source=lambda: source)), \
+                     patch("background_reader._provider_module", return_value=SimpleNamespace(open_authorized_source=lambda **kwargs: source)), \
                      patch("adapter.time.monotonic", side_effect=lambda: next(clock)):
                     try:
                         batch = capture({"kind": "moments", "friend": "好友", "contactId": "target-user",
@@ -278,6 +279,7 @@ class MomentsCaptureTests(unittest.TestCase):
             else:
                 result = _moments("好友", limit, lambda *event: progress.append(event), (None, tools, ui),
                                   all_visible=all_visible, on_rows=lambda rows, warnings, coverage: partials.append((len(rows), coverage)))
+        main.descendants.assert_not_called()
         return result, partials, progress
 
     def test_actual_capture_continues_past_first_and_periodic_partial_without_closing_album(self):
@@ -305,7 +307,7 @@ class MomentsCaptureTests(unittest.TestCase):
 
     def test_legacy_account_mismatch_is_rejected_without_navigation_and_source_is_closed(self):
         source = Source()
-        with patch("background_reader._provider_module", return_value=SimpleNamespace(open_authorized_source=lambda: source)):
+        with patch("background_reader._provider_module", return_value=SimpleNamespace(open_authorized_source=lambda **kwargs: source)):
             with self.assertRaises(CaptureError) as error:
                 _open_moments_source({"friend": "唯一备注"}, "different-visible-account")
         self.assertEqual(error.exception.code, "ACCOUNT_CHANGED")
@@ -350,12 +352,13 @@ class MomentsCaptureTests(unittest.TestCase):
     def test_selected_moments_account_is_checked_and_source_closed(self):
         source = Source()
         key = hashlib.sha256(source.account_id.encode()).hexdigest()
-        provider = SimpleNamespace(open_authorized_source=lambda: source)
+        provider = SimpleNamespace(open_authorized_source=Mock(return_value=source))
         with patch("background_reader._provider_module", return_value=provider):
             self.assertEqual(_resolve_moments_contact({"friend": "唯一备注", "contactId": "target-user", "accountKey": key}), ("唯一备注", "唯一备注", source.account_id))
         self.assertTrue(source.closed)
+        provider.open_authorized_source.assert_called_once_with(contacts_only=True)
         source = Source()
-        with patch("background_reader._provider_module", return_value=SimpleNamespace(open_authorized_source=lambda: source)):
+        with patch("background_reader._provider_module", return_value=SimpleNamespace(open_authorized_source=lambda **kwargs: source)):
             with self.assertRaises(BackgroundCaptureError) as error:
                 _resolve_moments_contact({"friend": "唯一备注", "contactId": "target-user", "accountKey": "0" * 64})
         self.assertEqual(error.exception.code, "ACCOUNT_CHANGED")

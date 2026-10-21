@@ -11,8 +11,15 @@ let paired=false;
 let failNextSession=false;
 const sessions=await build({entryPoints:['lib/capture-connection-session.ts'],bundle:true,write:false,format:'iife',globalName:'SessionFixture',platform:'browser',logLevel:'silent'});
 const headers={'Access-Control-Allow-Origin':origin,'Access-Control-Allow-Methods':'GET,POST,OPTIONS','Access-Control-Allow-Headers':'Content-Type,Authorization','Access-Control-Allow-Private-Network':'true'};
-async function tab(label,scope=owner){
+async function tab(label,scope=owner,localPermission){
  const page=await context.newPage();pages.push(page);page.on('pageerror',e=>errors.push(label+': '+e.message));
+ // Requests below are synthetic. Pin only the permission under test so newer
+ // Chrome permission names do not turn a network-retry case into a permission case.
+ if(localPermission)await page.evaluateOnNewDocument(state=>{
+  window.__syntheticLocalPermission=state;
+  const query=navigator.permissions.query.bind(navigator.permissions);
+  navigator.permissions.query=descriptor=>['loopback-network','local-network-access'].includes(descriptor.name)?Promise.resolve({state:window.__syntheticLocalPermission,onchange:null,addEventListener(){},removeEventListener(){},dispatchEvent(){return true;}}):query(descriptor);
+ },localPermission);
  await page.setRequestInterception(true);
  page.on('request',async request=>{
   const url=new URL(request.url());let value={},status=200;
@@ -33,7 +40,8 @@ async function tab(label,scope=owner){
    else {status=500;errors.push('unexpected bridge '+url.pathname);}
   }else if(request.url().startsWith(origin+'/api/')){
    calls.push({tab:label,path:url.pathname,method:request.method(),body:request.postData()||'',authorization:request.headers().authorization||''});
-   if(url.pathname==='/api/auth/session')value={loggedIn:true};
+   if(url.pathname==='/api/web/account-context')value={account:{userId:scope,balance:100},people:[{id:subject,label:'合成人物'}],prices:{analysisSmall:3,profile:5}};
+   else if(url.pathname==='/api/auth/session')value={loggedIn:true};
    else if(url.pathname==='/api/account/credits')value={account:{userId:scope,balance:100},prices:{analysisSmall:3,profile:5}};
    else if(url.pathname==='/api/web/profile')value={enabled:true,paused:false,subjects:[{id:subject,label:'合成人物'}]};
    else if(url.pathname==='/api/web/capture/library')value={ownerId:scope,libraries:[]};
@@ -76,7 +84,8 @@ try{
  await original.setViewport({width:390,height:844});
  assert.equal(await original.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false,'390px no horizontal overflow');
  await original.screenshot({path:output+'/helper-connected-mobile.png',fullPage:true});
- await original.evaluate(()=>[...document.querySelectorAll('button')].find(e=>e.textContent.trim()==='断开').click());await disconnected(original);
+ await original.evaluate(()=>[...document.querySelectorAll('summary')].find(e=>e.textContent==='助手设置').click());
+ await original.evaluate(()=>[...document.querySelectorAll('button')].find(e=>e.textContent.trim()==='断开助手连接').click());await disconnected(original);
  await original.bringToFront();await delay(2400);
  assert.equal(await original.evaluate(()=>document.body.innerText.includes('助手已连接')),false,'explicit disconnect survives discovery and focus');
  await original.reload({waitUntil:'networkidle0'});await disconnected(original);await delay(2400);
@@ -89,12 +98,20 @@ try{
  assert.equal(calls.some(c=>c.tab==='after-close'&&c.path.startsWith('/pair')),false,'cache recovery never creates a new session');
  await clean.addScriptTag({content:sessions.outputFiles[0].text});
  const expiry=await clean.evaluate(owner=>SessionFixture.readCaptureConnectionSession(owner).then(row=>row.expiresAt),owner);await clean.close();
- failNextSession=true;const retry=await tab('network-retry');await retry.goto(origin+path,{waitUntil:'networkidle0'});await disconnected(retry);
+ failNextSession=true;const retry=await tab('network-retry',owner,'granted');await retry.goto(origin+path,{waitUntil:'networkidle0'});await disconnected(retry);
  await retry.waitForFunction(()=>document.querySelector('[role="alert"]')?.textContent.includes('未能连接本机助手'));
  await retry.evaluate(()=>[...document.querySelectorAll('button')].find(button=>button.textContent==='连接已打开的助手').click());await connected(retry);
  await retry.addScriptTag({content:sessions.outputFiles[0].text});
  assert.equal(await retry.evaluate(owner=>SessionFixture.readCaptureConnectionSession(owner).then(row=>row.expiresAt),owner),expiry,'network retry never extends existing session expiry');
- await retry.evaluate(()=>SessionFixture.clearCaptureConnectionSessions());await disconnected(retry);await disconnected(original);
+ await retry.close();
+ failNextSession=true;const permission=await tab('permission-prompt',owner,'prompt');await permission.goto(origin+path,{waitUntil:'networkidle0'});await disconnected(permission);
+ await permission.waitForFunction(()=>document.querySelector('[role="alert"]')?.textContent.includes('浏览器尚未允许连接本机助手'));
+ assert.match(await permission.$eval('[role="alert"]',element=>element.textContent),/本地网络访问.*选择允许.*再点击连接/,'permission failure explains the specific recoverable action');
+ await permission.evaluate(()=>{window.__syntheticLocalPermission='granted';[...document.querySelectorAll('button')].find(button=>button.textContent==='连接已打开的助手').click();});await connected(permission);
+ await permission.addScriptTag({content:sessions.outputFiles[0].text});
+ assert.equal(await permission.evaluate(owner=>SessionFixture.readCaptureConnectionSession(owner).then(row=>row.expiresAt),owner),expiry,'permission recovery keeps the original session expiry');
+ assert.equal(calls.some(c=>c.tab==='permission-prompt'&&c.path.startsWith('/pair')),false,'permission recovery does not force another pairing');
+ await permission.evaluate(()=>SessionFixture.clearCaptureConnectionSessions());await disconnected(permission);await disconnected(original);
  const fresh=await tab('manual-existing');await fresh.setViewport({width:390,height:844});await fresh.goto(origin+path,{waitUntil:'networkidle0'});await disconnected(fresh);
  await fresh.evaluate(()=>[...document.querySelectorAll('button')].find(button=>button.textContent==='连接已打开的助手').click());
  await fresh.waitForFunction(()=>document.body.innerText.includes('助手已打开。输入助手窗口的 8 位连接码'));
@@ -119,5 +136,5 @@ try{
  assert.equal(calls.some(c=>c.path.startsWith('/api/')&&(c.body.includes(token)||c.authorization.includes(token)||c.body.includes(handoff))),false,'credential never sent to website APIs');
  assert.equal(calls.some(c=>c.path==='/capture'||c.path.includes('/analyze')&&c.method==='POST'),false,'connection never starts private capture or paid analysis');
  assert.deepEqual(errors,[]);
- console.log('PASS helper 1.2.6: handoff, owner isolation, all paired tabs closed recovery, original TTL, network retry, real existing-helper code pairing on current page, logout revocation, 1440/390; no private capture or paid calls');
+ console.log('PASS helper 1.2.6: handoff, owner isolation, all paired tabs closed recovery, original TTL, network retry, local-network permission recovery, real existing-helper code pairing on current page, logout revocation, 1440/390; no private capture or paid calls');
 }finally{await context.close();await browser.close();}

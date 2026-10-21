@@ -224,8 +224,60 @@ await test('real queued route completes all 675 rows in one bounded alarm and ch
   const { owner, body } = await setup(), before = calls.length, budgetsBefore = reserveBudgets;
   const queued = await start(owner, body); assert.equal(queued.status, 'queued'); assert.equal(calls.length, before); assert.equal(balance(owner), 1000 - fixturePrice(owner));
   const done = await alarm(owner); assert.equal(done.status, 'done', done.error); assert.equal(done.completedText, 675); assert.equal(done.result.semanticHistory.status, 'complete'); assert.equal(done.result.semanticHistory.coverage.analyzedText, 675); assert.equal(calls.length - before, 4); assert.equal(reserveBudgets - budgetsBefore, 1, 'daily budget is reserved once across alarms');
+  assert.equal(done.completedSegments,3);assert.equal(done.totalSegments,3);assert.equal(done.reusedSegments,0);assert.equal(done.retryCount,0);
+  assert.ok(done.lastStepCompletedAt>=done.startedAt);assert.ok(done.phaseStartedAt>=done.lastStepCompletedAt);assert.ok(Object.hasOwn(done.phaseTimings,'synthesis'));
   assert.equal(creditTask(owner, body.requestId).status, 'settled'); assert.equal(taskCount(owner), 1); assert.equal(balance(owner), 1000 - fixturePrice(owner));
   assert.equal((await start(owner, body, 200)).taskId, body.requestId); assert.equal(calls.length - before, 4);
+});
+
+await test('phase timers survive alarm restarts and cached replay without regressing or double-counting steps',async()=>{
+  const {owner,body}=await setup(12);const queued=await start(owner,body),clock=Date.now;
+  let now=queued.startedAt;Date.now=()=>now;
+  try {
+    const progress=update=>instance(owner).checkpoint(owner,body.requestId,env.WECHAT_CALLBACK_TOKEN,'progress',update);
+    now+=1000;await progress({phase:'images'});
+    now+=2500;await progress({phase:'segments',totalSegments:6});
+    const segmentStartedAt=now;
+    now+=3000;await instance(owner).checkpoint(owner,body.requestId,env.WECHAT_CALLBACK_TOKEN,'a'.repeat(64),{text:'{"findings":[]}',phase:'segments',count:12});
+    const stepCompletedAt=now;
+    await instance(owner).checkpoint(owner,body.requestId,env.WECHAT_CALLBACK_TOKEN,'a'.repeat(64));
+    now+=4000;await progress({phase:'images'});
+    let status=await instance(owner,true).status(owner,body.requestId);
+    assert.equal(status.phase,'segments');assert.equal(status.phaseStartedAt,segmentStartedAt);
+    assert.deepEqual(status.phaseTimings,{preparing:1000,images:2500});assert.equal(status.lastStepCompletedAt,stepCompletedAt);
+    assert.equal(status.completedSegments,1);assert.equal(status.reusedSegments,0);assert.equal(status.totalSegments,6);
+    now+=1000;await progress({phase:'synthesis'});
+    status=await instance(owner,true).status(owner,body.requestId);
+    assert.equal(status.phaseStartedAt,now);assert.equal(status.phaseTimings.segments,8000);
+    await progress({phase:'segments',totalSegments:6});assert.equal((await instance(owner).status(owner,body.requestId)).phaseStartedAt,now);
+  }finally{Date.now=clock;await instance(owner).purge(owner);}
+});
+
+await test('consecutive no-progress yields stop and refund instead of spinning until expiry',async()=>{
+  const {owner,body}=await setup(12);await start(owner,body);
+  const dispatch=fixture.dispatch,before=calls.length;
+  fixture.dispatch=async()=>Response.json({code:'CAPTURE_JOB_YIELD'},{status:202});
+  try{
+    for(let i=1;i<=4;i++){
+      const status=await alarm(owner);assert.equal(status.status,i<4?'retrying':'error');assert.equal(status.retryCount,i);
+      assert.match(status.error,/没有取得进展|暂未取得进展/);
+      assert.equal(status.completedText,0);assert.equal(status.completedSegments,0);
+      if(i<4)assert.ok(await states.get(owner).storage.getAlarm()>Date.now(),'a stalled yield backs off before retrying');
+    }
+    assert.equal(calls.length,before);assert.equal(balance(owner),1000);assert.equal(creditTask(owner,body.requestId).status,'released');
+    await alarm(owner);assert.equal(balance(owner),1000,'terminal stalled job refunds only once');
+  }finally{fixture.dispatch=dispatch;}
+});
+
+await test('new checkpoint work resets a no-progress yield streak across alarm restarts',async()=>{
+  const {owner,body}=await setup(1250);await start(owner,body);
+  const storage=states.get(owner).storage,job=await storage.get('job:'+body.requestId);
+  job.noProgressYields=3;job.retryCount=3;await storage.put('job:'+body.requestId,job);
+  const first=await alarm(owner);
+  assert.equal(first.status,'queued');assert.equal(first.completedSegments,4);assert.equal(first.retryCount,3);
+  assert.equal((await storage.get('job:'+body.requestId)).noProgressYields,0);
+  const done=await finish(owner);assert.equal(done.status,'done');assert.equal(done.retryCount,3);
+  assert.equal(balance(owner),1000-fixturePrice(owner));assert.equal(creditTask(owner,body.requestId).status,'settled');
 });
 
 await test('identical snapshot reuses a saved result for free; changed snapshot creates a new task', async () => {
@@ -311,9 +363,11 @@ await test('provider failures retain checkpoints, refund exactly once and retry 
   const { owner, body } = await setup(1250); await start(owner, body); await alarm(owner); const cached = (await instance(owner).status(owner)).completedText; assert.equal(cached, 1000);
   providerFailure = () => { throw Error('SYNTHETIC_PROVIDER_FAILURE'); };
   let last; for (let i = 0; i < 4; i++) { last = await alarm(owner); assert.equal(last.completedText, 1000); assert.equal(last.status, i < 3 ? 'retrying' : 'error', last.error); }
+  assert.equal(last.retryCount,4);assert.equal(last.completedSegments,4);assert.equal(last.totalSegments,5);
   assert.equal(balance(owner), 1000); assert.equal(creditTask(owner, body.requestId).status, 'released'); await alarm(owner); assert.equal(balance(owner), 1000, 'repeat alarm cannot refund twice');
   providerFailure = null; const before = calls.length, retry = { ...body, requestId: crypto.randomUUID() }; await start(owner, retry); const done = await finish(owner);
   assert.equal(done.status, 'done', done.error); assert.equal(done.reusedSteps, 4); assert.equal(calls.length - before, 2); assert.equal(balance(owner), 1000 - fixturePrice(owner));
+  assert.equal(done.completedSegments,5);assert.equal(done.totalSegments,5);assert.equal(done.reusedSegments,4);assert.equal(done.retryCount,0);
 });
 
 await test('reimport epoch and changed question invalidate checkpoint reuse', async () => {

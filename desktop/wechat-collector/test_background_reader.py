@@ -8,6 +8,7 @@ from unittest.mock import patch, Mock
 from background_reader import (BackgroundCaptureError, capture_from_source,
                                capture_background, probe_background, _voice_duration, _validate_request,
                                local_chat_image)
+from background_reader import _read_audio
 
 
 class Source:
@@ -64,6 +65,27 @@ REQUEST = {"kind": "chat", "friend": "测试联系人", "limit": 500, "includeVo
 
 
 class BackgroundReaderTests(unittest.TestCase):
+    def test_contact_media_aliases_use_one_bounded_query_without_other_contacts(self):
+        source = Source()
+        source.add_audio(101, b"first")
+        media = source.media[0][1]
+        media.executemany("INSERT INTO Name2Id(rowid,user_name) VALUES(?,?)", [(18, "target-user"), (19, "someone-else")])
+        media.executemany("INSERT INTO VoiceInfo VALUES(?,?,?)", [(18, 102, b"second"), (19, 101, b"other")])
+        statements = []
+        media.set_trace_callback(statements.append)
+        try:
+            self.assertEqual(_read_audio(source, "target-user", {"101", "102"}, load_audio=True),
+                             {"101": b"first", "102": b"second"})
+            self.assertEqual(sum("FROM VoiceInfo" in sql for sql in statements), 1)
+            self.assertEqual(media.execute("PRAGMA query_only").fetchone()[0], 1)
+            media.execute("PRAGMA query_only=OFF")  # Add a conflict to this synthetic fixture only.
+            media.execute("INSERT INTO VoiceInfo VALUES(18,101,?)", (b"conflicting",))
+            with self.assertRaises(BackgroundCaptureError) as error:
+                _read_audio(source, "target-user", {"101"}, load_audio=True)
+            self.assertEqual(error.exception.code, "VOICE_IDENTITY_AMBIGUOUS")
+        finally:
+            source.close()
+
     def run_capture(self, source, voice=False, limit=500, transcribe=None):
         partials, progress = [], []
         batch = capture_from_source({**REQUEST, "includeVoice": voice, "limit": limit},

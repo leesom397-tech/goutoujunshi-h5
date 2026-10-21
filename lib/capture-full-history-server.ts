@@ -1,6 +1,7 @@
 import type { getD1 } from "@/db";
 import type { CaptureAnalysisInput, CaptureMemoryRow } from "./capture-analysis-input";
 import type { CloudCaptureRecord } from "./capture-cloud";
+import { allCaptureSteps, CAPTURE_STEP_CONCURRENCY } from "./capture-job-signals.mjs";
 
 type Database = ReturnType<typeof getD1>;
 type Library = { id: string; friend: string; kind: string; subject_id: string | null; epoch: number; revision: number; deleted_at: number | null };
@@ -32,10 +33,14 @@ export async function readFullCaptureHistory(db: Database, owner: string, input:
   const snapshot = await checkFullCaptureHistory(db, owner, input);
   const total = input.expectedTotal!;
   const records: CloudCaptureRecord[] = [], ids = new Set<string>();
-  for (let offset = 0; offset < total; offset += PAGE_SIZE) {
-    const page = await db.prepare("SELECT record_json FROM coach_capture_records WHERE owner_id=? AND library_id=? AND epoch=? ORDER BY sort_known,sort_time,seq LIMIT ? OFFSET ?")
-      .bind(owner, snapshot.id, snapshot.epoch, PAGE_SIZE, offset).all<{ record_json: string }>();
-    for (const item of page.results) {
+  // Fetch a small window together, then consume in the original page order.
+  // This removes one network wait per page without reading an unbounded number
+  // of pages concurrently. The final epoch/revision guard remains mandatory.
+  for (let start = 0; start < total; start += PAGE_SIZE * CAPTURE_STEP_CONCURRENCY) {
+    const offsets = Array.from({length:Math.min(CAPTURE_STEP_CONCURRENCY,Math.ceil((total-start)/PAGE_SIZE))},(_,i)=>start+i*PAGE_SIZE);
+    const pages = await allCaptureSteps(offsets.map(offset => db.prepare("SELECT record_json FROM coach_capture_records WHERE owner_id=? AND library_id=? AND epoch=? ORDER BY sort_known,sort_time,seq LIMIT ? OFFSET ?")
+      .bind(owner, snapshot.id, snapshot.epoch, PAGE_SIZE, offset).all<{ record_json: string }>()));
+    for (const item of pages.flatMap(page=>page.results)) {
       let row: CloudCaptureRecord;
       try { row = JSON.parse(item.record_json) as CloudCaptureRecord; }
       catch { throw new CaptureFullHistoryError("聊天资料有损坏的记录，请重新同步后再试。", 409); }
