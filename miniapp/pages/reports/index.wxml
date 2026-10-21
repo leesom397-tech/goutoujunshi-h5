@@ -7,7 +7,7 @@
   <block wx:else>
     <view class="list-heading"><text>共 {{total}} 份报告</text><text>从最近一次开始</text></view>
     <view wx:if="{{!webLinked}}" class="link-note"><text>还没看到网页报告？先关联你的网页账户。</text><button bindtap="openAccount">去账户关联 →</button></view>
-    <view wx:if="{{!reports.length}}" class="state-card"><text class="empty-title">{{activeQuery ? '没有找到相关报告' : '还没有保存的报告'}}</text><text>{{activeQuery ? '试试人物称呼，或清空搜索查看全部。' : '完成一次分析后，就可以在这里继续阅读。'}}</text><button wx:if="{{!activeQuery}}" bindtap="startAnalysis">开始关系透视 →</button></view>
+    <view wx:if="{{!reports.length}}" class="state-card"><text class="empty-title">{{activeQuery ? '没有找到相关报告' : '还没有保存的报告'}}</text><text>{{activeQuery ? '试试人物称呼，或清空搜索查看全部。' : '完成一次分析后，就可以在这里继续阅读。'}}</text><button wx:if="{{!activeQuery}}" bindtap="startAnalysis">开始关系破译 →</button></view>
     <button wx:for="{{reports}}" wx:key="id" class="report-card" data-id="{{item.id}}" bindtap="openReport"><view class="report-meta"><text class="kind kind-{{item.kind}}">{{item.kindLabel}}</text><text>{{item.dateLabel}}</text></view><text class="report-title">{{item.summary}}</text><view class="report-footer"><text>{{item.label}}</text><text>继续阅读 →</text></view></button>
     <view wx:if="{{pages > 1}}" class="pagination"><button bindtap="previous" disabled="{{page <= 1}}">上一页</button><text>{{page}} / {{pages}}</text><button bindtap="next" disabled="{{page >= pages}}">下一页</button></view>
   </block>

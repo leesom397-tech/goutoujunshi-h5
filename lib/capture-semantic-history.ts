@@ -293,42 +293,46 @@ export function contextGroundedSynthesis(input:unknown,findings:readonly (Pick<S
 }
 
 /** Reading all rows is not the same as producing a complete interpretation. */
-export function hasCompleteHistorySynthesis(input: unknown, findings: readonly (Pick<SemanticHistoryFinding, "id"> & Partial<SemanticHistoryFinding>)[], detailed=false,question?:string) {
-  if (!findings.length) return true;
-  if (!object(input) || typeof input.summary !== "string" || !input.summary.trim() || typeof input.explanation !== "string" || !input.explanation.trim()) return false;
-  if(!contextGroundedSynthesis(input,findings))return false;
+export function historySynthesisIssue(input: unknown, findings: readonly (Pick<SemanticHistoryFinding, "id"> & Partial<SemanticHistoryFinding>)[], detailed=false,question?:string) {
+  if (!findings.length) return "";
+  if (!object(input) || typeof input.summary !== "string" || !input.summary.trim() || typeof input.explanation !== "string" || !input.explanation.trim()) return "summary_or_explanation_missing";
+  if(!contextGroundedSynthesis(input,findings))return "context_not_grounded";
   const ids = new Set(findings.map(item => item.id));
-  if(!Array.isArray(input.summaryEvidenceIds) || !input.summaryEvidenceIds.length || !input.summaryEvidenceIds.every(id => typeof id === "string" && ids.has(id)))return false;
+  if(!Array.isArray(input.summaryEvidenceIds) || !input.summaryEvidenceIds.length || !input.summaryEvidenceIds.every(id => typeof id === "string" && ids.has(id)))return "summary_evidence_invalid";
   const momentIds=new Set(findings.filter(item=>item.evidence?.some(source=>source.sourceKind==="moments")).map(item=>item.id));
   if(momentIds.size){
     const moments=object(input.sourceInsights)&&object(input.sourceInsights.moments)?input.sourceInsights.moments:null;
-    if(!moments||typeof moments.summary!=="string"||!moments.summary.trim()||!Array.isArray(moments.evidenceIds)||!moments.evidenceIds.length||!moments.evidenceIds.every(id=>typeof id==="string"&&ids.has(id))||!moments.evidenceIds.some(id=>momentIds.has(String(id))))return false;
+    if(!moments||typeof moments.summary!=="string"||!moments.summary.trim()||!Array.isArray(moments.evidenceIds)||!moments.evidenceIds.length||!moments.evidenceIds.every(id=>typeof id==="string"&&ids.has(id))||!moments.evidenceIds.some(id=>momentIds.has(String(id))))return "moments_evidence_missing";
   }
   if(detailed&&findings.some(item=>item.evidence?.some(source=>!source.basis&&source.senderRole==="other"))){
     const assessment=object(input.affinityAssessment)?input.affinityAssessment:null;
-    if(!assessment||!Array.isArray(assessment.dimensions))return false;
-    if(!assessment.dimensions.length&&!(typeof assessment.unavailableReason==="string"&&assessment.unavailableReason.trim()))return false;
-    if(!assessment.dimensions.every(item=>object(item)&&AFFINITY_DIMENSIONS.some(dimension=>dimension.key===item.key)&&["clear","ambiguous","insufficient"].includes(String(item.status))&&(item.status==="insufficient"?item.level===null:Number.isInteger(item.level)&&Number(item.level)>=0&&Number(item.level)<=4&&typeof item.reason==="string"&&!!item.reason.trim()&&Array.isArray(item.evidenceIds)&&item.evidenceIds.length>0&&item.evidenceIds.every(id=>typeof id==="string"&&ids.has(id)))))return false;
+    if(!assessment||!Array.isArray(assessment.dimensions))return "affinity_dimensions_missing";
+    if(!assessment.dimensions.length&&!(typeof assessment.unavailableReason==="string"&&assessment.unavailableReason.trim()))return "affinity_unavailable_reason_missing";
+    if(!assessment.dimensions.every(item=>object(item)&&AFFINITY_DIMENSIONS.some(dimension=>dimension.key===item.key)&&["clear","ambiguous","insufficient"].includes(String(item.status))&&(item.status==="insufficient"?item.level===null:Number.isInteger(item.level)&&Number(item.level)>=0&&Number(item.level)<=4&&typeof item.reason==="string"&&!!item.reason.trim()&&Array.isArray(item.evidenceIds)&&item.evidenceIds.length>0&&item.evidenceIds.every(id=>typeof id==="string"&&ids.has(id)))))return "affinity_dimension_invalid";
   }
   if(detailed&&typeof input.action==="string"&&input.action.trim()&&Array.isArray(input.actionEvidenceIds)&&input.actionEvidenceIds.length&&input.actionEvidenceIds.every(id=>typeof id==="string"&&ids.has(id))){
-    if(!validatedSynthesis(input,findings as SemanticHistoryFinding[]).actionPlan?.steps.length)return false;
+    if(!validatedSynthesis(input,findings as SemanticHistoryFinding[]).actionPlan?.steps.length)return "action_plan_invalid";
   }
   if(detailed&&(question==="risk"||question==="worth"||!question||question==="panorama")){
     const risk=validatedRiskAssessment(input.riskAssessment,findings as SemanticHistoryFinding[]);
-    if(!risk)return false;
+    if(!risk)return "risk_assessment_invalid";
     const anchored=findings.filter(finding=>finding.id.startsWith("risk:"));
-    if(anchored.some(finding=>!risk.items.some(item=>item.evidenceIds.includes(finding.id))))return false;
-    if(object(input.riskAssessment)&&Array.isArray(input.riskAssessment.items)&&input.riskAssessment.items.length!==risk.items.length)return false;
+    if(anchored.some(finding=>!risk.items.some(item=>item.evidenceIds.includes(finding.id))))return "anchored_risk_missing";
+    if(object(input.riskAssessment)&&Array.isArray(input.riskAssessment.items)&&input.riskAssessment.items.length!==risk.items.length)return "risk_item_invalid";
   }
   if (detailed && (!question || question === "panorama")) {
     const validated = validatedSynthesis(input, findings as SemanticHistoryFinding[]);
     // Global analysis must either explain the person and a usable next step or
     // explicitly state what evidence is missing. Silent omissions are not a
     // completed report, even if its opening sentence happens to be grounded.
-    if (!validated.profileInsights.length && !short(input.profileUnavailableReason, 300)) return false;
-    if (!validated.actionPlan?.steps.length && !(sourceContextScope(findings.flatMap(item=>item.evidence||[]))==="product_feedback"&&short(input.actionUnavailableReason,300))) return false;
+    if (!validated.profileInsights.length && !short(input.profileUnavailableReason, 300)) return "profile_insights_missing";
+    if (!validated.actionPlan?.steps.length && !(sourceContextScope(findings.flatMap(item=>item.evidence||[]))==="product_feedback"&&short(input.actionUnavailableReason,300))) return "action_steps_missing";
   }
-  return true;
+  return "";
+}
+
+export function hasCompleteHistorySynthesis(input: unknown, findings: readonly (Pick<SemanticHistoryFinding, "id"> & Partial<SemanticHistoryFinding>)[], detailed=false,question?:string) {
+  return !historySynthesisIssue(input, findings, detailed, question);
 }
 
 export function validatedHistoryAffinity(input:unknown,findings:readonly SemanticHistoryFinding[],contextCount=0):HistoryAffinity{

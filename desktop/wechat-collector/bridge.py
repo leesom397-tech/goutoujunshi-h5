@@ -305,7 +305,10 @@ class CollectorState:
             payload.update({key: request[key] for key in HISTORY_FIELDS if key in request})
             payload.update({key: request[key] for key in ("contactId", "accountKey", "voiceOnly", "voiceIds", "imageOnly", "imageIds") if key in request})
             proc = ctx.Process(target=self.capture_target, args=(child, payload), daemon=True)
+            from browser_return import capture_browser_window
+            browser_window = capture_browser_window() if mode != "background" else None
             job = {"jobId": job_id, "mode": mode, "kind": kind, "allVisible": all_visible,
+                   "browserWindow": browser_window,
                    "status": "running", "progress": 0, "partialRevision": 0,
                    "phase": "preparing", "recordCount": 0, "pinnedCount": 0,
                    "lastAction": "start",
@@ -428,6 +431,12 @@ class CollectorState:
                 if self.active == job_id:
                     self.active = None
                 self.local_message = "采集结束；原文仅暂存在本机内存，等待网页操作"
+            if job and job.get("status") == "completed" and job.get("browserWindow"):
+                from browser_return import return_to_browser
+                try:
+                    return_to_browser(job["browserWindow"])
+                except (OSError, AttributeError):
+                    pass  # Browser focus must never change the capture result.
 
     def get(self, job_id, after_revision=None):
         with self.lock:
@@ -435,7 +444,7 @@ class CollectorState:
             if job_id not in self.jobs:
                 raise BridgeError(404, "JOB_NOT_FOUND", "任务不存在或已过期。")
             job = self.jobs[job_id]
-            result = {key: value for key, value in job.items() if key not in ("process", "updated")}
+            result = {key: value for key, value in job.items() if key not in ("process", "updated", "browserWindow")}
             if after_revision is not None:
                 if type(after_revision) is not int or not 0 <= after_revision <= 1_000_000:
                     raise BridgeError(400, "INVALID_REVISION", "采集进度编号无效。")

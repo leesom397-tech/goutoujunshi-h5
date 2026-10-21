@@ -1,10 +1,10 @@
 <view class="library-screen">
-  <view class="heading"><text class="eyebrow">你的材料 · 多端接着用</text><text class="title">{{library ? library.label : '关系透视'}}</text><text class="subtitle">{{library ? library.kindLabel + ' · ' + library.total + ' 条 · ' + library.range : '按实际材料生成报告，手机与电脑接着看。'}}</text></view>
+  <view class="heading"><text class="eyebrow">你的材料 · 多端接着用</text><text class="title">{{library ? library.label : '关系破译'}}</text><text class="subtitle">{{library ? library.kindLabel + ' · ' + library.total + ' 条 · ' + library.range : '按实际材料生成报告，手机与电脑接着看。'}}</text></view>
   <view wx:if="{{loading}}" class="panel"><busy-indicator label="正在读取你的资料"/></view>
   <view wx:if="{{error}}" class="error" role="alert"><text>{{error}}</text><button wx:if="{{!busy}}" bindtap="{{library ? 'retryPage' : 'load'}}">重新读取</button></view>
   <block wx:if="{{!loading}}">
     <block wx:if="{{!library}}">
-      <view class="entry-choices"><button class="primary" bindtap="openScreenshots">上传聊天，关系透视<text>好感信号 · 逐句意图 · 怎么回</text></button><button class="secondary" bindtap="openReports">查看已生成报告<text>手机与电脑，同账号接着看</text></button></view>
+      <view class="entry-choices"><button class="primary" bindtap="openScreenshots">上传聊天，关系破译<text>好感信号 · 逐句意图 · 怎么回</text></button><button class="secondary" bindtap="openReports">查看已生成报告<text>手机与电脑，同账号接着看</text></button></view>
       <view class="panel"><text class="section-title">截图也能看完整关系</text><text>完整聊天不要求条数；部分聊天达到 60 条可读消息，生成阶段关系报告。只分析实际提供的内容。</text></view><view class="panel"><text class="section-title">电脑完整资料</text><text>在电脑选好人，一键导入聊天、语音和可见朋友圈。手机可查看已同步资料，确认费用后生成完整报告。</text><button class="secondary" bindtap="copyComputerUrl">复制电脑导入网址</button></view>
       <view wx:if="{{!webLinked}}" class="panel link-panel"><text class="section-title">接上电脑里的同一份资料</text><text>关联你在电脑使用的成子账号后，才能读取那个账号的聊天库。不会自动合并其他账号。</text><button class="primary" loading="{{linking}}" disabled="{{linking}}" bindtap="linkAccount">关联网页账号</button></view>
       <view wx:if="{{!libraries.length && webLinked}}" class="panel"><text class="section-title">还没有同步过来的聊天</text><text>电脑导入时会自动保存到同一账号。完成后，下拉刷新即可查看。</text><button class="secondary" bindtap="copyComputerUrl">复制电脑导入网址</button></view>
