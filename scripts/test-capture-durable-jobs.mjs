@@ -408,7 +408,7 @@ await test('summary-only synthesis retries without losing completed evidence or 
     return JSON.stringify({summary:'尚需确认安排。',summaryEvidenceIds:[detail.findings[0].id]});
   };
   const retrying=await alarm(owner);assert.equal(retrying.status,'retrying');assert.equal(retrying.completedText,675);assert.equal(retrying.phase,'synthesis');assert.match(retrying.error,/综合判断.*补全/);
-  const checkpoints=await states.get(owner).storage.list({prefix:'step:'});assert.equal(checkpoints.size,3);assert.ok([...checkpoints.values()].every(step=>step.phase==='segments'));
+  const checkpoints=await states.get(owner).storage.list({prefix:'step:'});assert.equal(checkpoints.size,4);assert.equal([...checkpoints.values()].filter(step=>step.phase==='segments').length,3);assert.equal([...checkpoints.values()].filter(step=>step.draft).length,1);
   assert.equal(creditTask(owner,body.requestId).status,'reserved');assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM coach_saved_reports WHERE id=? AND status='done'").get(body.requestId).n,0);
   providerFailure=null;const done=await finish(owner);assert.equal(done.status,'done',done.error);assert.ok(done.result.semanticHistory.explanation);
   assert.equal(calls.slice(before).filter(call=>call.phase==='segments').length,3,'verified segments must not run again after sparse synthesis');
@@ -496,7 +496,7 @@ await test('persistent ungrounded synthesis refunds and never caches or saves a 
   };
   const failed=await finish(owner);assert.equal(failed.status,'error');assert.equal(failed.completedText,675);assert.equal(balance(owner),1000);assert.equal(creditTask(owner,body.requestId).status,'released');
   assert.equal(calls.slice(before).filter(call=>call.phase==='segments').length,3);assert.equal(calls.slice(before).filter(call=>call.phase==='synthesis').length,4);
-  const checkpoints=await states.get(owner).storage.list({prefix:'step:'});assert.equal(checkpoints.size,3);assert.ok([...checkpoints.values()].every(step=>step.phase==='segments'));
+  const checkpoints=await states.get(owner).storage.list({prefix:'step:'});assert.equal(checkpoints.size,4);assert.equal([...checkpoints.values()].filter(step=>step.phase==='segments').length,3);assert.equal([...checkpoints.values()].filter(step=>step.draft).length,1);
   assert.equal(sql.prepare("SELECT COUNT(*) AS n FROM coach_saved_reports WHERE id=? AND status='done'").get(body.requestId).n,0);
   const count=calls.length;await alarm(owner);assert.equal(calls.length,count);assert.equal(balance(owner),1000,'refund and terminal retry stay idempotent');
 });
@@ -647,6 +647,22 @@ await test('sparse legacy synthesis cache is replaced while concise grounded rea
   assert.match(await model(messages,options),/尚无兑现证据/);assert.equal(providerCalls,1,'validated new synthesis is reused');
   const noFindings=checkpointedCaptureModel(async()=>JSON.stringify({summary:'目前没有可靠观察。'}),async()=>null);
   assert.match(await noFindings([{role:'user',content:JSON.stringify({findings:[]})}],options),/没有可靠观察/);
+});
+
+await test('synthesis retry receives its draft and exact validation issue before caching accepted output',async()=>{
+  const cache=new Map();let attempts=0;
+  const model=checkpointedCaptureModel(async(messages)=>{
+    const detail=JSON.parse(messages.at(-1).content);attempts++;
+    if(attempts===1)return JSON.stringify({summary:'待确认',summaryEvidenceIds:['verified-one']});
+    assert.equal(detail.repair.issue,'summary_or_explanation_missing');
+    assert.match(detail.repair.draft,/待确认/);assert.equal(detail.findings[0].id,'verified-one');
+    return JSON.stringify({summary:'待确认',explanation:'原话只支持当前提议，后续尚未核实。',summaryEvidenceIds:['verified-one']});
+  },async(key,value)=>{if(value&&key!=='progress')cache.set(key,value);return cache.get(key);});
+  const messages=[{role:'user',content:JSON.stringify({findings:[{id:'verified-one'}]})}];
+  await assert.rejects(model(messages),error=>error instanceof CaptureJobRetry);
+  assert.equal([...cache.values()][0].draft,true);
+  assert.match(await model(messages),/后续尚未核实/);assert.equal([...cache.values()][0].draft,undefined);
+  await model(messages);assert.equal(attempts,2);
 });
 
 await test('unverifiable segment citations retry rather than becoming a paid empty report',async()=>{

@@ -4,6 +4,7 @@
   <view wx:if="{{phase === 'loading'}}" class="panel center"><busy-indicator label="正在读取报告"/></view>
   <view wx:elif="{{phase === 'error'}}" class="panel"><text class="heading">报告暂时无法打开</text><text class="muted">{{error}}</text><button class="retry" bindtap="refresh">重新读取</button></view>
   <block wx:else>
+    <view class="panel"><text class="muted">旧报告使用新版展示，阅读不扣积分。原判断与生成时间保留；新增分析另行确认费用。</text></view>
     <view wx:if="{{report.parentReportId}}" class="supplement-context"><text>本次新增截图的补充解读</text><text class="muted">{{report.scope.note}}</text><text class="muted">{{report.parentGeneratedTime?'背景报告生成于 '+report.parentGeneratedTime:'原完整报告未记录生成时间'}}</text><button bindtap="parentReport">返回原完整报告 →</button></view>
     <history-report wx:if="{{report.fullHistory}}" value="{{report.fullHistory}}" bind:ask="openFollowup"/>
     <block wx:else>

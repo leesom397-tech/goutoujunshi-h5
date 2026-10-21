@@ -1374,7 +1374,7 @@ export default function CapturePage() {
       if (current.analysisScope === "fullHistory" && response.taskId && response.status !== "done") {
         if (ticket !== generation.current) return;
         const sameSource=!response.libraryId||response.libraryId===reportLibrary.cloud?.id;
-        if(!sameSource||response.subjectId&&response.subjectId!==current.subjectId){setError("另一位人物的报告正在生成，请在「关系透视」查看进度，完成后再分析这份材料。");remember(scopeKey("analysis"),null);setReceipt(null);return;}
+        if(!sameSource||response.subjectId&&response.subjectId!==current.subjectId){setError("另一位人物的报告正在生成，请在「关系破译」查看进度，完成后再分析这份材料。");remember(scopeKey("analysis"),null);setReceipt(null);return;}
         const accepted={...response,libraryId:response.libraryId||reportLibrary.cloud?.id,subjectId:response.subjectId||current.subjectId,friend:response.friend||contactDisplayName(reportLibrary.friend),kind:response.kind||current.kind,totalCount:response.totalCount||current.expectedTotal,startedAt:response.startedAt||Date.now(),phase:response.phase||"preparing"};
         const [primaryVersion,...relatedVersion]=await Promise.all([reportLibrary,...relatedMoments].map(captureMaterialVersion));
         if(ticket!==generation.current)return;
