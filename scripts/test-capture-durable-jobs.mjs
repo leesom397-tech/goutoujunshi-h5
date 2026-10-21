@@ -556,6 +556,13 @@ await test('deleting an in-progress or completed report cannot resurrect it on a
   const replay = await start(completed.owner, completed.body); assert.equal(replay.status, 'removed'); assert.equal(taskCount(completed.owner), 1); assert.equal(balance(completed.owner), 1000 - fixturePrice(completed.owner));
 });
 
+await test('stale running status repairs a far-future cleanup alarm without restarting a fresh task', async () => {
+  const {owner,body}=await setup();await start(owner,body);const storage=states.get(owner).storage;
+  const future=Date.now()+30*86400000;await storage.setAlarm(future);
+  await instance(owner,true).status(owner,body.requestId);assert.equal(await storage.getAlarm(),future,'a fresh invocation is not restarted');
+  const job=await storage.get('job:'+body.requestId);job.status='running';job.updatedAt=Date.now()-240000;await storage.put('job:'+body.requestId,job);
+  await instance(owner,true).status(owner,body.requestId);assert.ok(await storage.getAlarm()<Date.now()+1000,'stale task wakes promptly rather than waiting for cleanup');
+});
 await test('expired jobs release the reservation and status repairs a missing alarm', async () => {
   const { owner, body } = await setup(); await start(owner, body); const storage = states.get(owner).storage; storage.takeAlarm(); assert.equal(await storage.getAlarm(), null);
   await instance(owner, true).status(owner, body.requestId); assert.ok(await storage.getAlarm());
