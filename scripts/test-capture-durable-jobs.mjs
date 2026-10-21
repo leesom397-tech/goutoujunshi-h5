@@ -253,6 +253,31 @@ await test('phase timers survive alarm restarts and cached replay without regres
   }finally{Date.now=clock;await instance(owner).purge(owner);}
 });
 
+await test('upgrading a running legacy job suppresses incomplete segment totals without replaying paid work',async()=>{
+  for(const missingCounters of [true,false]){
+    const {owner,body}=await setup(1250);await start(owner,body);const first=await alarm(owner);
+    assert.equal(first.completedText,1000);assert.equal(first.completedSegments,4);
+    const storage=states.get(owner).storage,job=await storage.get('job:'+body.requestId);
+    delete job.segmentAccountingKnown;
+    if(missingCounters){delete job.completedSegments;delete job.reusedSegments;delete job.totalSegments;}
+    else {job.completedSegments=1;job.reusedSegments=0;} // a prior partial upgrade cannot certify the missing prefix
+    await storage.put('job:'+body.requestId,job);
+    const assertProgress=status=>{
+      for(const key of ['completedSegments','reusedSegments','totalSegments'])assert.equal(Object.hasOwn(status,key),false,'legacy incomplete '+key+' must not drive 0/N or ETA');
+    };
+    assertProgress(await instance(owner,true).status(owner,body.requestId));
+    await instance(owner).checkpoint(owner,body.requestId,env.WECHAT_CALLBACK_TOKEN,'progress',{phase:'segments',totalSegments:5});
+    assertProgress(await instance(owner,true).status(owner,body.requestId));
+    const before=calls.length,done=await finish(owner);
+    assert.equal(done.status,'done');assertProgress(done);assert.equal(done.completedText,1250);
+    assert.equal(done.result.semanticHistory.coverage.analyzedText,1250);
+    assert.equal(calls.length-before,2,'only one unfinished segment and synthesis run after upgrade');
+    assert.equal((await storage.get('job:'+body.requestId)).segmentAccountingKnown,false);
+    assert.equal(taskCount(owner),1);assert.equal(balance(owner),1000-fixturePrice(owner));
+    assert.equal(creditTask(owner,body.requestId).status,'settled');
+  }
+});
+
 await test('consecutive no-progress yields stop and refund instead of spinning until expiry',async()=>{
   const {owner,body}=await setup(12);await start(owner,body);
   const dispatch=fixture.dispatch,before=calls.length;
