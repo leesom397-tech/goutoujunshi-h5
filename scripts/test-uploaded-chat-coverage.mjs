@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import {uploadedChatRows,uploadedChatCoverage} from '../lib/uploaded-chat-coverage.mjs';
+const line=(i)=>({id:String(i),speaker:i%2?'self':'other',text:'合成聊天 '+i});
+const entry=n=>({lines:Array.from({length:n},(_,i)=>line(i))});
+assert.equal(uploadedChatCoverage([entry(59)]).depth,'focused');
+assert.equal(uploadedChatCoverage([entry(60)]).title,'阶段关系报告');
+assert.equal(uploadedChatCoverage([entry(2)],{historyCoverage:'complete'}).title,'完整关系报告');
+assert.equal(uploadedChatCoverage([entry(0)],{historyCoverage:'complete'}).depth,'focused');
+assert.equal(uploadedChatCoverage([entry(2)],{historyCoverage:'complete',extractionIncomplete:true}).history,'partial');
+assert.equal(uploadedChatCoverage([entry(70)],{historyCoverage:'complete',extractionIncomplete:true}).title,'阶段关系报告');
+assert.equal(uploadedChatCoverage([{lines:[{speaker:'other',text:'[图片]'}]}],{historyCoverage:'complete'}).readableMessages,0);
+assert.equal(uploadedChatRows([entry(4),{lines:[line(2),line(3),line(4)]}]).length,5);
+assert.equal(uploadedChatRows([{lines:[line(1),line(1),line(1)]}]).length,3,'do not deduplicate everyday repeated messages');
+assert.equal(uploadedChatRows([{lines:[{speaker:'unknown',text:'unattributed'},line(2)]}]).length,1);
+assert.equal(uploadedChatCoverage([entry(60)],{imageCount:1,duration:0}).history,'partial');
+console.log('PASS uploaded chat: 60-message threshold, complete short history, partial video, overlapping screenshots, unknown speakers');

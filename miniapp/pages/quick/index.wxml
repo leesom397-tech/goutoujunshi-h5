@@ -52,6 +52,14 @@
           <button data-index="{{imageIndex}}" data-step="1" bindtap="moveImage" disabled="{{imageIndex === imageCount - 1 || busy}}" aria-label="第{{item.order}}张后移">后移</button>
         </view>
         <view class="upload-section">
+          <view wx:if="{{!returnReportId}}" class="field">
+            <text class="field-label">这次聊天是否完整？</text>
+            <view class="side-options">
+              <button class="side-option {{historyCoverage === 'partial' ? 'selected' : ''}}" data-coverage="partial" bindtap="chooseCoverage" disabled="{{busy}}">部分聊天</button>
+              <button class="side-option {{historyCoverage === 'complete' ? 'selected' : ''}}" data-coverage="complete" bindtap="chooseCoverage" disabled="{{busy}}">已提供从认识至今的全部聊天</button>
+            </view>
+            <text class="helper">完整聊天不要求条数。部分聊天识别到 60 条起，生成阶段关系报告；不会当作全部历史。费用按本次材料计算，不因报告类型再次扣费。</text>
+          </view>
           <view class="step">02 · 确认本人</view>
           <view class="field"><text class="field-label">我在截图哪侧？</text><view class="side-options"><button class="side-option {{side === 'left' ? 'selected' : ''}}" data-side="left" disabled="{{busy}}" bindtap="chooseSide" aria-pressed="{{side === 'left'}}"><view class="side-bubble left-bubble"/><text>我是左侧</text><text class="side-check">{{side === 'left' ? '✓ 已选择' : '点击选择'}}</text></button><button class="side-option {{side === 'right' ? 'selected' : ''}}" data-side="right" disabled="{{busy}}" bindtap="chooseSide" aria-pressed="{{side === 'right'}}"><view class="side-bubble right-bubble"/><text>我是右侧</text><text class="side-check">{{side === 'right' ? '✓ 已选择' : '点击选择'}}</text></button></view><text class="helper">{{side === 'ask' ? '请点选自己的气泡位置，避免把双方判断反。' : '已选好本人位置，接着确认分析即可。'}}</text></view>
           <view class="field archive-choice">

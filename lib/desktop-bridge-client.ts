@@ -4,6 +4,19 @@
 export const DESKTOP_BRIDGE = "http://127.0.0.1:17863";
 export type BridgeHealth = { version: string; ready: boolean; message?: string; uiReady?:boolean; uiCode?:string; uiMessage?:string; momentsMessage?:string; backgroundMessage?: string; backgroundStatus?: string; backgroundModelReady?: boolean; backgroundMaxRows?: number; backgroundPageSize?: number; momentsMaxRows?: number; capabilities: { chat: boolean; moments: boolean; contactPagination?:boolean; jobProgressRevision?:boolean; uiCapturePreparation?:boolean; momentsAllVisible?: boolean; momentsContacts?: boolean; personBundle?: boolean; deferredVoice?: boolean; backgroundChat?: boolean; backgroundVoice?: boolean; backgroundVoiceById?: boolean; backgroundImagesById?: boolean; backgroundHistory?: boolean } };
 export class BridgeError extends Error { constructor(message: string, public status=0, public code="") { super(message); } }
+async function localPermissionHint(): Promise<string> {
+  if (typeof navigator === "undefined" || !navigator.permissions?.query) return "";
+  // Browser versions expose different permission names. Unsupported names must
+  // never prevent a connection, and querying must not grant permissions.
+  for (const name of ["loopback-network", "local-network-access"]) {
+    try {
+      const permission = await navigator.permissions.query({ name: name as PermissionName });
+      if (permission.state === "denied") return "浏览器已禁止本站连接本机助手。请在地址栏左侧的网站设置中允许「本地网络访问」，然后重新连接。";
+      if (permission.state === "prompt") return "浏览器尚未允许连接本机助手。请在当前浏览器窗口的「本地网络访问」提示中选择允许，再点击连接；没有提示时可从地址栏左侧的网站设置开启。";
+    } catch { /* This browser does not expose this permission name. */ }
+  }
+  return "";
+}
 export async function bridgeRequest<T>(path: string, options: { token?: string; body?: unknown; signal?: AbortSignal; timeoutMs?: number } = {}): Promise<T> {
   if (!/^\/(?:health|session|pair(?:\/handoff)?|contacts\/search|capture|jobs\/[a-zA-Z0-9_-]+(?:\/cancel|\/since\/[0-9]{1,7})?)$/.test(path)) throw Error("采集请求地址无效。");
   if (typeof window !== "undefined" && !window.isSecureContext) throw Error("连接本机助手需要 HTTPS 网页，请从正式网站打开采集页。");
@@ -32,6 +45,10 @@ export async function bridgeRequest<T>(path: string, options: { token?: string; 
     return result as T;
   } catch (error) {
     if (options.signal?.aborted) throw error;
+    if (timedOut || error instanceof TypeError || error instanceof DOMException) {
+      const hint = await localPermissionHint();
+      if (hint) throw Error(hint);
+    }
     if (timedOut) throw Error("连接本机采集助手超时。请确认助手仍在运行，再点击连接；也可使用窗口采集。");
     if (error instanceof TypeError || error instanceof DOMException) throw Error("未能连接本机助手。请先启动助手，并允许浏览器的「本机／本地网络访问」权限；若此前拒绝，可在本站的网站设置中重新允许。Mac 还需检查系统的本地网络权限。也可改用窗口采集。");
     if (error instanceof SyntaxError) throw Error("采集助手返回的数据格式不正确，请更新或重新启动助手。");

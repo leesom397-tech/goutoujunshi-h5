@@ -58,8 +58,8 @@ async function send(owner,id,body,expected=200){
   const response=await routeSocialProfileJob(new Request('https://fixture.invalid/api/web/screenshot/batch?taskId='+id,{method:body?'POST':'GET',headers:{'content-type':'application/json','x-test-owner':owner,'x-request-id':id},...(body?{body:JSON.stringify(body)}:{})}),env,{});
   const value=await response.json();assert.equal(response.status,expected,JSON.stringify(value));return value;
 }
-async function upload(owner,images,{subjectId=null,side='right',price=screenshotPrice(images.length),taskId=crypto.randomUUID(),parentReportId}={}){
-  const init={uploadAction:'init',confirmed:true,imageCount:images.length,selfSide:side,sessionId:crypto.randomUUID(),subjectId,priceConfirmation:price,...(parentReportId?{parentReportId}:{})};
+async function upload(owner,images,{subjectId=null,side='right',price=screenshotPrice(images.length),taskId=crypto.randomUUID(),parentReportId,...coverage}={}){
+  const init={...coverage,uploadAction:'init',confirmed:true,imageCount:images.length,selfSide:side,sessionId:crypto.randomUUID(),subjectId,priceConfirmation:price,...(parentReportId?{parentReportId}:{})};
   await send(owner,taskId,init,201);
   for(let index=0;index<images.length;index++)await send(owner,taskId,{uploadAction:'part',index,image:images[index]});
   await send(owner,taskId,{uploadAction:'commit'},202);
@@ -174,5 +174,33 @@ sql.prepare("UPDATE coach_saved_reports SET status='done' WHERE id=?").run(paren
 const midFlight=await upload('native',['data:image/png;base64,ZHVyaW5n'],baseOptions);
 modelHook=()=>sql.prepare('UPDATE coach_saved_reports SET subject_id=? WHERE id=?').run(otherSubject,parentReportId);
 assert.equal((await finish('native',midFlight.id)).status,'error');modelHook=null;assert.equal(ledger('native',midFlight.id).status,'released');assert.equal(await readAnalysisReport(db,'native',midFlight.id),null);
+await setup('coverage');
+const originalFetch=globalThis.__pricingApp.fetch;
+let compositions=0;
+globalThis.__pricingApp.fetch=async function(request){
+ if(new URL(request.url).pathname.endsWith('/comprehensive')){
+  compositions++;const body=await request.json();
+  assert.equal(body.historyCoverage,'complete');
+  assert.equal(request.headers.get('x-screenshot-job-key'),'synthetic');
+  return Response.json({id:body.taskId,analysisScope:'uploadedHistory',materialCoverage:{history:'user-declared-complete'},scopeNote:'synthetic complete short history',semanticHistory:{summary:'combined'},decision:{judgment:'combined'}});
+ }
+ return originalFetch(request);
+};
+const completeImages=['data:image/png;base64,Y29tcGxldGU='];
+const completeOptions={reportDepth:'auto',historyCoverage:'complete'};
+const completeJob=await upload('coverage',completeImages,completeOptions);
+const completeResult=await finish('coverage',completeJob.id);
+assert.equal(completeResult.status,'done');assert.equal(compositions,1);
+assert.equal(completeResult.result.aggregateReport.semanticHistory.summary,'combined');
+assert.equal(balance('coverage'),995,'composition is covered by the original screenshot price');
+const reusedComplete=await upload('coverage',completeImages,completeOptions);
+const reusedResult=await finish('coverage',reusedComplete.id);
+assert.equal(reusedResult.result.aggregateReport.semanticHistory.summary,'combined');
+assert.equal(compositions,1);assert.equal(balance('coverage'),995,'reuse cannot charge again');
+const partialJob=await upload('coverage',completeImages,{reportDepth:'auto',historyCoverage:'partial'});
+const partialResult=await finish('coverage',partialJob.id);
+assert.equal(partialResult.result.analysisScope,'screenshots','same bytes with different coverage cannot reuse complete-history classification');
+assert.equal(compositions,1);
+globalThis.__pricingApp.fetch=originalFetch;
 delete globalThis.__pricingApp;delete globalThis.__pricingNativeOwner;sql.close();
 console.log('PASS screenshot 5/10/15/20; stale quotes no task; actual SQLite debits/refunds; exact bytes + scope reuse across IDs; owner/person/speaker isolation; permission failure refunds; no balance reset; full range bounds.');

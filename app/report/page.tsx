@@ -50,7 +50,7 @@ export default function ReportPage() {
       if (ticket !== generation.current) return;
       if (!value.report || (value.reportId || value.report.id) !== id) throw new Error("报告未完整返回，请重试。");
       const entries: Json[] = Array.isArray(value.entries) ? value.entries : [];
-      const report = value.kind === "chat" && entries.length ? mergeChatReports(entries) : value.report;
+      const report = value.kind === "chat" && entries.length && value.report.analysisScope !== 'uploadedHistory' ? mergeChatReports(entries) : value.report;
       if (!report) throw new Error("报告正文暂未返回，请重试。");
       const scopeMetadata = value.report.analysisScope === "supplement" ? { analysisScope: "supplement", supplementOf: value.report.supplementOf, scopeNote: value.report.scopeNote, generatedAt: value.report.generatedAt } : {};
       setSaved({ ...value, kind: value.kind || "chat", report: { ...report, ...scopeMetadata, reportId: value.reportId || id }, entries }); setReportOwner(scope);

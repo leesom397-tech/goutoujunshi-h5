@@ -122,7 +122,7 @@ Page({
   },
 
   data: {
-    phase: "loading", prices: null, pricesReady: false, priceError: "", busy: false, error: "", progress: "", elapsedSeconds: 0, lastElapsedSeconds: 0, ticket: "", token: "",
+    historyCoverage: "partial", phase: "loading", prices: null, pricesReady: false, priceError: "", busy: false, error: "", progress: "", elapsedSeconds: 0, lastElapsedSeconds: 0, ticket: "", token: "",
     image: "", imageType: "", imageSize: 0, images: [], imageCount: 0, batchProgress: "",
     side: "ask", sideIndex: 0, sideChoices: ["请选择哪侧是我", "右侧绿色气泡是我", "左侧气泡是我"], agreed: false,
     people: [{ id: "", label: "这次先不归档" }], personIndex: 0,
@@ -157,6 +157,7 @@ Page({
     } });
   },
   jobStatus(state) {
+    if(state.phase === "composing"){this.setData({taskStage:"running",batchProgress:"聊天已读完，正在综合判断与回复建议；无需再次上传。"});return;}
     if (this._unloaded) return;
     if (['error', 'expired', 'done'].includes(state.status)) this.clearPartialReports();
     if (state.taskId && this._partialTaskId && state.taskId !== this._partialTaskId) this.clearPartialReports();
@@ -198,6 +199,7 @@ Page({
   },
   presentBatch(entries, elapsed, completion = {}) {
       this.clearPartialReports();
+      if(completion.aggregateReport && reportIdPattern.test(completion.reportId||"")){this.setData({result:{...empty(),reportId:completion.reportId,id:completion.reportId},batchProgress:"报告已生成"});wx.navigateTo({url:"/pages/report/index?id="+completion.reportId});return;}
       let result = entries.at(-1);
       const collected = entries.flatMap((entry, index) => entry.lines.map(line => ({ ...line, screenshotNumber: index + 1 })));
       const rankedOriginal = [...(result.decision?.replyOptions || [])].map((item,originalIndex)=>({...item,originalIndex})).sort((a,b)=>(b.weight??-1)-(a.weight??-1)).slice(0,3);
@@ -329,7 +331,7 @@ Page({
           this._sessionId = null;
           this._selfLines = [];
           this._batchResults = null;
-          this.setData({ avatarSources: images, image: images[0].path, imageType: images[0].type, imageSize: images[0].size, images, imageCount: images.length, side: "ask", sideIndex: 0, personIndex: this._entry?.subjectId ? Math.max(0, this.data.people.findIndex(person => person.id === this._entry.subjectId)) : 0, agreed: false, error: "", elapsedSeconds: 0, lastElapsedSeconds: 0, result: empty(), showLines: true, showEvidence: false, showPrivacyDetails: false, copiedReplyIndex: -1, copyError: "", archivePrompt: true, newPersonOpen: false, newPersonName: "", newPersonConsent: false });
+          this.setData({ historyCoverage: "partial", avatarSources: images, image: images[0].path, imageType: images[0].type, imageSize: images[0].size, images, imageCount: images.length, side: "ask", sideIndex: 0, personIndex: this._entry?.subjectId ? Math.max(0, this.data.people.findIndex(person => person.id === this._entry.subjectId)) : 0, agreed: false, error: "", elapsedSeconds: 0, lastElapsedSeconds: 0, result: empty(), showLines: true, showEvidence: false, showPrivacyDetails: false, copiedReplyIndex: -1, copyError: "", archivePrompt: true, newPersonOpen: false, newPersonName: "", newPersonConsent: false });
         } catch (error) { this.setData({ error: error.message || "截图没有读取成功，请重新选择。" }); }
       }
     });
@@ -344,6 +346,7 @@ Page({
     this.setData({ images: images.map((item, index) => ({ ...item, order: index + 1 })), agreed: false, result: empty() });
   },
   sideChange(event) { if (this.data.busy) return; const index = Number(event.detail.value) || 0; this._requestId = null; this._sessionId = null; this._selfLines = []; this._batchResults = null; this.setData({ side: index === 1 ? "right" : index === 2 ? "left" : "ask", sideIndex: index, agreed: false, result: empty() }); },
+  chooseCoverage(event) { if(this.data.busy)return; this._batchResults=null; this.setData({historyCoverage:event.currentTarget.dataset.coverage === "complete" ? "complete" : "partial",agreed:false}); },
   chooseSide(event) { const side = event.currentTarget.dataset.side; if (side !== 'left' && side !== 'right') return; this.sideChange({ detail: { value: side === 'right' ? 1 : 2 } }); },
   personChange(event) { if (this.data.busy || this.data.returnReportId) return; const candidate = Number(event.detail.value); const index = Number.isInteger(candidate) && candidate >= 0 && candidate < this.data.people.length ? candidate : 0; this._requestId = null; this._sessionId = null; this._selfLines = []; this._batchResults = null; if(this._entry?.subjectId)this._entry.subjectId=this.data.people[index]?.id||""; api.setCurrentSubject?.(this.data.people[index]?.id || ""); this.setData({ personIndex: index, archivePrompt: false, agreed: false, result: empty() }); },
   skipArchive() { this.personChange({ detail: { value: 0 } }); },
@@ -448,13 +451,13 @@ Page({
       }
       const sessionId=this._sessionId||await api.newId();if(!current())return;this._sessionId=sessionId;
       const images = this.data.images.length ? this.data.images : [{ path: this.data.image, type: this.data.imageType }];
-      const signature = JSON.stringify({ paths: images.map(item => item.path), side: this.data.side, subjectId });
+      const signature = JSON.stringify({ paths: images.map(item => item.path), side: this.data.side, subjectId,historyCoverage:this.data.historyCoverage });
       if (!this._batchResults || this._batchResults.signature !== signature) this._batchResults = { signature, entries: [] };
       const entries = this._batchResults.entries;
       if (api.BACKGROUND_BATCH && !entries.length) {
         let taskId;
         if (api.createUpload) {
-          const queued = await api.createUpload("/api/miniapp/screenshot/batch", images, { confirmed: true, priceConfirmation, parentReportId, selfSide: this.data.side, sessionId: this._sessionId, subjectId }, token);
+          const queued = await api.createUpload("/api/miniapp/screenshot/batch", images, { confirmed: true, priceConfirmation, parentReportId, reportDepth:"auto", historyCoverage:this.data.historyCoverage, selfSide: this.data.side, sessionId: this._sessionId, subjectId }, token);
           if(!current())return;
           taskId = queued.taskId;
           wx.setStorageSync("chat-analysis-task", { taskId, subjectId, parentReportId });
@@ -465,7 +468,7 @@ Page({
         taskId = await api.newId();if(!current())return;
         wx.setStorageSync("chat-analysis-task", { taskId, subjectId, parentReportId });
         update({ batchProgress: "正在上传整组聊天，请先留在本页。" });
-        try { await api.request("/api/miniapp/screenshot/batch", "POST", { taskId, images: payloads, confirmed: true, priceConfirmation, parentReportId, selfSide: this.data.side, sessionId: this._sessionId, subjectId }, token); update({ taskStage: "running", batchProgress: "后台已接收，回来后可查看结果。" }); }
+        try { await api.request("/api/miniapp/screenshot/batch", "POST", { taskId, images: payloads, confirmed: true, priceConfirmation, parentReportId, reportDepth:"auto", historyCoverage:this.data.historyCoverage, selfSide: this.data.side, sessionId: this._sessionId, subjectId }, token); update({ taskStage: "running", batchProgress: "后台已接收，回来后可查看结果。" }); }
         catch (error) { if (!error.network && !(error.status >= 500)) { wx.removeStorageSync("chat-analysis-task"); throw error; } }
         }
         update({ taskStage: this.data.taskStage === "running" ? "running" : "checking" });
@@ -476,6 +479,7 @@ Page({
         wx.removeStorageSync("chat-analysis-task");
         await api.finishUpload?.(taskId);
         if(!current())return;
+        if (completed.aggregateReport) { this.presentBatch(entries, elapsed, completed); this._batchResults=null; return; }
         if (completed.incomplete) { this.presentBatch(entries, elapsed, completed); this._batchResults = null; return; }
       }
       for (let index = entries.length; index < images.length; index++) {

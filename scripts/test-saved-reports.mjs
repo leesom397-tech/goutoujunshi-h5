@@ -24,6 +24,10 @@ sql.prepare('UPDATE coach_crush_reports SET result=? WHERE id=?').run(JSON.strin
 assert.equal((await readAnalysisReport(db,owner,id(100))).entries[1].affinity.score,63,'later completed affinity stays visible through canonical batch');
 assert.equal((await listAnalysisReports(db,owner)).total,2,'one history card per batch');
 assert.equal((await listAnalysisReports(db,owner,{q:'合成判断 2'})).total,1);
+const aggregateReport={id:options.id,analysisScope:'uploadedHistory',materialCoverage:{history:'user-declared-complete'},scopeNote:'合成完整覆盖说明',semanticHistory:{summary:'跨图综合'},decision:{judgment:'跨图综合'}};
+await saveAnalysisReport(db,{...options,result:{...aggregateReport,aggregateReport,entries:[a,b]}});
+assert.equal((await readAnalysisReport(db,owner,options.id)).report.semanticHistory.summary,'跨图综合','reopening keeps cross-image analysis instead of last image');
+assert.equal((await listAnalysisReports(db,owner,{q:'跨图综合'})).total,1);
 assert.equal(await readAnalysisReport(db,other,id(100)),null);
 assert.equal(await deleteAnalysisReport(db,other,id(100)),false);
 assert.equal((await listAnalysisReports(db,other)).total,0);
