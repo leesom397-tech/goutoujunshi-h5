@@ -30,6 +30,13 @@ class BrowserReturnTests(unittest.TestCase):
     def test_missing_original_window_does_not_open_another_tab(self):
         self.assertFalse(browser_return.return_to_browser(None))
 
+    def test_wechat_four_native_qt_window_is_verified_by_process(self):
+        with patch.object(browser_return, 'os', SimpleNamespace(name='nt')), patch.object(browser_return, 'window_api', return_value=self.api(kind='Qt51514QWindowIcon')):
+            with patch.object(browser_return, 'is_wechat_process', return_value=True):
+                self.assertTrue(browser_return.return_to_browser((99, 7)))
+            with patch.object(browser_return, 'is_wechat_process', return_value=False):
+                self.assertFalse(browser_return.return_to_browser((99, 7)))
+
 
 if __name__ == '__main__':
     unittest.main()
