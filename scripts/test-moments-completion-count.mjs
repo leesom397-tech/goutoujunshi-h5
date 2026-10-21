@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import {build} from 'esbuild';
+const bundle=await build({entryPoints:['lib/capture-moments-outcome.ts'],bundle:true,write:false,format:'esm',platform:'node'});
+const {momentsOutcome}=await import('data:text/javascript;base64,'+Buffer.from(bundle.outputFiles[0].text).toString('base64'));
+const now=Date.now();
+const attempt={startedAt:now,received:39,allVisible:true};
+const batch={kind:'moments',capturedAt:new Date(now).toISOString(),records:[...Array.from({length:37},()=>({source:{materialRole:'moment'}})),{source:{materialRole:'moments-cover'}},{source:{materialRole:'profile-signature'}}],coverage:{scope:'all-visible',complete:true,stopReason:'visible-end',recordCount:37,imageOmittedCount:0,unreadableCount:0}};
+assert.equal(momentsOutcome(batch,attempt).status,'complete','37 posts plus two profile items must finish');
+assert.equal(momentsOutcome(batch,attempt,true).status,'running','interim delivery is not completion');
+assert.equal(momentsOutcome({...batch,coverage:{...batch.coverage,recordCount:39}},attempt).status,'partial','inconsistent post count remains partial');
+assert.equal(momentsOutcome({...batch,coverage:{...batch.coverage,unreadableCount:1}},attempt).status,'partial');
+assert.equal(momentsOutcome({...batch,coverage:{...batch.coverage,complete:false,stopReason:'navigation-stalled'}},attempt).status,'partial');
+assert.equal(momentsOutcome({...batch,records:batch.records.slice(-2),coverage:{...batch.coverage,recordCount:0}},{...attempt,received:2}).status,'partial','profile-only is not a completed album');
+console.log('PASS Moments completion: posts exclude cover/signature, partial/stalled/unreadable/interim remain guarded');
