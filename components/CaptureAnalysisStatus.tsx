@@ -32,6 +32,7 @@ export function CaptureAnalysisStatus({owner, onSettled, onStatus, onChecking, v
       try{
         const next=await api('/api/web/capture/analyze'+(params.size?'?'+params.toString():''),undefined,controller.signal);
         if(!live||request!==sequence||callbacks.current.scope!==scope)return;
+        if(!['none','removed','queued','running','retrying','done','error'].includes(next.status))throw Error('报告进度暂时不完整');
         const belongs=(!libraryId||next.libraryId===libraryId)&&(!subjectId||next.subjectId===subjectId);
         const current=next.status==='none'||next.status==='removed'||!belongs?null:next;
         setJob(current);setOffline(false);callbacks.current.onStatus?.(current);callbacks.current.onChecking?.(false);

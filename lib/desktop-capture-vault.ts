@@ -8,21 +8,32 @@ export type CaptureLibrarySummary = Omit<CaptureLibrary, "records"> & { total: n
 export type CaptureReportSources = { libraryId: string; sourceIds: string[]; records: StoredCaptureRecord[]; memoryRecords?: StoredCaptureRecord[]; kind: CaptureNamespace["kind"]; friend: string; account: string };
 type ReportSourceEntry = { id: string; ownerId: string; reportId: string; libraryId: string; sourceIds: string[]; memorySourceIds?: string[]; createdAt: string };
 const DB_NAME = "chengzi-desktop-capture-v1";
-const LIBRARIES = "libraries", REPORTS = "reportSources";
+const LIBRARIES = "libraries", REPORTS = "reportSources", SUMMARIES = "librarySummaries";
 
 function owner(value: string): string { if (typeof value !== "string" || !value.trim() || value.length > 200) throw new Error("请先登录，再读取自己的本机原文。"); return value; }
 function reportKey(ownerId: string, reportId: string): string { owner(ownerId); if (typeof reportId !== "string" || !reportId.trim() || reportId.length > 300) throw new Error("报告编号不正确。"); return JSON.stringify([ownerId, reportId]); }
 function database(): Promise<IDBDatabase> {
   if (typeof indexedDB === "undefined") return Promise.reject(new Error("当前环境不能保存本机原文，请使用支持本地存储的浏览器。"));
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, 1);
+    let blocked=false;
+    const request = indexedDB.open(DB_NAME, 2);
     request.onupgradeneeded = () => {
-      const libraries = request.result.createObjectStore(LIBRARIES, { keyPath: "id" }); libraries.createIndex("ownerId", "ownerId");
-      const reports = request.result.createObjectStore(REPORTS, { keyPath: "id" }); reports.createIndex("ownerId", "ownerId"); reports.createIndex("libraryId", "libraryId");
+      const db=request.result;
+      if(!db.objectStoreNames.contains(LIBRARIES)){
+        const libraries = db.createObjectStore(LIBRARIES, { keyPath: "id" }); libraries.createIndex("ownerId", "ownerId");
+        const reports = db.createObjectStore(REPORTS, { keyPath: "id" }); reports.createIndex("ownerId", "ownerId"); reports.createIndex("libraryId", "libraryId");
+      }
+      if(!db.objectStoreNames.contains(SUMMARIES)){
+        const summaries=db.createObjectStore(SUMMARIES,{keyPath:"id"});summaries.createIndex("ownerId","ownerId");
+        // One atomic migration. Existing originals and report attribution stay
+        // untouched; later list reads never deserialize the image payloads.
+        const cursor=request.transaction!.objectStore(LIBRARIES).openCursor();
+        cursor.onsuccess=()=>{try{const entry=cursor.result;if(entry){summaries.put(librarySummary(entry.value));entry.continue();}}catch{request.transaction?.abort();}};
+      }
     };
-    request.onsuccess = () => { const db = request.result; db.onversionchange = () => db.close(); resolve(db); };
+    request.onsuccess = () => { const db = request.result;if(blocked){db.close();return;} db.onversionchange = () => db.close(); resolve(db); };
     request.onerror = () => reject(new Error("本机原文库无法打开，请允许站点使用本地存储。"));
-    request.onblocked = () => reject(new Error("原文库正在更新，请关闭其他打开本站的旧页面后重试。"));
+    request.onblocked = () => {blocked=true;reject(new Error("原文库正在更新，请关闭其他打开本站的旧页面后重试。"));};
   });
 }
 async function read<T>(store: string, lookup: (value: IDBObjectStore) => IDBRequest<T>): Promise<T> {
@@ -50,11 +61,19 @@ export function pendingCaptureRecords(library: CaptureLibrary): StoredCaptureRec
     return Number.isFinite(at) && links.every(time => Number.isFinite(time) && time < at);
   });
 }
+function librarySummary(library:CaptureLibrary):CaptureLibrarySummary {
+  const {records,...metadata}=library;
+  return {...metadata,total:records.length,pending:pendingCaptureRecords(library).length};
+}
+function putLibrary(store:IDBObjectStore,library:CaptureLibrary) {
+  store.put(library);
+  store.transaction.objectStore(SUMMARIES).put(librarySummary(library));
+}
 export async function saveCaptureBatch(ownerId: string, input: unknown): Promise<{ library: CaptureLibrary; added: number; repeated: number; updatedVoice: number; total: number; newRecords: StoredCaptureRecord[] }> {
   owner(ownerId);
   const batch = validateCaptureBatch(input), namespace: CaptureNamespace = { ownerId, account: batch.account, friend: batch.friend, kind: batch.kind }, id = captureLibraryId(namespace), db = await database();
   return new Promise((resolve, reject) => {
-    const transaction = db.transaction(LIBRARIES, "readwrite"), store = transaction.objectStore(LIBRARIES), request = store.get(id);
+    const transaction = db.transaction([LIBRARIES,SUMMARIES], "readwrite"), store = transaction.objectStore(LIBRARIES), request = store.get(id);
     let result: { library: CaptureLibrary; added: number; repeated: number; updatedVoice: number; total: number; newRecords: StoredCaptureRecord[] }; let reason: unknown;
     request.onsuccess = () => {
       try {
@@ -64,7 +83,7 @@ export async function saveCaptureBatch(ownerId: string, input: unknown): Promise
         // metadata to preserve ordering across pages with tied timestamps.
         const merged = mergeCaptureRecords(existing?.records || [], input, namespace);
         const library: CaptureLibrary = { ...namespace, id, createdAt: existing?.createdAt || batch.capturedAt, updatedAt: batch.capturedAt, records: merged.records, warnings: batch.warnings, reportLinks: existing?.reportLinks || [], ...((batch.coverage || existing?.coverage) ? {coverage:batch.coverage || existing?.coverage} : {}), ...(existing?.cloud ? { cloud: existing.cloud } : {}) };
-        store.put(library); result = { library, added: merged.added, repeated: merged.repeated, updatedVoice: merged.updatedVoice, total: merged.total, newRecords: merged.newRecords };
+        putLibrary(store,library); result = { library, added: merged.added, repeated: merged.repeated, updatedVoice: merged.updatedVoice, total: merged.total, newRecords: merged.newRecords };
       } catch (error) { reason = error; transaction.abort(); }
     };
     transaction.oncomplete = () => { db.close(); resolve(result); };
@@ -73,8 +92,8 @@ export async function saveCaptureBatch(ownerId: string, input: unknown): Promise
 }
 export async function listCaptureLibraries(ownerId: string): Promise<CaptureLibrarySummary[]> {
   owner(ownerId);
-  const libraries = await read<CaptureLibrary[]>(LIBRARIES, store => store.index("ownerId").getAll(ownerId));
-  return libraries.filter(item => item.ownerId === ownerId).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)).map(library => { const { records, ...metadata } = library; return { ...metadata, total: records.length, pending: pendingCaptureRecords(library).length }; });
+  const libraries = await read<CaptureLibrarySummary[]>(SUMMARIES, store => store.index("ownerId").getAll(ownerId));
+  return libraries.filter(item => item.ownerId === ownerId).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 /** Atomically enrich existing voice sources; report links and record IDs stay intact. */
 export async function applyVerifiedVoiceUpdates(ownerId: string, input: VerifiedVoiceUpdates): Promise<{ library: CaptureLibrary; updatedVoice: number; repeated: number; total: number }> {
@@ -82,7 +101,7 @@ export async function applyVerifiedVoiceUpdates(ownerId: string, input: Verified
   if (!input || typeof input.libraryId !== "string" || !input.libraryId || input.libraryId.length > 1200) throw Error("语音补全需要有效的原文库编号。");
   const db = await database();
   return new Promise((resolve, reject) => {
-    const transaction = db.transaction(LIBRARIES, "readwrite"), store = transaction.objectStore(LIBRARIES), request = store.get(input.libraryId);
+    const transaction = db.transaction([LIBRARIES,SUMMARIES], "readwrite"), store = transaction.objectStore(LIBRARIES), request = store.get(input.libraryId);
     let result: { library: CaptureLibrary; updatedVoice: number; repeated: number; total: number }; let reason: unknown;
     request.onsuccess = () => {
       try {
@@ -91,7 +110,7 @@ export async function applyVerifiedVoiceUpdates(ownerId: string, input: Verified
         const namespace: CaptureNamespace = { ownerId, account: existing.account, friend: existing.friend, kind: existing.kind };
         const merged = applyVerifiedVoiceUpdatesToRecords(existing.records, input, namespace);
         const library = merged.updatedVoice ? { ...existing, records: merged.records, updatedAt: Date.parse(existing.updatedAt) > Date.parse(input.capturedAt) ? existing.updatedAt : input.capturedAt } : existing;
-        if (merged.updatedVoice) store.put(library);
+        if (merged.updatedVoice) putLibrary(store,library);
         result = { library, updatedVoice: merged.updatedVoice, repeated: merged.repeated, total: merged.total };
       } catch (error) { reason = error; transaction.abort(); }
     };
@@ -114,7 +133,7 @@ export async function linkReportSources(ownerId: string, reportId: string, input
   if (input.memorySourceIds && (!Array.isArray(input.memorySourceIds) || input.memorySourceIds.length > 128 || input.memorySourceIds.some(value => typeof value !== "string" || !value))) throw new Error("资料依据编号不正确。");
   const sourceIds = [...new Set(input.sourceIds)], db = await database();
   return new Promise((resolve, reject) => {
-    const transaction = db.transaction([LIBRARIES, REPORTS], "readwrite"), libraries = transaction.objectStore(LIBRARIES), reports = transaction.objectStore(REPORTS); let reason: unknown;
+    const transaction = db.transaction([LIBRARIES, REPORTS,SUMMARIES], "readwrite"), libraries = transaction.objectStore(LIBRARIES), reports = transaction.objectStore(REPORTS); let reason: unknown;
     const libraryRequest = libraries.get(input.libraryId);
     libraryRequest.onsuccess = () => {
       try {
@@ -132,7 +151,7 @@ export async function linkReportSources(ownerId: string, reportId: string, input
             const memorySourceIds = [...new Set([...(previous?.memorySourceIds || []), ...(input.memorySourceIds || [])])].filter(value => !sourceIds.includes(value));
             reports.put({ id, ownerId, reportId, libraryId: input.libraryId, sourceIds, memorySourceIds, createdAt } satisfies ReportSourceEntry);
             const reportLinks = (library.reportLinks || []).filter(link => link.reportId !== reportId);
-            libraries.put({ ...library, reportLinks: [...reportLinks, { reportId, sourceIds, memorySourceIds, createdAt }] });
+            putLibrary(libraries,{ ...library, reportLinks: [...reportLinks, { reportId, sourceIds, memorySourceIds, createdAt }] });
           } catch (error) { reason = error; transaction.abort(); }
         };
       } catch (error) { reason = error; transaction.abort(); }
@@ -153,11 +172,11 @@ export async function readReportSources(ownerId: string, reportId: string): Prom
 export async function removeCaptureLibrary(ownerId: string, libraryId: string): Promise<void> {
   owner(ownerId); const db = await database();
   return new Promise((resolve, reject) => {
-    const transaction = db.transaction([LIBRARIES, REPORTS], "readwrite"), libraries = transaction.objectStore(LIBRARIES), reports = transaction.objectStore(REPORTS), request = libraries.get(libraryId);
+    const transaction = db.transaction([LIBRARIES, REPORTS,SUMMARIES], "readwrite"), libraries = transaction.objectStore(LIBRARIES), reports = transaction.objectStore(REPORTS), request = libraries.get(libraryId);
     request.onsuccess = () => {
       const library = request.result as CaptureLibrary | undefined;
       if (!library || library.ownerId !== ownerId) return;
-      libraries.delete(libraryId); const links = reports.index("libraryId").openCursor(libraryId);
+      libraries.delete(libraryId);transaction.objectStore(SUMMARIES).delete(libraryId); const links = reports.index("libraryId").openCursor(libraryId);
       links.onsuccess = () => { const cursor = links.result; if (cursor) { if ((cursor.value as ReportSourceEntry).ownerId === ownerId) cursor.delete(); cursor.continue(); } };
     };
     transaction.oncomplete = () => { db.close(); resolve(); };
@@ -166,10 +185,30 @@ export async function removeCaptureLibrary(ownerId: string, libraryId: string): 
 }
 
 /** Cloud metadata never changes the original material or its attribution. */
+export async function disableMissingCaptureCloud(ownerId:string,libraryId:string,expected:CaptureCloudState):Promise<CaptureLibrarySummary|null> {
+  owner(ownerId);const db=await database();
+  return new Promise((resolve,reject)=>{
+    const tx=db.transaction([LIBRARIES,SUMMARIES],"readwrite"),store=tx.objectStore(LIBRARIES),request=store.get(libraryId);
+    let result:CaptureLibrarySummary|null=null,reason:unknown;
+    request.onsuccess=()=>{
+      try{
+        const current=request.result as CaptureLibrary|undefined;
+        if(!current||current.ownerId!==ownerId)return;
+        // A list response is a snapshot. It cannot disable a library restored
+        // or synchronized by another operation since that snapshot began.
+        const next=JSON.stringify(current.cloud)===JSON.stringify(expected)?{...current,cloud:{...expected,enabled:false}}:current;
+        if(next!==current)putLibrary(store,next);
+        result=librarySummary(next);
+      }catch(error){reason=error;tx.abort();}
+    };
+    tx.oncomplete=()=>{db.close();resolve(result);};
+    tx.onerror=tx.onabort=()=>{db.close();reject(reason||tx.error||Error("同步状态暂时未更新，请重试。"));};
+  });
+}
 export async function setCaptureCloudState(ownerId: string, libraryId: string, cloud: CaptureCloudState, receipt?: { expected?: CaptureCloudState; restore?: boolean }): Promise<CaptureCloudState> {
   owner(ownerId); const db = await database();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction(LIBRARIES, "readwrite"), store = tx.objectStore(LIBRARIES), request = store.get(libraryId);
+    const tx = db.transaction([LIBRARIES,SUMMARIES], "readwrite"), store = tx.objectStore(LIBRARIES), request = store.get(libraryId);
     let reason: unknown, saved = cloud;
     request.onsuccess = () => {
       const library = request.result as CaptureLibrary | undefined;
@@ -207,7 +246,7 @@ export async function setCaptureCloudState(ownerId: string, libraryId: string, c
           };
         }
       }
-      store.put({ ...library, cloud:saved });
+      putLibrary(store,{ ...library, cloud:saved });
     };
     tx.oncomplete = () => { db.close(); resolve(saved); };
     tx.onerror = tx.onabort = () => { db.close(); reject(reason || tx.error || Error("同步状态未保存，请重试。")); };
@@ -220,7 +259,7 @@ export async function cacheCloudCaptureLibrary(ownerId: string, input: Omit<Capt
   const namespace: CaptureNamespace = { ownerId, account: input.account, friend: input.friend, kind: input.kind };
   const id = captureLibraryId(namespace), db = await database();
   return new Promise((resolve, reject) => {
-    const tx = db.transaction([LIBRARIES, REPORTS], "readwrite"), store = tx.objectStore(LIBRARIES), request = store.get(id);
+    const tx = db.transaction([LIBRARIES, REPORTS,SUMMARIES], "readwrite"), store = tx.objectStore(LIBRARIES), request = store.get(id);
     let result: CaptureLibrary, reason: unknown;
     request.onsuccess = () => {
       try {
@@ -228,7 +267,7 @@ export async function cacheCloudCaptureLibrary(ownerId: string, input: Omit<Capt
         if (previous && previous.ownerId !== ownerId) throw Error("账号不匹配，未保存同步内容。");
         if(previous?.cloud && input.cloud && previous.cloud.epoch!==input.cloud.epoch){
           const retiredId=`${id}:retired:${previous.cloud.epoch}`;
-          store.put({...previous,id:retiredId,cloud:{...previous.cloud,enabled:false,retired:true}});
+          putLibrary(store,{...previous,id:retiredId,cloud:{...previous.cloud,enabled:false,retired:true}});
           for(const link of previous.reportLinks)tx.objectStore(REPORTS).put({id:reportKey(ownerId,link.reportId),ownerId,reportId:link.reportId,libraryId:retiredId,sourceIds:link.sourceIds,memorySourceIds:link.memorySourceIds||[],createdAt:link.createdAt} satisfies ReportSourceEntry);
           previous=undefined;
         }
@@ -248,7 +287,7 @@ export async function cacheCloudCaptureLibrary(ownerId: string, input: Omit<Capt
           links.set(link.reportId,{...link,memorySourceIds:[...new Set([...(old?.memorySourceIds||[]),...(link.memorySourceIds||[])])]});
         }
         result = { ...input, ...namespace, id, records: [...records, ...byId.values()], reportLinks: [...links.values()], cloud: input.cloud ? { ...previous?.cloud, ...input.cloud } : previous?.cloud };
-        store.put(result);
+        putLibrary(store,result);
         for (const link of links.values()) tx.objectStore(REPORTS).put({ id: reportKey(ownerId, link.reportId), ownerId, reportId: link.reportId, libraryId: id, sourceIds: link.sourceIds, memorySourceIds: link.memorySourceIds || [], createdAt: link.createdAt } satisfies ReportSourceEntry);
       } catch (error) { reason = error; tx.abort(); }
     };

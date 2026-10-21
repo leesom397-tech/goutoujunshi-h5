@@ -141,7 +141,7 @@ const destinations = {
   account: '/pages/account/index',
   chat: '/pages/chat/index?mode=chat',
   positioning: '/pages/chat/index?mode=positioning',
-  voice: '/pages/chat/index?mode=chat'
+  voice: '/pages/voice/index'
 };
 for (const [entry, url] of Object.entries(destinations)) {
   home.open(event({ entry }));
@@ -160,7 +160,8 @@ for (const entry of ['quick', 'social-profile', 'chat', 'archive', 'self']) {
   assert.match(homeMarkup, new RegExp(`<button\\b[^>]*data-entry="${entry}"[^>]*bindtap="open"`));
 }
 assert.match(homeMarkup, /<button\b[^>]*bindtap="toggleSources"/);
-assert.match(homeMarkup, /<button\b[^>]*bindtap="retryLogin"/);
+assert.doesNotMatch(homeMarkup, /<button\b[^>]*bindtap="retryLogin"/, 'account recovery belongs on the account screen, not the home task flow');
+assert.ok(JSON.parse(read('miniapp/app.json')).pages.includes('pages/voice/index'), 'voice entry opens the registered native voice feature');
 assert.match(homeMarkup, /<button\b[^>]*data-entry="\{\{item\.entry\}\}"[^>]*bindtap="open"/, 'resumable tasks remain clearly actionable');
 
 console.log('PASS: navigation reuse, scoped archives, stack safety, tap lock, copy guards and native home buttons');

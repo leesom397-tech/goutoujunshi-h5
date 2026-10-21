@@ -1,19 +1,29 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Check, ChevronDown, Copy, Send, Sparkles, ArrowRight } from "lucide-react";
+import { useEffect, useId, useRef, useState } from "react";
+import { Check, ChevronDown, Copy, Send, Sparkles, ArrowRight, PencilLine, RotateCcw } from "lucide-react";
 import { personalizeReplyText, replyStyleSamples } from "@/lib/crush/reply-style";
 import { riskAwarePresentation, riskReplyAllowed } from "@/lib/risk-aware-presentation";
 import { api, ErrorNotice, hasPrice, message, priceLabel, type Json } from "./client";
 import { ReplyDifference } from "./ReportReadingTools";
 import styles from "./ReportReplies.module.css";
 
-/** Choosing a saved option never starts another model request. */
-export function Replies({ options, report, account, styleReportIds, publicExample = false, compact = false }: {
+type RepliesProps = {
   options: Json[]; report?: Json; account: Json | null; styleReportIds?: string[]; publicExample?: boolean; compact?: boolean;
-}) {
+};
+/** Keep drafts and in-flight receipts isolated when the report or account changes. */
+export function Replies(props: RepliesProps) {
+  const scope = JSON.stringify([props.account?.account?.userId, props.report?.reportId || props.report?.id, props.report?.subjectId, props.publicExample, props.options.map(option => [option.text, option.style, option.originalIndex, option.adjusted])]);
+  return <ReplyOptions key={scope} {...props}/>;
+}
+
+/** Choosing or manually editing a saved option never starts another model request. */
+function ReplyOptions({ options, report, account, styleReportIds, publicExample = false, compact = false }: RepliesProps) {
   const [rewrites, setRewrites] = useState<Record<number, Json>>({});
-  const [busy, setBusy] = useState(-1), [error, setError] = useState(""), [copied, setCopied] = useState(-1);
+  const [busy, setBusy] = useState(-1), [error, setError] = useState("");
+  const [copied, setCopied] = useState<{index:number;text:string}|null>(null);
+  const [draft, setDraft] = useState<{index:number;text:string;editing:boolean}|null>(null);
+  const editorId = useId(), editor = useRef<HTMLTextAreaElement>(null);
   const [selected, setSelected] = useState<number | null>(null);
   const [confirmation, setConfirmation] = useState<{ index: number; price: string } | null>(null);
   const ids = useRef<Record<number, string>>({}), mounted = useRef(true), working = useRef(false);
@@ -25,11 +35,17 @@ export function Replies({ options, report, account, styleReportIds, publicExampl
   const unavailable = publicExample ? "" : !report?.id ? "这份结果尚未保存，暂不能按我的习惯改写。" : !loggedIn ? "登录后可参考你已确认的原话调整语气。" : !eligible ? "你的原话样本还不足。可以先复制已有方案，之后补充你自己的回复。" : !hasPrice(account, "text") ? "改写费用暂未取回，请到账户重试。" : "";
   const quotedPrice = publicExample ? "案例演示 · 免费" : priceLabel(account, "text");
   async function copy(text: string, index: number) {
-    try { await navigator.clipboard.writeText(text); setCopied(index); setError(""); }
-    catch { setError("复制没有完成，可以选中回复文字复制。"); }
+    try { await navigator.clipboard.writeText(text); if (mounted.current) { setCopied({index,text}); setError(""); } }
+    catch {
+      if (!mounted.current) return;
+      setCopied(null);
+      setDraft(previous => previous?.index === index ? {...previous, editing:true} : {index,text,editing:true});
+      setError("复制没有完成，可以在输入框中长按或按 Ctrl/Cmd+C 复制。");
+      requestAnimationFrame(() => { editor.current?.focus(); editor.current?.select(); });
+    }
   }
   function choose(index: number | null) {
-    setSelected(index); setConfirmation(null);
+    setSelected(index); setConfirmation(null); setDraft(null); setCopied(null);
   }
   function openReplySection(button: HTMLButtonElement) {
     button.closest("[data-report-reader]")?.querySelector<HTMLButtonElement>('[role="tab"][aria-controls$="-panel-next"]')?.click();
@@ -63,23 +79,35 @@ export function Replies({ options, report, account, styleReportIds, publicExampl
       <button type="button" aria-pressed={selected === null} onClick={() => choose(null)}>全部方案</button>
       {variants.map(option => <button type="button" key={option.index} aria-pressed={selected === option.index} onClick={() => choose(option.index)}>{option.style || `方案 ${option.index + 1}`}</button>)}
     </div>}
-    <div className={styles.cards} data-show-all={selected === null}>
+    <div className={styles.cards} data-show-all={selected === null} data-option-count={variants.length}>
       {variants.map(option => {
-        const index = option.index, revised = rewrites[index], body = revised?.status === "adjusted" ? revised.text : option.text;
+        const index = option.index, revised = rewrites[index], original = revised?.status === "adjusted" ? revised.text : option.text;
+        const localDraft = draft?.index === index ? draft : null, body = localDraft?.text ?? original;
+        const manuallyChanged = !!localDraft && localDraft.text !== original, copyDone = copied?.index === index && copied.text === body;
         const canRewrite = (report || publicExample) && !option.adjusted && option.originalIndex !== null;
         return <article key={index} className={`${styles.card} ${compact ? "" : "wa-reply"}`} hidden={selected !== null && selected !== index} data-saved-reply data-reply-index={index}>
           <header><span className={styles.badge}>{index === 0 ? "本轮首选" : `方案 ${index + 1}`}</span><h3>{option.style || "自然回应"}</h3>{option.adjusted && <small>边界建议</small>}</header>
-          <p className={styles.replyText}>{body}</p>
-          <button type="button" className={styles.copy} data-copy-reply onClick={() => void copy(body, index)}>{copied === index ? <Check size={18}/> : <Copy size={18}/>} {copied === index ? "已复制" : "复制这句"}</button>
+          {localDraft?.editing ? <div className={styles.editor} data-reply-editor>
+            <label htmlFor={editorId}>按你的习惯改一句</label>
+            <textarea id={editorId} ref={editor} value={body} rows={4} autoFocus aria-describedby={editorId+"-hint"} onChange={event => { setDraft({index,text:event.target.value,editing:true}); setCopied(null); }}/>
+            <p id={editorId+"-hint"}>手动修改不扣积分，仅保留在本页；切换方案会还原。</p>
+            <div><button type="button" disabled={!body.trim()} onClick={() => setDraft(manuallyChanged ? {index,text:body,editing:false} : null)}><Check size={16}/>完成编辑</button><button type="button" onClick={() => { setDraft(null); setCopied(null); }}><RotateCcw size={16}/>还原这句</button></div>
+          </div> : <p className={styles.replyText} data-reply-text>{body}</p>}
+          <div className={styles.replyActions}>
+            <button type="button" className={styles.copy} disabled={!body.trim()} data-copy-reply onClick={() => void copy(body, index)}>{copyDone ? <Check size={18}/> : <Copy size={18}/>} {copyDone ? "已复制" : "复制这句"}</button>
+            {!localDraft?.editing && <button type="button" className={styles.edit} disabled={busy !== -1} data-edit-reply onClick={() => { setDraft({index,text:body,editing:true}); setConfirmation(null); setError(""); }}><PencilLine size={17}/>{manuallyChanged ? "继续修改" : "自己改一句"}</button>}
+          </div>
+          {manuallyChanged && <p className={styles.editNote}>已手动修改；适用理由仍对应原方案。{!localDraft?.editing&&<button type="button" onClick={() => { setDraft(null); setCopied(null); }}>还原这句</button>}</p>}
           <details className={styles.details}>
             <summary>{compact ? "为什么这样回" : "理由与语气调整"}<ChevronDown size={17}/></summary>
             {option.reason && <div><strong>适合这轮的原因</strong><p>{option.reason}</p></div>}
             {option.cost && <div><strong>发送前留意</strong><p>{option.cost}</p></div>}
             <ReplyDifference options={options} index={index}/>
             {revised?.status === "adjusted" && <div><strong>原方案</strong><p>{option.text}</p></div>}
-            {compact && canRewrite && <button type="button" className={styles.customize} onClick={event => openReplySection(event.currentTarget)}><Sparkles size={17}/>调整为我的语气<ArrowRight size={16}/></button>}
+            {compact && canRewrite && <button type="button" className={styles.customize} disabled={!!localDraft} onClick={event => openReplySection(event.currentTarget)}><Sparkles size={17}/>调整为我的语气<ArrowRight size={16}/></button>}
             {!compact && canRewrite && <div className={styles.personalize}>
-              <button type="button" className={styles.customize} disabled={!!unavailable || busy !== -1 || !!revised} onClick={() => { setConfirmation({ index, price: quotedPrice }); setError(""); }}><Sparkles size={17}/>{busy === index ? "正在调整…" : revised ? "已核对我的语气" : "改得更像我"}{!revised && <small>{quotedPrice}</small>}</button>
+              <button type="button" className={styles.customize} disabled={!!unavailable || busy !== -1 || !!revised || !!localDraft} onClick={() => { setConfirmation({ index, price: quotedPrice }); setError(""); }}><Sparkles size={17}/>{busy === index ? "正在调整…" : revised ? "已核对我的语气" : "改得更像我"}{!revised && <small>{quotedPrice}</small>}</button>
+              {localDraft && <p>还原这句后，可以使用语气改写。</p>}
               {unavailable && <p>{unavailable}{!loggedIn ? <a href={`/login?return_to=${encodeURIComponent(typeof window !== "undefined" ? window.location.pathname + window.location.search : "/reports")}`}>登录</a> : eligible && !hasPrice(account, "text") ? <a href="/account">查看账户</a> : null}</p>}
               {confirmation?.index === index && <div className={styles.confirmation} data-rewrite-confirmation role="region" aria-label="确认语气改写">
                 <strong>这次改写 · {confirmation.price}</strong><p>参考你已确认的表达习惯，调整这一句。<a href="/privacy#ai-processing" target="_blank" rel="noreferrer">数据处理说明</a></p>

@@ -1,6 +1,6 @@
 "use client";
 import {useEffect,useId,useRef,useState,type ReactNode} from "react";
-import {ArrowLeft,ArrowRight,Check,Compass,MessageCircle,ChartNoAxesCombined,Send,Quote,UserRound} from "lucide-react";
+import {ArrowLeft,ArrowRight,ArrowUp,Check,Compass,MessageCircle,ChartNoAxesCombined,Send,Quote,UserRound} from "lucide-react";
 import styles from "./ReportReader.module.css";
 import {readReportPosition,saveReportPosition,type ReportPanelPosition} from "@/lib/report-reading-position";
 
@@ -72,6 +72,12 @@ export function ReportReader({items,children,storageKey,initialSection}:{items:R
   if(targetPosition||top<0)setRestore({section:target.id,position:targetPosition||{offset:0},focus:focusTab});
   else {canSave.current=true;if(focusTab)requestAnimationFrame(()=>document.getElementById(id+"-tab-"+target.id)?.focus({preventScroll:true}));}
  }
+ function sectionStart(){
+  const navigation=root.current?.querySelector<HTMLElement>('[role="tablist"]')?.parentElement;
+  const position={offset:-(navigation?parseFloat(getComputedStyle(navigation).top)||0:0)};
+  saveReportPosition(storage(),storageKey,{active:activeRef.current,seen:seenRef.current,panels:{[activeRef.current]:position}});
+  setRestore({section:activeRef.current,position,focus:true});
+ }
  return <div ref={root} id="report-detail-action" className={styles.reader} data-report-reader data-tone={item.tone}>
   <div className={styles.navigation}>
    <div role="tablist" aria-label="报告阅读顺序" className={styles.tabs} style={{gridTemplateColumns:`repeat(${items.length},minmax(0,1fr))`}}>{items.map((part,n)=>{const Icon=iconFor(part.id);return <button type="button" role="tab" key={part.id} id={`${id}-tab-${part.id}`} aria-controls={`${id}-panel-${part.id}`} aria-selected={active===part.id} tabIndex={active===part.id?0:-1} data-tone={part.tone} onClick={()=>choose(n)} onKeyDown={event=>{if(!["ArrowRight","ArrowLeft","Home","End"].includes(event.key))return;event.preventDefault();choose(event.key==="Home"?0:event.key==="End"?items.length-1:(n+(event.key==="ArrowRight"?1:-1)+items.length)%items.length,true);}}><Icon size={20}/><span>{part.label}</span><small>{seen.includes(part.id)&&active!==part.id?<Check size={13}/>:String(n+1).padStart(2,"0")}</small></button>})}</div>
@@ -79,6 +85,7 @@ export function ReportReader({items,children,storageKey,initialSection}:{items:R
   {items.map((part,n)=>seen.includes(part.id)&&<section key={part.id} hidden={part.id!==active} role="tabpanel" id={`${id}-panel-${part.id}`} aria-labelledby={`${id}-tab-${part.id}`} tabIndex={0} className={styles.panel} data-reading-section={part.id}>
    {children(part.id)}
   </section>)}
+  <div className={styles.sectionReturn}><button type="button" data-reader-start onClick={sectionStart}><ArrowUp size={16}/>回到「{item.label}」开头</button></div>
   <footer className={styles.pager}><button type="button" disabled={index===0} onClick={()=>choose(index-1,true)}><ArrowLeft size={16}/>上一部分</button><span className={styles.pageDots} aria-label={`第 ${index+1} 部分，共 ${items.length} 部分`}>{items.map((part,n)=><i key={part.id} data-current={n===index} aria-hidden="true"/>)}</span>{index<items.length-1?<button type="button" className={styles.nextPage} onClick={()=>choose(index+1,true)}>{items[index+1].label}<ArrowRight size={16}/></button>:<span className={styles.finished}><Check size={16}/>{seen.length===items.length?"已看完报告":"已到最后一部分"}</span>}</footer>
  </div>;
 }

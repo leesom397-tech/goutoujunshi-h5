@@ -13,8 +13,7 @@ import {CaptureCoverage} from "@/components/CaptureCoverage";
 import {captureCoverage,captureMediaNotice} from "@/lib/capture-coverage";
 import { ScreenCapture, type CapturedFrame } from "@/components/ScreenCapture";
 import { VideoImport, type ImportedVideoFrame, type VideoImportContext } from "@/components/VideoImport";
-import { api, message, useAccount, AccountNotice, PersonSelect, InlinePerson, priceLabel, WebError, type Json } from "@/components/web-analysis/client";
-import { fullHistoryPrice, screenshotPrice } from "@/lib/analysis-pricing.mjs";
+import { api, message, useAccount, AccountNotice, PersonSelect, InlinePerson, WebError, type Json } from "@/components/web-analysis/client";
 import { bridgeRequest, BridgeError, type BridgeHealth } from "@/lib/desktop-bridge-client";
 import { createContactSearchQueue, parseContactSearchPage } from "@/lib/capture-contact-search";
 import { readHistoryProgress, writeHistoryProgress, clearHistoryProgress, newHistoryProgress, runHistoryImport, type HistoryProgress } from "@/lib/capture-history-import";
@@ -106,7 +105,7 @@ export default function CapturePage() {
   const [recordPage, setRecordPage] = useState(0);
   const [historyState,setHistoryState]=useState<HistoryProgress|null>(null), [historyRunning,setHistoryRunning]=useState(false), [showMethods,setShowMethods]=useState(false);
   const [showAnalysis,setShowAnalysis]=useState(false), [adjustPerson,setAdjustPerson]=useState(false), [materialView,setMaterialView]=useState<"none"|"records"|"status">("none");
-  const [analysisQuote,setAnalysisQuote]=useState<Json|null>(null),[quoteBusy,setQuoteBusy]=useState(false),[quoteRetry,setQuoteRetry]=useState(0);
+  const [analysisQuote,setAnalysisQuote]=useState<Json|null>(null),[quoteBusy,setQuoteBusy]=useState(false),[quoteRetry,setQuoteRetry]=useState(0),[quoteError,setQuoteError]=useState("");
   const [showImportControls,setShowImportControls]=useState(false);
   const [supplementMoments,setSupplementMoments]=useState(false);
   const [momentsAttempt,setMomentsAttempt]=useState<MomentsAttempt|null>(null);
@@ -599,10 +598,10 @@ export default function CapturePage() {
     : selectedRows;
   const isWindow = !!(library?.records.length && library.records.every(visualSource)) || chosen.length > 0 && chosen.every(visualSource);
   const memoryRows = isWindow ? [] : selectCaptureMemory(library);
-  const costKey = isWindow ? screenshotPrice(Math.max(1,Math.min(9,chosen.length))).priceKey
-    : (()=>{try{return fullHistoryPrice({expectedTotal:library?.records.length||1,relatedSnapshots:relatedMoments.filter(source=>source.records.length>0).map(source=>({expectedTotal:source.records.length}))}).priceKey;}catch{return "historyExtraLarge";}})();
   useEffect(()=>{
-    setAnalysisQuote(null);
+    // An aborted request skips its finally block. Reset both flags before all
+    // early exits so changing source/person cannot strand a disabled action.
+    setAnalysisQuote(null);setQuoteBusy(false);setQuoteError("");
     if(!showAnalysis||isWindow||!owner||!library||cloudBusy||importStage||relatedLoading||relatedError||analyzing||backgroundAnalysis)return;
     const prepared=preparedReport.current;
     const snapshots=receipt?.relatedSnapshots|| (prepared?.owner===owner&&prepared.libraryId===library.id&&prepared.subject===subject?prepared.snapshots:
@@ -620,8 +619,9 @@ export default function CapturePage() {
         if(value.libraryId&&value.libraryId!==body.libraryId||value.subjectId&&value.subjectId!==body.subjectId){setError("另一位人物的报告正在生成，请先在人物页查看进度。");return;}
         setAnalysisJob(value);setBackgroundAnalysis(true);setShowAnalysis(false);return;
       }
-      if(value.quote)setAnalysisQuote(value.quote);
-    }).catch(cause=>{if(!controller.signal.aborted&&ticket===generation.current)setError(message(cause));})
+      if(!value.quote||!Number.isSafeInteger(value.quote.amount)||value.quote.amount<0)throw Error("本次费用暂未核对成功，请重试核价。材料已保存。");
+      setAnalysisQuote(value.quote);
+    }).catch(cause=>{if(!controller.signal.aborted&&ticket===generation.current)setQuoteError(message(cause));})
       .finally(()=>{if(!controller.signal.aborted&&ticket===generation.current)setQuoteBusy(false);});
     return()=>{controller.abort();};
   },[owner,library?.id,library?.updatedAt,library?.cloud?.epoch,subject,diagnosticQuestion,showAnalysis,isWindow,cloudBusy,importStage,relatedLoading,relatedError,relatedMoments,receipt,quoteRetry,analyzing,backgroundAnalysis]);
@@ -1480,6 +1480,15 @@ export default function CapturePage() {
   const subjectLabel=account.people.find(person=>person.id===subject)?.label||(importSubject.current?.subjectId===subject?importSubject.current.label:"")||contactDisplayName(library?.friend||selectedContact?.label||"");
   const reportReady = !!fullReportPath && (library?.kind==="moments" ? library.records.some(row=>row.text.trim()||row.images?.length||row.source.cloudMediaPending||row.source.cloudMediaUnavailable) : readableRecordCount > 0);
   const reportWaitReason = account.loading ? "正在读取账户与分析价格…" : analysisChecking ? "正在读取这份材料的报告进度…" : cloudBusy ? cloudNote || "正在同步已导入资料…" : relatedLoading ? "正在读取这位好友的朋友圈…" : relatedError ? relatedError : !reportReady && fullReportPath ? library?.kind==="moments" ? "还没有可读的动态文字或图片，请先完成导入。" : "还没有可读文字，请先补全聊天文字或语音转写。" : busy && !jobId ? "正在保存刚读到的材料…" : "";
+  const confirmationHint=account.loading?"正在读取账户，完成后即可继续。":analysisChecking?"正在确认是否已有报告，避免重复生成。":relatedLoading?"正在核对朋友圈资料，完成后即可继续。":relatedError?"朋友圈还未核对完成，请先点击上方重试。":!isWindow&&quoteBusy?"正在核对本次费用，完成后会显示可确认的积分。":!isWindow&&quoteError?quoteError:!isWindow&&!analysisQuote&&!receipt?"本次费用尚未确认，请重试核价。":!isWindow&&!consent?"先勾选上方材料授权，再确认生成。":!reportReady&&!receipt&&!isWindow?"请先补齐可读取的原文。":"";
+  function viewMaterials(view:"none"|"records"|"status"){
+    setMaterialView(view);
+    requestAnimationFrame(()=>{
+      const target=document.getElementById(view==="none"?"capture-preview":"capture-material-return");
+      target?.scrollIntoView({block:"start",behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'instant':'smooth'});
+      if(view!=="none")target?.querySelector<HTMLButtonElement>('button')?.focus({preventScroll:true});
+    });
+  }
   const processingImport=!!importStage||voiceEnriching||personImport!=="idle"||busy&&!!jobId;
   const compactImport = (method === "desktop" || method === "library") && !!library && (!jobId || voiceEnriching) && personImport === "idle" && !showImportControls;
   const currentMomentsAttempt=kind==='moments'&&momentsAttempt&&selectedContact?.contactId===momentsAttempt.contactId&&selectedContact.accountKey===momentsAttempt.accountKey?momentsAttempt:null;
@@ -1599,7 +1608,7 @@ export default function CapturePage() {
             {!isWindow&&!subject&&!reviewing&&<p className={styles.readyCaption}>继续即同意保存有权提供的资料并启用档案，将按这份导入材料自动关联人物。</p>}
              {fullReportPath && !showAnalysis && !receipt && !backgroundAnalysis && !previousReport && <div className={styles.fullReportCard}>
 
-              <button className={ui.primary} disabled={account.loading || subjectBusy || analyzing || cloudBusy || busy || analysisChecking || !!importStage || (!receipt && (!reportReady || relatedLoading || !!relatedError))} onClick={()=>void openAnalysis()}><FileText size={20}/><span><strong>{analysisChecking ? "正在读取报告进度…" : scopedAnalysis?.status==="error" ? "重试生成完整报告" : fullReportTitle}</strong><small>{reportReady || receipt ? priceLabel(account.account, costKey) : library.kind === "moments" ? "还没有可读的动态材料" : "还没有可读的聊天文字"}</small></span><ArrowRight size={18}/></button>
+              <button className={ui.primary} disabled={account.loading || subjectBusy || analyzing || cloudBusy || busy || analysisChecking || !!importStage || (!receipt && (!reportReady || relatedLoading || !!relatedError))} onClick={()=>void openAnalysis()}><FileText size={20}/><span><strong>{analysisChecking ? "正在读取报告进度…" : scopedAnalysis?.status==="error" ? "重试生成完整报告" : fullReportTitle}</strong><small>{reportReady || receipt ? "下一步确认费用 · 确认前不扣积分" : library.kind === "moments" ? "还没有可读的动态材料" : "还没有可读的聊天文字"}</small></span><ArrowRight size={18}/></button>
             </div>}
             {fullReportPath && !reviewing && reportWaitReason && <p className={styles.readyState} role="status">{(cloudBusy || relatedLoading || account.loading || busy&&!jobId) && <LoaderCircle size={17} className={styles.spin}/>} {reportWaitReason}</p>}
 
@@ -1616,14 +1625,14 @@ export default function CapturePage() {
                {cloudBusy && <div className={styles.analysisProgress} role="status"><LoaderCircle size={17} className={styles.spin}/><div><strong>正在保存分析所需资料</strong><p>{cloudNote || "正在同步聊天与图片…"}</p></div></div>}
               {!isWindow && <label className={styles.consent}><input type="checkbox" checked={consent} disabled={locked} onChange={e => setConsent(e.target.checked)}/><span>我有权提供以上材料，同意用于本次成子 AI 分析。<DataProcessingLink/></span></label>}
           {reportId && <a className={styles.reportLink} href={`/report?id=${reportId}`}><CheckCheck size={20}/><span>完整报告已保存<strong>打开报告，回看原文依据</strong></span><ArrowRight size={20}/></a>}
-          <button className={`${ui.primary} ${styles.full}`} disabled={account.loading || locked || analysisChecking || backgroundAnalysis || (!isWindow ? ((!reportReady || relatedLoading || !!relatedError) && !receipt) : !chosen.length) || (!isWindow && (!consent || quoteBusy || (!analysisQuote && !receipt)))} onClick={() => void analyze()}>{subjectBusy ? <><LoaderCircle size={18} className={styles.spin}/>正在关联微信好友…</> : cloudBusy ? <><LoaderCircle size={18} className={styles.spin}/>正在同步资料…</> : analyzing ? <><LoaderCircle size={18} className={styles.spin}/>正在建立报告任务…</> : isWindow ? <>进入截图分析<ArrowRight size={18}/></> : <>{receipt ? "继续本次分析" : "确认并生成报告"}<ArrowRight size={18}/></>}</button>
-          {!isWindow && <p className={styles.selectionNote}>含已导入语音与可读图片理解。已有同份报告免费查看；失败退回。{!analysisQuote&&!quoteBusy&&!receipt&&<button type="button" className={styles.refreshLibraries} onClick={()=>setQuoteRetry(value=>value+1)}>重新核价</button>}</p>}
+          <button aria-describedby="capture-confirmation-hint" className={`${ui.primary} ${styles.full}`} disabled={account.loading || locked || analysisChecking || backgroundAnalysis || (!isWindow ? ((!reportReady || relatedLoading || !!relatedError) && !receipt) : !chosen.length) || (!isWindow && (!consent || quoteBusy || (!analysisQuote && !receipt)))} onClick={() => void analyze()}>{subjectBusy ? <><LoaderCircle size={18} className={styles.spin}/>正在关联微信好友…</> : cloudBusy ? <><LoaderCircle size={18} className={styles.spin}/>正在同步资料…</> : analyzing ? <><LoaderCircle size={18} className={styles.spin}/>正在建立报告任务…</> : isWindow ? <>进入截图分析<ArrowRight size={18}/></> : <>{receipt ? "继续本次分析" : "确认并生成报告"}<ArrowRight size={18}/></>}</button>
+          {!isWindow&&<div id="capture-confirmation-hint" className={styles.confirmationHint} data-quote-state={quoteBusy?"loading":quoteError?"error":analysisQuote?"ready":"unavailable"}>{confirmationHint&&<p role={quoteError?"alert":"status"}>{quoteBusy&&<LoaderCircle size={16} className={styles.spin}/>} {confirmationHint}</p>}{!analysisQuote&&!quoteBusy&&!receipt&&<button type="button" className={ui.secondary} onClick={()=>setQuoteRetry(value=>value+1)}><RefreshCw size={16}/>重新核价</button>}</div>}{!isWindow && <p className={styles.selectionNote}>含已导入语音与可读图片理解。已有同份报告免费查看；失败退回。</p>}
 
             </div>}
                       {!reviewing && library.reportLinks.length > 0 && <div className={styles.reportHistory}><History size={16}/>这份原文的报告{library.reportLinks.slice(-4).reverse().map((link,i) => <a key={link.reportId} href={`/report?id=${link.reportId}`}>{i === 0 ? "最近一次" : `此前报告 ${i}`}<ArrowRight size={13}/></a>)}</div>}
           </div>
-          <div className={styles.materialTabs} hidden={reviewing} role="tablist" aria-label="材料查看"><button role="tab" aria-selected={materialView==="records"} aria-controls="capture-originals" onClick={()=>setMaterialView(materialView==="records"?"none":"records")}><MessageSquare size={17}/>{fullReportPath ? "查看全部原文" : "查看原文 / 调整选择"}</button><button role="tab" aria-selected={materialView==="status"} aria-controls="capture-status" onClick={()=>setMaterialView(materialView==="status"?"none":"status")}><Cloud size={17}/>导入详情{voiceOutcome ? ` · ${voiceOutcome}` : ""}</button></div>
-          {browsingMaterials && <button className={`${ui.secondary} ${styles.backToMaterials}`} onClick={()=>setMaterialView("none")}>返回报告准备<ArrowRight size={16}/></button>}
+          <div className={styles.materialTabs} hidden={reviewing} role="tablist" aria-label="材料查看"><button role="tab" aria-selected={materialView==="records"} aria-controls="capture-originals" onClick={()=>viewMaterials(materialView==="records"?"none":"records")}><MessageSquare size={17}/>{fullReportPath ? "查看全部原文" : "查看原文 / 调整选择"}</button><button role="tab" aria-selected={materialView==="status"} aria-controls="capture-status" onClick={()=>viewMaterials(materialView==="status"?"none":"status")}><Cloud size={17}/>导入详情{voiceOutcome ? ` · ${voiceOutcome}` : ""}</button></div>
+          {browsingMaterials && <div id="capture-material-return" className={styles.materialReturn}><div><strong>{materialView==="records"?"全部原文":"导入详情"}</strong><span>{contactDisplayName(library.friend)}</span></div><button type="button" className={ui.secondary} onClick={()=>viewMaterials("none")}><History size={17}/>返回报告准备</button>{previousReport&&<a className={ui.primary} href={`/report?id=${encodeURIComponent(previousReport.id)}`}>返回已生成报告<ArrowRight size={17}/></a>}</div>}
           <div id="capture-status" role="tabpanel" hidden={materialView!=="status" || reviewing} className={styles.materialPanel}>
           <div className={styles.cloudSync} data-cloud-sync><Cloud size={24}/><div><strong>{cloudBusy ? "正在同步，请稍候…" : library.cloud?.retired ? "旧的离线副本 · 不会自动同步" : library.cloud?.offline ? "当前查看本机副本" : library.cloud?.enabled ? "材料已保存到账号" : "在手机上接着看这份聊天"}</strong><p>{library.cloud?.retired ? "云端已重新建立，这份旧副本仅供本机查看，可以单独删除。" : library.cloud?.enabled ? "导入时自动保存，新增内容自动更新，无需再点同步。手机登录同一账号即可查看。" : "将这份材料的文字、语音转写和已采集图片保存到你的账号，直到你主动删除。同步不分析、不扣积分。"}</p>{cloudNote&&<p role="status">{cloudNote}</p>}</div>{(!library.cloud?.enabled||library.cloud?.offline||cloudError)&&<button className={ui.secondary} disabled={locked || account.loading || library.cloud?.retired} onClick={()=>void syncCurrentLibrary()}>{cloudBusy?<LoaderCircle className={styles.spin} size={17}/>:<UploadCloud size={17}/>} {library.cloud?.enabled ? "重试保存未完成的资料" : "启用跨端同步"}</button>}</div>
           {library.coverage?.scope === "all-visible" && <p className={styles.coverageSummary}>{library.coverage.complete ? `已采集到可见末尾 · 本次 ${library.coverage.recordCount} 条动态` : "本次未采集到可见末尾，已保存的动态可继续查看。"} · 微信不可见或已删除的动态无法读取。</p>}<CaptureCoverage records={library.records} kind={library.kind}/>{library.kind === "chat" && <ChatActivity records={library.records} account={library.account} friend={library.friend} compact/>}

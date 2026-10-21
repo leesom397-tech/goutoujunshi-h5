@@ -1,0 +1,6 @@
+.dialog :global(.quick-search-input) button { min-width: 44px; min-height: 44px; }
+.recovery { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px 16px; margin: 10px 12px; padding: 14px 16px; border: 1px solid #e7cbbb; border-radius: 12px; background: #fffaf5; color: #173f49; }
+.recovery p { flex: 1 1 220px; margin: 0; font-size: 14px; line-height: 1.7; }
+.recovery button, .recovery a { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 10px 14px; border: 1px solid #bb816c; border-radius: 10px; background: #fffaf5; color: #8f503d; font: inherit; font-size: 14px; font-weight: 600; line-height: 1.4; text-decoration: none; cursor: pointer; }
+.recovery button:hover, .recovery a:hover { background: #f7e8dd; }
+.recovery button:focus-visible, .recovery a:focus-visible { outline: 3px solid #4c7a69; outline-offset: 3px; }
