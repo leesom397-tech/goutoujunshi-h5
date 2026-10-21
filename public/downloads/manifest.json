@@ -1,5 +1,5 @@
 {
-  "version": "1.2.18",
+  "version": "1.2.19",
   "publisher": "成子智能体",
   "productName": "成子电脑微信采集助手",
   "authenticode": "unsigned-build-sign-with-sign_release.ps1-before-publishing",
@@ -9,64 +9,64 @@
     "thumbprint": "",
     "timestampThumbprint": ""
   },
-  "bytes": 132435584,
-  "sha256": "ead72c6738be1662e64080bf15bee133030fa74e1e6edea3cc1b38ebe0d4f1b6",
-  "exeSha256": "12c9b446bceda7b90ed1484980d62ab2807de4099ff07e98b10a4ec5c8a40988",
+  "bytes": 132440701,
+  "sha256": "13037576316d676e3fca80147cfba688264ad290966eeb2343a8ef3bf48887a0",
+  "exeSha256": "26ddfaef67380726f1b3826a6c9bfdbc3c3f9a7399d26045d26e10654d77bba9",
   "parts": [
     {
-      "name": "chengzi-wechat-collector-1.2.18.part01.bin",
+      "name": "chengzi-wechat-collector-1.2.19.part01.bin",
       "bytes": 12582912,
-      "sha256": "5c5b77065031fde44ca5fec801d095b79446b374b6c17450759492e98ea96b80"
+      "sha256": "ef85165ddf13c3a897189bdc95cbfbbbddc1f46f1dcf3cfde49160d96cc708f7"
     },
     {
-      "name": "chengzi-wechat-collector-1.2.18.part02.bin",
+      "name": "chengzi-wechat-collector-1.2.19.part02.bin",
       "bytes": 12582912,
-      "sha256": "ba2a0be02deb155b9aba42c71cefdb7a231595028951920e12da8a38c146fb4b"
+      "sha256": "cce53c221c704822d740fcf7c902f3c5303de9e946d68acac676d29ed14588fd"
     },
     {
-      "name": "chengzi-wechat-collector-1.2.18.part03.bin",
+      "name": "chengzi-wechat-collector-1.2.19.part03.bin",
       "bytes": 12582912,
-      "sha256": "97908adef43fcade9da5c463caca03e8986f6b978eae6107e4e8d2822994d7fe"
+      "sha256": "98ea1aed910ebad90a0ecf02c21a97973d56ddf71917a9b40687823f5fe3404e"
     },
     {
-      "name": "chengzi-wechat-collector-1.2.18.part04.bin",
+      "name": "chengzi-wechat-collector-1.2.19.part04.bin",
       "bytes": 12582912,
-      "sha256": "d7f564acb8e9d98a2bb12ecc41d86bbc1ac79f680c2a307a7b158920a54b05eb"
+      "sha256": "31626aa72c334f32cd1b75dc67998cfe564b91fda821aa6df82cf893ad25ca48"
     },
     {
-      "name": "chengzi-wechat-collector-1.2.18.part05.bin",
+      "name": "chengzi-wechat-collector-1.2.19.part05.bin",
       "bytes": 12582912,
-      "sha256": "7dad033fe5db48bb14cc4bc8717f8e008e514329d45796703ac321f2b2eb540a"
+      "sha256": "126c440c1320c05ab47bfe2b205faa2e36edfa4c80ea9a79572f271bad351b67"
     },
     {
-      "name": "chengzi-wechat-collector-1.2.18.part06.bin",
+      "name": "chengzi-wechat-collector-1.2.19.part06.bin",
       "bytes": 12582912,
-      "sha256": "87bb180f9fdc6c0a74c434f5476e3cc2d659f767a6796c97b5fc9e9511689507"
+      "sha256": "bfad01cdbe5654b25b963559df279f7b917b31f81e54fdf77ced294f7540b35a"
     },
     {
-      "name": "chengzi-wechat-collector-1.2.18.part07.bin",
+      "name": "chengzi-wechat-collector-1.2.19.part07.bin",
       "bytes": 12582912,
-      "sha256": "c03e46067168a7627e89101f7b21825dad91e5ef32ba3afa1fffa9e4414b9299"
+      "sha256": "e1a2686ef381cd93d30941044a1a1a3239a316fe987e68fe526e2610ebcd03d8"
     },
     {
-      "name": "chengzi-wechat-collector-1.2.18.part08.bin",
+      "name": "chengzi-wechat-collector-1.2.19.part08.bin",
       "bytes": 12582912,
-      "sha256": "227e81e99ddc6af181f125379729fa88328f55d3e4fe5d706a700aa0b60f850a"
+      "sha256": "6bc372847ccab69fe2b692e13cb6461b85e312a4856355ac75511ced721f4334"
     },
     {
-      "name": "chengzi-wechat-collector-1.2.18.part09.bin",
+      "name": "chengzi-wechat-collector-1.2.19.part09.bin",
       "bytes": 12582912,
-      "sha256": "eb0d8d64bb366dd15c75f2d9979765f71e1edd939d766aa55d37cad9d9c504ca"
+      "sha256": "bacafd7b2a44323273a52eb2cd64f106f52032454b7dfbf7cef830e08a5aa387"
     },
     {
-      "name": "chengzi-wechat-collector-1.2.18.part10.bin",
+      "name": "chengzi-wechat-collector-1.2.19.part10.bin",
       "bytes": 12582912,
-      "sha256": "7aefaef6bf6673cf1f5544327c76c199947109bc95cb2c9f102ac4bbea4dbf89"
+      "sha256": "6e15959faf74d1bef38d5bf87c3052374c9a095dfa1791940bf621310c844ea5"
     },
     {
-      "name": "chengzi-wechat-collector-1.2.18.part11.bin",
-      "bytes": 6606464,
-      "sha256": "e9d9d85459b37fc819317f0267c94879955a76d03991b3928e56e9abd2b4d1b3"
+      "name": "chengzi-wechat-collector-1.2.19.part11.bin",
+      "bytes": 6611581,
+      "sha256": "9c52b9df9ed85cdea2e06c5e22d85131f1fe0a52b40bd513f099022f8bc9f630"
     }
   ]
 }
