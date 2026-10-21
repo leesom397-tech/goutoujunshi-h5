@@ -47,7 +47,7 @@ export function checkpointedCaptureModel(qwen: typeof qwenChat, checkpoint: Capt
         ...messages.slice(0, -1),
         {role: "user" as const, content: JSON.stringify({...detail, repair: {
           issue: cached.issue, draft: cached.text,
-          instruction: "草稿未通过核验。只依据 findings 修正缺项或无效引用，保留成立的判断，返回完整 JSON。不得新增事实或编造证据。riskAssessment 每项须有对方原话、resolution、verify.action 和至少两个不同的 verify.outcomes；澄清须有更晚原话，否则 unknown/unresolved。actionPlan.steps 须有 title/action/why/evidenceIds/observeFor/advanceWhen/stopWhen；画像 subject 用 self/other/interaction。公开图片不支持好感。无依据的可选推断删除。"
+          instruction: "草稿未通过核验。只依据 findings 修正缺项或无效引用，保留成立的判断，返回完整 JSON。不得新增事实或编造证据。affinityAssessment.dimensions 的 key 必须严格取 affinityRubric 的 key；status 只能 clear/ambiguous/insufficient；level 必须是 0–4 整数（不是百分数），insufficient 必须 level:null；有分项必须有非空 reason 和有效 evidenceIds。riskAssessment 每项须有对方原话、resolution、verify.action 和至少两个不同的 verify.outcomes；澄清须有更晚原话，否则 unknown/unresolved。actionPlan.steps 须有 title/action/why/evidenceIds/observeFor/advanceWhen/stopWhen；画像 subject 用 self/other/interaction。公开图片不支持好感。无依据的可选推断删除。"
         }})},
       ] : messages;
       try { text = await qwen(repairMessages, options); }
