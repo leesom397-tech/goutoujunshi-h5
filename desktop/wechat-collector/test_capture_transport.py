@@ -1,5 +1,6 @@
 """Only invented snapshots; no WeChat, login or network activity."""
 import json
+import copy
 import time
 import unittest
 
@@ -16,6 +17,51 @@ def snapshot(count):
 
 
 class CaptureTransportTest(unittest.TestCase):
+    def test_voice_updates_keep_images_without_retransmitting_them(self):
+        batch = {"version": 1, "kind": "chat", "account": "synthetic-account", "friend": "synthetic-friend",
+                 "records": [{"id": f"voice-{index}", "text": "[语音]", "kind": "other",
+                              "source": {"accountId": "synthetic-account", "sessionId": "synthetic-friend",
+                                         "messageId": str(index), "transcriptionStatus": "not-transcribed"}}
+                             for index in range(100)] +
+                            [{"id": "image", "text": "[图片]", "source": {},
+                              "images": [{"mime": "image/jpeg", "data": "A" * 800_000}]}]}
+        previous = expand_partial(None, partial_message(None, batch))
+        old = copy.deepcopy(previous)
+        cumulative_bytes = transmitted_bytes = 0
+        for index in range(100):
+            current = copy.deepcopy(previous)
+            current["records"][index].update(text=f"合成语音 {index}", kind="voice-transcript")
+            current["records"][index]["source"]["transcriptionStatus"] = "visible-text"
+            packet = partial_message(previous, current)
+            self.assertEqual(packet["type"], "partial-patch")
+            self.assertEqual(len(packet["updates"]), 1)
+            transmitted_bytes += len(json.dumps(packet))
+            cumulative_bytes += len(json.dumps(current))
+            previous = expand_partial(previous, packet)
+            self.assertEqual(previous, current)
+        self.assertEqual(batch, old, "updating the next revision cannot mutate a previously published revision")
+        self.assertLess(transmitted_bytes, cumulative_bytes / 100)
+        print(f"100 synthetic voice updates IPC: {cumulative_bytes} -> {transmitted_bytes} bytes")
+
+    def test_chat_patch_rejects_identity_count_and_index_changes(self):
+        before = {"version": 1, "kind": "chat", "account": "a", "friend": "b",
+                  "records": [{"id": "one", "text": "[语音]", "source": {"sessionId": "b"}}]}
+        after = copy.deepcopy(before)
+        after["records"][0]["text"] = "合成语音"
+        packet = partial_message(before, after)
+        for mutation in ("friend", "count", "duplicate-index", "index", "id", "sessionId"):
+            changed = copy.deepcopy(packet)
+            if mutation == "friend": changed["partial"]["friend"] = "other"
+            elif mutation == "count": changed["count"] = 2
+            elif mutation == "duplicate-index": changed["updates"] *= 2
+            elif mutation == "index": changed["updates"][0]["index"] = True
+            elif mutation == "id": changed["updates"][0]["record"]["id"] = "other"
+            else: changed["updates"][0]["record"]["source"]["sessionId"] = "other"
+            with self.subTest(mutation=mutation), self.assertRaisesRegex(ValueError, "PARTIAL_SOURCE_CHANGED"):
+                expand_partial(before, changed)
+        after["records"][0]["source"]["sessionId"] = "other"
+        self.assertEqual(partial_message(before, after)["type"], "partial")
+
     def test_127_posts_keep_every_image_comment_and_pin_with_linear_pipe_bytes(self):
         previous = None
         cumulative_bytes = transmitted_bytes = 0

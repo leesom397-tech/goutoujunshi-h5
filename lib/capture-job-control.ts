@@ -1,5 +1,5 @@
 import type { qwenChat } from "./qwen";
-import { CaptureJobYield, CaptureJobRetry, CAPTURE_ALARM_MODEL_CALLS } from "./capture-job-signals.mjs";
+import { CaptureJobYield, CaptureJobRetry, CAPTURE_ALARM_MODEL_CALLS, registerCaptureModelProgress } from "./capture-job-signals.mjs";
 import { historySynthesisIssue, hasGroundedChunkResult } from "./capture-semantic-history";
 import { validatedCaptureImageObservations } from "./capture-image-observations";
 export { CaptureJobYield, CaptureJobRetry, isCaptureJobControl, allCaptureSteps } from "./capture-job-signals.mjs";
@@ -12,7 +12,7 @@ export function checkpointedCaptureModel(qwen: typeof qwenChat, checkpoint: Capt
   let calls = 0;
   const startedAt = Date.now();
   const inFlight = new Set<Promise<unknown>>();
-  return async (messages, options) => {
+  const model: typeof qwenChat = async (messages, options) => {
     await validate?.();
     let detail: any = {};
     try { const content = messages.at(-1)?.content; detail = JSON.parse(typeof content === "string" ? content : content?.[0]?.type === "text" ? content[0].text : "{}"); } catch {}
@@ -72,4 +72,6 @@ export function checkpointedCaptureModel(qwen: typeof qwenChat, checkpoint: Capt
     inFlight.add(run);
     try { return await run; } finally { inFlight.delete(run); }
   };
+  registerCaptureModelProgress(model, (progress: Record<string, unknown>) => checkpoint("progress", progress));
+  return model;
 }

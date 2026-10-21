@@ -1,5 +1,5 @@
 import {captureProfileMaterial,CAPTURE_MATERIAL_GUIDANCE,type CaptureMaterialMetadata} from "./capture-material";
-import { isCaptureJobControl, allCaptureSteps, CAPTURE_STEP_CONCURRENCY } from "./capture-job-signals.mjs";
+import { isCaptureJobControl, allCaptureSteps, CAPTURE_STEP_CONCURRENCY, reportCaptureModelProgress } from "./capture-job-signals.mjs";
 import type { CaptureMemoryRow, CaptureMemoryContext } from "./capture-analysis-input";
 import type { ChatActivitySummary } from "./chat-activity";
 import type { QwenMessage } from "./qwen";
@@ -466,6 +466,7 @@ export async function analyzeCaptureSemanticHistory(input: {
     summary: "本次没有收到可用于历史语义分析的文字。", summaryEvidenceIds: [], trend: "待了解", reciprocity: "", action: "", actionEvidenceIds: [], findings: [] };
 
   const findings: SemanticHistoryFinding[] = [];
+  await reportCaptureModelProgress(qwen, {totalSegments:chunks.length});
   let analyzedText = 0, supplementalAnalyzed = 0;
   const sourceCounts: Record<string, {captions: number; visual: number}> = {};
   // Bounded parallel reads cover the entire corpus. Durable execution keeps

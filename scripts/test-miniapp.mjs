@@ -247,7 +247,7 @@ const nativeReportSource = readFileSync(resolve("miniapp/pages/report/index.js")
 let nativeReportDefinition;
 const nativeRewrites=[];
 new Function("require", "Page", "wx", nativeReportSource)(
-  id => { if(id==="../../lib/history-report"){const m={exports:{}};new Function("module",readFileSync(resolve("miniapp/lib/history-report.js"),"utf8"))(m);return m.exports;} if(id==="../../lib/imported-report")return nativeImported.exports; if(id==="../../lib/risk-aware-presentation")return nativeRisk; if (id === "../../lib/followup-context") return followup; assert.equal(id, "../../lib/api"); return {
+  id => { if(id==="../../lib/history-report"){const m={exports:{}};new Function("module","require",readFileSync(resolve("miniapp/lib/history-report.js"),"utf8"))(m,id=>{assert.equal(id,"./moments-content");const child={exports:{}};new Function("module",readFileSync(resolve("miniapp/lib/moments-content.js"),"utf8"))(child);return child.exports;});return m.exports;} if(id==="../../lib/imported-report")return nativeImported.exports; if(id==="../../lib/risk-aware-presentation")return nativeRisk; if (id === "../../lib/followup-context") return followup; assert.equal(id, "../../lib/api"); return {
     STORAGE: api.STORAGE,
     session: api.session,
     newId: async()=>validId,

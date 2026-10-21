@@ -95,9 +95,14 @@ class CollectorState:
         from local_database_source import ContactSourceCache
         self.contact_cache = ContactSourceCache()
 
-    def health(self):
+    def health(self, background_only=False):
         from compatibility import compatibility_probe
-        health = (self.health_provider or compatibility_probe)()
+        # A background page/voice batch does not depend on UIA. Probing the
+        # whole window here under the job lock stalls status/session requests
+        # and is repeated for every page. The worker still verifies the live
+        # account and selected contact before any database data is returned.
+        health = (self.health_provider() if self.health_provider else
+                  {} if background_only else compatibility_probe())
         background = {}
         if not self.health_provider:
             try:
@@ -287,7 +292,7 @@ class CollectorState:
             self._prune()
             if self.active:
                 raise BridgeError(409, "CAPTURE_BUSY", "已有采集任务，请等完成或先停止。")
-            health = self.health()
+            health = self.health(background_only=mode == "background")
             capable = health.get("capabilities", {})
             if mode == "background" and not capable.get("backgroundChat"):
                 raise BridgeError(409, "BACKGROUND_NOT_READY", health.get("backgroundMessage") or "当前助手暂不能后台读取聊天。")
@@ -355,7 +360,7 @@ class CollectorState:
                                        pinnedCount=int(msg.get("pinnedCount", job.get("pinnedCount", 0)) or 0),
                                        lastAction=str(msg.get("lastAction") or job.get("lastAction") or "")[:80],
                                        message=str(msg.get("message", ""))[:100])
-                        elif msg.get("type") in ("partial", "partial-delta"):
+                        elif msg.get("type") in ("partial", "partial-delta", "partial-patch"):
                             try:
                                 partial = expand_partial(job.get("partial"), msg)
                             except (ValueError, KeyError, TypeError):

@@ -671,13 +671,17 @@ def _read_audio(source, session, wanted, load_audio=False):
             continue
         if len(cids) == 10:
             raise BackgroundCaptureError("SOURCE_INVALID", "本地语音会话映射无法唯一核对。")
-        for cid in cids:
+        if cids:
             marks = ",".join("?" for _ in wanted)
+            contact_marks = ",".join("?" for _ in cids)
             # A corrupt or unexpectedly huge blob is never materialized in Python.
             value = "CASE WHEN length(voice_data)<=? THEN voice_data ELSE NULL END" if load_audio else "NULL"
             query = (f"SELECT svr_id,length(voice_data),{value} "
-                     f"FROM VoiceInfo WHERE chat_name_id=? AND svr_id IN ({marks}) LIMIT 2001")
-            parameters = ((MAX_AUDIO,) if load_audio else ()) + (cid, *sorted(wanted))
+                     f"FROM VoiceInfo WHERE chat_name_id IN ({contact_marks}) AND svr_id IN ({marks}) LIMIT 2001")
+            # Older shards can have several IDs for the same selected contact.
+            # One bounded query avoids rescanning an unindexed VoiceInfo table
+            # once for every alias; conflicting blobs are still rejected below.
+            parameters = ((MAX_AUDIO,) if load_audio else ()) + (*cids, *sorted(wanted))
             for count, (server_id, length, blob) in enumerate(_execute(conn, query, parameters)):
                 if count >= 2000:
                     raise BackgroundCaptureError("SOURCE_INVALID", "本地语音索引重复过多，未自动合并。")

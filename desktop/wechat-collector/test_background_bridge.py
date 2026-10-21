@@ -33,6 +33,17 @@ def fake_exits_without_message(conn, request):
 
 
 class BackgroundBridgeTest(unittest.TestCase):
+    def test_background_start_does_not_probe_the_desktop_per_page(self):
+        state = CollectorState(capture_target=fake_background)
+        try:
+            with patch("compatibility.compatibility_probe", side_effect=AssertionError("unnecessary UIA scan")), \
+                 patch("background_reader.probe_background", return_value={"ready": True, "voiceReady": True}):
+                job_id = state.start({"kind": "chat", "friend": "合成联系人", "limit": 10,
+                                      "mode": "background", "includeVoice": True})["jobId"]
+                self.assertEqual(self.wait(state, job_id, "completed")["status"], "completed")
+        finally:
+            state.cancel_active()
+
     def test_component_health_never_inspects_private_account_or_data(self):
         with patch("compatibility.compatibility_probe", return_value={
                 "ready": False, "message": "synthetic UI unavailable", "capabilities": {"chat": False}}), \

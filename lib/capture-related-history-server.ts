@@ -24,6 +24,12 @@ const digest = async (bytes: Uint8Array) => Array.from(new Uint8Array(await cryp
 const eligibleCaption = (row: CloudCaptureRecord) => captureMaterialRole(row.source)!=="moments-cover" && row.text.trim() && !/^\s*[\[【]?(?:图片|照片|视频|表情包|动态)[\]】]?\s*$/u.test(row.text);
 export const supplementalEvidenceKey = (source: Partial<SemanticHistoryEvidence>) => JSON.stringify([source.libraryId, source.sourceId, source.mediaId, source.basis, source.quote]);
 
+function cachedImageRead(media: Media, source: CloudCaptureRecord): ImageRead | null {
+  const cached = media.analysis_version === 1 ? parse(media.analysis_json) : {};
+  return typeof cached.readable === "boolean" && typeof cached.observation === "string" && (!cached.readable || cached.observation.trim())
+    ? {media, source, readable: cached.readable, observation: cached.observation, ...imageContentFields(cached)} : null;
+}
+
 // Usual capture previews can run four independent requests together. Large
 // originals need smaller groups: base64 and JSON create extra copies in a
 // Worker, so fan-out must be bounded by bytes as well as provider count.
@@ -55,17 +61,29 @@ function imageReadGroups(pictures: Media[]): Media[][][] {
  * image's identity, cache, readability or error accounting. */
 async function readImageBatch(db: Database, owner: string, snapshot: Snapshot, media: Media[], byId: Map<string, CloudCaptureRecord>, qwen: VisionCall): Promise<ImageRead[]> {
   const completed: ImageRead[] = [], pending: Array<{media: Media; source: CloudCaptureRecord; encoded: string}> = [];
+  const unread: Media[] = [];
   for (const picture of media) {
     const source = byId.get(picture.local_id)!;
-    const cached = picture.analysis_version === 1 ? parse(picture.analysis_json) : {};
-    if (typeof cached.readable === "boolean" && typeof cached.observation === "string" && (!cached.readable || cached.observation.trim())) {
-      completed.push({media: picture, source, readable: cached.readable, observation: cached.observation,...imageContentFields(cached)});
-      continue;
-    }
+    const cached = cachedImageRead(picture, source);
+    if (cached) completed.push(cached);
+    else unread.push(picture);
+  }
+  if (!unread.length) return completed;
+  // A bounded image batch needs one database round trip. The join binds the
+  // bytes to the authenticated owner and frozen library, as well as media ID.
+  let chunks: Array<{media_id: string; chunk_index: number; data: string}>;
+  try {
+    chunks = (await db.prepare("SELECT c.media_id,c.chunk_index,c.data FROM coach_capture_media_chunks c JOIN coach_capture_media m ON m.id=c.media_id WHERE m.owner_id=? AND m.library_id=? AND m.epoch=? AND m.status='ready' AND m.id IN(SELECT value FROM json_each(?)) ORDER BY c.media_id,c.chunk_index")
+      .bind(owner, snapshot.libraryId, snapshot.epoch, JSON.stringify(unread.map(picture=>picture.id))).all<{media_id: string; chunk_index: number; data: string}>()).results;
+  } catch { return [...completed, ...unread.map(media=>({media, source:byId.get(media.local_id)!, failed:true as const}))]; }
+  const byMedia = new Map<string, typeof chunks>();
+  for (const chunk of chunks) { const list = byMedia.get(chunk.media_id) || []; list.push(chunk); byMedia.set(chunk.media_id, list); }
+  for (const picture of unread) {
+    const source = byId.get(picture.local_id)!;
     try {
-      const chunks = await db.prepare("SELECT chunk_index,data FROM coach_capture_media_chunks WHERE media_id=? ORDER BY chunk_index").bind(picture.id).all<{chunk_index: number; data: string}>();
-      if (chunks.results.length !== picture.chunk_count || chunks.results.some((row, index) => row.chunk_index !== index)) throw Error("IMAGE_CHUNKS_MISSING");
-      const encoded = chunks.results.map(row => row.data).join(""), bytes = Uint8Array.from(atob(encoded), character => character.charCodeAt(0));
+      const imageChunks = byMedia.get(picture.id) || [];
+      if (imageChunks.length !== picture.chunk_count || imageChunks.some((row, index) => row.chunk_index !== index)) throw Error("IMAGE_CHUNKS_MISSING");
+      const encoded = imageChunks.map(row => row.data).join(""), bytes = Uint8Array.from(atob(encoded), character => character.charCodeAt(0));
       if (await digest(bytes) !== picture.sha256) throw Error("IMAGE_HASH_MISMATCH");
       pending.push({media: picture, source, encoded});
     } catch { completed.push({media: picture, source, failed: true}); }
@@ -141,8 +159,12 @@ export async function checkRelatedCaptureSnapshots(db: Database, owner: string, 
 }
 
 export async function assertCaptureSnapshotsCurrent(db: Database, owner: string, snapshots: Snapshot[]) {
+  if (!snapshots.length) return;
+  const current = await db.prepare("SELECT id,epoch,revision,deleted_at FROM coach_capture_libraries WHERE owner_id=? AND id IN(SELECT value FROM json_each(?))")
+    .bind(owner, JSON.stringify(snapshots.map(snapshot=>snapshot.libraryId))).all<{id: string; epoch: number; revision: number; deleted_at: number | null}>();
+  const byId = new Map(current.results.map(row=>[row.id,row]));
   for (const snapshot of snapshots) {
-    const row = await db.prepare("SELECT epoch,revision,deleted_at FROM coach_capture_libraries WHERE owner_id=? AND id=?").bind(owner, snapshot.libraryId).first<{epoch: number; revision: number; deleted_at: number | null}>();
+    const row = byId.get(snapshot.libraryId);
     if (!row || row.deleted_at !== null || row.epoch !== snapshot.epoch || row.revision !== snapshot.revision) throw new CaptureFullHistoryError("分析期间资料更新或删除了，请重新核对范围；已完成的图片识别会复用。", 409);
   }
 }
@@ -156,9 +178,10 @@ export async function readRelatedCaptureEvidence(db: Database, owner: string, in
   const sources: Array<{snapshot: Snapshot; records: CloudCaptureRecord[]}> = [{snapshot: snapshots[0], records: chat.records}];
   for (const snapshot of related) {
     const records: CloudCaptureRecord[] = [];
-    for (let offset = 0; offset < snapshot.total; offset += 500) {
-      const page = await db.prepare("SELECT local_id,record_json FROM coach_capture_records WHERE owner_id=? AND library_id=? AND epoch=? ORDER BY sort_known,sort_time,seq LIMIT 500 OFFSET ?").bind(owner, snapshot.libraryId, snapshot.epoch, offset).all<{local_id: string; record_json: string}>();
-      for (const item of page.results) {
+    for (let start = 0; start < snapshot.total; start += 500 * CAPTURE_STEP_CONCURRENCY) {
+      const offsets = Array.from({length:Math.min(CAPTURE_STEP_CONCURRENCY,Math.ceil((snapshot.total-start)/500))},(_,i)=>start+i*500);
+      const pages = await allCaptureSteps(offsets.map(offset=>db.prepare("SELECT local_id,record_json FROM coach_capture_records WHERE owner_id=? AND library_id=? AND epoch=? ORDER BY sort_known,sort_time,seq LIMIT 500 OFFSET ?").bind(owner, snapshot.libraryId, snapshot.epoch, offset).all<{local_id: string; record_json: string}>()));
+      for (const item of pages.flatMap(page=>page.results)) {
         const row = parse(item.record_json);
         if (row.localId !== item.local_id || typeof row.text !== "string" || typeof row.at !== "string" || !["self", "other", "unknown"].includes(row.senderRole)) throw new CaptureFullHistoryError("朋友圈原文记录不完整，请重新同步。", 409);
         records.push(row as CloudCaptureRecord);
@@ -187,9 +210,21 @@ export async function readRelatedCaptureEvidence(db: Database, owner: string, in
     if (snapshot.kind === "moments") for (const row of records) if (eligibleCaption(row)) {
       supplementalRecords.push({localId: `${snapshot.libraryId}:caption:${row.localId}`, sourceLocalId: row.localId, kind: "text", senderRole: "other", at: row.at, text: row.text, libraryId: snapshot.libraryId, sourceKind: "moments", basis: "caption",materialRole:captureMaterialRole(row.source),pinned:captureMaterialRole(row.source)==="moment"&&row.source?.pinned===true});
     }
-    for (const batches of imageReadGroups(pictures)) {
-      const observations = (await allCaptureSteps(batches.map(batch => readImageBatch(db, owner, snapshot, batch, byId, qwen)))).flat();
-      for (const result of observations) {
+    const observations = new Map<string, ImageRead>(), unread: Media[] = [];
+    for (const picture of pictures) {
+      const cached = cachedImageRead(picture, byId.get(picture.local_id)!);
+      if (cached) observations.set(picture.id, cached);
+      else unread.push(picture);
+    }
+    // Cached frames must not occupy the four slots in a new vision request.
+    // Packing only unread frames avoids many one-image requests on a sparse
+    // update. Restore original media order below so retrying does not alter
+    // semantic prompt hashes or image-to-source associations.
+    for (const batches of imageReadGroups(unread)) {
+      for (const result of (await allCaptureSteps(batches.map(batch => readImageBatch(db, owner, snapshot, batch, byId, qwen)))).flat()) observations.set(result.media.id,result);
+    }
+    for (const picture of pictures) {
+        const result = observations.get(picture.id)!;
         if ("failed" in result) { coverage.imagesFailed++; continue; }
         if (!result.readable) { coverage.imagesUnreadable++; continue; }
         coverage.imagesAnalyzed++;
@@ -198,7 +233,6 @@ export async function readRelatedCaptureEvidence(db: Database, owner: string, in
         // An unknown chat sender remains unassigned; inspecting a picture does
         // not grant permission to turn it into a fact about either participant.
         if (result.source.senderRole !== "unknown" || snapshot.kind === "moments") supplementalRecords.push({localId: `${snapshot.libraryId}:image:${result.media.id}`, sourceLocalId: result.source.localId, kind: "text", senderRole: snapshot.kind === "moments" ? "other" : result.source.senderRole as "self" | "other", at: result.source.at, text: result.observation, libraryId: snapshot.libraryId, mediaId: result.media.id, sourceKind: snapshot.kind, basis: "visual",...metadata});
-      }
     }
     coverage.status = coverage.imagesMissing || coverage.imagesFailed || coverage.imagesUnreadable ? "partial" : "complete";
   }

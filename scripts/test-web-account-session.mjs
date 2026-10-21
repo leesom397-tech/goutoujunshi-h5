@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import ts from 'typescript';
 import { createWebAccountStore } from '../lib/web-account-store.mjs';
+import * as pricing from '../lib/analysis-pricing.mjs';
 
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 const value = owner => ({ account: { userId: owner, balance: 50 }, people: [{ id: `${owner}-person`, label: '测试人物' }], prices: { text: 1 }, user: { name: owner } });
@@ -73,6 +74,7 @@ function routeHarness() {
   const identity = deferred(), credits = deferred(), subjects = deferred(), queries = [], started = [];
   const db = { prepare(sql) { return { bind(...args) { queries.push({ sql, args }); return { all() { started.push('subjects'); return subjects.promise; } }; } }; } };
   const dependencies = {
+    '@/lib/analysis-pricing.mjs': pricing,
     'cloudflare:workers': { env: {} }, '@/db': { getD1: () => db },
     '@/lib/request-identity.mjs': { webOwner: () => identity.promise },
     '@/lib/account-credits.mjs': { readCreditAccount(database, owner) { assert.equal(database, db); started.push(['credits', owner]); return credits.promise; }, CREDIT_PRICES: { text: 1 }, isCreditAdmin: () => false },
@@ -141,7 +143,10 @@ assert.equal(sessionExports.webAccountStore.getSnapshot().account.account.userId
 
 const require = createRequire(import.meta.url), clientExports = {}, apiReads = [];
 const clientSource = ts.transpileModule(readFileSync('components/web-analysis/client.tsx', 'utf8'), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText;
+const reportReturn = {};
+new Function('exports',ts.transpileModule(readFileSync('lib/report-return.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(reportReturn);
 const clientDependencies = {
+  '@/lib/report-return': reportReturn,
   '@/components/AuroraUI.module.css': { default: {} },
   '@/components/PersonAvatarChoice': { PersonAvatarChoice() {} },
   '@/lib/web-api-request.mjs': { fetchWebJson() { const read = deferred(); apiReads.push(read); return read.promise; } },

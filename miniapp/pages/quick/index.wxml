@@ -17,7 +17,7 @@
   </view>
   <block wx:else>
     <view wx:if="{{priceError}}" class="panel"><text class="error">{{priceError}}</text><button class="secondary" bindtap="loadPrices">重试读取价格</button></view>
-    <template wx:if="{{busy || backgroundPending}}" is="analysisStatus" data="{{busy, backgroundPending, taskStage, uploadProgress, batchProgress, error}}"/>
+    <template wx:if="{{busy || backgroundPending}}" is="analysisStatus" data="{{busy, backgroundPending, taskStage, uploadProgress, batchProgress, elapsedSeconds, error}}"/>
     <view wx:if="{{partialCount && !result.reportId}}" class="partial-results">
       <view class="partial-heading"><text>先看已完成的部分</text><text class="partial-count">{{partialCount}} / {{partialTotal}} 张</text></view>
       <text class="partial-note">后面的截图继续处理中；这些是局部解读，完整判断和回复建议会在整组完成后汇总。</text>
