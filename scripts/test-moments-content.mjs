@@ -18,3 +18,5 @@ assert.equal(momentsContent({}).posts,0);
 assert.equal(momentsContent({mediaEvidence:[row('x','p','九宫格模糊，无法确认自拍')]}).selfieMinimum,0);
 assert.equal(momentsContent({mediaEvidence:[row('x','p','图片',{contentTags:['宠物'],selfieCount:null})]}).groups[0].label,'宠物');
 console.log('Moments projection: dedupe, bounds, negation, legacy, immutable passed');
+
+assert.equal(momentsContent({mediaEvidence:[row('r','p','外卖骑手骑行配送画面')]}).groups.some(x=>x.label==='运动'),false);

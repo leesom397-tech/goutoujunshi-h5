@@ -22,7 +22,7 @@ function rows(value) { return Array.isArray(value) ? value : []; }
 function classify(observation) {
   // Absence of a word is unknown, never a negative visual classification.
   const clauses=String(observation||'').split(/[。；;\n]/).filter(t=>!/(未见|没有|不是|无法|不能|不确定|未能|看不清|模糊)/.test(t));
-  return categories.filter(([,pattern])=>clauses.some(t=>pattern.test(t))).map(([label])=>label);
+  return categories.filter(([label,pattern])=>clauses.some(t=>pattern.test(t)&&!(label==='运动'&&/外卖|骑手|配送/.test(t)))).map(([label])=>label);
 }
 function momentsContent(report) {
   const media=rows(report.mediaEvidence).filter(x=>x&&x.kind==='moments'&&(!x.materialRole||x.materialRole==='moment')&&typeof x.observation==='string'&&x.observation.trim());
