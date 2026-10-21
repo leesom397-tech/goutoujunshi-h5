@@ -49,6 +49,20 @@ def return_to_browser(target):
     api.GetClassNameW(foreground, kind, 128)
     # Don't interrupt another app the user deliberately switched to.
     if foreground != handle and not any(part in kind.value.lower() for part in ("wechat", "weixin", "mmui")):
-        return False
+        # WeChat 4's native HWND is Qt; mmui is only its UIA class.
+        if not kind.value.startswith("Qt") or not is_wechat_process(api, foreground):
+            return False
     api.ShowWindow(handle, 9)
     return bool(api.SetForegroundWindow(handle))
+
+
+def is_wechat_process(api, handle):
+    import ctypes
+    from ctypes import wintypes
+    import psutil
+    pid = wintypes.DWORD()
+    api.GetWindowThreadProcessId(handle, ctypes.byref(pid))
+    try:
+        return psutil.Process(pid.value).name().lower() in ("weixin.exe", "wechat.exe")
+    except psutil.Error:
+        return False
