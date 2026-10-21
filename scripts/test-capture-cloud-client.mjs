@@ -64,6 +64,46 @@ await page.evaluate(()=>{
 });
 const check=async(name,fn)=>{try{await page.evaluate(()=>reset());await fn();results.push({name,status:'pass'});console.log('PASS '+name)}catch(error){results.push({name,status:'fail',message:error.message});console.error('FAIL '+name+': '+error.message)}};
 try{
+ await check('legacy archives migrate once; list reads summaries without loading image originals',async()=>{
+   const result=await page.evaluate(async()=>{
+     const reportId='11111111-1111-4111-8111-111111111111',row=record('legacy-photo','',{kind:'image',images:[{mime:'image/png',data:'a'.repeat(2_000_000)}]});
+     const lib={...info([row]),ownerId:owner,id:capture.captureLibraryId({ownerId:owner,account:'synthetic-wechat',friend:'合成联系人',kind:'chat'}),records:[row],reportLinks:[{reportId,sourceIds:[row.localId],createdAt:at}]};
+     const db=await new Promise((resolve,reject)=>{const r=indexedDB.open('chengzi-desktop-capture-v1',1);r.onupgradeneeded=()=>{const l=r.result.createObjectStore('libraries',{keyPath:'id'});l.createIndex('ownerId','ownerId');const s=r.result.createObjectStore('reportSources',{keyPath:'id'});s.createIndex('ownerId','ownerId');s.createIndex('libraryId','libraryId');};r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
+     await new Promise((resolve,reject)=>{const tx=db.transaction(['libraries','reportSources'],'readwrite');tx.objectStore('libraries').put(lib);tx.objectStore('reportSources').put({id:JSON.stringify([owner,reportId]),ownerId:owner,reportId,libraryId:lib.id,sourceIds:[row.localId],createdAt:at});tx.oncomplete=resolve;tx.onabort=()=>reject(tx.error);});db.close();
+     const originalPut=IDBObjectStore.prototype.put;let migrationRejected=false;
+     IDBObjectStore.prototype.put=function(...args){if(this.name==='librarySummaries')throw new DOMException('Synthetic migration quota','QuotaExceededError');return originalPut.apply(this,args);};
+     try{await vault.listCaptureLibraries(owner);}catch{migrationRejected=true;}finally{IDBObjectStore.prototype.put=originalPut;}
+     const first=await vault.listCaptureLibraries(owner),transactions=[],original=IDBDatabase.prototype.transaction;
+     IDBDatabase.prototype.transaction=function(names,...args){transactions.push(names);return original.call(this,names,...args);};
+     let next;try{next=await vault.listCaptureLibraries(owner);}finally{IDBDatabase.prototype.transaction=original;}
+     const sources=await vault.readReportSources(owner,reportId);
+     return{migrationRejected,total:first[0].total,pending:next[0].pending,summaryBytes:JSON.stringify(next).length,transactions,imageBytes:sources.records[0].images[0].data.length,sourceIds:sources.sourceIds};
+   });
+   assert.equal(result.migrationRejected,true,'failed upgrade rolls back and can be retried');assert.equal(result.total,1);assert.equal(result.pending,0);assert.ok(result.summaryBytes<2000);assert.deepEqual(result.transactions,['librarySummaries']);assert.equal(result.imageBytes,2_000_000);assert.deepEqual(result.sourceIds,['legacy-photo']);
+ });
+ await check('summary receipts follow report links, cloud epochs, deletion and account boundaries',async()=>{
+   const result=await page.evaluate(async()=>{const lib=await seed([record('a'),record('b')]);await vault.linkReportSources(owner,'11111111-1111-4111-8111-111111111111',{libraryId:lib.id,sourceIds:['a']});const linked=(await vault.listCaptureLibraries(owner))[0];await vault.setCaptureCloudState(owner,lib.id,{...lib.cloud,enabled:false});const disabled=(await vault.listCaptureLibraries(owner))[0];const other=await vault.listCaptureLibraries('other-owner');await vault.removeCaptureLibrary('other-owner',lib.id);const retained=(await vault.listCaptureLibraries(owner)).length;await vault.removeCaptureLibrary(owner,lib.id);return{pending:linked.pending,links:linked.reportLinks.length,enabled:disabled.cloud.enabled,other:other.length,retained,remaining:(await vault.listCaptureLibraries(owner)).length};});
+   assert.deepEqual(result,{pending:1,links:1,enabled:false,other:0,retained:1,remaining:0});
+ });
+ await check('local list is usable before cloud response; the remote read already started',async()=>{
+   const result=await page.evaluate(async()=>{await seed([record('local')]);let release,started=false,preview;window.fetch=async(...args)=>{started=true;await new Promise(resolve=>{release=resolve});return mockFetch(...args)};remoteRecords=[contract.sanitizeCloudCaptureRecord(record('remote'))];remoteInfo=info(remoteRecords);const pending=client.listSyncedCaptureLibraries(owner,rows=>{preview={started,total:rows[0]?.total};release();});const result=await pending;return{preview,count:result.libraries.length,warning:result.warning};});
+   assert.deepEqual(result,{preview:{started:true,total:1},count:1,warning:''});
+ });
+ await check('unavailable local storage does not hide verified cloud libraries',async()=>{
+   const result=await page.evaluate(async()=>{remoteRecords=[contract.sanitizeCloudCaptureRecord(record('remote'))];remoteInfo=info(remoteRecords);const original=indexedDB.open;indexedDB.open=()=>{throw Error('storage blocked')};try{return await client.listSyncedCaptureLibraries(owner)}finally{indexedDB.open=original}});
+   assert.equal(result.libraries.length,1);assert.equal(result.libraries[0].cloudOnly,true);assert.match(result.warning,/本机资料暂时无法读取/);
+ });
+ await check('stale empty lists cannot undo restored epochs, newer ACKs or local deletions',async()=>{
+   const result=await page.evaluate(async()=>{const results=[];for(const change of ['epoch','receipt','delete']){await reset();const lib=await seed([record('local')]);let release,preview;const ready=new Promise(resolve=>{preview=resolve});window.fetch=async()=>{await new Promise(resolve=>{release=resolve});return new Response(JSON.stringify({ownerId:owner,libraries:[]}),{status:200});};const pending=client.listSyncedCaptureLibraries(owner,preview);await ready;
+     if(change==='delete')await vault.removeCaptureLibrary(owner,lib.id);else await vault.setCaptureCloudState(owner,lib.id,{...lib.cloud,epoch:change==='epoch'?2:1,digests:{local:'new-ack'},enabled:true});
+     release();const listed=await pending,saved=await vault.getCaptureLibrary(owner,lib.id);results.push({change,epoch:saved?.cloud.epoch,enabled:saved?.cloud.enabled,ack:saved?.cloud.digests.local,count:listed.libraries.length,listedEpoch:listed.libraries[0]?.cloud.epoch});
+   }return results;});
+   assert.deepEqual(result,[{change:'epoch',epoch:2,enabled:true,ack:'new-ack',count:1,listedEpoch:2},{change:'receipt',epoch:1,enabled:true,ack:'new-ack',count:1,listedEpoch:1},{change:'delete',count:0}]);
+ });
+ await check('list stops circular cloud pagination and rejects owner changes',async()=>{
+   const result=await page.evaluate(async()=>{let count=0;window.fetch=async()=>new Response(JSON.stringify({ownerId:owner,libraries:[],nextCursor:++count%2?'a':'b'}),{status:200});let pagination=false;try{await client.listCloudCaptureLibraries(owner)}catch{pagination=true};window.fetch=mockFetch;responseOwner='other-owner';let rejected=false;try{await client.listSyncedCaptureLibraries(owner)}catch{rejected=true};return{pagination,count,rejected};});
+   assert.deepEqual(result,{pagination:true,count:3,rejected:true});
+ });
  await check('owner mismatch never writes or uploads another account material',async()=>{
    const result=await page.evaluate(async()=>{const lib=await seed([record('1')]);let rejected=false;try{await client.syncCaptureLibrary('synthetic-owner-b',lib)}catch{rejected=true}const callsBefore=calls.length;responseOwner='synthetic-owner-b';remoteRecords=[contract.sanitizeCloudCaptureRecord(record('2'))];remoteInfo=info(remoteRecords);try{await client.downloadCloudCaptureLibrary(owner,cloudId)}catch{}return{rejected,callsBefore,otherCount:(await vault.listCaptureLibraries('synthetic-owner-b')).length,original:(await vault.getCaptureLibrary(owner,lib.id)).records.map(r=>r.localId)};});
    assert.equal(result.rejected,true);assert.equal(result.callsBefore,0);assert.equal(result.otherCount,0);assert.deepEqual(result.original,['1']);

@@ -19,6 +19,7 @@ await mkdir(out, { recursive: true });
 const browser = await puppeteer.launch({ headless: true, executablePath: process.env.CHROME_BIN || "C:/Program Files/Google/Chrome/Application/chrome.exe", args: ["--no-sandbox"], defaultViewport: { width: 1366, height: 900 } });
 const page = await browser.newPage(), errors = [], calls = [], jobs = /* @__PURE__ */ new Map(), cloud = /* @__PURE__ */ new Map();
 let reportState = "running", activeReport = null, failStatus = false;
+let quoteMode="success";const heldQuotes=[];
 let voiceReleased = false, voiceDone = false, connected = false, requestCount = 0, earlyUploaded = false, momentsReleased = false, momentsUploaded = false;
 let imagesDone=false, repeatedPartialOmitted=0, initialMomentPartials=0;
 const image={mime:"image/png",name:"synthetic.png",data:"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aXGkAAAAASUVORK5CYII="};
@@ -111,7 +112,9 @@ page.on("request", async (req) => {
       } else if (u.pathname === "/api/web/capture/analyze") {
         if (body?.quoteOnly) {
           assert.equal(body.confirmed,false);
-          value={quote:{version:1,amount:30,label:"完整关系分析"}};
+          if(quoteMode==="hold"){heldQuotes.push(req);return;}
+          if(quoteMode==="fail"){status=503;value={error:"合成核价服务暂时中断，请重试。"};}
+          else value={quote:{version:1,amount:30,label:"完整关系分析"}};
         } else if (body) {
           assert.equal(body.confirmed, true);
           assert.equal(body.expectedTotal, 513);
@@ -202,10 +205,8 @@ flow: try {
     const poll=()=>repeatedPartialOmitted?resolve():Date.now()>deadline?reject(Error("revision ACK not used after saved partial")):setTimeout(poll,50);poll();
   });
   assert.equal(initialMomentPartials,1,"the first Moments partial is transferred once; unchanged polls carry no image payload");
-  // A revision acknowledgement arrives after the first 1.4-second poll. The
-  // measured rate intentionally appears only after 3 seconds, not immediately.
-  await page.waitForSelector('[data-capture-speed]',{visible:true,timeout:6000});
-  assert.match(await page.$eval('[data-capture-speed]',e=>e.textContent),/平均 \d+\.\d 条\/秒/,"Moments displays measured capture speed while polling");
+  await page.waitForSelector('[data-import-stage="moments"] [data-waiting-progress]',{visible:true,timeout:6000});
+  assert.match(await page.$eval('[data-import-stage="moments"] [data-waiting-progress]',e=>e.textContent),/已用时.*无法预知可见总量/,"Moments shows elapsed time without inventing an unknown total or finish time");
   momentsReleased = true;
   await page.waitForSelector("#capture-confirm", { visible: true });
   assert.equal(calls.filter((c) => c.path === "capture").length, 5, "text x2 + voice x1 + images x1 + Moments x1, no repeated capture");
@@ -223,6 +224,23 @@ flow: try {
     return rect.top >= 0 && rect.bottom <= innerHeight - 90 && parseFloat(getComputedStyle(action).fontSize) >= 16;
   }), true, "fee, authorization, and readable primary action fit above the mobile navigation");
   await page.setViewport({ width: 1366, height: 900 });
+  await click("返回上一步");
+  assert.match(await page.$eval('[data-tour="capture-analysis"]',element=>element.textContent),/下一步确认费用 · 确认前不扣积分/,"pre-confirmation action explains its next step instead of showing an unverified price");
+  quoteMode="hold";
+  await page.evaluate(()=>[...document.querySelectorAll('button')].find(button=>button.checkVisibility()&&button.textContent.includes('生成完整关系报告')).click());
+  await page.waitForFunction(()=>document.querySelector('[data-quote-state="loading"]'));
+  await click("返回上一步");
+  quoteMode="fail";
+  await page.evaluate(()=>[...document.querySelectorAll('button')].find(button=>button.checkVisibility()&&button.textContent.includes('生成完整关系报告')).click());
+  await page.waitForSelector('#capture-confirmation-hint[data-quote-state="error"]',{visible:true});
+  assert.match(await page.$eval('#capture-confirmation-hint',element=>element.innerText),/合成核价服务暂时中断.*重新核价/s,"quote failure exposes recovery at the confirmation action");
+  assert.equal(await page.$eval('#capture-confirm button[aria-describedby="capture-confirmation-hint"]',button=>button.disabled),true,"a failed quote cannot enable paid submission");
+  assert.equal(calls.filter(c=>c.path==='/api/web/capture/analyze'&&c.body?.confirmed).length,0);
+  quoteMode="success";await click("重新核价");
+  await page.waitForSelector('#capture-confirmation-hint[data-quote-state="ready"]');
+  for(const held of heldQuotes.splice(0))await held.respond({status:200,headers,contentType:'application/json',body:JSON.stringify({quote:{version:1,amount:666,label:'过期核价'}})}).catch(()=>{});
+  assert.match(await page.$eval('#capture-confirmation-hint',element=>element.innerText),/先勾选上方材料授权/,"disabled action explains the remaining authorization step");
+  assert.doesNotMatch(await page.$eval('#capture-confirm',element=>element.innerText),/666|过期核价/,"late aborted price cannot replace the current fee");
   await click("返回上一步");
   await click("补充资料");
   await page.waitForSelector("[data-selected-person]");
@@ -269,11 +287,14 @@ flow: try {
   assert.equal(calls.filter(c=>c.path==="/api/web/capture/analyze"&&c.body?.confirmed).length,1,"opening reanalysis does not post");
   await click("返回上一步");
   await page.evaluate(()=>[...document.querySelectorAll('[role="tab"]')].find(e=>e.textContent.includes("导入详情")).click());
+  await page.waitForSelector('#capture-material-return',{visible:true});
+  assert.equal(await page.$eval('#capture-material-return a',element=>element.getAttribute('href')),`/report?id=${encodeURIComponent(activeReport.taskId)}`,"material view exposes a direct return to the existing report");
+  assert.equal(await page.$eval('#capture-material-return button',element=>element.getBoundingClientRect().height>=44),true,'material return is a full touch target');
   assert.equal(await page.$eval('[data-cloud-sync]',e=>[...e.querySelectorAll("button")].some(button=>button.getClientRects().length)),false,"healthy imported material has no redundant manual sync action");
   await page.evaluate(()=>[...document.querySelectorAll('[role="tab"]')].find(e=>e.textContent.includes("导入详情")).click());
   // Same-count voice/text corrections must be distinguishable from the report's frozen material.
   await page.evaluate(async(owner)=>{
-    const db=await new Promise((resolve,reject)=>{const request=indexedDB.open("chengzi-desktop-capture-v1",1);request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
+    const db=await new Promise((resolve,reject)=>{const request=indexedDB.open("chengzi-desktop-capture-v1");request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
     await new Promise((resolve,reject)=>{const tx=db.transaction("libraries","readwrite"),store=tx.objectStore("libraries"),read=store.index("ownerId").getAll(owner);read.onsuccess=()=>{for(const value of read.result)if(value.kind==="chat"){value.records[0].text="修正后的合成语音原文";value.updatedAt=new Date(Date.now()+60000).toISOString();store.put(value);}};tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);});db.close();
   },owner);
   await page.reload({waitUntil:"networkidle0"});
@@ -297,7 +318,7 @@ flow: try {
   await page.waitForSelector('[data-capture-analysis="done"]',{visible:true});
   assert.equal(calls.filter(c=>c.path==="capture").length,5,"refresh/done/retry never restart WeChat collection");
   assert.deepEqual(errors, []);
-  console.log("PASS capture flow: pipelined 513 chat + 13 voices + 5 Moments; no duplicate capture/upload/confirmation; running refresh and offline recovery; single done CTA; new same-count evidence; explicit fee-gated retry; double-click guards; desktop/mobile. Browser/IDB real, services synthetic.");
+  console.log("PASS capture flow: pipelined 513 chat + 13 voices + 5 Moments; no duplicate capture/upload/confirmation; aborted quote recovery and local retry; consent hint; direct material return; running refresh and offline recovery; single done CTA; new same-count evidence; explicit fee-gated retry; double-click guards; desktop/mobile. Browser/IDB real, services synthetic.");
 } finally {
   if (errors.length) console.error(errors);
   await page.screenshot({ path: out + "/last-state.png", fullPage: true }).catch(() => {

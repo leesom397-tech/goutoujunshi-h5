@@ -1,6 +1,6 @@
 import { captureImageDigest } from "./capture-image-digest";
 import { captureLibraryId, captureNamespaceKey, type CaptureImage, type StoredCaptureRecord } from "./desktop-capture";
-import { cacheCloudCaptureLibrary, getCaptureLibrary, listCaptureLibraries, readReportSources, linkReportSources, setCaptureCloudState, type CaptureCloudState, type CaptureLibrary, type CaptureLibrarySummary, type CaptureReportSources } from "./desktop-capture-vault";
+import { cacheCloudCaptureLibrary, getCaptureLibrary, listCaptureLibraries, readReportSources, linkReportSources, setCaptureCloudState, disableMissingCaptureCloud, type CaptureCloudState, type CaptureLibrary, type CaptureLibrarySummary, type CaptureReportSources } from "./desktop-capture-vault";
 import { sanitizeCloudCaptureRecord, type CloudCaptureLibrary, type CloudCaptureRecord, type CloudMediaRef } from "./capture-cloud";
 
 const endpoint = "/api/web/capture/library";
@@ -58,11 +58,11 @@ async function request<T extends {ownerId?:string}>(owner: string, query = "", b
   return result as T;
 }
 export async function listCloudCaptureLibraries(owner: string): Promise<CloudCaptureLibrary[]> {
-  const items: CloudCaptureLibrary[] = []; let cursor = "";
+  const items: CloudCaptureLibrary[] = [], seen = new Set<string>(); let cursor = "";
   do {
     const data = await request<{ownerId:string;libraries:CloudCaptureLibrary[];nextCursor?:string|null}>(owner, "?limit=100" + (cursor ? "&cursor=" + encodeURIComponent(cursor) : ""));
     items.push(...data.libraries); const next = data.nextCursor ? String(data.nextCursor) : "";
-    if (next && next === cursor) throw Error("聊天列表分页停滞，请刷新后重试。"); cursor = next;
+    if (next && seen.has(next)) throw Error("聊天列表分页停滞，请刷新后重试。"); if(next)seen.add(next);cursor = next;
   } while (cursor);
   return items;
 }
@@ -70,10 +70,17 @@ function localId(ownerId: string, info: CloudCaptureLibrary) { return captureLib
 function cloudState(info: CloudCaptureLibrary, prior?: CaptureCloudState): CaptureCloudState {
   return { ...prior, id: info.id, epoch: info.epoch, revision:info.revision, enabled: true, offline:false, retired:false, total: info.total, syncedAt: new Date().toISOString(), subjectId: info.subjectId || "" };
 }
-export async function listSyncedCaptureLibraries(owner: string): Promise<{libraries:SyncedLibrarySummary[];warning:string}> {
-  const local = await listCaptureLibraries(owner);
+export async function listSyncedCaptureLibraries(owner: string, onLocal?: (libraries:SyncedLibrarySummary[])=>void): Promise<{libraries:SyncedLibrarySummary[];warning:string}> {
+  // Read independent stores together, and make this account's local summaries
+  // usable while the network is pending. No shared cache can outlive an owner.
+  const remoteResult = listCloudCaptureLibraries(owner).then(value=>({value,error:null}),error=>({value:null,error}));
+  let local:CaptureLibrarySummary[]=[], localUnavailable=false;
+  try { local=await listCaptureLibraries(owner); } catch { localUnavailable=true; }
+  onLocal?.(local);
   try {
-    const remote = await listCloudCaptureLibraries(owner), byLocal = new Map(local.map(row => [row.id, row as SyncedLibrarySummary]));
+    const result=await remoteResult;
+    if(result.error)throw result.error;
+    const remote = result.value!, byLocal = new Map(local.map(row => [row.id, row as SyncedLibrarySummary]));
     for (const info of remote) {
       const id = localId(owner, info), existing = byLocal.get(id);
       byLocal.set(id, existing ? { ...existing, cloud: cloudState(info, existing.cloud), cloudInfo: info } : {
@@ -85,12 +92,12 @@ export async function listSyncedCaptureLibraries(owner: string): Promise<{librar
     // A deleted remote library must not be resurrected by an old browser's background sync.
     const active = new Set(remote.map(row=>row.id));
     for (const item of local) if (item.cloud?.enabled && !active.has(item.cloud.id)) {
-      const cloud = { ...item.cloud, enabled:false };
-      await setCaptureCloudState(owner,item.id,cloud);
-      byLocal.set(item.id,{...item,cloud});
+      const current=await disableMissingCaptureCloud(owner,item.id,item.cloud);
+      if(current)byLocal.set(item.id,current);else byLocal.delete(item.id);
     }
-    return { libraries:[...byLocal.values()].sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)), warning:"" };
+    return { libraries:[...byLocal.values()].sort((a,b)=>b.updatedAt.localeCompare(a.updatedAt)), warning:localUnavailable?"本机资料暂时无法读取，已显示云端资料。":"" };
   } catch(error) {
+    if(error instanceof CaptureCloudError && [401,403,409].includes(error.status))throw error;
     return { libraries:local, warning:error instanceof Error ? error.message : "云端聊天暂时无法读取，本机内容仍可使用。" };
   }
 }
