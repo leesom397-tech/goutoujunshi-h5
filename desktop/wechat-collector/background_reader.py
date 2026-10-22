@@ -13,6 +13,7 @@ import hashlib
 import importlib.util
 import json
 import re
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Protocol
@@ -655,17 +656,32 @@ def _read_voice_page(source, session, options, refs, *, media_type=34):
                   "hasMore": False, "nextCursor": None, "snapshot": _encode_cursor(snapshot), "complete": True}
 
 
-def _read_audio(source, session, wanted, load_audio=False):
+def _read_audio(source, session, wanted, load_audio=False, progress=None, cache_writes=None):
     """Read only selected session/server IDs, never export an entire media table."""
     wanted = {str(x) for x in wanted if x not in (None, "", 0, "0")}
     result, seen, total_bytes = {}, set(), 0
+    def bounded_rows(cursor):
+        collected, retained = [], 0
+        for row in cursor:
+            if len(collected) >= 2000:
+                raise BackgroundCaptureError("SOURCE_INVALID", "本地语音索引重复过多，未自动合并。")
+            retained += len(row[3]) if isinstance(row[3], bytes) else 0
+            if retained > MAX_AUDIO_BATCH:
+                raise BackgroundCaptureError("SOURCE_TOO_LARGE", "本次语音材料过大，请缩小聊天读取范围。")
+            collected.append(row)
+        return collected
     if not wanted:
         return result
+    if progress:
+        progress({"stage": "voice-locating", "percent": 12, "message": f"正在定位 {len(wanted)} 条语音文件，尚未开始转写。"})
     for shard, conn in source.media_shards():
         _short_id(shard, "语音分片")
         if shard in seen or len(seen) >= MAX_SHARDS:
             raise BackgroundCaptureError("SOURCE_INVALID", "语音分片重复或超过支持的读取范围。")
         seen.add(shard)
+        if progress:
+            progress({"stage": "voice-locating", "percent": 15,
+                      "message": f"正在核对第 {len(seen)} 个语音分片 · 已找到 {len(result)}/{len(wanted)} 条"})
         cids = [r[0] for r in _execute(conn, "SELECT rowid FROM Name2Id WHERE user_name=? LIMIT 10", (session,))]
         if not cids:
             continue
@@ -676,13 +692,40 @@ def _read_audio(source, session, wanted, load_audio=False):
             contact_marks = ",".join("?" for _ in cids)
             # A corrupt or unexpectedly huge blob is never materialized in Python.
             value = "CASE WHEN length(voice_data)<=? THEN voice_data ELSE NULL END" if load_audio else "NULL"
-            query = (f"SELECT svr_id,length(voice_data),{value} "
+            query = (f"SELECT rowid,svr_id,length(voice_data),{value} "
                      f"FROM VoiceInfo WHERE chat_name_id IN ({contact_marks}) AND svr_id IN ({marks}) LIMIT 2001")
             # Older shards can have several IDs for the same selected contact.
             # One bounded query avoids rescanning an unindexed VoiceInfo table
             # once for every alias; conflicting blobs are still rejected below.
             parameters = ((MAX_AUDIO,) if load_audio else ()) + (*cids, *sorted(wanted))
-            for count, (server_id, length, blob) in enumerate(_execute(conn, query, parameters)):
+            locator, hints, located = None, None, None
+            revision_fn = getattr(source, "voice_cache_revision", None)
+            if load_audio and cache_writes is not None and callable(revision_fn):
+                revision = revision_fn(shard)
+                if revision is not None:
+                    from voice_media_cache import VoiceMediaCache
+                    locator = VoiceMediaCache(source.account_id, session, shard, revision)
+                    hints = locator.lookup(wanted)
+            if hints is not None:
+                rowids = sorted({row[0] for values in hints.values() for row in values})
+                if len(rowids) <= 2000:
+                    if rowids:
+                        row_marks = ",".join("?" for _ in rowids)
+                        direct = query.replace(" LIMIT 2001", f" AND rowid IN ({row_marks}) LIMIT 2001")
+                        candidate = bounded_rows(_execute(conn, direct, (*parameters, *rowids)))
+                    else:
+                        candidate = []
+                    expected = sorted((rowid, server_id, length) for server_id, values in hints.items() for rowid, length in values)
+                    actual = sorted((rowid, str(server_id), length) for rowid, server_id, length, _ in candidate)
+                    if actual == expected:
+                        located = candidate
+            if located is None:
+                located = bounded_rows(_execute(conn, query, parameters))
+                if locator is not None and len(located) <= 2000:
+                    # Do not persist a locator until all read pages and the live
+                    # account have passed the caller's existing snapshot seal.
+                    cache_writes.append(locator.stage(wanted, located))
+            for count, (_, server_id, length, blob) in enumerate(located):
                 if count >= 2000:
                     raise BackgroundCaptureError("SOURCE_INVALID", "本地语音索引重复过多，未自动合并。")
                 if not length:
@@ -828,8 +871,18 @@ def capture_from_source(request, progress, on_partial, source, transcribe=None):
         # saved, so skipping this availability probe keeps history import fast
         # without losing the voice records or their stable ids.  Normal quick
         # capture and explicit voice enrichment still verify/read audio here.
+        voice_cache_writes = []
         audio = {} if history and not include_voice else _read_audio(
-            source, session, [r["serverId"] for r in rows if r["type"] == 34], load_audio=include_voice)
+            source, session, [r["serverId"] for r in rows if r["type"] == 34], load_audio=include_voice,
+            progress=progress if include_voice else None, cache_writes=voice_cache_writes if include_voice else None)
+        # All queried rows/audio are now bounded in memory. Seal their database
+        # view before directory lookup, image decoding or transcription. Normal
+        # WeChat writes during that slower work must not invalidate copied rows.
+        # The later assert remains mandatory: it independently verifies the live
+        # login/account proof even after the database view has been sealed.
+        source.assert_unchanged()
+        for save_locator in voice_cache_writes:
+            save_locator()
         batch = _build_batch(source, friend, session, rows, audio)
         if history:
             batch["history"] = history
@@ -844,41 +897,57 @@ def capture_from_source(request, progress, on_partial, source, transcribe=None):
         if on_partial:
             source.assert_unchanged()
             on_partial(copy.deepcopy(batch))
+        work = [(row, record) for row, record in zip(rows, batch["records"])
+                if row["type"] == 34 and isinstance(audio.get(str(row["serverId"])), bytes) and audio[str(row["serverId"])]]
+        inputs = [(audio[str(row["serverId"])], record["id"]) for row, record in work]
         if transcribe is None:
-            from local_voice_transcriber import configure_transcriber, transcribe_silk
-            # A cached transcript must not wait for a model download or load.
-            # transcribe_silk prepares the model lazily only on a cache miss.
+            from local_voice_transcriber import configure_transcriber, transcribe_silk_batches
             configure_transcriber(progress=progress)
-            transcribe = transcribe_silk
-        completed = 0
-        audio_count = sum(isinstance(blob, bytes) and bool(blob) for blob in audio.values())
-        for row, record in zip(rows, batch["records"]):
-            if row["type"] != 34 or not audio.get(str(row["serverId"])):
-                continue
-            try:
-                # Account/session/shard/message are all bound into the stable ID.
-                text = transcribe(audio[str(row["serverId"])], record["id"])
-                if not isinstance(text, str) or not text.strip() or len(text) > MAX_TEXT:
-                    raise BackgroundCaptureError("ASR_EMPTY", "这条语音未得到可读文字。")
-                record["kind"] = "text"
-                record["text"] = text.strip()
-                record["source"].update(transcriptionStatus="visible-text", voiceAvailability="transcribed",
-                                        transcriptionSource="local-audio-asr", machineTranscribed=True,
-                                        transcriptVerifiedByUser=False)
-            except Exception as exc:
-                code = getattr(exc, "code", "transcription-failed")
-                if code == "cancelled":
-                    raise BackgroundCaptureError("CANCELLED", "语音转写已停止，已完成的内容保留。") from None
-                record["source"]["voiceAvailability"] = "decode-failed" if code in ("invalid-audio", "decode-failed") else "transcribe-failed"
-                record["source"]["transcriptionError"] = str(code)[:80]
-            completed += 1
-            progress({"stage": "voice-transcribing", "percent": 30 + int(65 * completed / max(1, audio_count)),
-                      "message": f"正在转写语音 {completed}/{audio_count} 条", "voice": _coverage(batch)})
-            if on_partial:
-                # A provider must retain a frozen source snapshot and re-check
-                # account identity. Never publish new text after that proof fails.
-                source.assert_unchanged()
-                on_partial(copy.deepcopy(batch))
+            groups = transcribe_silk_batches(inputs)
+        else:
+            # Keep alternate providers/tests on the same per-message error contract.
+            def single_results():
+                for index, (blob, key) in enumerate(inputs):
+                    try:
+                        result = {"index": index, "text": transcribe(blob, key)}
+                    except Exception as error:
+                        result = {"index": index, "error": error}
+                    yield [result]
+            groups = single_results()
+        completed = cached = 0
+        began = time.monotonic()
+        try:
+            for results in groups:
+                for result in results:
+                    _, record = work[result["index"]]
+                    text, error = result.get("text"), result.get("error")
+                    if error is None and (not isinstance(text, str) or not text.strip() or len(text) > MAX_TEXT):
+                        error = BackgroundCaptureError("ASR_EMPTY", "这条语音未得到可读文字。")
+                    if error is not None:
+                        code = getattr(error, "code", "transcription-failed")
+                        if code == "cancelled":
+                            raise BackgroundCaptureError("CANCELLED", "语音转写已停止，已完成的内容保留。") from None
+                        record["source"]["voiceAvailability"] = "decode-failed" if code in ("invalid-audio", "decode-failed") else "transcribe-failed"
+                        record["source"]["transcriptionError"] = str(code)[:80]
+                    else:
+                        record["kind"], record["text"] = "text", text.strip()
+                        record["source"].update(transcriptionStatus="visible-text", voiceAvailability="transcribed",
+                            transcriptionSource="local-audio-asr", machineTranscribed=True, transcriptVerifiedByUser=False)
+                        cached += int(result.get("cached") is True)
+                    completed += 1
+                progress({"stage": "voice-transcribing", "percent": 30 + int(65 * completed / max(1, len(work))),
+                          "message": f"语音已处理 {completed}/{len(work)} 条" + (f" · 复用 {cached} 条已有转写" if cached else ""),
+                          "voice": _coverage(batch), "elapsedSeconds": round(time.monotonic() - began, 1),
+                          "cachedCount": cached})
+                if on_partial:
+                    # Identity remains mandatory after every completed group,
+                    # including cache hits, before any transcript is published.
+                    source.assert_unchanged()
+                    on_partial(copy.deepcopy(batch))
+        except Exception as error:
+            if getattr(error, "code", "") == "cancelled":
+                raise BackgroundCaptureError("CANCELLED", "语音转写已停止，已完成的内容保留。") from None
+            raise
         source.assert_unchanged()
         return _finish_voice_status(batch)
     finally:

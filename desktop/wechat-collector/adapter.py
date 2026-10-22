@@ -218,11 +218,22 @@ def _click_control(control, attempts=3):
     return False
 
 
-def _open_target(friend, modules, search_query=None):
+def _open_target(friend, modules, search_query=None, *, reuse_prepared=False):
     # Never delegate candidate selection to upstream search_friend: it chooses
     # the first equal name and can fall back to an online phone/ID lookup.
     Navigator, Tools, ui = modules
-    main = Navigator.open_weixin(is_maximize=False)
+    main = None
+    if reuse_prepared:
+        # Moments already opened/restored the same main window to verify the
+        # visible account. Reconnecting avoids a second resize/restore cycle;
+        # selected-contact and foreground checks below still run in full.
+        try:
+            main = Navigator.connect_weixin()
+        except Exception:
+            pass
+    if main is None:
+        main = Navigator.open_weixin(is_maximize=False)
+    _ensure_foreground(main)
     main.child_window(**ui.SideBar.Weixin).click_input()
     edits = main.descendants(**ui.Main_window.Search)
     if not edits:
@@ -427,6 +438,14 @@ def _moments_window(main, window):
     deadline = time.monotonic() + 4
     visible_lists = []
     while time.monotonic() < deadline:
+        try:
+            # No found_index: the query must resolve one album, not silently
+            # choose the first. Avoid wrapping every unrelated main-window list.
+            selected = main.child_window(auto_id="sns_list", control_type="List")
+            if selected.exists(timeout=.1) and selected.is_visible():
+                return main
+        except Exception:
+            pass  # Ambiguous/stale providers still take the full uniqueness check.
         visible_lists = [item for item in main.descendants(control_type="List")
                          if item.element_info.automation_id == "sns_list" and item.is_visible()]
         if visible_lists:
@@ -619,7 +638,7 @@ def _open_moments_from_chat(main, friend, modules, expected_identifier=None, _re
     except Exception:
         pass
     click_targets.extend([target, link])
-    window = Desktop(backend="uia").window(**ui.Windows.MomentsWindow)
+    window = Desktop(backend="uia").window(**{**ui.Windows.MomentsWindow, "process": main.process_id()})
     for candidate in click_targets:
         try:
             _click_control(candidate)
@@ -638,13 +657,59 @@ def _open_moments_from_chat(main, friend, modules, expected_identifier=None, _re
     raise CaptureError("MOMENTS_ENTRY_UNAVAILABLE", "朋友圈入口没有打开，请保持微信窗口可见后重试。") from None
 
 
+def _moment_children(control):
+    """Prefer direct list items; only older nested layouts need a subtree read.
+
+    A detail's first direct item is the same item previously selected after
+    children + descendants. Avoid walking every nested comment/photo again.
+    """
+    try:
+        nodes = control.children(control_type="ListItem")
+    except Exception:
+        nodes = []
+    if nodes:
+        return nodes
+    try:
+        return control.descendants(control_type="ListItem") or []
+    except Exception:
+        return []
+
+
+def _moment_special_cells(listing, class_name, minimum=1):
+    """Find header/pinned rows without traversing all post descendants."""
+    try:
+        nodes = listing.children(control_type="ListItem")
+    except Exception:
+        nodes = []
+    found = [cell for cell in nodes if getattr(cell, "class_name", lambda: "")() == class_name]
+    if len(found) >= minimum:
+        return found
+    # Keep the nested-layout fallback, including a header split across depths.
+    try:
+        nested = listing.descendants(control_type="ListItem", class_name=class_name)
+    except Exception:
+        nested = []
+    for cell in nested:
+        if getattr(cell, "class_name", lambda: "")() == class_name and cell not in found:
+            found.append(cell)
+    return found
+
+
+def _moment_wrapper(control):
+    """Bind a resolved UIA control once instead of rerunning its main-tree query."""
+    try:
+        return control.wrapper_object()
+    except Exception:
+        return control
+
+
 def _visible_moment_cells(listing):
     try:
         nodes = listing.children(control_type="ListItem")
     except Exception:
         nodes = []
     if not nodes:
-        nodes = _children_and_descendants(listing, control_type="ListItem")
+        nodes = _moment_children(listing)
     bounds = _control_rect(listing)
     cells = []
     for cell in nodes:
@@ -763,12 +828,13 @@ def _advance_moments_list(listing):
 
 def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=None, search_query=None):
     Navigator, Tools, ui = modules
+    began = time.monotonic()
     try:
         progress(8, "正在打开所选好友", phase="searching_contact", recordCount=0, pinnedCount=0,
                  lastAction="open_chat")
     except TypeError:
         progress(8, "正在打开所选好友")
-    main = _open_target(friend, modules, search_query=search_query)
+    main = _open_target(friend, modules, search_query=search_query, reuse_prepared=True)
     main_identity = (main.handle, main.process_id())
     try:
         progress(12, "正在核对好友资料和朋友圈入口", phase="opening_profile", recordCount=0,
@@ -785,21 +851,30 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
         listing.wait("ready", timeout=4)
     except Exception:
         pass
+    listing = _moment_wrapper(listing)
 
     phase = "opening_moments"
     def assert_view():
         if (main.handle, main.process_id()) != main_identity:
             raise CaptureError("MOMENTS_VIEW_CHANGED", "当前朋友圈已切换，已停止读取，避免混入另一位好友的动态。")
 
-    def refresh_listing():
+    def refresh_listing(force=False):
         nonlocal listing, detail, back
+        if not force:
+            # A bound wrapper stays valid across ordinary virtual-row changes.
+            # A hidden/stale provider must be resolved afresh, never assumed OK.
+            try:
+                if listing.is_visible():
+                    return listing
+            except Exception:
+                pass
         try:
             # Resolve the narrowly scoped album control first. Traversing the
             # entire main-window UI tree twice per post is expensive with long
             # chat lists; only stale/replaced album wrappers need that fallback.
             current = window.child_window(**ui.Lists.MomentsList)
             if _wait_exists(current, timeout=0, visible=True):
-                listing = current
+                listing = _moment_wrapper(current)
             else:
                 current_lists = [item for item in main.descendants(control_type="List")
                                  if getattr(item.element_info, "automation_id", "") == "sns_list"
@@ -847,11 +922,11 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
             progress(value, message)
 
     def moment_count():
-        return sum(row.get("kind") == "post" for row in rows)
+        return completion["recordCount"]
 
+    report(15, "朋友圈已打开，正在读取首条动态", "read_first_post")
     # Header cells contain the cover and signature on supported WeChat builds.
-    header = [cell for cell in _children_and_descendants(listing, control_type="ListItem")
-              if getattr(cell, "class_name", lambda: "")() == "mmui::AlbumBaseCell"]
+    header = _moment_special_cells(listing, "mmui::AlbumBaseCell", minimum=2)
     if len(header) >= 2:
         try:
             rows.append({"kind": "image", "sender": friend, "senderRole": "other", "text": "朋友圈封面",
@@ -878,9 +953,10 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
                 raise CaptureError("MOMENTS_DETAIL_TIMEOUT", "动态详情没有打开，已保留当前进度。")
             opened = True
             content_item = None
+            detail_body = _moment_wrapper(detail)
             deadline = time.monotonic() + 3
             while True:
-                items = _children_and_descendants(detail, control_type="ListItem")
+                items = _moment_children(detail_body)
                 if items:
                     content_item = items[0]
                     if _safe_text(content_item) or _is_visible(content_item):
@@ -901,6 +977,10 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
                    "source": {"materialRole": "moment", "pinned": pinned,
                               "imageType": "visible-ui-preview",
                               "timePrecision": "ui-label" if at else "unknown"}}
+            # Pinned posts can reappear in the ordinary feed. They already use
+            # this exact identity below, so don't capture/encode them twice.
+            if content.strip() and (at, _normalized_label(content)) in post_keys:
+                return None
             try:
                 preview = _image(content_item, f"moment-preview-{len(rows)+1}.jpg")
                 size = len(preview["data"])
@@ -923,7 +1003,7 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
                 return None
             post_keys.add(post_key)
             rows.append(row)
-            completion["recordCount"] = moment_count()
+            completion["recordCount"] += 1
             if pinned:
                 completion["pinnedCount"] += 1
             return row
@@ -935,17 +1015,16 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
                     pass
                 if not _wait_hidden(detail, timeout=3):
                     raise CaptureError("MOMENTS_DETAIL_STALE", "上一条动态详情没有关闭，已保留当前进度。")
+                refresh_listing(force=True)
                 _wait_exists(listing, timeout=3, visible=True)
-                refresh_listing()
             phase = parent_phase
 
     def read_pinned():
         nonlocal phase, listing, last_publish
         phase = "reading_pinned"
         completion["phase"] = phase
-        top_cells = [cell for cell in _children_and_descendants(listing, control_type="ListItem")
-                     if getattr(cell, "class_name", lambda: "")() == "mmui::AlbumTopCell"
-                     and "置顶" in _safe_text(cell)]
+        top_cells = [cell for cell in _moment_special_cells(listing, "mmui::AlbumTopCell")
+                     if "置顶" in _safe_text(cell)]
         if not top_cells:
             return
         top = top_cells[0]
@@ -1016,9 +1095,8 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
             deadline = time.monotonic() + 4
             returned = False
             while time.monotonic() < deadline:
-                refresh_listing()
-                returned = any(getattr(cell, "class_name", lambda: "")() == "mmui::AlbumTopCell"
-                               for cell in _children_and_descendants(listing, control_type="ListItem"))
+                refresh_listing(force=True)
+                returned = bool(_moment_special_cells(listing, "mmui::AlbumTopCell"))
                 if returned:
                     break
                 time.sleep(.15)
@@ -1061,7 +1139,7 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
                 else:
                     raise
             report(50 if all_visible else min(90, 15 + int(moment_count() / max(limit, 1) * 70)),
-                   f"已读取 {moment_count()} 条朋友圈，正在继续向下翻页…", "read_feed")
+                   f"已读取 {moment_count()} 条朋友圈 · 已用 {max(0, int(time.monotonic() - began))} 秒，继续读取…", "read_feed")
             if on_rows and moment_count() and (moment_count() == 1 or time.monotonic() - last_publish >= 5):
                 on_rows(rows, warnings, dict(completion))
                 last_publish = time.monotonic()
@@ -1071,6 +1149,8 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
             continue
         completion["lastAction"] = "scroll"
         completion["scrollAttempts"] += 1
+        report(50 if all_visible else min(90, 15 + int(moment_count() / max(limit, 1) * 70)),
+               f"已读取 {moment_count()} 条，正在{'确认可见末尾' if scroll_stalls else '翻页等待更早动态'}…", "scroll")
         if _advance_moments_list(listing):
             scroll_stalls = 0
             continue
@@ -1121,6 +1201,7 @@ def capture(request, progress, on_partial=None):
         if request["kind"] == "chat":
             rows, warnings = _chat(request["friend"], request["limit"], nickname, first_progress, modules, convert_voices=False)
         else:
+            progress(6, "正在核对所选联系人，首次连接可能需要几秒")
             moments_source = _open_moments_source(request, account)
             moments_selection = _resolve_moments_contact(request, moments_source)
             target, search_query, canonical_account = moments_selection

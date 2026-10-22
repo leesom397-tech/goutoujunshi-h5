@@ -8,7 +8,8 @@ import re
 
 from adapter import (_moments, _resolve_moments_contact, _open_moments_source,
                      _visible_moment_cells, _viewport_has_trailing_space, _cell_scan_key,
-                     _prepare_capture_ui, _advance_moments_list, capture, CaptureError)
+                     _prepare_capture_ui, _advance_moments_list, _moment_children,
+                     _moment_special_cells, _moments_window, _open_target, capture, CaptureError)
 from compatibility import prepare_capture_ui
 from background_reader import BackgroundCaptureError
 from bridge import CollectorState, BridgeError
@@ -397,6 +398,92 @@ class MomentsCaptureTests(unittest.TestCase):
         self.assertEqual(job["status"], "failed")
         self.assertEqual(job["error"]["code"], "NO_VISIBLE_MOMENTS")
         self.assertNotIn("result", job)
+
+
+class MomentsPerformanceTests(unittest.TestCase):
+    def test_direct_detail_avoids_comment_subtree_and_nested_layout_still_works(self):
+        item = SimpleNamespace(window_text=lambda: "合成动态")
+        control = SimpleNamespace(children=Mock(return_value=[item]), descendants=Mock(return_value=[item]))
+        self.assertEqual(_moment_children(control), [item])
+        control.descendants.assert_not_called()
+        control.children.return_value = []
+        self.assertEqual(_moment_children(control), [item])
+        control.descendants.assert_called_once_with(control_type="ListItem")
+
+    def test_nested_profile_material_is_preserved_without_unfiltered_post_traversal(self):
+        cover = SimpleNamespace(class_name=lambda: "mmui::AlbumBaseCell")
+        signature = SimpleNamespace(class_name=lambda: "mmui::AlbumBaseCell")
+        control = SimpleNamespace(children=Mock(return_value=[cover]), descendants=Mock(return_value=[cover, signature]))
+        self.assertEqual(_moment_special_cells(control, "mmui::AlbumBaseCell", minimum=2), [cover, signature])
+        control.descendants.assert_called_once_with(control_type="ListItem", class_name="mmui::AlbumBaseCell")
+        control.children.return_value = [cover, signature]
+        control.descendants.reset_mock()
+        self.assertEqual(_moment_special_cells(control, "mmui::AlbumBaseCell", minimum=2), [cover, signature])
+        control.descendants.assert_not_called()
+
+    def test_unique_album_query_does_not_wrap_unrelated_window_lists(self):
+        album = SimpleNamespace(exists=lambda **kw: True, is_visible=lambda: True)
+        main = SimpleNamespace(child_window=Mock(return_value=album),
+                               descendants=Mock(side_effect=AssertionError("unrelated main tree")))
+        self.assertIs(_moments_window(main, None), main)
+        main.child_window.assert_called_once_with(auto_id="sns_list", control_type="List")
+        main.descendants.assert_not_called()
+
+    def test_prepared_window_reuse_still_checks_exact_friend_and_does_not_resize_again(self):
+        item = SimpleNamespace(class_name=lambda: "mmui::SearchContentCellView", window_text=lambda: "合成好友", click_input=Mock())
+        listing = SimpleNamespace(wait=lambda *a, **kw: listing, children=lambda **kw: [item])
+        search = SimpleNamespace(click_input=Mock(), set_text=Mock())
+        main = SimpleNamespace(descendants=lambda **kw: [search], child_window=lambda **kw:
+                               listing if kw.get("auto_id") == "search_list" else SimpleNamespace(click_input=Mock(), exists=lambda **kw: True))
+        navigator = SimpleNamespace(connect_weixin=Mock(return_value=main), open_weixin=Mock(side_effect=AssertionError("second restore")))
+        ui = SimpleNamespace(SideBar=SimpleNamespace(Weixin={}), Main_window=SimpleNamespace(Search={}),
+                             Lists=SimpleNamespace(SearchResult={"auto_id": "search_list"}),
+                             Texts=SimpleNamespace(CurrentChatNameText={"control_type": "Text"}))
+        with patch("adapter._assert_target") as verified:
+            self.assertIs(_open_target("合成好友", (navigator, None, ui), reuse_prepared=True), main)
+        navigator.open_weixin.assert_not_called()
+        verified.assert_called_once_with(main, "合成好友", ui.Texts, None)
+
+    def test_many_posts_have_one_refresh_per_detail_and_no_repeated_descendant_scan(self):
+        # Virtual time exercises delayed/end checks without real UI or sleeps.
+        # Direct UIA bodies and selectors are counted, not guessed from duration.
+        clock = [0.0]
+        def tick():
+            clock[0] += .05
+            return clock[0]
+        album = Album(120)
+        album.is_visible = lambda: True
+        album.descendants = Mock(return_value=[])
+        detail = SimpleNamespace(exists=lambda **kw: album.detail_open, is_visible=lambda: album.detail_open,
+            children=Mock(side_effect=lambda **kw: [SimpleNamespace(window_text=lambda: f"好友 动态 {album.index} 2026年10月18日")]),
+            descendants=Mock(side_effect=AssertionError("redundant detail subtree")))
+        detail.wrapper_object = lambda: detail
+        back = SimpleNamespace(click_input=lambda: setattr(album, "detail_open", False))
+        queries = []
+        def query(**kw):
+            queries.append(kw["auto_id"])
+            return {"album": album, "detail": detail, "back": back}[kw["auto_id"]]
+        window = SimpleNamespace(child_window=query)
+        main = SimpleNamespace(handle=321, process_id=lambda: 123, descendants=Mock(side_effect=AssertionError("main tree")))
+        ui = SimpleNamespace(Lists=SimpleNamespace(MomentsList={"auto_id": "album"}, SnsDetailList={"auto_id": "detail"}),
+            Buttons=SimpleNamespace(BackButton={"auto_id": "back"}),
+            Regex_Patterns=SimpleNamespace(Snsdetail_Timestamp_pattern=re.compile(r"2026年10月18日")))
+        events = []
+        with patch("adapter._open_target", return_value=main), patch("adapter._open_moments_from_chat", return_value=window), \
+             patch("adapter._ensure_foreground"), patch("adapter._image", return_value={"data":"a", "mime":"image/jpeg"}), \
+             patch("adapter.time.monotonic", side_effect=tick), patch("adapter.time.sleep"):
+            rows, warnings, coverage = _moments("好友", 200, lambda *args, **kw: events.append((args, kw)),
+                (None, SimpleNamespace(activate_momentsList=lambda *_: None), ui), all_visible=True)
+        self.assertEqual(len(rows), 120)
+        self.assertEqual(len({row["text"] for row in rows}), 120)
+        self.assertTrue(coverage["complete"])
+        self.assertEqual(coverage["stopReason"], "visible-end")
+        self.assertEqual(queries.count("album"), 121, "initial lookup + exactly one refresh after each detail")
+        detail.descendants.assert_not_called()
+        self.assertEqual(album.descendants.call_count, 2, "only the initial nested cover/pinned fallbacks")
+        self.assertTrue(any("首条" in args[1] for args, _ in events))
+        self.assertTrue(any("已用" in args[1] for args, _ in events))
+        self.assertTrue(any("确认可见末尾" in args[1] for args, _ in events))
 
 
 class CapturePreparationTests(unittest.TestCase):

@@ -60,7 +60,8 @@ class VoiceRuntimeSelfTest(unittest.TestCase):
         original = (voice._download_archive, voice._install_direct_fallback)
         stream = SimpleNamespace(accept_waveform=lambda rate, samples: None,
                                  result=SimpleNamespace(text="must never be in output"))
-        recognizer = SimpleNamespace(create_stream=lambda: stream, decode_stream=lambda item: None)
+        recognizer = SimpleNamespace(create_stream=lambda: stream, decode_stream=lambda item: None,
+                                     decode_streams=lambda items: None)
         def get_recognizer():
             with self.assertRaises(voice.TranscriptionError) as error:
                 voice._download_archive(None)
@@ -71,6 +72,7 @@ class VoiceRuntimeSelfTest(unittest.TestCase):
             result = smoke.run_voice_self_test()
         self.assertTrue(result["ok"])
         self.assertTrue(result["inferenceCompleted"])
+        self.assertTrue(result["batchInferenceCompleted"])
         self.assertNotIn(stream.result.text, json.dumps(result))
         self.assertEqual((voice._download_archive, voice._install_direct_fallback), original)
 

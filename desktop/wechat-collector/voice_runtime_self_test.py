@@ -38,6 +38,11 @@ def run_voice_self_test():
             stream = recognizer.create_stream()
             stream.accept_waveform(voice.SAMPLE_RATE, samples)
             recognizer.decode_stream(stream)
+            batch = [recognizer.create_stream() for _ in range(2)]
+            for item in batch:
+                item.accept_waveform(voice.SAMPLE_RATE, samples)
+            recognizer.decode_streams(batch)
+            result["batchInferenceCompleted"] = True
             # Deliberately omit decoded text, including any hallucination on tone.
             result["outputCharacters"] = len(stream.result.text)
             result["inferenceCompleted"] = True
