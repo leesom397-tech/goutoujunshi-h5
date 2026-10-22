@@ -12,7 +12,7 @@ import apsw
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 from background_reader import BackgroundCaptureError
-from local_database_source import (EncryptedSnapshot, _verify_login, _wal_checksum, _read_live_config,
+from local_database_source import (PAGE_SIZE, EncryptedSnapshot, _verify_login, _wal_checksum, _read_live_config,
                                    open_encrypted_connection, probe_authorized_source, open_authorized_source,
                                    _extract_current_account_keys, _needed_database_files)
 
@@ -193,7 +193,7 @@ class DatabaseSourceTests(unittest.TestCase):
             wal.write_bytes(changed)
             with self.assertRaises(BackgroundCaptureError) as error:
                 snapshot.assert_unchanged()
-            self.assertEqual(error.exception.code, "SOURCE_CHANGED")
+            self.assertEqual(error.exception.code, "DATABASE_INTEGRITY")
         finally:
             snapshot.close()
 
@@ -204,6 +204,101 @@ class DatabaseSourceTests(unittest.TestCase):
             Path(str(self.path) + "-wal").write_bytes(wal_bytes([(2, 2, page)]))
             snapshot.assert_unchanged()
             self.assertEqual(self.query(snapshot), [("original",)])
+        finally:
+            snapshot.close()
+
+    def test_checkpoint_then_wal_truncate_keeps_identical_committed_read_view(self):
+        raw = plain_database(self.root / "checkpoint-plain.db", "committed before checkpoint")
+        encrypted = encrypt_database(raw, self.key, self.salt)
+        wal = Path(str(self.path) + "-wal")
+        wal.write_bytes(wal_bytes([(index + 1, len(raw) // PAGE_SIZE if index + 1 == len(raw) // PAGE_SIZE else 0,
+                                    encrypted[index * PAGE_SIZE:(index + 1) * PAGE_SIZE])
+                                   for index in range(len(raw) // PAGE_SIZE)]))
+        snapshot = EncryptedSnapshot(self.path, self.key)
+        try:
+            self.assertEqual(self.query(snapshot), [("committed before checkpoint",)])
+            self.path.write_bytes(encrypted)
+            wal.write_bytes(b"")
+            snapshot.assert_unchanged()
+            self.assertTrue(snapshot.read_fingerprints)
+        finally:
+            snapshot.close()
+        self.assertFalse(snapshot.read_fingerprints)
+
+    def test_checkpoint_with_changed_read_page_is_not_accepted(self):
+        snapshot = EncryptedSnapshot(self.path, self.key)
+        try:
+            self.assertEqual(self.query(snapshot), [("original",)])
+            raw = plain_database(self.root / "changed-checkpoint.db", "different authenticated row")
+            self.path.write_bytes(encrypt_database(raw, self.key, self.salt))
+            with self.assertRaises(BackgroundCaptureError) as error:
+                snapshot.assert_unchanged()
+            self.assertEqual(error.exception.code, "SOURCE_CHANGED")
+        finally:
+            snapshot.close()
+
+    def test_same_length_wal_tail_commit_does_not_change_frozen_prefix(self):
+        original = encrypt_page(self.raw[PAGE_SIZE:2 * PAGE_SIZE], 2, self.key, self.salt)
+        newer = plain_database(self.root / "tail-plain.db", "new tail transaction")
+        later = encrypt_page(newer[PAGE_SIZE:2 * PAGE_SIZE], 2, self.key, self.salt)
+        wal = Path(str(self.path) + "-wal")
+        wal.write_bytes(wal_bytes([(2, 2, original), (2, 0, original)]))
+        snapshot = EncryptedSnapshot(self.path, self.key)
+        try:
+            old_size = wal.stat().st_size
+            wal.write_bytes(wal_bytes([(2, 2, original), (2, 2, later)]))
+            self.assertEqual(wal.stat().st_size, old_size)
+            snapshot.assert_unchanged()
+            self.assertEqual(self.query(snapshot), [("original",)])
+            fresh = EncryptedSnapshot(self.path, self.key)
+            try:
+                self.assertEqual(self.query(fresh), [("new tail transaction",)])
+            finally:
+                fresh.close()
+        finally:
+            snapshot.close()
+
+    def test_wal_rewrite_during_index_cannot_be_blessed_by_a_later_hash(self):
+        original = encrypt_page(self.raw[PAGE_SIZE:2 * PAGE_SIZE], 2, self.key, self.salt)
+        newer = plain_database(self.root / "index-race.db", "replacement transaction")
+        later = encrypt_page(newer[PAGE_SIZE:2 * PAGE_SIZE], 2, self.key, self.salt)
+        wal = Path(str(self.path) + "-wal")
+        wal.write_bytes(wal_bytes([(2, 2, original)]))
+        replacement = wal_bytes([(2, 2, later)])
+        replaced = False
+        def checksum(data, state=(0, 0), endian="<"):
+            nonlocal replaced
+            result = _wal_checksum(data, state, endian)
+            if len(data) == 8 + PAGE_SIZE and not replaced:
+                replaced = True
+                wal.write_bytes(replacement)
+            return result
+        with patch("local_database_source._wal_checksum", side_effect=checksum):
+            with self.assertRaises(BackgroundCaptureError) as error:
+                EncryptedSnapshot(self.path, self.key)
+        self.assertTrue(replaced)
+        self.assertEqual(error.exception.code, "SOURCE_CHANGED")
+
+    def test_reread_of_evicted_changed_page_fails_instead_of_mixing_views(self):
+        snapshot = EncryptedSnapshot(self.path, self.key)
+        try:
+            snapshot.read_page(2)
+            snapshot.cache.clear()
+            raw = plain_database(self.root / "reread.db", "new authenticated content")
+            self.path.write_bytes(encrypt_database(raw, self.key, self.salt))
+            with self.assertRaises(BackgroundCaptureError) as error:
+                snapshot.read_page(2)
+            self.assertEqual(error.exception.code, "SOURCE_CHANGED")
+        finally:
+            snapshot.close()
+
+    def test_changed_metadata_alone_does_not_invalidate_copied_rows(self):
+        snapshot = EncryptedSnapshot(self.path, self.key)
+        try:
+            self.assertEqual(self.query(snapshot), [("original",)])
+            before = self.path.stat()
+            os.utime(self.path, ns=(before.st_atime_ns, before.st_mtime_ns + 1_000_000))
+            snapshot.assert_unchanged()
         finally:
             snapshot.close()
 
@@ -373,6 +468,138 @@ class DatabaseSourceTests(unittest.TestCase):
             with self.assertRaises(BackgroundCaptureError) as error:
                 _extract_current_account_keys(self.root, proof, time.monotonic() + 5)
             self.assertEqual(error.exception.code, "ACCOUNT_CHANGED")
+
+
+class LivePagingSourceTests(unittest.TestCase):
+    """Real encrypted VFS, invented 1,201-row contact; no external processes."""
+    def setUp(self):
+        from local_database_source import LocalDatabaseSource
+        self.source_type = LocalDatabaseSource
+        self.temp = tempfile.TemporaryDirectory(prefix="chengzi-live-paging-fixture-")
+        self.root = Path(self.temp.name)
+        self.account = self.root / "self-user"
+        self.key = hashlib.sha256(b"paging synthetic key").digest()
+        self.salt = hashlib.md5(b"paging synthetic salt").digest()
+        self.login = patch("local_database_source._verify_login").start()
+        self.contact = self.account / "db_storage/contact/contact.db"
+        self.messages = self.account / "db_storage/message/message_0.db"
+        for path in (self.contact, self.messages): path.parent.mkdir(parents=True, exist_ok=True)
+        contact_plain = self.root / "contact-plain.db"
+        conn = self.connection(contact_plain)
+        conn.execute("CREATE TABLE contact(username TEXT,nick_name TEXT,remark TEXT)")
+        conn.executemany("INSERT INTO contact VALUES(?,?,?)", [("self-user", "Synthetic self", ""),
+                         ("target-user", "Synthetic target", ""), ("unselected-user", "Other", "")])
+        conn.close()
+        self.contact.write_bytes(encrypt_database(contact_plain.read_bytes(), self.key, self.salt))
+        self.plain_path = self.root / "message-plain.db"
+        conn = self.connection(self.plain_path)
+        conn.execute("CREATE TABLE Name2Id(user_name TEXT)")
+        conn.executemany("INSERT INTO Name2Id(rowid,user_name) VALUES(?,?)", [(7, "self-user"), (2, "target-user"), (9, "unselected-user")])
+        self.table = "Msg_" + hashlib.md5(b"target-user").hexdigest()
+        other_table = "Msg_" + hashlib.md5(b"unselected-user").hexdigest()
+        for table in (self.table, other_table):
+            conn.execute(f"CREATE TABLE {table}(local_id INTEGER,server_id INTEGER,local_type INTEGER,real_sender_id INTEGER,create_time INTEGER,sort_seq INTEGER,message_content,compress_content)")
+        conn.executemany(f"INSERT INTO {self.table} VALUES(?,?,?,?,?,?,?,NULL)",
+                         [(n, 100_000 + n, 1, 2, 1_750_000_000 + n, n, f"invented target {n}") for n in range(1, 1202)])
+        conn.execute(f"INSERT INTO {other_table} VALUES(1,999999,1,9,1750000000,0,'must not collect',NULL)")
+        conn.close()
+        self.publish()
+        self.request = {"kind": "chat", "mode": "background", "friend": "Synthetic target",
+                        "contactId": "target-user", "accountKey": hashlib.sha256(b"self-user").hexdigest(),
+                        "limit": 500, "pageSize": 500, "includeVoice": False}
+
+    @staticmethod
+    def connection(path):
+        conn = apsw.Connection(str(path))
+        conn.execute("PRAGMA page_size=4096")
+        conn.reserve_bytes("main", 80)
+        conn.execute("VACUUM")
+        return conn
+
+    def publish(self):
+        self.messages.write_bytes(encrypt_database(self.plain_path.read_bytes(), self.key, self.salt))
+
+    def append(self, number=1202):
+        conn = apsw.Connection(str(self.plain_path))
+        # A late arrival has an old sort_seq but a newer rowid; since must find it.
+        conn.execute(f"INSERT INTO {self.table} VALUES(?,?,?,?,?,?,?,NULL)",
+                     (number, 100_000 + number, 1, 2, 1_750_000_000, 0, f"invented late arrival {number}"))
+        conn.close()
+        self.publish()
+
+    def source(self):
+        return self.source_type(self.account, self.key, {"username": "self-user"}, None,
+                                {"message/message_0.db": self.key})
+
+    def capture(self, request=None):
+        from background_reader import capture_from_source
+        return capture_from_source({**self.request, **(request or {})}, lambda _: None, None, self.source())
+
+    def tearDown(self):
+        self.login.stop()
+        patch.stopall()
+        self.temp.cleanup()
+
+    def test_500_page_sealed_before_slow_images_then_append_keeps_cursor_and_since(self):
+        import background_reader
+        original = background_reader._build_batch
+        def slow_images(source, *args):
+            self.assertTrue(source.sealed, "database rows must be sealed before image work")
+            calls = self.login.call_count
+            self.append()
+            result = original(source, *args)
+            self.assertEqual(self.login.call_count, calls)
+            return result
+        with patch("background_reader._build_batch", side_effect=slow_images):
+            first = self.capture()
+        self.assertEqual(len(first["records"]), 500)
+        pages = [first]
+        while pages[-1]["history"]["hasMore"]:
+            pages.append(self.capture({"cursor": pages[-1]["history"]["nextCursor"]}))
+        ids = [row["id"] for page in pages for row in page["records"]]
+        self.assertEqual([len(page["records"]) for page in pages], [500, 500, 201])
+        self.assertEqual(len(set(ids)), 1201)
+        self.assertTrue(all(row["source"]["sessionId"] == "target-user" for page in pages for row in page["records"]))
+        incremental = self.capture({"since": first["history"]["snapshot"]})
+        self.assertEqual([row["source"]["messageId"] for row in incremental["records"]], ["101202"])
+
+    def test_change_during_second_500_page_retries_same_cursor_without_duplicates(self):
+        import background_reader
+        first = self.capture()
+        original = background_reader._read_history_page
+        calls = 0
+        def change_once(*args):
+            nonlocal calls
+            rows = original(*args)
+            calls += 1
+            if calls == 1: self.append()
+            return rows
+        provider = Mock()
+        provider.open_authorized_source.side_effect = self.source
+        with patch("background_reader._provider_module", return_value=provider), \
+             patch("background_reader._read_history_page", side_effect=change_once):
+            second = background_reader.capture_background({**self.request, "cursor": first["history"]["nextCursor"]}, lambda *_: None)
+        self.assertEqual(provider.open_authorized_source.call_count, 2)
+        self.assertEqual(len(second["records"]), 500)
+        self.assertFalse({row["id"] for row in first["records"]} & {row["id"] for row in second["records"]})
+        self.assertEqual(first["history"]["snapshot"], second["history"]["snapshot"])
+
+    def test_account_change_during_images_is_not_hidden_by_sealed_database(self):
+        import background_reader
+        original = background_reader._build_batch
+        def change_account(source, *args):
+            self.assertTrue(source.sealed)
+            result = original(source, *args)
+            self.login.side_effect = BackgroundCaptureError("ACCOUNT_CHANGED", "synthetic changed login")
+            return result
+        partials = []
+        source = self.source()
+        with patch("background_reader._build_batch", side_effect=change_account):
+            with self.assertRaises(BackgroundCaptureError) as error:
+                background_reader.capture_from_source(self.request, lambda _: None, partials.append, source)
+        self.assertEqual(error.exception.code, "ACCOUNT_CHANGED")
+        self.assertEqual(partials, [])
+        self.assertTrue(source.closed)
 
 
 if __name__ == "__main__":

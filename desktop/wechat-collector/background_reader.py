@@ -830,6 +830,12 @@ def capture_from_source(request, progress, on_partial, source, transcribe=None):
         # capture and explicit voice enrichment still verify/read audio here.
         audio = {} if history and not include_voice else _read_audio(
             source, session, [r["serverId"] for r in rows if r["type"] == 34], load_audio=include_voice)
+        # All queried rows/audio are now bounded in memory. Seal their database
+        # view before directory lookup, image decoding or transcription. Normal
+        # WeChat writes during that slower work must not invalidate copied rows.
+        # The later assert remains mandatory: it independently verifies the live
+        # login/account proof even after the database view has been sealed.
+        source.assert_unchanged()
         batch = _build_batch(source, friend, session, rows, audio)
         if history:
             batch["history"] = history
