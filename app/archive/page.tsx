@@ -11,6 +11,7 @@ import { AuroraPageHero } from "@/components/AuroraPageHero";
 import { QuickSelfProfile } from "@/components/QuickSelfProfile";
 import { mergeQuickSelfProfile } from "@/lib/quick-self-profile";
 import { ArchiveAvatar } from "@/components/ArchiveAvatar";
+import { PersonAvatar } from "@/components/PersonAvatar";
 import {PersonAvatarChoice} from "@/components/PersonAvatarChoice";
 import { AddMaterials } from "@/components/AddMaterials";
 import { PersonOverview } from "@/components/PersonOverview";
@@ -185,7 +186,7 @@ function OwnedArchive({ownerId}:{ownerId:string}) {
   </div></main>;
 }
 
-function Avatar({ person }: { person: { label: string; avatar?: string } }) { return person.avatar ? <img className={styles.avatar} src={person.avatar} alt={`${person.label}的头像`} /> : <span className={styles.avatar} data-tone={(person.label.charCodeAt(0) || 0) % 4} aria-hidden="true">{person.label.slice(0, 1)}</span>; }
+function Avatar({ person }: { person: { label: string; avatar?: string } }) { return <PersonAvatar src={person.avatar} alt={`${person.label}的头像`} className={styles.avatar} fallback={<span className={styles.avatar} data-tone={(person.label.charCodeAt(0) || 0) % 4} aria-hidden="true">{Array.from(person.label)[0]}</span>}/>; }
 function DataGrid({ fields, data }: { fields: readonly (readonly [string, string])[]; data: object }) { return <dl className={styles.dataGrid}>{fields.map(([key, label]) => <div key={key}><dt>{label}</dt><dd>{String((data as Record<string, unknown>)[key] || "待了解")}</dd></div>)}</dl>; }
 function Field({ label, value, onChange, long = false, max = 100, required = false }: { label: string; value?: string; onChange: (value: string) => void; long?: boolean; max?: number; required?: boolean }) { return <label className={styles.field}><span>{label}</span>{long ? <textarea value={value || ""} maxLength={max} onChange={event => onChange(event.target.value)} /> : <input value={value || ""} maxLength={max} required={required} onChange={event => onChange(event.target.value)} />}</label>; }
 function SelfEditor({ data, busy, onSave }: { data: SelfData; busy: boolean; onSave: (data: SelfData) => Promise<void> }) {

@@ -91,20 +91,44 @@ export async function loadSelfArchiveMemory(owner: string, db: Database = getD1(
   if (!profile?.consent_at || profile.paused) return disabled;
   const confirmed = parse<Record<string,unknown>>(profile.data,{});
   const facts = await db.prepare("SELECT id,value,created_at FROM coach_facts WHERE owner_id=? AND subject_id IS NULL AND field='selfArchiveSummary' AND status='derived' ORDER BY created_at DESC LIMIT 100").bind(owner).all<Fact>();
+  const memories = facts.results.flatMap(fact => {
+    const memory = parse<Memory | null>(fact.value,null);
+    return memory && Array.isArray(memory.items) && typeof memory.libraryId === "string" && Number.isSafeInteger(memory.epoch)
+      ? [{fact,memory}] : [];
+  });
+  const libraryIds = [...new Set(memories.map(({memory}) => memory.libraryId))];
+  const libraries = libraryIds.length ? await db.prepare("SELECT l.id,l.epoch FROM coach_capture_libraries l WHERE l.owner_id=? AND l.kind='chat' AND l.deleted_at IS NULL AND l.id IN (SELECT value FROM json_each(?)) AND (l.subject_id IS NULL OR EXISTS(SELECT 1 FROM coach_subjects s WHERE s.id=l.subject_id AND s.owner_id=l.owner_id AND s.status='active'))").bind(owner,JSON.stringify(libraryIds)).all<{id:string;epoch:number}>() : {results:[]};
+  const epochs = new Map(libraries.results.map(library => [library.id,library.epoch]));
+  const activeMemories = memories.filter(({memory}) => epochs.get(memory.libraryId) === memory.epoch);
+  const sourceKey = (libraryId:string,epoch:number,sourceId:string) => JSON.stringify([libraryId,epoch,sourceId]);
+  const references = new Map<string,[string,number,string]>();
+  for (const {memory} of activeMemories) for (const item of memory.items) {
+    if (item && typeof item.sourceId === "string") references.set(sourceKey(memory.libraryId,memory.epoch,item.sourceId),[memory.libraryId,memory.epoch,item.sourceId]);
+  }
+  const requested = [...references.values()];
+  const bySource = new Map<string,Pick<ConversationMemoryLine,"senderRole"|"kind"|"text">>();
+  // Exact source tuples prevent same local IDs in separate libraries from
+  // borrowing each other's quotations. Recheck live sources inside each chunk
+  // so deletion or an epoch change after the initial lookup cannot revive them.
+  // At most 500 citations are read per query; no full chat history is scanned.
+  // CROSS JOIN keeps the bounded requested tuples outermost, then probes the
+  // existing (library_id,epoch,local_id) unique index instead of scanning archives.
+  for (let offset=0;offset<requested.length;offset+=500) {
+    const sources = await db.prepare("SELECT r.library_id,r.epoch,r.local_id,r.record_json FROM json_each(?) requested CROSS JOIN coach_capture_records r ON r.library_id=json_extract(requested.value,'$[0]') AND r.epoch=json_extract(requested.value,'$[1]') AND r.local_id=json_extract(requested.value,'$[2]') CROSS JOIN coach_capture_libraries l ON l.id=r.library_id AND l.epoch=r.epoch WHERE r.owner_id=? AND l.owner_id=? AND l.kind='chat' AND l.deleted_at IS NULL AND (l.subject_id IS NULL OR EXISTS(SELECT 1 FROM coach_subjects s WHERE s.id=l.subject_id AND s.owner_id=l.owner_id AND s.status='active'))").bind(JSON.stringify(requested.slice(offset,offset+500)),owner,owner).all<{library_id:string;epoch:number;local_id:string;record_json:string}>();
+    for (const row of sources.results) {
+      const source = parse<ConversationMemoryLine|null>(row.record_json,null);
+      if (source) bySource.set(sourceKey(row.library_id,row.epoch,row.local_id),{senderRole:source.senderRole,kind:source.kind,text:source.text});
+    }
+  }
   const summaries: SelfArchiveMemoryState["summaries"] = [];
   const removed = new Set<string>();
-  for (const fact of facts.results) {
-    const memory = parse<Memory | null>(fact.value,null);
-    if (!memory || !Array.isArray(memory.items)) continue;
-    const library = await db.prepare("SELECT id FROM coach_capture_libraries l WHERE l.id=? AND l.owner_id=? AND l.epoch=? AND l.deleted_at IS NULL AND (l.subject_id IS NULL OR EXISTS(SELECT 1 FROM coach_subjects s WHERE s.id=l.subject_id AND s.owner_id=l.owner_id AND s.status='active'))").bind(memory.libraryId,owner,memory.epoch).first();
-    if (!library) continue;
+  for (const {fact,memory} of activeMemories) {
     for (const key of memory.removed || []) removed.add(key);
     if (!memory.items.length) continue;
-    const sources = await db.prepare("SELECT local_id,record_json FROM coach_capture_records WHERE owner_id=? AND library_id=? AND epoch=? AND local_id IN (SELECT value FROM json_each(?))").bind(owner,memory.libraryId,memory.epoch,JSON.stringify(memory.items.map(item=>item.sourceId))).all<{local_id:string;record_json:string}>();
-    const byId = new Map(sources.results.map(row=>[row.local_id,parse<ConversationMemoryLine|null>(row.record_json,null)]));
     const items = memory.items.filter(item => {
-      const source = byId.get(item.sourceId);
-      return allowedFields.has(item.field) && !Object.hasOwn(confirmed,item.field) && source?.senderRole === "self" && source.kind === "text" && source.text.includes(item.quote);
+      if (!item || typeof item.sourceId !== "string" || typeof item.quote !== "string") return false;
+      const source = bySource.get(sourceKey(memory.libraryId,memory.epoch,item.sourceId));
+      return allowedFields.has(item.field) && !Object.hasOwn(confirmed,item.field) && source?.senderRole === "self" && source.kind === "text" && typeof source.text === "string" && source.text.includes(item.quote);
     });
     if (items.length) summaries.push({id:fact.id,version:memory.version,summary:summary(items),updatedAt:fact.created_at,items});
   }

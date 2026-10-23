@@ -29,7 +29,9 @@ export const basicFields = [
 export const preferenceFields = [["preferredAgeRange", "希望的年龄范围"], ["distancePreference", "异地接受程度"], ["preferredRelationship", "想要的关系"], ["values", "看重的事"], ["boundaries", "不能接受的事"], ["goals", "眼下目标"]] as const;
 export const personFields = [...basicFields, ["stage", "关系阶段"], ["howMet", "认识方式"], ["values", "明确表达的期待或价值观"], ["boundaries", "明确表达的边界"], ["notes", "备注与已确认经历"]] as const;
 export async function archiveRequest<T>(path: string, body?: unknown, method = "POST"): Promise<T> {
-  const response = await fetch(`/api/web/${path}`, { method: body === undefined ? "GET" : method, cache: "no-store", ...(body === undefined ? {} : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }) });
+  let response: Response;
+  try { response = await fetch(`/api/web/${path}`, { method: body === undefined ? "GET" : method, credentials: "same-origin", cache: "no-store", ...(body === undefined ? { signal: AbortSignal.timeout(20000) } : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }) }); }
+  catch(error) { throw new Error(error instanceof Error && error.name === "TimeoutError" ? "档案读取时间较长，请重新加载。已保存的资料仍在。" : "档案连接中断，请检查网络后重新加载。"); }
   const data = await response.json().catch(() => ({})) as T & { error?: string };
   if (!response.ok) throw Object.assign(new Error(data?.error || "暂时无法完成，请重试。"), { status: response.status });
   return data as T;

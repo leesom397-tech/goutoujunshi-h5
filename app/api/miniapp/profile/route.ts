@@ -14,7 +14,7 @@ import { interactionScore } from "@/lib/crush/interaction-score";
 import { conversationEventMetadata, correctConversationEventDate, FeedbackError } from "@/lib/relationship-feedback";
 import { projectPersonSavedAnalysis, savedFullHistorySignal } from "@/lib/person-saved-insights";
 import { loadSubjectRelationshipContext } from "@/lib/relationship-context-server";
-import { loadSelfArchiveMemory, correctSelfArchiveMemory, backfillSelfArchiveMemory } from "@/lib/self-archive-memory";
+import { loadSelfArchiveMemory, correctSelfArchiveMemory } from "@/lib/self-archive-memory";
 import { withCaptureHistoryPurge, CAPTURE_PURGE_UNAVAILABLE } from "@/lib/capture-history-purge";
 
 export const runtime = "edge";
@@ -113,7 +113,14 @@ async function state(owner: string,focusSubject?:string) {
   const distinctSignals = distinctRelationshipEvents(allSignals);
   const signals = latestRelationshipSignals(distinctSignals).map(({ evidenceWindows: _windows, ...signal }) => signal);
   const trends = Array.from(new Set(distinctSignals.map(item => item.subjectId))).map(subjectId => ({ subjectId, points: relationshipTrendPoints(allSignals.filter(item => item.subjectId === subjectId)) }));
-  const contexts=new Map(await Promise.all(subjects.results.map(async item=>[item.id,profile?.consent_at&&!profile.paused?await loadSubjectRelationshipContext(owner,item.id,{includeActivity:item.id===focusSubject,db}):null] as const)));
+  // The list already has the saved reports and signals above. Revalidating every
+  // person's full evidence on each list read grows with all people and reports,
+  // and can exhaust the request's database budget before any list is returned.
+  // Detail views request their selected person explicitly and retain the full
+  // original-source validation and activity calculations there.
+  const focused=subjects.results.find(item=>item.id===focusSubject);
+  const contexts=new Map<string,Awaited<ReturnType<typeof loadSubjectRelationshipContext>>>();
+  if(focused&&profile?.consent_at&&!profile.paused)contexts.set(focused.id,await loadSubjectRelationshipContext(owner,focused.id,{includeActivity:true,db}));
   return {
     selfMemory: await loadSelfArchiveMemory(owner, db),
     enabled: !!profile?.consent_at,
@@ -141,8 +148,14 @@ async function state(owner: string,focusSubject?:string) {
 export async function GET(request: Request) {
   const identity = await miniappOwner(request);
   if (!identity) return json({ error: "登录已过期，请重新登录。" }, 401);
-  try { await backfillSelfArchiveMemory(identity.ownerId); } catch { console.warn("self_archive_memory_backfill_unavailable"); }
-  return json(await state(identity.ownerId,new URL(request.url).searchParams.get("subjectId")||undefined));
+  // New imports and synchronization update self summaries incrementally. A
+  // profile read must not scan and rewrite all older chat libraries first.
+  // Historical backfill remains a separate maintenance operation.
+  try { return json(await state(identity.ownerId,new URL(request.url).searchParams.get("subjectId")||undefined)); }
+  catch(error) {
+    console.error("profile_read_unavailable",error instanceof Error?error.name:"UnknownError");
+    return json({error:"档案服务暂时繁忙，请稍后重新加载。",code:"PROFILE_READ_UNAVAILABLE"},503);
+  }
 }
 
 export async function POST(request: Request) {

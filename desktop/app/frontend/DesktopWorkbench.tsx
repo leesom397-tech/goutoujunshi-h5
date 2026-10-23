@@ -2,11 +2,12 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { ArrowDownToLine, ArrowRight, Check, ChevronLeft, ChevronRight, FileText, FolderOpen, ImagePlus, Layers3, LoaderCircle, MessageCircle, Monitor, RefreshCw, Search, ShieldCheck, UsersRound, X } from 'lucide-react';
 import { api, useAccount } from '@/components/web-analysis/client';
 import { QuickSearch } from '@/components/QuickSearch';
+import { PersonAvatar } from '@/components/PersonAvatar';
 import { getDesktopHost } from '@/lib/desktop-host';
 import { useDesktopLocation } from './navigation';
 import './workbench.css';
 
-type Report = {id:string;label:string;summary:string;createdAt:number;kind:string;format?:string;analysisScope?:string;captureKind?:string};
+type Report = {id:string;label:string;summary:string;createdAt:number;kind:string;format?:string;analysisScope?:string;captureKind?:string;subjectId?:string};
 type ReportList = {reports:Report[];total:number;pageSize:number};
 const reportCache = new Map<string, ReportList>();
 let cacheOwner = '';
@@ -36,7 +37,7 @@ function useReports(query='', page=1) {
 }
 const date=(value:number)=>new Date(value).toLocaleDateString('zh-CN',{month:'2-digit',day:'2-digit'});
 const label=(report:Report)=>report.analysisScope==='fullHistory'?(report.captureKind==='moments'?'朋友圈报告':'完整关系报告'):report.analysisScope==='supplement'?'补充解读':report.format==='risk'?'风险研判':report.format==='import'?'导入分析':report.kind==='moments'?'朋友圈解读':report.kind==='social'?'主页解读':'聊天解读';
-function Avatar({name='?'}:{name?:string}){return <span className="dw-avatar" aria-hidden="true">{Array.from(name)[0]}</span>;}
+function Avatar({name='?',src}:{name?:string;src?:string}){return <span className="dw-avatar" aria-hidden="true"><PersonAvatar src={src} alt="" className="dw-avatar-image" fallback={Array.from(name)[0]}/></span>;}
 function AccountState({state,intent}:{state:ReturnType<typeof useAccount>;intent?:'import'}){
   if(state.loading)return <div className="dw-state" role="status"><LoaderCircle className="dw-spin" size={20}/>正在连接账户</div>;
   if(state.unauthorized)return <div className="dw-state"><span className="dw-state-symbol"><ShieldCheck size={26}/></span><h2>{intent==='import'?'先登录，再导入微信资料':'连接你的成子账户'}</h2><p>{intent==='import'?'使用成子账户登录，聊天、朋友圈与报告会保存在一起。':'已有报告和人物档案会在这里接着使用。'}</p><a className="dw-primary" href={'/login?return_to='+encodeURIComponent(location.pathname+location.search)}>{intent==='import'?'登录并继续':'登录账户'}<ArrowRight size={16}/></a></div>;
@@ -56,11 +57,11 @@ export function DesktopHome(){
           <div className="dw-fluted" aria-hidden="true"><div/><span>c.</span></div>
         </section>
         <section className="dw-recent"><header className="dw-section-head"><div><h2>接着上次看</h2></div><a href="/reports">全部报告<ArrowRight size={15}/></a></header>
-          {!owner?<AccountState state={account}/>:<><Issue error={error} retry={retry}/>{loading&&!data?<div className="dw-skeleton" role="status">正在读取已有报告…</div>:data?.reports.length?<div className="dw-recent-list">{data.reports.slice(0,4).map((report,i)=><a className="dw-recent-row" style={{animationDelay:`${i*35}ms`}} key={report.id} href={'/report?id='+encodeURIComponent(report.id)}><Avatar name={report.label||'未'}/><span className="dw-row-copy"><strong>{report.label||'未关联人物'}<small>{label(report)}</small></strong><span>{report.summary||'打开已保存的报告'}</span></span><time>{date(report.createdAt)}</time><ChevronRight size={17}/></a>)}</div>:!error&&<div className="dw-empty-inline"><FolderOpen size={26}/><p>第一份报告完成后，会留在这里。</p><a href="/analyze?mode=chat">从一张截图开始<ArrowRight size={15}/></a></div>}</>}
+          {!owner?<AccountState state={account}/>:<><Issue error={error} retry={retry}/>{loading&&!data?<div className="dw-skeleton" role="status">正在读取已有报告…</div>:data?.reports.length?<div className="dw-recent-list">{data.reports.slice(0,4).map((report,i)=><a className="dw-recent-row" style={{animationDelay:`${i*35}ms`}} key={report.id} href={'/report?id='+encodeURIComponent(report.id)}><Avatar name={report.label||'未'} src={account.people.find(person=>person.id===report.subjectId)?.avatar}/><span className="dw-row-copy"><strong>{report.label||'未关联人物'}<small>{label(report)}</small></strong><span>{report.summary||'打开已保存的报告'}</span></span><time>{date(report.createdAt)}</time><ChevronRight size={17}/></a>)}</div>:!error&&<div className="dw-empty-inline"><FolderOpen size={26}/><p>第一份报告完成后，会留在这里。</p><a href="/analyze?mode=chat">从一张截图开始<ArrowRight size={15}/></a></div>}</>}
         </section>
       </section>
       <aside className="dw-side-column">
-        <section className="dw-people"><header className="dw-section-head"><h2>关注的人</h2><a href="/archive" aria-label="打开人物档案"><ArrowRight size={17}/></a></header>{owner&&account.people.length?<div>{account.people.slice(0,5).map(person=><a className="dw-person" key={person.id} href={'/archive?subjectId='+encodeURIComponent(person.id)}><Avatar name={person.label}/><span><strong>{person.label||'人物档案'}</strong><small>查看进展与资料</small></span><ChevronRight size={15}/></a>)}</div>:<p className="dw-muted">{owner?'导入时关联人物，后续资料会接在一起。':'登录后显示你的人物档案。'}</p>}</section>
+        <section className="dw-people"><header className="dw-section-head"><h2>关注的人</h2><a href="/archive" aria-label="打开人物档案"><ArrowRight size={17}/></a></header>{owner&&account.people.length?<div>{account.people.slice(0,5).map(person=><a className="dw-person" key={person.id} href={'/archive?subjectId='+encodeURIComponent(person.id)}><Avatar name={person.label} src={person.avatar}/><span><strong>{person.label||'人物档案'}</strong><small>查看进展与资料</small></span><ChevronRight size={15}/></a>)}</div>:<p className="dw-muted">{owner?'导入时关联人物，后续资料会接在一起。':'登录后显示你的人物档案。'}</p>}</section>
         <a className="dw-ask" href="/chat"><MessageCircle size={24}/><div><h2>有句话，拿不准？</h2><p>带上背景，和成子聊聊。</p></div><ArrowRight size={18}/></a>
         <section className="dw-device"><header><Monitor size={18}/><strong>本机采集</strong><span>{runtime}</span></header><p>聊天、语音、朋友圈</p><a href="/capture?method=desktop">打开导入工作区<ArrowRight size={15}/></a></section>
         <div className="dw-smallprint"><ShieldCheck size={14}/><span>分析前确认费用 · 已有报告随时查看</span></div>
@@ -82,7 +83,7 @@ export function DesktopReports(){
       <label className="dw-search"><Search size={16}/><input type="search" aria-label="搜索人物或报告" value={query} maxLength={80} placeholder="搜索人物或报告" onChange={event=>{setQuery(event.target.value);setPage(1);}}/></label>
       <div className="dw-rail-caption"><span>{query?'搜索结果':'全部报告'}</span><span>最近生成</span></div>
       <div className="dw-report-items" aria-busy={loading}>
-        {!owner?<AccountState state={account}/>:<><Issue error={error} retry={retry}/>{loading&&!data?<div className="dw-skeleton" role="status">正在读取报告…</div>:data?.reports.map(item=><a key={item.id} className={`dw-report-item ${selected===item.id?'is-selected':''}`} aria-current={selected===item.id?'page':undefined} href={'/report?id='+encodeURIComponent(item.id)}><div><Avatar name={item.label||'未'}/><strong>{item.label||'未关联人物'}</strong><time>{date(item.createdAt)}</time></div><span className="dw-report-type"><FileText size={12}/>{label(item)}</span><p>{item.summary||'打开查看分析内容'}</p></a>)}{data&&!data.reports.length&&<p className="dw-muted">{query?'没有匹配的报告，换个关键词试试。':'还没有报告，添加资料后开始。'}</p>}</>}
+        {!owner?<AccountState state={account}/>:<><Issue error={error} retry={retry}/>{loading&&!data?<div className="dw-skeleton" role="status">正在读取报告…</div>:data?.reports.map(item=><a key={item.id} className={`dw-report-item ${selected===item.id?'is-selected':''}`} aria-current={selected===item.id?'page':undefined} href={'/report?id='+encodeURIComponent(item.id)}><div><Avatar name={item.label||'未'} src={account.people.find(person=>person.id===item.subjectId)?.avatar}/><strong>{item.label||'未关联人物'}</strong><time>{date(item.createdAt)}</time></div><span className="dw-report-type"><FileText size={12}/>{label(item)}</span><p>{item.summary||'打开查看分析内容'}</p></a>)}{data&&!data.reports.length&&<p className="dw-muted">{query?'没有匹配的报告，换个关键词试试。':'还没有报告，添加资料后开始。'}</p>}</>}
       </div>
       {data&&data.total>data.pageSize&&<nav className="dw-page-controls" aria-label="报告分页"><button aria-label="上一页" disabled={page<=1||loading} onClick={()=>setPage(n=>n-1)}><ChevronLeft size={17}/></button><span>{page} / {Math.ceil(data.total/data.pageSize)}</span><button aria-label="下一页" disabled={page*data.pageSize>=data.total||loading} onClick={()=>setPage(n=>n+1)}><ChevronRight size={17}/></button></nav>}
       <a className="dw-rail-new" href="/capture?method=desktop"><ArrowDownToLine size={16}/>添加资料<ArrowRight size={15}/></a>

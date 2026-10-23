@@ -8,8 +8,9 @@ const root = path.resolve(__dirname, '../frontend-dist');
 const output = path.resolve(__dirname, '../.stage/workbench-smoke');
 const origin = 'https://coach.lovetalk.love';
 const local = 'http://127.0.0.1:17863';
+const avatarPng = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jN84AAAAASUVORK5CYII=', 'base64');
 const mime = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.png': 'image/png', '.svg': 'image/svg+xml', '.webp': 'image/webp', '.jpg': 'image/jpeg' };
-const people = [{ id: 'demo-person-a', label: '演示小林' }, { id: 'demo-person-b', label: '演示小雨' }];
+const people = [{ id: 'demo-person-a', label: '演示小林', avatar: 'https://wx.qlogo.cn/synthetic-avatar.png' }, { id: 'demo-person-b', label: '演示小雨', avatar: 'data:image/png;base64,' + avatarPng.toString('base64') }];
 const reports = Array.from({ length: 16 }, (_, i) => ({
   id: `00000000-0000-4000-8000-${String(i + 1).padStart(12, '0')}`,
   kind: 'chat', label: i % 2 ? '演示小雨' : '演示小林',
@@ -104,8 +105,12 @@ async function handler(request) {
       return pairAttempts === 1 ? json({ error: { code: 'HANDOFF_INVALID', message: '连接已失效，请在本机助手重新点击打开网页并连接。' } }, 401) : json({ token: 'synthetic-only-token', expiresIn: 60 });
     }
     if (url.pathname === '/session') return json({ connected: true, expiresIn: 60 });
-    if (url.pathname === '/contacts/search') return json({ accountKey: 'synthetic-account', contacts: [{ contactId: 'synthetic-contact', label: '演示小林', nickname: '演示小林', remark: '演示小林', wechatId: 'synthetic-contact' }], hasMore: false });
+    if (url.pathname === '/contacts/search') return json({ accountKey: 'synthetic-account', contacts: [{ contactId: 'synthetic-contact', label: '演示小林', nickname: '演示小林', remark: '演示小林', wechatId: 'synthetic-contact', avatarData: 'data:image/png;base64,AAAA', avatarUrl: 'https://wx.qlogo.cn/synthetic-avatar.png' }], hasMore: false });
     return json({ error: 'Synthetic test does not start capture jobs' }, 503);
+  }
+  if (url.pathname === '/_desktop/contact-avatar') {
+    requests.push({ path: url.pathname, method: request.method, local: false });
+    return url.searchParams.get('url') === 'https://wx.qlogo.cn/synthetic-avatar.png' ? new Response(avatarPng, { headers: { 'content-type': 'image/png' } }) : new Response('', { status: 403 });
   }
   if (url.pathname.startsWith('/api/')) {
     requests.push({ path: url.pathname, query: url.search, method: request.method, local: false });
@@ -116,6 +121,7 @@ async function handler(request) {
       return json({ account: { userId: 'desktop-synthetic-test-owner', name: '合成测试账户' }, people, balance: 100, prices: {} });
     }
     if (url.pathname === '/api/account/credits') return json({ account: { userId: 'desktop-synthetic-test-owner' }, balance: 100, prices: {} });
+    if (url.pathname === '/api/web/profile') return json({ enabled: true, paused: false, self: {}, subjects: people.map(person => ({ ...person, updatedAt: 1792713600000 })), facts: [], signals: [], trends: [] });
     if (url.pathname === '/api/web/report/list') {
       const q = url.searchParams.get('q') || '', page = Math.max(1, Number(url.searchParams.get('page')) || 1);
       if (q === '慢') await pause(420);
@@ -226,18 +232,35 @@ app.whenReady().then(async () => {
   assert('capture stage 2 reflects successful pairing', await js(`document.querySelector('.dw-capture-steps [aria-current="step"]')?.textContent.includes('选择好友')`));
   await input('input[placeholder="输入好友的备注或昵称"]', '演示');
   await until(`!!document.querySelector('[aria-label="选择要导入的微信联系人"] button')`, 'synthetic contact search');
+  await until(`document.querySelector('[aria-label="选择要导入的微信联系人"] img')?.naturalWidth>0`, 'contact avatar falls back from bad cached bytes to proxy');
+  assert('contact avatar renders through desktop proxy after cache decode fails', await js(`document.querySelector('[aria-label="选择要导入的微信联系人"] img')?.getAttribute('src').startsWith('/_desktop/contact-avatar?url=')`));
   await click('[aria-label="选择要导入的微信联系人"] button');
   await until(`!!document.querySelector('[data-desktop-capture-step="2"]')`, 'selected capture stage');
   assert('capture stage 3 reflects contact selection', await js(`document.querySelector('.dw-capture-steps [aria-current="step"]')?.textContent.includes('导入资料')`));
   assert('valid library response has no false owner error', await js(`!document.body.innerText.includes('登录账号已变化')`));
   assert('capture is not automatically started', requests.every(row => row.path !== '/capture'));
+  await until(`document.querySelector('[data-selected-person] img')?.naturalWidth>0`, 'selected contact avatar');
+  assert('selected contact avatar renders', await js(`document.querySelector('[data-selected-person] img')?.naturalWidth>0`));
   await layout('capture-selected-minimum', 784, 616);
   await captureReadability('selected contact');
   await layout('capture-selected-wide', 1184, 836);
+  await js(`document.querySelector('[data-selected-person] img').dispatchEvent(new Event('error'))`);
+  await until(`!document.querySelector('[data-selected-person] img')&&!!document.querySelector('[data-selected-person] span svg')`, 'failed avatar remains visible as placeholder');
+  assert('failed avatar leaves a visible person placeholder', await js(`document.querySelector('[data-selected-person] span svg')?.getBoundingClientRect().width>0`));
   win.webContents.debugger.attach('1.3');
   await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
   assert('reduced motion disables entrance animation', await js(`getComputedStyle(document.querySelector('.dw-enter')).animationName==='none'||parseFloat(getComputedStyle(document.querySelector('.dw-enter')).animationDuration)<=0.01`));
   win.webContents.debugger.detach();
+  await win.loadURL(origin + '/archive');
+  await until(`document.querySelector('img[alt="演示小林的头像"]')?.naturalWidth>0&&document.querySelector('img[alt="演示小雨的头像"]')?.naturalWidth>0`, 'saved archive avatars');
+  assert('archive remote avatar uses desktop proxy', await js(`document.querySelector('img[alt="演示小林的头像"]').getAttribute('src').startsWith('/_desktop/contact-avatar?url=')`));
+  assert('archive uploaded avatar remains data image', await js(`document.querySelector('img[alt="演示小雨的头像"]').getAttribute('src').startsWith('data:image/png;base64,')`));
+  await js(`document.querySelector('img[alt="演示小林的头像"]').dispatchEvent(new Event('error'))`);
+  await until(`!document.querySelector('img[alt="演示小林的头像"]')`, 'expired archive avatar fallback');
+  assert('archive failed avatar retains initials', await js(`[...document.querySelectorAll('span[aria-hidden="true"]')].some(e=>e.textContent==='演'&&e.getBoundingClientRect().width>0)`));
+  await win.loadURL(origin + '/relationship');
+  await until(`document.querySelector('img[alt="演示小林的头像"]')?.naturalWidth>0&&document.querySelector('img[alt="演示小雨的头像"]')?.naturalWidth>0`, 'saved relationship avatars');
+  assert('relationship remote and uploaded avatars both render', await js(`document.querySelector('img[alt="演示小林的头像"]').getAttribute('src').startsWith('/_desktop/contact-avatar?url=')&&document.querySelector('img[alt="演示小雨的头像"]').getAttribute('src').startsWith('data:')`));
   assert('no asset missing', missingAssets.length === 0, missingAssets);
   const actualFonts = Object.values(renderedFonts).flat().flatMap(row => row.fonts);
   assert('real platform glyphs use Chinese UI sans font', actualFonts.length >= 3 && actualFonts.every(font => /Microsoft YaHei|PingFang/.test(font.familyName)), actualFonts);

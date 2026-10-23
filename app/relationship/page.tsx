@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { ArrowRight, Check, Copy, Download, FileText, Images, MessageCircle, Monitor, Plus, RefreshCw, Search, UserRound, Video } from "lucide-react";
 import { WebNav } from "@/components/WebNav";
 import { CaptureAnalysisStatus } from "@/components/CaptureAnalysisStatus";
+import { PersonAvatar } from "@/components/PersonAvatar";
 import { AccountNotice, useAccount } from "@/components/web-analysis/client";
 import { listSyncedCaptureLibraries, type SyncedLibrarySummary } from "@/lib/capture-cloud-client";
 import { capturePersonSearchHref, groupAnalysisPeople } from "@/lib/person-analysis-navigation";
@@ -68,7 +69,7 @@ export default function RelationshipPage() {
           const duplicate=allEntries.filter(other=>other.label===row.label).length>1;
           const updated=row.updatedAt?new Date(row.updatedAt).toLocaleDateString("zh-CN"):"";
           return <article key={row.id} className={styles.person} data-person-entry>
-            <div className={styles.personMain}><span className={styles.avatar}>{row.avatar ? <img src={row.avatar} alt={`${row.label}的头像`}/> : <UserRound size={24}/>}</span><div><h3>{row.label}{duplicate&&<span className={styles.sameName}>同名人物</span>}</h3><p>{row.identity}</p><small>{updated ? `${updated} 更新` : "已建立档案"}</small></div></div>
+            <div className={styles.personMain}><span className={styles.avatar}><PersonAvatar src={row.avatar} alt={`${row.label}的头像`} fallback={<UserRound size={24}/>}/></span><div><h3>{row.label}{duplicate&&<span className={styles.sameName}>同名人物</span>}</h3><p>{row.identity}</p><small>{updated ? `${updated} 更新` : "已建立档案"}</small></div></div>
             <div className={styles.materials} aria-label={`${row.label}已有资料`}>{row.chatCount>0&&<span><MessageCircle size={15}/>{row.chatCount.toLocaleString("zh-CN")} 条聊天</span>}{row.momentsCount>0&&<span><Images size={15}/>{row.momentsCount.toLocaleString("zh-CN")} 条朋友圈</span>}{row.materialKinds.map(label=><span key={label}><FileText size={15}/>{label}</span>)}</div>
             <a className={styles.openPerson} href={row.latestReportId ? "/report?id="+encodeURIComponent(row.latestReportId)+"&returnTo="+encodeURIComponent(returnTo) : row.openHref}>{row.latestReportId ? "查看报告" : row.libraries.length ? "继续生成报告" : row.openLabel}<ArrowRight size={17}/></a>
             <nav aria-label={`${row.label}的后续操作`}>{row.latestReportId&&row.libraries.length>0&&<a href={row.openHref}><Plus size={16}/>补充／更新全部资料</a>}{row.subjectId&&<><a href={"/chat?subjectId="+encodeURIComponent(row.subjectId)}><MessageCircle size={16}/>基于资料提问</a><a href={"/analyze?mode=chat&subjectId="+encodeURIComponent(row.subjectId)}><Images size={16}/>补充截图</a></>}</nav>

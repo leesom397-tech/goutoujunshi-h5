@@ -15,6 +15,48 @@ function safePath(url){
 }
 const DATA_DESTINATIONS=new Set(['','image','audio','video']);
 const EXTERNAL_DESTINATIONS=new Set(['image','audio','video','font']);
+const AVATAR_PATH='/_desktop/contact-avatar';
+const AVATAR_LIMIT=512*1024;
+function avatarUrl(value){
+  try{
+    const url=new URL(value);
+    if(value.length>2000||url.protocol!=='https:'||url.username||url.password||url.port||!/(^|\.)(qlogo|qpic)\.cn$/.test(url.hostname))return null;
+    url.hash='';return url.href;
+  }catch{return null;}
+}
+function rasterType(bytes){
+  if(bytes.length>=8&&bytes.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])))return 'image/png';
+  if(bytes.length>=3&&bytes[0]===255&&bytes[1]===216&&bytes[2]===255)return 'image/jpeg';
+  if(bytes.length>=6&&/^GIF8[79]a$/.test(bytes.subarray(0,6).toString('ascii')))return 'image/gif';
+  if(bytes.length>=12&&bytes.subarray(0,4).toString('ascii')==='RIFF'&&bytes.subarray(8,12).toString('ascii')==='WEBP')return 'image/webp';
+  return null;
+}
+async function fetchAvatar(request,fetchRemote){
+  const params=new URL(request.url).searchParams;
+  const url=avatarUrl(params.get('url')||'');
+  if(!url||params.getAll('url').length!==1||[...params.keys()].some(key=>key!=='url')||!['GET','HEAD'].includes(request.method)||!['','image'].includes(request.destination||''))return denied();
+  const controller=new AbortController();
+  const abort=()=>controller.abort();request.signal?.addEventListener('abort',abort,{once:true});
+  if(request.signal?.aborted)controller.abort();
+  const timeout=setTimeout(abort,8000);timeout.unref?.();
+  try{
+    // protocol.handle drops destination and Sec-Fetch-* even for <img>. Use an
+    // explicit, bounded raster-only route instead of allowing generic fetches.
+    // Construct a fresh request so account cookies, auth and referrers cannot leak.
+    const headers=new Headers({accept:'image/png,image/jpeg,image/webp,image/gif'});
+    const remote=new Request(url,{method:'GET',headers,signal:controller.signal,referrer:'',referrerPolicy:'no-referrer'});
+    const response=await fetchRemote(remote,{bypassCustomProtocolHandlers:true,redirect:'error',credentials:'omit',headers});
+    if(response.status!==200||!response.body||Number(response.headers.get('content-length')||0)>AVATAR_LIMIT){void response.body?.cancel().catch(()=>{});return new Response('',{status:502});}
+    const reader=response.body.getReader(),chunks=[];let length=0;
+    try{
+      while(true){const {done,value}=await reader.read();if(done)break;length+=value.byteLength;if(length>AVATAR_LIMIT){await reader.cancel();return new Response('',{status:502});}chunks.push(Buffer.from(value));}
+    }finally{reader.releaseLock();}
+    const bytes=Buffer.concat(chunks,length),type=rasterType(bytes);
+    if(!type)return new Response('',{status:502});
+    return new Response(request.method==='HEAD'?null:bytes,{headers:{'content-type':type,'content-length':String(length),'cache-control':'private, max-age=3600','x-content-type-options':'nosniff','cross-origin-resource-policy':'same-origin','content-security-policy':"default-src 'none'; sandbox"}});
+  }catch{return new Response('',{status:502});}
+  finally{clearTimeout(timeout);request.signal?.removeEventListener('abort',abort);}
+}
 function denied(){return new Response('Request not allowed',{status:403,headers:{'content-type':'text/plain; charset=utf-8','cache-control':'no-store'}});}
 function within(root,file){const relative=path.relative(root,file);return relative!==''&&!relative.startsWith('..'+path.sep)&&relative!=='..'&&!path.isAbsolute(relative);}
 function apiPathIsCanonical(url,pathname){return new URL(url).pathname===pathname&&!pathname.includes('//')&&!pathname.endsWith('/');}
@@ -34,6 +76,10 @@ function createLocalApp({root,routes,fetchRemote,fetchFile}){
     }
     const pathname=safePath(request.url);
     if(!pathname)return new Response('Invalid path',{status:400});
+    if(pathname===AVATAR_PATH){
+      if(new URL(request.url).pathname!==AVATAR_PATH)return denied();
+      return fetchAvatar(request,fetchRemote);
+    }
     if(pathname.startsWith('/api/')){
       if(!DATA_DESTINATIONS.has(destination))return denied();
       if(!apiPathIsCanonical(request.url,pathname))return new Response('Invalid API path',{status:400});

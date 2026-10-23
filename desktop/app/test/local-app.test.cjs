@@ -134,3 +134,44 @@ test('external hosts accept only inert HTTPS resources without credentials',asyn
   assert.equal(calls,1);assert.equal(options.credentials,'omit');assert.equal(options.redirect,'error');
   assert.equal((await handler({url:'https://user@assets.invalid/x',method:'GET',destination:'image'})).status,403);
 });
+
+const avatarPng=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jN84AAAAASUVORK5CYII=','base64');
+const avatarRoute=url=>'/_desktop/contact-avatar?url='+encodeURIComponent(url);
+test('desktop avatar route works with the empty destination produced by Electron and never forwards identity',async t=>{
+  let remote,options;
+  const {handler}=fixture(t,async(req,opts)=>{remote=req;options=opts;return new Response(avatarPng,{headers:{'content-type':'application/octet-stream'}});});
+  const response=await handler(request(avatarRoute('https://wx.qlogo.cn/avatar/0#ignored'),{headers:{cookie:'cz_session=private',authorization:'private',referer:ORIGIN+'/capture'}}));
+  assert.equal(response.status,200);assert.equal(response.headers.get('content-type'),'image/png');
+  assert.deepEqual(Buffer.from(await response.arrayBuffer()),avatarPng);
+  assert.equal(remote.url,'https://wx.qlogo.cn/avatar/0');assert.equal(remote.referrer,'');
+  assert.deepEqual([...remote.headers.keys()],['accept']);assert.deepEqual([...options.headers.keys()],['accept']);
+  assert.equal(options.credentials,'omit');assert.equal(options.redirect,'error');assert.equal(options.bypassCustomProtocolHandlers,true);
+  assert.equal(response.headers.get('x-content-type-options'),'nosniff');assert.equal(response.headers.get('cross-origin-resource-policy'),'same-origin');
+  const head=await handler(request(avatarRoute('https://qpic.cn/avatar'),{method:'HEAD'}));assert.equal(head.status,200);assert.equal(await head.text(),'');
+});
+
+test('avatar source and route cannot load arbitrary hosts, protocols, credentials, paths or executable destinations',async t=>{
+  const {handler}=fixture(t);
+  for(const url of ['https://example.test/x','https://qlogo.cn.evil.test/x','http://wx.qlogo.cn/x','https://user:pass@wx.qlogo.cn/x','https://wx.qlogo.cn:444/x','file:///private','https://127.0.0.1/x','https://wx.qlogo.cn/'+ 'x'.repeat(2000)])assert.equal((await handler(request(avatarRoute(url)))).status,403,url);
+  const route=avatarRoute('https://wx.qlogo.cn/avatar');
+  for(const destination of ['script','document','iframe','worker','font'])assert.equal((await handler(request(route,{},destination))).status,403);
+  assert.equal((await handler(request(route,{method:'POST',body:'private'}))).status,403);
+  assert.equal((await handler(request(route+'&url='+encodeURIComponent('https://qpic.cn/other')))).status,403);
+  assert.equal((await handler(request(route+'&other=1'))).status,403);
+  assert.equal((await handler(request(route.replace('contact-avatar','contact%2davatar')))).status,403);
+  const foreign=request(route);Object.defineProperty(foreign,'initiatorOrigin',{value:'https://foreign.test'});assert.equal((await handler(foreign)).status,403);
+});
+
+test('avatar proxy rejects redirects, mislabeled HTML/SVG and oversized streams, preserving a bounded raster response',async t=>{
+  let upstream,cancelled=0;
+  const {handler}=fixture(t,async()=>upstream);
+  const route=avatarRoute('https://wx.qlogo.cn/avatar');
+  for(const [status,body,type] of [[302,avatarPng,'image/png'],[404,avatarPng,'image/png'],[200,'<!doctype html><script>private</script>','image/png'],[200,'<svg onload="alert(1)"></svg>','image/svg+xml']]){
+    upstream=new Response(body,{status,headers:{'content-type':type,location:'https://example.test'}});
+    const result=await handler(request(route));assert.equal(result.status,502);assert.equal(await result.text(),'');
+  }
+  upstream=new Response(new ReadableStream({start(c){c.enqueue(new Uint8Array(512*1024+1));},cancel(){cancelled++;}}),{headers:{'content-type':'image/png'}});
+  assert.equal((await handler(request(route))).status,502);assert.equal(cancelled,1);
+  upstream=new Response(new ReadableStream({cancel(){cancelled++;}}),{headers:{'content-length':String(512*1024+1)}});
+  assert.equal((await handler(request(route))).status,502);assert.equal(cancelled,2);
+});
