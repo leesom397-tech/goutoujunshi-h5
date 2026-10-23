@@ -18,7 +18,9 @@ from test_local_database_source import encrypt_database
 class MacSourceTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="chengzi-mac-synthetic-")
-        self.root = Path(self.temp.name)
+        # macOS exposes temporary directories via /var -> /private/var. Keep
+        # fixtures canonical like the authorized account proof and source path.
+        self.root = Path(self.temp.name).resolve()
         self.account = self.root / "wxid_example_deadbeef"
         self.contact = self.account / "db_storage/contact/contact.db"
         self.contact.parent.mkdir(parents=True)
