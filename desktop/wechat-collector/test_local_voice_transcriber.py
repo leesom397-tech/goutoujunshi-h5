@@ -19,6 +19,7 @@ def framed_voice(byte=b"a"):
 class FakeRecognizer:
     def __init__(self):
         self.calls = 0
+        self.batches = []
 
     def create_stream(self):
         return SimpleNamespace(accept_waveform=lambda rate, data: None,
@@ -26,6 +27,11 @@ class FakeRecognizer:
 
     def decode_stream(self, stream):
         self.calls += 1
+        self.batches.append(1)
+
+    def decode_streams(self, streams):
+        self.calls += len(streams)
+        self.batches.append(len(streams))
 
 
 class LocalVoiceTests(unittest.TestCase):
@@ -96,6 +102,67 @@ class LocalVoiceTests(unittest.TestCase):
                 voice.transcribe_silk(framed_voice(), "owner:message")
         self.assertEqual(error.exception.code, "cancelled")
         self.assertFalse((self.root / "cache").exists())
+
+    def test_batch_13_voices_loads_once_and_decodes_bounded_groups(self):
+        recognizer = FakeRecognizer()
+        items = [(framed_voice(), f"owner:friend:{i}") for i in range(13)]
+        with patch.object(voice, "_decode_silk", return_value=[1]), \
+             patch.object(voice, "_get_recognizer", return_value=recognizer) as load:
+            groups = list(voice.transcribe_silk_batches(items))
+        self.assertEqual(load.call_count, 1)
+        self.assertEqual(recognizer.batches, [4, 4, 4, 1])
+        self.assertEqual(sorted(item["index"] for group in groups for item in group), list(range(13)))
+        self.assertTrue(all(item["text"] == "测试语音。" for group in groups for item in group))
+        with patch.object(voice, "_decode_silk", side_effect=AssertionError("decode")), \
+             patch.object(voice, "_get_recognizer", side_effect=AssertionError("reload")):
+            cached = list(voice.transcribe_silk_batches(items))
+        self.assertEqual(len(cached), 1)
+        self.assertTrue(all(item["cached"] for item in cached[0]))
+
+    def test_cache_hits_publish_before_model_failure_and_failure_is_not_retried_per_voice(self):
+        blob = framed_voice()
+        digest = hashlib.sha256(blob).hexdigest()
+        voice._write_cache(voice._cache_path("owner:cached", digest), digest, "已有的合成结果")
+        items = [(blob, f"owner:missing:{i}") for i in range(13)] + [(blob, "owner:cached")]
+        failure = voice.TranscriptionError("model-download-failed", "offline")
+        with patch.object(voice, "_decode_silk", return_value=[1]), \
+             patch.object(voice, "_get_recognizer", side_effect=failure) as load:
+            groups = voice.transcribe_silk_batches(items)
+            self.assertEqual(next(groups), [{"index": 13, "text": "已有的合成结果", "cached": True}])
+            load.assert_not_called()
+            failed = [result for group in groups for result in group]
+        self.assertEqual(load.call_count, 1)
+        self.assertEqual(len(failed), 13)
+        self.assertTrue(all(item["error"].code == "model-download-failed" for item in failed))
+        self.assertEqual(len(list((self.root / "cache").rglob("*.json"))), 1)
+
+    def test_batch_keeps_bad_audio_and_inference_failure_explicit(self):
+        recognizer = FakeRecognizer()
+        recognizer.decode_streams = lambda _: (_ for _ in ()).throw(RuntimeError("synthetic failure"))
+        with patch.object(voice, "_decode_silk", return_value=[1]), \
+             patch.object(voice, "_get_recognizer", return_value=recognizer):
+            groups = list(voice.transcribe_silk_batches([(b"bad", "owner:0"),
+                (framed_voice(), "owner:1"), (framed_voice(), "owner:2")]))
+        found = {item["index"]: item["error"].code for group in groups for item in group}
+        self.assertEqual(found, {0: "invalid-audio", 1: "asr-failed", 2: "asr-failed"})
+        self.assertFalse((self.root / "cache").exists())
+
+    def test_batch_avoids_padding_short_clips_to_long_clips(self):
+        recognizer = FakeRecognizer()
+        short = framed_voice()
+        long = b"\x02#!SILK_V3" + (struct.pack("<h", 1) + b"a") * 3000
+        with patch.object(voice, "_decode_silk", return_value=[1]), \
+             patch.object(voice, "_get_recognizer", return_value=recognizer):
+            groups = list(voice.transcribe_silk_batches([(long, "owner:0"), (short, "owner:1"),
+                (short, "owner:2"), (long, "owner:3")]))
+        self.assertEqual(recognizer.batches, [2, 1, 1])
+        self.assertEqual(sorted(item["index"] for group in groups for item in group), list(range(4)))
+
+    def test_cache_write_failure_does_not_discard_recognized_text(self):
+        with patch.object(voice, "_decode_silk", return_value=[1]), \
+             patch.object(voice, "_get_recognizer", return_value=FakeRecognizer()), \
+             patch.object(voice, "_write_cache", side_effect=OSError("synthetic disk full")):
+            self.assertEqual(voice.transcribe_silk(framed_voice(), "owner:message"), "测试语音。")
 
     def test_real_silk_codec_roundtrip_and_silence_rejection(self):
         try:

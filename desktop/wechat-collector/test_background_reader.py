@@ -65,6 +65,26 @@ REQUEST = {"kind": "chat", "friend": "测试联系人", "limit": 500, "includeVo
 
 
 class BackgroundReaderTests(unittest.TestCase):
+    def test_selected_voice_sender_lookup_is_once_per_shard(self):
+        from background_reader import _read_voice_page
+        source = Source()
+        shard = source.shard("message_0.db")
+        refs = []
+        for index in range(500):
+            source.add(shard, index + 1, index + 1001, mtype=34,
+                       sender=7 if index % 2 else 2, sequence=index)
+            refs.append({"messageShard": "message_0.db", "messageId": str(index + 1001)})
+        statements = []
+        shard[0].set_trace_callback(statements.append)
+        try:
+            rows, _ = _read_voice_page(source, "target-user", {"direction": "backward"}, refs)
+            self.assertEqual(len(rows), 500)
+            self.assertEqual([row["sender"] for row in rows],
+                             ["self-user" if index % 2 else "target-user" for index in range(500)])
+            self.assertEqual(sum("FROM Name2Id" in sql for sql in statements), 1)
+        finally:
+            source.close()
+
     def test_contact_media_aliases_use_one_bounded_query_without_other_contacts(self):
         source = Source()
         source.add_audio(101, b"first")

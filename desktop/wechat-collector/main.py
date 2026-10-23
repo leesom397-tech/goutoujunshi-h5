@@ -88,6 +88,10 @@ def main():
     import tkinter as tk
     from tkinter import messagebox
     root = tk.Tk()
+    try:
+        root.iconbitmap(str(Path(__file__).resolve().with_name('chengzi-fluted-chat-v1.ico')))
+    except tk.TclError:
+        pass
     root.title("成子 · 电脑微信采集助手")
     root.geometry("570x540")
     root.resizable(False, False)

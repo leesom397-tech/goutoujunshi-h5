@@ -17,13 +17,14 @@ version_info_path = write_version_info(
 )
 
 datas = [('local_ocr.ps1', '.'), ('LICENSE-voice-dependencies.txt', '.'),
+         ('chengzi-fluted-chat-v1.ico', '.'), ('chengzi-fluted-chat-v1.png', '.'),
          ('vendor/LICENSE.wechatauto-replica.txt', 'vendor'), ('vendor/NOTICE.md', 'vendor')]
 binaries = []
 hiddenimports = ['pythoncom', 'pywintypes', 'voice_ui', 'voice_transcript', 'voice_ocr', 'local_ocr',
                  'voice_context', 'voice_candidates', 'visual_voice_enrichment', 'voice_menu_ui', 'native_transcript',
                  'local_vision', 'voice_frame_identity', 'onnxruntime.capi.onnxruntime_pybind11_state',
                  'background_reader', 'capture_transport', 'local_voice_transcriber', 'apsw', 'zstandard', 'cryptography',
-                 'pysilk.backends.cython._silk', 'voice_runtime_self_test',
+                 'pysilk.backends.cython._silk', 'voice_runtime_self_test', 'voice_media_cache',
                  'local_database_source', 'local_chat_images', 'vendor.wechat_db_primitives', 'database_runtime_self_test']
 datas += copy_metadata('pywechat127')
 hiddenimports += collect_submodules('comtypes')
@@ -68,6 +69,7 @@ exe = EXE(
     [],
     exclude_binaries=True,
     name='ChengziWeChatCollector',
+    icon=str(Path(SPECPATH) / 'chengzi-fluted-chat-v1.ico'),
     version=str(version_info_path),
     debug=False,
     bootloader_ignore_signals=False,
