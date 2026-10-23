@@ -76,9 +76,11 @@ async function createWindow(){
   });
   win=new BrowserWindow({title:'成子',width:1380,height:900,minWidth:980,minHeight:680,backgroundColor:'#f7f4ee',autoHideMenuBar:true,icon:path.join(__dirname,'assets/logo.png'),show:false,webPreferences:{preload:path.join(__dirname,'shell-preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true}});
   win.webContents.setWindowOpenHandler(()=>({action:'deny'}));win.webContents.on('will-navigate',event=>event.preventDefault());
-  view=new WebContentsView({webPreferences:{session:persistent,preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true,allowRunningInsecureContent:false}});
+  // WeChat owns the foreground during Moments collection. Keep job polling,
+  // partial saves and completion responsive while this workspace is occluded.
+  view=new WebContentsView({webPreferences:{session:persistent,preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true,allowRunningInsecureContent:false,backgroundThrottling:false}});
   win.contentView.addChildView(view);
-  function bounds(){const {width,height}=win.getContentBounds();view.setBounds({x:196,y:64,width:Math.max(1,width-196),height:Math.max(1,height-64)});}
+  function bounds(){const {width,height}=win.getContentBounds();view.setBounds({x:208,y:64,width:Math.max(1,width-208),height:Math.max(1,height-64)});}
   win.on('resize',bounds);bounds();bindNavigation(view.webContents);
   win.on('close',event=>{if(!quitting){event.preventDefault();void closeApp();}});
   win.on('closed',()=>{view.webContents.close();void collector.stop();win=null;});
@@ -89,7 +91,7 @@ async function runSmoke(routes){
   // Exercise the actual installed UI with synthetic API responses. No account,
   // production requests, real local collector or browser is touched.
   const wc=view.webContents;
-  wc.setBackgroundThrottling(false);win.webContents.setBackgroundThrottling(false);
+  win.webContents.setBackgroundThrottling(false);
   const errors=[];wc.on('console-message',(_event,details)=>{if(details.level==='error'||details.level===3)errors.push(details.message);});
   const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
   const readPage=()=>wc.executeJavaScript(`(()=>{const text=document.body?.innerText||'';return {textLength:text.length,failed:text.includes('这个页面暂时没有打开'),preview:text.slice(0,150)};})()`);
@@ -98,7 +100,7 @@ async function runSmoke(routes){
     do{page=await readPage();if(page.textLength>20||page.failed)break;await pause(50);}while(Date.now()-started<5000);
     return {...page,readyMilliseconds:Date.now()-started};
   };
-  const checks={sandbox:wc.getLastWebPreferences().sandbox===true,nodeDisabled:wc.getLastWebPreferences().nodeIntegration===false,contextIsolation:wc.getLastWebPreferences().contextIsolation===true};
+  const checks={sandbox:wc.getLastWebPreferences().sandbox===true,nodeDisabled:wc.getLastWebPreferences().nodeIntegration===false,contextIsolation:wc.getLastWebPreferences().contextIsolation===true,backgroundProgress:wc.getBackgroundThrottling()===false};
   await wc.loadURL(ORIGIN+'/workspace');await waitForPage();
   checks.homeLocal=await wc.executeJavaScript('document.body.innerText.includes("成子") && document.body.innerText.length > 100');
   checks.hostAvailable=await wc.executeJavaScript('typeof window.chengziDesktop?.connectCollector === "function"');
@@ -134,9 +136,12 @@ async function runSmoke(routes){
       try{await capture(contents,name);screenshots.push({file:name,saved:true});}
       catch(error){screenshots.push({file:name,saved:false,error:error.message});}
     }
-    fs.writeFileSync(path.join(out,'receipt.json'),JSON.stringify({ok:Object.values(checks).every(Boolean),checks,visited,errors,screenshots,userDataUsed:false,networkRequestsMocked:true},null,2));
+    const hash=require('node:crypto').createHash;
+    const digest=file=>hash('sha256').update(fs.readFileSync(file)).digest('hex');
+    const inputs={main:digest(__filename),frontend:digest(path.join(__dirname,'frontend-dist','asset-integrity.json')),service:digest(path.join(process.resourcesPath,'service-manifest.json'))};
+    fs.writeFileSync(path.join(out,'receipt.json'),JSON.stringify({ok:Object.values(checks).every(Boolean)&&errors.length===0,version:app.getVersion(),platform:process.platform,inputs,checks,visited,errors,screenshots,userDataUsed:false,networkRequestsMocked:true},null,2));
   }
-  app.exit(Object.values(checks).every(Boolean)?0:1);
+  app.exit(Object.values(checks).every(Boolean)&&errors.length===0?0:1);
 }
 if(!app.requestSingleInstanceLock())app.quit();else{
   app.on('second-instance',()=>{if(win){if(win.isMinimized())win.restore();win.focus();}});

@@ -1,0 +1,15 @@
+.field { position:absolute; inset:0; overflow:hidden; pointer-events:none; isolation:isolate; background:#fff9f3; }
+.field > div:first-child { width:100%; height:100%; min-height:0; }
+.still { width:100%; height:100%; object-fit:cover; }
+.field [data-glass-study],.field canvas { width:100%; height:100%; }
+.frost { position:absolute; inset:0; background:linear-gradient(90deg,#fff9f3 2%,#fff9f3eb 31%,#fff9f352 57%,transparent 76%); }
+.field[data-brand-field="ambient"] { opacity:.66; }
+.field[data-brand-field="waiting"] .frost { background:linear-gradient(90deg,#fff9f3ed,#fff9f373 46%,#fff9f312); }
+.field button { display:none; }
+.field[data-brand-field="hero"] button { display:grid; pointer-events:auto; top:16px; right:16px; bottom:auto; width:44px; min-width:44px; height:44px; }
+.flow { position:absolute; inset:0; overflow:hidden; }
+.flow i { position:absolute; top:25%; left:10%; width:4px; height:4px; border-radius:50%; background:#fffdf4; box-shadow:0 0 16px 5px #fff7deba; animation:arrive 5s ease-in-out infinite; }
+.flow i:nth-child(2) { top:62%; animation-delay:-1.6s; }
+.flow i:nth-child(3) { top:80%; animation-delay:-3.3s; }
+@keyframes arrive { 0% { transform:translateX(0); opacity:0; } 20% { opacity:1; } 85%,100% { transform:translateX(550px); opacity:0; } }
+@media(prefers-reduced-motion:reduce) { .flow { display:none; } }

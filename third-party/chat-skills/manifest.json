@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "reviewedAt": "2026-10-22",
+  "skills": [
+    {
+      "id": "qingsheng",
+      "directory": "qingsheng",
+      "revision": "fd762df2e0ce4b8ec68b0087ba7178761045bd1a",
+      "paragraphs": [
+        "**先判互动目的，再判阶段。**",
+        "**话术**：",
+        "**话术必须 context-consistent（硬性规则）**",
+        "**emoji 规范**："
+      ],
+      "source": "https://github.com/tomwong001/qingsheng-skill/blob/fd762df2e0ce4b8ec68b0087ba7178761045bd1a/skill/SKILL.md",
+      "sha256": "3b853555d2308cce268b3b81c35ed3f58af22393dc28db83cfaa6e67bea4f9d9"
+    },
+    {
+      "id": "humanizer-zh",
+      "directory": "humanizer-zh",
+      "revision": "f4518a8eab97b8bfebc66a89d34320a89bef6930",
+      "paragraphs": [
+        "1. **保留信息和确定程度。**",
+        "自然连接词有实际作用时保留。"
+      ],
+      "source": "https://github.com/op7418/Humanizer-zh/blob/f4518a8eab97b8bfebc66a89d34320a89bef6930/SKILL.md",
+      "sha256": "95627fd4437d886f98032ccc62d79136e6310f1fc04e354bb86431795ff206df"
+    }
+  ]
+}

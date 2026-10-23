@@ -32,26 +32,27 @@ export class CaptureCloudError extends Error {
   constructor(message: string, public status: number, public details: Record<string, any> = {}) { super(message); }
 }
 const identityChecks=new Map<string,Promise<void>>();
-function confirmSameAccount(owner:string):Promise<void>{
-  const current=identityChecks.get(owner);if(current)return current;
+function confirmSameAccount(owner:string,signal?:AbortSignal):Promise<void>{
+  const current=!signal&&identityChecks.get(owner);if(current)return current;
   const check=(async()=>{
-    const response=await fetch("/api/account/credits",{credentials:"same-origin",cache:"no-store",signal:AbortSignal.timeout(30000)});
+    const response=await fetch("/api/account/credits",{credentials:"same-origin",cache:"no-store",signal:signal?AbortSignal.any([signal,AbortSignal.timeout(30000)]):AbortSignal.timeout(30000)});
     const value=await response.json().catch(()=>({})) as {account?:{userId?:unknown}};
     if(response.status===401||response.status===403||response.ok&&value.account?.userId!==owner)throw new CaptureCloudError("登录状态已变化，请回到原账号继续查看。",401);
     if(!response.ok)throw new CaptureCloudError("账号连接暂时不可用，已取回的文字仍可阅读，请重新打开这份聊天重试图片。",503);
   })().finally(()=>{if(identityChecks.get(owner)===check)identityChecks.delete(owner);});
-  identityChecks.set(owner,check);return check;
+  if(!signal)identityChecks.set(owner,check);return check;
 }
-async function request<T extends {ownerId?:string}>(owner: string, query = "", body?: Record<string, unknown>, method = "POST", retried=false): Promise<T> {
+async function request<T extends {ownerId?:string}>(owner: string, query = "", body?: Record<string, unknown>, method = "POST", retried=false,signal?:AbortSignal): Promise<T> {
+  signal?.throwIfAborted();
   const response = await fetch(endpoint + query, {
-    method: body ? method : "GET", credentials: "same-origin", cache: "no-store", signal: AbortSignal.timeout(30000),
+    method: body ? method : "GET", credentials: "same-origin", cache: "no-store", signal: signal?AbortSignal.any([signal,AbortSignal.timeout(30000)]):AbortSignal.timeout(30000),
     headers: body ? { "Content-Type": "application/json" } : {},
     ...(body ? { body: JSON.stringify({ ...body, expectedOwnerId: owner }) } : {}),
   });
   const result = await response.json().catch(() => ({ error: "同步服务暂时没有返回结果，请重试。" })) as Record<string,any>;
   if(!body&&!retried&&[401,502,503,504].includes(response.status)){
-    await confirmSameAccount(owner);
-    return request<T>(owner,query,undefined,method,true);
+    await confirmSameAccount(owner,signal);
+    return request<T>(owner,query,undefined,method,true,signal);
   }
   if (!response.ok) throw new CaptureCloudError(result.error || "聊天同步未完成，请重试。", response.status, result);
   if (result.ownerId !== owner) throw new CaptureCloudError("登录账号已变化，请回到原账号继续同步。", 409);
@@ -107,15 +108,17 @@ async function digest(value: string | Uint8Array): Promise<string> {
   return Array.from(new Uint8Array(hash),n=>n.toString(16).padStart(2,"0")).join("");
 }
 async function rowDigest(row: CloudCaptureRecord) { return digest(JSON.stringify({ ...row, firstCapturedAt:undefined, lastCapturedAt:undefined })); }
-export async function loadCloudCaptureImage(owner:string, libraryId:string, media:CloudMediaRef): Promise<CaptureImage> {
+export async function loadCloudCaptureImage(owner:string, libraryId:string, media:CloudMediaRef,signal?:AbortSignal): Promise<CaptureImage> {
   const parts:string[]=[];
   for(let chunk=0;chunk<media.chunks;chunk++) {
-    const data=await request<{ownerId:string;data:string;chunkIndex:number;media:CloudMediaRef}>(owner,`?id=${encodeURIComponent(libraryId)}&mediaId=${encodeURIComponent(media.id)}&chunk=${chunk}`);
+    signal?.throwIfAborted();
+    const data=await request<{ownerId:string;data:string;chunkIndex:number;media:CloudMediaRef}>(owner,`?id=${encodeURIComponent(libraryId)}&mediaId=${encodeURIComponent(media.id)}&chunk=${chunk}`,undefined,'GET',false,signal);
     if(data.chunkIndex!==chunk || data.media.sha256!==media.sha256)throw Error("图片来源不一致，已停止读取。");
     parts.push(data.data);
   }
   const data=parts.join("");
   if(await captureImageDigest(data)!==media.sha256)throw Error("图片下载不完整，请重试。");
+  signal?.throwIfAborted();
   return {mime:media.mime,name:media.name,data};
 }
 function storedRecord(owner:string, info:CloudCaptureLibrary, row:CloudCaptureRecord):StoredCaptureRecord {

@@ -2,8 +2,9 @@ import { Component, Suspense, lazy, useEffect, type ComponentType, type ReactNod
 import { createRoot } from "react-dom/client";
 import { AuxiliaryWebNav } from "@/components/AuxiliaryWebNav";
 import { MotionPolicy } from "@/components/MotionPolicy";
+import { BrandField } from "@/components/BrandField";
 import { ReportSessionNavigation } from "@/components/web-analysis/ReportSessionNavigation";
-import { installDesktopNavigation, navigate, useDesktopLocation } from "./navigation";
+import { installDesktopNavigation, navigate, useDesktopLocation, useDesktopNavigationEntry, desktopPageInstanceKey } from "./navigation";
 import "@/app/globals.css";
 import "@/app/login.css";
 import "@/app/positioning.css";
@@ -41,10 +42,12 @@ class RouteBoundary extends Component<{ children: ReactNode }, { failed: boolean
 function HomeRedirect() { useEffect(() => navigate("/workspace", true), []); return null; }
 function App() {
   const url = useDesktopLocation();
+  const navigationEntry=useDesktopNavigationEntry();
   const path = new URL(url, location.origin).pathname.replace(/\/$/, "") || "/";
+  useEffect(() => { document.body.dataset.desktopRoute = path; }, [path]);
   const Page = path === "/" ? HomeRedirect : pages.get(path);
   const routeKey = path === '/reports' || path === '/report' ? 'report-library' : path;
-  return <><ReportSessionNavigation/><MotionPolicy/><AuxiliaryWebNav/><RouteBoundary key={routeKey}><Suspense fallback={<main className="desktop-route-message" role="status">正在打开…</main>}>{Page ? <Page key={routeKey === 'report-library' ? routeKey : path + new URL(url, location.origin).search}/> : <main className="desktop-route-message"><h1>页面不存在</h1><a href="/workspace">返回工作台</a></main>}</Suspense></RouteBoundary></>;
+  return <><ReportSessionNavigation/><MotionPolicy/><AuxiliaryWebNav/><RouteBoundary key={routeKey}><Suspense fallback={<main className="desktop-route-message desktop-opening" role="status"><BrandField variant="waiting"/><div><strong>正在打开工作区</strong><span>接着上次，继续了解。</span></div></main>}>{Page ? <Page key={desktopPageInstanceKey(path,new URL(url,location.origin).search,navigationEntry)}/> : <main className="desktop-route-message"><h1>页面不存在</h1><a href="/workspace">返回工作台</a></main>}</Suspense></RouteBoundary></>;
 }
 document.body.classList.add('cz-desktop');
 createRoot(document.getElementById("root")!).render(<App/>);

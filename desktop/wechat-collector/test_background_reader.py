@@ -394,6 +394,19 @@ class LocalImageTests(unittest.TestCase):
                 capture_background(REQUEST, lambda *_: None)
         provider.open_authorized_source.assert_called_once()
 
+    def test_ready_voice_model_does_not_claim_first_download(self):
+        messages = []
+        def capture(request, progress, publish, source):
+            progress({"stage": "voice-model-download", "percent": 30, "message": "已下载 30%"})
+            progress({"stage": "voice-model-ready", "percent": 100})
+            return {}
+        with patch("background_reader._provider_module", return_value=Mock()), \
+             patch("background_reader.capture_from_source", side_effect=capture):
+            capture_background(REQUEST, lambda percent, message: messages.append(message))
+        self.assertIn("已下载 30%", messages)
+        self.assertIn("已就绪", messages[-1])
+        self.assertNotIn("首次", messages[-1])
+
     def test_source_change_after_partial_is_never_retried(self):
         provider = Mock()
         partials = []

@@ -20,6 +20,9 @@ datas = [(str(root / "chengzi-fluted-chat-v1.png"), "."),
          (str(root / "vendor" / "CHATLOG_KEEPER_LICENSE"), "vendor"),
          (str(root / "vendor" / "chatlog-keeper-pin.json"), "vendor"),
          (str(root / "vendor" / "NOTICE.md"), "vendor"),
+         (str(root / "vendor" / "WECHATAUTO_ACCESSIBILITY_LICENSE"), "vendor"),
+         (str(root / "vendor" / "WECHATAUTO_ACCESSIBILITY_NOTICE.md"), "vendor"),
+         (str(root / "vendor" / "wechatauto-accessibility-pin.json"), "vendor"),
          (str(root / "vendor" / "LICENSE.wechatauto-replica.txt"), "vendor")]
 # The audited vendor sources are also resources: the provider imports the
 # fixed, packaged directory and native helpers without any runtime download.

@@ -33,7 +33,8 @@ export function createLoginRequest({ fetcher = fetch, timeoutMs = 20_000 }: { fe
           throw new LoginRequestError("network", "未能连接登录服务，请检查网络后重试。");
         }
         if (!response.ok) {
-          if (response.status === 400 || response.status === 401) throw new LoginRequestError("credentials", "登录信息未通过验证，请检查用户名和密码。");
+          if (response.status === 400) throw new LoginRequestError("credentials", "请填写有效的用户名和密码。");
+          if (response.status === 401) throw new LoginRequestError("credentials", "账号或密码不正确，请重新输入。");
           if (response.status === 429) throw new LoginRequestError("rate-limit", "登录尝试较多，请稍后再试。");
           throw new LoginRequestError("server", "登录服务暂时不可用，请稍后重试。");
         }

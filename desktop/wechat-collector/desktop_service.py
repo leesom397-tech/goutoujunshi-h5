@@ -17,6 +17,58 @@ from normalize import VERSION
 MAX_LINE = 4096
 
 
+def _set_windows_standard_input(fd):
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.SetStdHandle.argtypes = [wintypes.DWORD, wintypes.HANDLE]
+    kernel.SetStdHandle.restype = wintypes.BOOL
+    if not kernel.SetStdHandle(wintypes.DWORD(-10), msvcrt.get_osfhandle(fd)):
+        raise ctypes.WinError(ctypes.get_last_error())
+
+
+@contextlib.contextmanager
+def isolated_control_input(stream):
+    """Keep the host pipe private; workers must inherit NUL as standard input.
+
+    On Windows CPython initializes inherited stdin with an OS seek. If our
+    service is already waiting in ReadFile on that pipe, the child's startup
+    blocks before it can even send the first progress event (CPython #78961).
+    Merely replacing sys.stdin does not change the inherited Windows handle.
+    """
+    if sys.platform != "win32":
+        yield stream
+        return
+    source_fd = stream.fileno()
+    private_fd = os.dup(source_fd)
+    os.set_inheritable(private_fd, False)
+    was_inheritable = os.get_inheritable(source_fd)
+    private = null_fd = None
+    redirected = False
+    try:
+        # No input has been read yet, so creating this wrapper cannot contend
+        # with a pending read. Both descriptor and OS handle are non-inheritable.
+        private = os.fdopen(private_fd, "r", encoding="utf-8", errors="strict")
+        null_fd = os.open(os.devnull, os.O_RDONLY)
+        os.dup2(null_fd, source_fd, inheritable=False)
+        redirected = True
+        _set_windows_standard_input(source_fd)
+        yield private
+    finally:
+        try:
+            if redirected:
+                os.dup2(private_fd, source_fd, inheritable=was_inheritable)
+                _set_windows_standard_input(source_fd)
+        finally:
+            if null_fd is not None:
+                os.close(null_fd)
+            if private is not None:
+                private.close()
+            else:
+                os.close(private_fd)
+
+
 def _error(code, message):
     return {"ok": False, "error": {"code": code, "message": message}}
 
@@ -162,9 +214,10 @@ def main():
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="strict")
     # Keep dependency print/warnings away from the JSON protocol and logs.
-    with open(os.devnull, "w", encoding="utf-8") as sink:
-        with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
-            return run_service(incoming, outgoing)
+    with isolated_control_input(incoming) as control_input:
+        with open(os.devnull, "w", encoding="utf-8") as sink:
+            with contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
+                return run_service(control_input, outgoing)
 
 
 if __name__ == "__main__":

@@ -18,7 +18,8 @@ import {personalizeReport} from "@/lib/personal-context-server";
 import {capturePersonalEvidence,personalConnection} from "@/lib/personal-context";
 import { parseQwenJson, qwenChat, qwenPublicError, type QwenContent } from "@/lib/qwen";
 import { saveAnalysisReport } from "@/lib/saved-reports.mjs";
-import { cleanMomentsReport, MOMENTS_PROMPT, MOMENTS_STATISTICS_PROMPT, MOMENTS_BEHAVIOR_PROMPT, MOMENTS_INTERACTION_PROMPT, MOMENTS_READING_GUIDANCE } from "@/lib/moments-report";
+import { MOMENTS_INTERACTION_PROMPT } from "@/lib/moments-guidance";
+import { cleanMomentsReport, MOMENTS_PROMPT, MOMENTS_STATISTICS_PROMPT, MOMENTS_BEHAVIOR_PROMPT, MOMENTS_READING_GUIDANCE } from "@/lib/moments-report";
 import { relationshipRiskReview, fullHistoryRiskReview, RELATIONSHIP_RISK_GUIDANCE } from "@/lib/relationship-risk";
 import { selectKnowledge } from "@/lib/knowledge";
 import { publicKnowledgeSources } from "@/lib/knowledge-public";
@@ -205,7 +206,15 @@ function jobStore(owner: string) { const binding=jobBinding(); if(!binding)throw
 export async function GET(request: Request) {
   const identity=await miniappOwner(request);
   if(!identity)return json({error:"请先登录。"},401);
-  try {const params=new URL(request.url).searchParams;const task=await jobStore(identity.ownerId).status(identity.ownerId,params.get("taskId") || undefined,{libraryId:params.get("libraryId")||undefined,subjectId:params.get("subjectId")||undefined,summaryOnly:params.get("summary")==="1"});return json(task || {status:"none"});}
+  try {
+    const params=new URL(request.url).searchParams;
+    if(params.get("diagnostics")==="1") {
+      const taskId=params.get("taskId") || "";
+      if(!/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(taskId))return json({error:"任务编号不正确。"},400);
+      return json(await jobStore(identity.ownerId).diagnostics(identity.ownerId,taskId) || {status:"none"});
+    }
+    const task=await jobStore(identity.ownerId).status(identity.ownerId,params.get("taskId") || undefined,{libraryId:params.get("libraryId")||undefined,subjectId:params.get("subjectId")||undefined,summaryOnly:params.get("summary")==="1"});return json(task || {status:"none"});
+  }
   catch{return json({error:"暂时无法读取后台任务，请稍后重试。"},503);}
 }
 export async function POST(request: Request) {

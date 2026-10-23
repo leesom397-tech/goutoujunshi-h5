@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import plistlib
 import shutil
+import sqlite3
 import sys
 import tempfile
 import time
@@ -14,7 +15,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 import apsw
-from background_reader import BackgroundCaptureError
+from background_reader import BackgroundCaptureError, search_contacts_from_source
 import macos_database_source as source
 import macos_key_provider as provider
 import sqlcipher_primitives as primitives
@@ -202,6 +203,122 @@ class MacSourceTests(unittest.TestCase):
             read.assert_not_called()
             upstream.assert_not_called()
             opened.assert_not_called()
+
+
+class MacContactQueryTests(unittest.TestCase):
+    class ContactSource:
+        account_id = "synthetic_owner"
+        self_username = "synthetic_owner"
+
+        def __init__(self):
+            self.connection = sqlite3.connect(":memory:")
+            self.connection.execute("CREATE TABLE contact(username TEXT,nick_name TEXT,remark TEXT)")
+            self.connection.execute("INSERT INTO contact VALUES('synthetic_target','Target','')")
+            self.closed = False
+            self.close_count = 0
+            self.checks = 0
+
+        def contacts(self):
+            if self.closed:
+                raise AssertionError("closed source queried")
+            return self.connection
+
+        def assert_unchanged(self):
+            if self.closed:
+                raise AssertionError("closed source checked")
+            self.checks += 1
+
+        def close(self):
+            self.close_count += 1
+            self.closed = True
+            self.connection.close()
+
+    def test_real_contact_callback_can_close_lease_before_final_identity_check(self):
+        db = self.ContactSource()
+        cache = source.ContactSourceCache()
+        with patch.object(source, "open_authorized_source", return_value=db) as opened:
+            result = cache.run(lambda borrowed: search_contacts_from_source("Target", borrowed))
+        self.assertEqual(result["contacts"][0]["contactId"], "synthetic_target")
+        self.assertEqual(db.checks, 2)
+        self.assertEqual(db.close_count, 1)
+        self.assertTrue(db.closed)
+        opened.assert_called_once_with(contacts_only=True)
+
+    def test_clear_revokes_in_flight_result_and_does_not_deadlock_callback(self):
+        db = self.ContactSource()
+        cache = source.ContactSourceCache()
+        def read(borrowed):
+            result = search_contacts_from_source("Target", borrowed)
+            cache.clear()
+            return result
+        with patch.object(source, "open_authorized_source", return_value=db), self.assertRaises(BackgroundCaptureError) as caught:
+            cache.run(read)
+        self.assertEqual(caught.exception.code, "CONTACT_SEARCH_REVOKED")
+        self.assertEqual(db.close_count, 1)
+
+    def test_overlapping_search_is_busy_instead_of_waiting_and_opening_another_source(self):
+        db = self.ContactSource()
+        cache = source.ContactSourceCache()
+        def read(borrowed):
+            with self.assertRaises(BackgroundCaptureError) as caught:
+                cache.run(lambda unused: None)
+            self.assertEqual(caught.exception.code, "CONTACT_SEARCH_BUSY")
+            return search_contacts_from_source("Target", borrowed)
+        with patch.object(source, "open_authorized_source", return_value=db) as opened:
+            self.assertEqual(len(cache.run(read)["contacts"]), 1)
+        self.assertEqual(opened.call_count, 1)
+        self.assertEqual(db.close_count, 1)
+
+    def test_reader_exception_closes_source_and_allows_next_fresh_search(self):
+        first, second = self.ContactSource(), self.ContactSource()
+        cache = source.ContactSourceCache()
+        def read(borrowed):
+            borrowed.close()
+            raise RuntimeError("synthetic failure")
+        with patch.object(source, "open_authorized_source", side_effect=[first, second]):
+            with self.assertRaisesRegex(RuntimeError, "synthetic failure"):
+                cache.run(read)
+            self.assertEqual(len(cache.run(lambda borrowed: search_contacts_from_source("Target", borrowed), refresh=True)["contacts"]), 1)
+        self.assertEqual(first.close_count, 1)
+        self.assertEqual(second.close_count, 1)
+
+    def test_final_identity_failure_never_returns_contact_metadata(self):
+        db = self.ContactSource()
+        cache = source.ContactSourceCache()
+        original = db.assert_unchanged
+        def check():
+            original()
+            if db.checks == 2:
+                raise BackgroundCaptureError("ACCOUNT_CHANGED", "synthetic account changed")
+        db.assert_unchanged = check
+        with patch.object(source, "open_authorized_source", return_value=db), self.assertRaises(BackgroundCaptureError) as caught:
+            cache.run(lambda borrowed: search_contacts_from_source("Target", borrowed))
+        self.assertEqual(caught.exception.code, "ACCOUNT_CHANGED")
+        self.assertEqual(db.close_count, 1)
+
+    def test_open_failure_releases_operation_lock(self):
+        cache = source.ContactSourceCache()
+        db = self.ContactSource()
+        with patch.object(source, "open_authorized_source", side_effect=[RuntimeError("unavailable"), db]):
+            with self.assertRaisesRegex(RuntimeError, "unavailable"):
+                cache.run(lambda borrowed: None)
+            result = cache.run(lambda borrowed: search_contacts_from_source("Target", borrowed))
+        self.assertEqual(len(result["contacts"]), 1)
+
+    def test_cleanup_failure_does_not_leave_all_later_searches_busy(self):
+        first, second = self.ContactSource(), self.ContactSource()
+        cache = source.ContactSourceCache()
+        close = first.close
+        def fail_close():
+            close()
+            raise RuntimeError("synthetic native cleanup failure")
+        first.close = fail_close
+        with patch.object(source, "open_authorized_source", side_effect=[first, second]):
+            with self.assertRaisesRegex(RuntimeError, "synthetic native cleanup failure"):
+                cache.run(lambda borrowed: search_contacts_from_source("Target", borrowed))
+            result = cache.run(lambda borrowed: search_contacts_from_source("Target", borrowed))
+        self.assertEqual(len(result["contacts"]), 1)
+        self.assertEqual(second.close_count, 1)
 
 
 class MacPackagedComponentTests(unittest.TestCase):

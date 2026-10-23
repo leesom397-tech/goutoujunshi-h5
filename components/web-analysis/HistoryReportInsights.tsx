@@ -22,6 +22,7 @@ import styles from "./HistoryReportInsights.module.css";
 import { ReportExcerpt } from "./ReportExcerpt";
 import { ReportSectionLink } from "./ReportReader";
 import { HistoryMomentsStatistics, savedMomentsStatistics } from "./HistoryMomentsStatistics";
+import { HistorySentenceReader } from "./HistorySentenceReader";
 
 const rows=(value:unknown):Json[]=>Array.isArray(value)?value.filter(item=>item&&typeof item==="object"):[];
 const text=(value:unknown)=>typeof value==="string"?value.trim():"";
@@ -102,14 +103,14 @@ export function HistoryReportEntry({report,onSelect}:{report:Json;onSelect:(sect
  </section>;
 }
 
-export function HistoryReportReading({report,diagnosis,section="chat",recentReading}:{report:Json;diagnosis?:Json|null;section?:string;recentReading?:ReactNode}){
+export function HistoryReportReading({report,diagnosis,section="chat",recentReading,hideSentences=false}:{report:Json;diagnosis?:Json|null;section?:string;recentReading?:ReactNode;hideSentences?:boolean}){
  if(section==="moments")return <section className={styles.reading} data-history-reading="moments"><HistoryMomentsInsights report={report}/></section>;
  if(section==="profile")return <HistoryProfileInsights report={report}/>;
  return <section className={styles.reading} aria-label="聊天细节与依据" data-history-reading="chat">
   <HistoryReportInsights report={report} diagnosis={diagnosis}/>
   <HistoryProfileInsights report={report}/>
   <section data-report-chat-risk style={{scrollMarginTop:'var(--report-content-offset)'}}><RiskVerification report={report}/><RiskResponsePaths report={report}/></section>
-  {recentReading}
+  {!hideSentences&&(report.archiveSnapshot?.libraryId?<HistorySentenceReader report={report}/>:recentReading)}
  </section>;
 }
 

@@ -1,6 +1,7 @@
 import { useMemo, useSyncExternalStore } from "react";
 
 const eventName = "chengzi:desktop-route";
+let navigationEntry = 0;
 const snapshot = () => location.pathname + location.search + location.hash;
 const subscribe = (callback: () => void) => {
   window.addEventListener(eventName, callback);
@@ -9,11 +10,18 @@ const subscribe = (callback: () => void) => {
   return () => { window.removeEventListener(eventName, callback); window.removeEventListener("popstate", callback); window.removeEventListener("hashchange", callback); };
 };
 export function useDesktopLocation() { return useSyncExternalStore(subscribe, snapshot, () => "/workspace"); }
+/** Internal replaceState records an import step. Only explicit navigation or
+ * Back/Forward starts another capture workspace; query edits keep its jobs alive. */
+export function useDesktopNavigationEntry() { return useSyncExternalStore(subscribe, () => navigationEntry, () => 0); }
+export function desktopPageInstanceKey(path:string,search:string,entry:number) {
+  return path==='/report'||path==='/reports'?'report-library':path==='/capture'?`capture:${entry}`:path+search;
+}
 export function navigate(href: string, replace = false, options: { scroll?: boolean } = {}) {
   const url = new URL(href, location.href);
   if (url.origin !== location.origin || url.username || url.password) throw new Error("只能在应用内打开本地页面。");
   history.replaceState({ ...history.state, desktopScroll: [scrollX, scrollY] }, "");
   history[replace ? "replaceState" : "pushState"]({ desktopScroll: [0, 0] }, "", url.pathname + url.search + url.hash);
+  navigationEntry++;
   window.dispatchEvent(new Event(eventName));
   if (options.scroll !== false) requestAnimationFrame(() => url.hash ? document.getElementById(decodeURIComponent(url.hash.slice(1)))?.scrollIntoView() : window.scrollTo(0, 0));
 }
@@ -51,6 +59,7 @@ export function installDesktopNavigation(routes: ReadonlySet<string>) {
     event.preventDefault(); navigate(target.href, false, { scroll: target.pathname !== "/report" });
   });
   window.addEventListener("popstate", event => {
+    navigationEntry++;
     const position = event.state?.desktopScroll;
     if (Array.isArray(position) && position.length === 2 && position.every(Number.isFinite)) requestAnimationFrame(() => window.scrollTo(position[0], position[1]));
   });

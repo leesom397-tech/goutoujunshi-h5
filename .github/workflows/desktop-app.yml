@@ -53,7 +53,7 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           import json, os, plistlib, subprocess
-          output = Path('outputs/desktop-app/0.1.0-preview.4').resolve()
+          output = Path('outputs/desktop-app/0.1.0-preview.10').resolve()
           bundles = list((output / 'mac-arm64').glob('*.app'))
           assert len(bundles) == 1, 'Expected one outer desktop application'
           bundle = bundles[0]
@@ -84,6 +84,9 @@ jobs:
           assert interface_run.returncode == 0, 'Packaged local UI smoke exited with an error'
           assert receipt.get('ok') is True, 'Packaged local UI smoke failed'
           assert receipt.get('userDataUsed') is False and receipt.get('networkRequestsMocked') is True
+          subprocess.run(['node', 'desktop/app/scripts/verify-smoke.cjs',
+                          str(bundle / 'Contents/Resources'), str(smoke / 'receipt.json'),
+                          str(Path.cwd())], check=True, timeout=120)
           # Desktop compositors can decline a background screenshot. The receipt
           # records each capture result; functional and isolation checks stay hard gates.
           PY
@@ -92,10 +95,10 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           import hashlib, json
-          output = Path('outputs/desktop-app/0.1.0-preview.4')
+          output = Path('outputs/desktop-app/0.1.0-preview.10')
           files = sorted(p for p in output.iterdir() if p.suffix in ('.zip', '.dmg'))
           assert len(files) == 2, 'Expected both DMG and ZIP'
-          receipt = {'version': '0.1.0-preview.4', 'platform': 'darwin', 'arch': 'arm64',
+          receipt = {'version': '0.1.0-preview.10', 'platform': 'darwin', 'arch': 'arm64',
                      'developerIdSigned': False, 'notarized': False, 'publicRelease': False,
                      'realWechatAccountTested': False, 'files': []}
           for p in files:
@@ -104,19 +107,19 @@ jobs:
           (output / 'preview-build.json').write_text(json.dumps(receipt, indent=2) + '\n')
           PY
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        if: ${{ success() && steps.package.outcome == 'success' }}
         with:
-          name: chengzi-desktop-0.1.0-preview.4-mac-arm64-${{ github.run_number }}
+          name: chengzi-desktop-0.1.0-preview.10-mac-arm64-${{ github.run_number }}
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
           path: |
-            outputs/desktop-app/0.1.0-preview.4/*.dmg
-            outputs/desktop-app/0.1.0-preview.4/*.zip
-            outputs/desktop-app/0.1.0-preview.4/preview-build.json
+            outputs/desktop-app/0.1.0-preview.10/*.dmg
+            outputs/desktop-app/0.1.0-preview.10/*.zip
+            outputs/desktop-app/0.1.0-preview.10/preview-build.json
             desktop/wechat-collector/dist/desktop-service/runtime-self-test.json
-            outputs/desktop-app/0.1.0-preview.4/smoke-mac/receipt.json
-            outputs/desktop-app/0.1.0-preview.4/smoke-mac/window.png
-            outputs/desktop-app/0.1.0-preview.4/smoke-mac/workspace.png
-            outputs/desktop-app/0.1.0-preview.4/smoke-mac/service-database.json
-            outputs/desktop-app/0.1.0-preview.4/smoke-mac/service-stdio.json
+            outputs/desktop-app/0.1.0-preview.10/smoke-mac/receipt.json
+            outputs/desktop-app/0.1.0-preview.10/smoke-mac/window.png
+            outputs/desktop-app/0.1.0-preview.10/smoke-mac/workspace.png
+            outputs/desktop-app/0.1.0-preview.10/smoke-mac/service-database.json
+            outputs/desktop-app/0.1.0-preview.10/smoke-mac/service-stdio.json

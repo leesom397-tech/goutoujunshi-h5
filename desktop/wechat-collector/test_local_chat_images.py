@@ -1,13 +1,14 @@
 """Synthetic cached images, never real WeChat or database keys."""
 import base64
 import io
+import json
 from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import patch
 
 from PIL import Image
-from local_chat_images import LocalChatImages, image_reference, readable_image_bytes
+from local_chat_images import LocalChatImages, image_reference, readable_image_bytes, packed_image_reference
 from background_reader import _build_batch
 
 
@@ -18,6 +19,64 @@ def image_bytes(fmt="PNG", size=(40, 40)):
 
 
 class ImageTests(unittest.TestCase):
+    def test_packed_reference_requires_complete_unique_local_filename_field(self):
+        name = b"b" * 32
+        nested = b"\x22\x20" + name
+        packed = b"\x08\x01\x10\x02\x1a\x22" + nested + b"\x58\x01"
+        self.assertEqual(packed_image_reference(packed), "b" * 32)
+        self.assertEqual(packed_image_reference(packed.replace(name, name.upper())), "b" * 32)
+        for value in (None, "wrong-type", b"x" * 4097, name, packed[:-1], packed + b"\x80",
+                      b"\x1a\x21" + nested, b"\x1a\x22\x2a\x20" + name,
+                      b"\x1a\x44" + nested + nested,
+                      b"\x1a\x22" + nested + b"\x1a\x22" + nested,
+                      b"\x1a\x22\x22\x20" + b"/" * 32):
+            with self.subTest(size=len(value) if value is not None else None):
+                self.assertEqual(packed_image_reference(value), "")
+
+    def test_local_filename_differs_from_xml_and_cache_keeps_each_message_identity(self):
+        xml = '<img md5="' + "a" * 32 + '"/>'
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "msg/attach"
+            root.mkdir(parents=True)
+            (root / ("b" * 32 + "_t.dat")).write_bytes(image_bytes("PNG", (40, 40)))
+            (root / ("c" * 32 + "_t.dat")).write_bytes(image_bytes("PNG", (80, 40)))
+            reader = LocalChatImages(temporary, [xml, xml], file_references=["b" * 32, "c" * 32])
+            self.assertEqual(reader.resolve(xml), (None, "missing-local"))
+            for name, width in (("b" * 32, 40), ("c" * 32, 80)):
+                preview, status = reader.resolve(xml, file_reference=name)
+                self.assertEqual(status, "preview")
+                with Image.open(io.BytesIO(base64.b64decode(preview["data"]))) as actual:
+                    self.assertEqual(actual.size, (width, 40))
+            self.assertEqual(reader.resolve(xml, file_reference="../../other"), (None, "missing-local"))
+
+    def test_newest_and_history_readers_map_local_filename_without_serializing_packed_blob(self):
+        from background_reader import _read_messages, _read_history_page
+        from test_background_reader import Source
+        for mode in ("newest", "history"):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temporary:
+                source = Source()
+                source.account_dir = Path(temporary)
+                root = source.account_dir / "msg/attach"
+                root.mkdir(parents=True)
+                (root / ("b" * 32 + "_t.dat")).write_bytes(image_bytes())
+                shard = source.shard("message_0.db")
+                source.add(shard, 1, 101, mtype=3, text='<img md5="' + "a" * 32 + '"/>')
+                shard[0].execute(f'ALTER TABLE "{shard[1]}" ADD COLUMN packed_info_data BLOB')
+                packed = b"\x08\x01\x10\x02\x1a\x22\x22\x20" + b"b" * 32 + b"\x58\x01"
+                shard[0].execute(f'UPDATE "{shard[1]}" SET packed_info_data=?', (packed,))
+                try:
+                    rows = (_read_messages(source, "target-user", 20) if mode == "newest" else
+                            _read_history_page(source, "target-user", {"cursor":None, "since":None, "direction":"backward", "size":20})[0])
+                    batch = _build_batch(source, "合成好友", "target-user", rows, {})
+                    self.assertEqual(len(rows), 1)
+                    self.assertEqual(rows[0]["imageFileReference"], "b" * 32)
+                    self.assertEqual(batch["records"][0]["source"]["mediaAvailability"], "preview")
+                    self.assertTrue(batch["records"][0]["images"])
+                    self.assertNotIn("imageFileReference", json.dumps(batch))
+                    self.assertNotIn("b" * 32, json.dumps(batch))
+                finally:
+                    source.close()
+
     def test_plain_and_old_xor_formats_are_validated_then_previewed(self):
         for fmt in ("PNG", "JPEG", "WEBP", "GIF"):
             data = image_bytes(fmt)

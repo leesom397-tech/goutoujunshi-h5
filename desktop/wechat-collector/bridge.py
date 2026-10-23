@@ -27,6 +27,8 @@ MAX_RESULT = 32 * 1024 * 1024
 JOB_TTL = 15 * 60
 JOB_TIMEOUT = 180
 BACKGROUND_JOB_TIMEOUT = 20 * 60
+WORKER_START_TIMEOUT = 30
+BACKGROUND_READER_IDLE_TIMEOUT = 120
 MOMENTS_IDLE_TIMEOUT = 90
 VOICE_WORKER_IDLE_TIMEOUT = 60
 
@@ -41,6 +43,12 @@ def _voice_scope(request):
             and request.get("includeVoice") is True and request.get("accountKey") and request.get("contactId")):
         return request["accountKey"], request["contactId"], request["friend"]
     return None
+
+
+def _job_active(job):
+    # A terminal result is not externally complete until process cleanup and
+    # foreground restoration finish. Keep that handoff owned by this job.
+    return job["status"] == "running" or job.get("_settled") is False
 
 
 class _JobConnection:
@@ -90,13 +98,21 @@ def _voice_worker_process(pipe, capture_target, scope):
         pipe.close()
 
 
-def _capture_process(conn, request, worker_authorization=None):
+def _capture_process(conn, request, worker_authorization=None, recovery_guard=None):
     # Third-party debug prints may contain names or messages; never write these
     # to console/logs. Results travel only over the private process pipe.
     import contextlib
     import os
     with open(os.devnull, "w") as sink, contextlib.redirect_stdout(sink), contextlib.redirect_stderr(sink):
         try:
+            if recovery_guard is not None:
+                from qt_accessibility_recovery import bind_transaction_guard
+                bind_transaction_guard(recovery_guard)
+            # An immediate private handshake distinguishes frozen-process
+            # startup from database preparation. Previously an alive child that
+            # never reached Python could leave the UI at zero for 20 minutes.
+            conn.send({"type": "progress", "progress": 0, "phase": "initializing",
+                       "message": "本机读取已启动，正在核对微信数据。"})
             from platform_runtime import import_worker_authorization, capture_function
             import_worker_authorization(worker_authorization)
             capture = capture_function(request)
@@ -132,6 +148,8 @@ def _capture_process(conn, request, worker_authorization=None):
                            "微信界面未能读取完整。请将微信放到前台、关闭弹窗后重试；未上传任何内容。")
             conn.send({"type": "error", "error": {"code": code, "message": message}})
         finally:
+            if recovery_guard is not None:
+                bind_transaction_guard(None)
             from platform_runtime import clear_worker_authorization
             clear_worker_authorization()
             conn.close()
@@ -174,7 +192,9 @@ class CollectorState:
 
     def _expire_voice_worker(self, worker, deadline):
         with self.lock:
-            if (self._voice_worker is not worker or self.active is not None
+            if (self._voice_worker is not worker or any(
+                    _job_active(job) and job.get("_voiceWorker") is worker
+                    for job in self.jobs.values())
                     or worker.get("idleDeadline") != deadline):
                 return
             remaining = deadline - time.monotonic()
@@ -214,6 +234,7 @@ class CollectorState:
                                                    and sys.platform != "darwin")
         capabilities["contactPagination"] = True
         capabilities["jobProgressRevision"] = True
+        capabilities["parallelMediaMoments"] = sys.platform == "win32" and bool(capabilities.get("backgroundChat"))
         result = {"version": VERSION, "protocol": 1, "platform": sys.platform, **health, "capabilities": capabilities}
         ui_message = health.get("message")
         ui_message = ui_message.strip()[:500] if isinstance(ui_message, str) else ""
@@ -325,10 +346,20 @@ class CollectorState:
 
     def _prune(self):
         now = time.monotonic()
-        self.jobs = {key: job for key, job in self.jobs.items() if key == self.active or now - job["updated"] < JOB_TTL}
-        completed = sorted((job for job in self.jobs.values() if job["jobId"] != self.active), key=lambda job: job["updated"])
+        self.jobs = {key: job for key, job in self.jobs.items() if _job_active(job) or now - job["updated"] < JOB_TTL}
+        completed = sorted((job for job in self.jobs.values() if not _job_active(job)), key=lambda job: job["updated"])
         for job in completed[:-3]:
             self.jobs.pop(job["jobId"], None)
+
+    def _refresh_active(self):
+        # Legacy desktop status/close guards still use one representative ID.
+        # Keep it set until every independent lane has finished.
+        active = [(key, job) for key, job in self.jobs.items() if _job_active(job)]
+        self.active = active[0][0] if active else None
+        if any(job.get("mode") != "background" for _, job in active):
+            self.local_message = "采集中，请暂时不要操作微信；可随时停止"
+        elif active:
+            self.local_message = "正在后台导入，可以继续使用电脑；可随时停止"
 
     def search_contacts(self, query, offset=0, account_key=None, refresh=False):
         from background_reader import validate_contact_search
@@ -384,8 +415,14 @@ class CollectorState:
                 raise BridgeError(400, error.code, error.message) from None
         with self.lock:
             self._prune()
-            if self.active:
-                raise BridgeError(409, "CAPTURE_BUSY", "已有采集任务，请等完成或先停止。")
+            lane = "background" if mode == "background" else "moments" if kind == "moments" else "ui"
+            identity = (self.token, self.origin, request.get("accountKey"), request.get("contactId"))
+            running = [job for job in self.jobs.values() if _job_active(job)]
+            if running and not (sys.platform == "win32" and self.token and selected
+                    and all(identity) and len(running) == 1
+                    and {lane, running[0].get("_lane")} == {"background", "moments"}
+                    and running[0].get("_identity") == identity):
+                raise BridgeError(409, "CAPTURE_BUSY", "已有同类或不同联系人的采集任务，请等完成或先停止。")
             health = self.health(background_only=mode == "background")
             capable = health.get("capabilities", {})
             if mode == "background" and not capable.get("backgroundChat"):
@@ -405,6 +442,11 @@ class CollectorState:
             scope = _voice_scope(payload) if self.token else None
             capture_target = self.capture_target
             worker_authorization = None
+            recovery_guard = None
+            if sys.platform == "win32" and self._default_capture_target and mode == "ui" and kind == "moments":
+                from functools import partial
+                recovery_guard = ctx.Lock()
+                capture_target = partial(capture_target, recovery_guard=recovery_guard)
             if sys.platform == "darwin" and self._default_capture_target:
                 # The secret travels only through multiprocessing's private IPC.
                 # It is never part of the browser request, job result or health.
@@ -416,7 +458,9 @@ class CollectorState:
                     raise BridgeError(409, error.code, error.message) from None
                 if scope is None:
                     capture_target = partial(_capture_process, worker_authorization=worker_authorization)
-            worker = self._voice_worker
+            # Foreground Moments must never discard or reuse the background
+            # speech process; it can be actively transcribing at this point.
+            worker = self._voice_worker if scope is not None else None
             child, new_process = None, True
             if worker is not None and (scope is None or worker["scope"] != (self.token, self.origin, scope)
                                        or not worker["process"].is_alive()
@@ -440,14 +484,16 @@ class CollectorState:
             from browser_return import capture_browser_window
             browser_window = capture_browser_window() if mode != "background" else None
             job = {"jobId": job_id, "mode": mode, "kind": kind, "allVisible": all_visible,
+                   "_lane": lane, "_identity": identity, "_settled": False, "_recoveryGuard": recovery_guard,
+                   "textOnly": mode == "background" and not include_voice and not request.get("imageOnly"),
                    "browserWindow": browser_window, "_voiceWorker": worker,
                    "status": "running", "progress": 0, "partialRevision": 0,
                    "phase": "preparing", "recordCount": 0, "pinnedCount": 0,
                    "lastAction": "start",
                    "message": ("正在补齐选定聊天图片" if request.get("imageOnly") else
                                "正在检查本机聊天与语音" if mode == "background" else "正在连接微信界面"), "updated": time.monotonic(), "process": proc}
-            self.jobs[job_id], self.active = job, job_id
-            self.local_message = "正在后台导入，可以继续使用电脑；可随时停止" if mode == "background" else "采集中，请暂时不要操作微信；可随时停止"
+            self.jobs[job_id] = job
+            self._refresh_active()
             try:
                 if new_process:
                     proc.start()
@@ -458,8 +504,10 @@ class CollectorState:
                     parent.send(command)
             except Exception:
                 self.jobs.pop(job_id, None)
-                self.active = None
-                self.local_message = "采集任务未能启动，请重启本机助手后重试。"
+                self._refresh_active()
+                message = "采集任务未能启动，请重启本机助手后重试。"
+                if self.active is None:
+                    self.local_message = message
                 if self._voice_worker is worker:
                     self._voice_worker = None
                 if proc.pid is not None:
@@ -469,7 +517,7 @@ class CollectorState:
                 parent.close()
                 if child is not None:
                     child.close()
-                raise BridgeError(503, "CAPTURE_START_FAILED", self.local_message) from None
+                raise BridgeError(503, "CAPTURE_START_FAILED", message) from None
             finally:
                 if worker_authorization is not None:
                     worker_authorization.close()
@@ -483,17 +531,25 @@ class CollectorState:
         timeout = BACKGROUND_JOB_TIMEOUT if self.jobs[job_id].get("mode") == "background" else JOB_TIMEOUT
         all_moments = self.jobs[job_id].get("kind") == "moments" and self.jobs[job_id].get("allVisible")
         last_event = began
+        received_event = False
         try:
             while time.monotonic() - (last_event if all_moments else began) < (MOMENTS_IDLE_TIMEOUT if all_moments else timeout):
                 with self.lock:
                     job = self.jobs.get(job_id)
+                    if job and job.get("_cancelRequested"):
+                        self.cancel(job_id)
                     if not job or job["status"] != "running":
                         return
                     alive = job["process"].is_alive()
                 if pipe.poll(0.15):
                     msg = pipe.recv()
                     last_event = time.monotonic()
+                    received_event = True
                     with self.lock:
+                        if job.get("_cancelRequested"):
+                            self.cancel(job_id)
+                            if job["status"] == "running":
+                                continue  # Drain events without undoing queued cancellation.
                         if job["status"] != "running":
                             return
                         if job.get("_voiceWorker") is not None and msg.get("workerJobId") != job_id:
@@ -559,6 +615,18 @@ class CollectorState:
                                         error={"code": "CAPTURE_INTERRUPTED", "message": message},
                                         updated=time.monotonic())
                     return
+                elif ((not received_event and time.monotonic() - began >= WORKER_START_TIMEOUT)
+                      or (received_event and job.get("textOnly") and
+                          time.monotonic() - last_event >= BACKGROUND_READER_IDLE_TIMEOUT)):
+                    with self.lock:
+                        if job["status"] == "running":
+                            code = "CAPTURE_START_TIMEOUT" if not received_event else "CHAT_READER_STALLED"
+                            message = ("本机读取未能启动，已停止等待。请重新连接本机助手后继续导入。"
+                                       if not received_event else
+                                       "本机聊天读取长时间没有新进展，已停止等待。已导入的聊天会保留，可继续导入。")
+                            job.update(status="failed", message=message, updated=time.monotonic(),
+                                       error={"code": code, "message": message})
+                    return
             with self.lock:
                 if job["status"] == "running":
                     message = (f"朋友圈采集在{job.get('phase', '当前阶段')}阶段长时间没有新进展，已停止；已读取 {job.get('recordCount', 0)} 条动态，仍可导入，请检查微信窗口后重试。" if job.get("kind") == "moments" else
@@ -574,6 +642,13 @@ class CollectorState:
                                "采集已中断，没有上传内容。")
                     job.update(status="failed", message=message, error={"code": "CAPTURE_INTERRUPTED", "message": message})
         finally:
+            self._finish_job(job_id, pipe)
+
+    def _finish_job(self, job_id, pipe):
+        """Release lane ownership only after worker and foreground handoff."""
+        job = None
+        settled = True
+        try:
             with self.lock:
                 job = self.jobs.get(job_id)
                 reusable = False
@@ -592,21 +667,25 @@ class CollectorState:
                     elif worker is not None:
                         self._discard_voice_worker(worker)
                     else:
-                        if proc.is_alive():
-                            proc.terminate()
-                        proc.join(timeout=1)
+                        if not self._stop_process(job):
+                            settled = False
+                            self._schedule_finish(job_id, pipe)
+                            return
                 if not reusable:
                     pipe.close()
-                if self.active == job_id:
-                    self.active = None
-                if self.active is None:
-                    self.local_message = "采集结束；原文仅暂存在本机内存，等待网页操作"
             if job and job.get("status") == "completed" and job.get("browserWindow"):
                 from browser_return import return_to_browser
                 try:
                     return_to_browser(job["browserWindow"])
                 except (OSError, AttributeError):
                     pass  # Browser focus must never change the capture result.
+        finally:
+            with self.lock:
+                if settled and job is not None and self.jobs.get(job_id) is job:
+                    job["_settled"] = True
+                self._refresh_active()
+                if self.active is None:
+                    self.local_message = "采集结束；原文仅暂存在本机内存，等待网页操作"
 
     def get(self, job_id, after_revision=None):
         with self.lock:
@@ -614,7 +693,15 @@ class CollectorState:
             if job_id not in self.jobs:
                 raise BridgeError(404, "JOB_NOT_FOUND", "任务不存在或已过期。")
             job = self.jobs[job_id]
-            result = {key: value for key, value in job.items() if key not in ("process", "updated", "browserWindow", "_voiceWorker")}
+            result = {key: value for key, value in job.items() if not key.startswith("_") and key not in ("process", "updated", "browserWindow")}
+            if job.get("_cancelRequested"):
+                result["cancelRequested"] = True
+            if job.get("_settled") is False and job["status"] != "running":
+                # A polling client can immediately submit the next voice batch
+                # when it sees completed. Do not publish that state too early.
+                result.update(status="running", progress=min(99, result.get("progress", 0)))
+                result.pop("result", None)
+                result.pop("error", None)
             if after_revision is not None:
                 if type(after_revision) is not int or not 0 <= after_revision <= 1_000_000:
                     raise BridgeError(400, "INVALID_REVISION", "采集进度编号无效。")
@@ -624,30 +711,90 @@ class CollectorState:
                     result.pop("partial", None)
             return result
 
+    def _stop_process(self, job):
+        """Never wait on a transaction while holding the shared job-state lock."""
+        proc, guard = job["process"], job.get("_recoveryGuard")
+        # A dead process may have abandoned its semaphore. No write can still
+        # be in flight, so cleanup must not wait forever for that semaphore.
+        if not proc.is_alive():
+            proc.join(timeout=1)
+            return True
+        acquired = guard is not None and guard.acquire(False)
+        if guard is not None and not acquired:
+            return False
+        try:
+            if proc.is_alive():
+                proc.terminate()
+            proc.join(timeout=1)
+            return not proc.is_alive()
+        finally:
+            if acquired:
+                guard.release()
+
+    def _schedule_finish(self, job_id, pipe):
+        job = self.jobs.get(job_id)
+        if not job or job.get("_finishTimer") is not None:
+            return
+        def retry():
+            with self.lock:
+                current = self.jobs.get(job_id)
+                if current is job:
+                    current["_finishTimer"] = None
+            self._finish_job(job_id, pipe)
+        timer = threading.Timer(.1, retry)
+        timer.daemon = True
+        job["_finishTimer"] = timer
+        timer.start()
+
+    def _schedule_cancel(self, job_id, job):
+        if job.get("_cancelTimer") is not None:
+            return
+        def retry():
+            with self.lock:
+                if self.jobs.get(job_id) is job:
+                    job["_cancelTimer"] = None
+                    if job.get("_cancelRequested") and _job_active(job):
+                        self.cancel(job_id)
+        timer = threading.Timer(.1, retry)
+        timer.daemon = True
+        job["_cancelTimer"] = timer
+        timer.start()
+
     def cancel(self, job_id):
         with self.lock:
             job = self.jobs.get(job_id)
             if not job:
                 raise BridgeError(404, "JOB_NOT_FOUND", "任务不存在。")
-            if job["status"] == "running":
+            if _job_active(job):
+                if not self._stop_process(job):
+                    job.update(_cancelRequested=True, _settled=False, status="running", phase="cancelling",
+                               message="正在安全停止，界面连接完成后会自动暂停；已保存的资料保留。", updated=time.monotonic())
+                    self._schedule_cancel(job_id, job)
+                    return {"jobId": job_id, "status": "running", "cancelRequested": True,
+                            "message": job["message"], "partialRevision": job.get("partialRevision", 0),
+                            **({"partial": job["partial"]} if "partial" in job else {})}
                 job.update(status="cancelled", message=("朋友圈采集已停止，已读取的动态仍可查看。" if job.get("kind") == "moments" and job.get("partial") else
                            "已停止语音补全，已核对的文字仍可导入。" if job.get("partial") else "已停止，未上传内容"), updated=time.monotonic())
-                if job["process"].is_alive():
-                    job["process"].terminate()
-                    job["process"].join(timeout=1)
-                if self.active == job_id:
-                    self.active = None
+                job.pop("_cancelRequested", None)
+                timer = job.pop("_cancelTimer", None)
+                if timer is not None:
+                    timer.cancel()
                 if job.get("_voiceWorker") is not None:
                     self._discard_voice_worker(job["_voiceWorker"])
+                job["_settled"] = True
+                self._refresh_active()
             job.pop("result", None)
             return {"jobId": job_id, "status": job["status"], "partialRevision": job.get("partialRevision", 0),
                     **({"partial": job["partial"]} if "partial" in job else {})}
 
     def cancel_active(self):
         with self.lock:
-            if self.active:
-                self.cancel(self.active)
+            for job_id, job in list(self.jobs.items()):
+                if _job_active(job):
+                    self.cancel(job_id)
             self._discard_voice_worker()
+            if any(_job_active(job) for job in self.jobs.values()):
+                raise BridgeError(409, "CAPTURE_STOPPING", "正在安全停止采集，请稍后再切换连接。")
 
 
 def server_for(state, port=PORT):

@@ -4,6 +4,7 @@ import { ArrowUpRight, ArrowRight, MessageCircle, BookOpen, ScanLine, Images, He
 import { knowledgeManifest, knowledgeVolume } from "@/lib/knowledge-public";
 import { knowledgeOrigin } from "@/lib/knowledge-origins";
 import { GlassStudy } from "./GlassStudy";
+import { DesktopDownloads } from "./DesktopDownloads";
 import { RELATIONSHIP_ANALYSIS_LABEL } from "@/lib/product-labels";
 import styles from "./ProductHome.module.css";
 const features = [
@@ -27,6 +28,7 @@ export function ProductHome({ signedIn = false, afterHero }: { signedIn?: boolea
       <div className={styles.art}><GlassStudy/></div>
     </section>
     {afterHero}
+    <DesktopDownloads compact/>
     <section id="home-more-ways" className={styles.tools} aria-labelledby="home-more-title" tabIndex={-1}>
       <header><h2 id="home-more-title">这次想解决什么？</h2><p>选一个最贴近你的问题，直接开始。</p></header>
       <div className={styles.grid} aria-label="选择分析或交流方式">{features.map(({href,icon:Icon,title,text,choices})=><article className={styles.tool} key={href}><a className={styles.toolMain} data-feature-entry href={href}><span className={styles.icon}><Icon size={23} strokeWidth={1.6}/></span><span className={styles.toolCopy}><strong>{title}</strong><span>{text}</span></span><ArrowUpRight className={styles.toolArrow} size={18}/></a><nav className={styles.toolChoices} aria-label={`${title}的使用方式`}>{choices.map(choice=><a key={choice.href} href={choice.href}>{choice.label}<ArrowUpRight size={14}/></a>)}</nav></article>)}</div>

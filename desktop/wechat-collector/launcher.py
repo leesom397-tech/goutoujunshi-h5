@@ -449,6 +449,10 @@ def main() -> None:
 
     root = tk.Tk()
     try:
+        root.iconbitmap(str(Path(getattr(sys, '_MEIPASS', Path(__file__).resolve().parent)) / 'chengzi-fluted-chat-v1.ico'))
+    except tk.TclError:
+        pass
+    try:
         manifest = embedded_manifest()
     except InstallError as error:
         root.withdraw()

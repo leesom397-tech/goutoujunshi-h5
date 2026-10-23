@@ -4,12 +4,12 @@ import { buildKnowledgeContext } from "@/lib/knowledge";
 import { loadProfileContext } from "@/lib/profile-context";
 import { parseQwenJson, qwenChat, qwenKey, qwenPublicError, type QwenContent, type QwenMessage } from "@/lib/qwen";
 import { parseReplyPaths } from "@/lib/reply-paths";
+import { normalizeReplyChoices } from "@/lib/reply-composition";
 
 export const runtime = "edge";
 type Mode = keyof typeof MODE_RULES;
 type Turn = { role: "user" | "assistant"; text: string; image?: string };
 type ReplyResult = { summary?: unknown; options?: unknown };
-const replyLabels = ["稳妥", "主动", "设边界"] as const;
 const noStore = { "Cache-Control": "no-store" };
 const json = (data: unknown, status = 200) => Response.json(data, { status, headers: noStore });
 
@@ -48,21 +48,16 @@ export async function POST(request: Request) {
   catch { /* Analysis can continue without saved context if storage is unavailable. */ }
   messages.unshift({
     role: "system",
-    content: COACH_RULES + "\n" + MODE_RULES[body.mode] + "\n\n" + knowledge.instructions + (profileContext ? "\n\n" + profileContext : "") + (body.mode === "reply" ? "\n\n仅返回 JSON 对象：{summary:string,options:[{text:string,when:string},{text:string,when:string},{text:string,when:string}]}。summary 用不超过 160 字说明当前判断与关键未知。若用户提供了对方可辨认的原话或足够明确的情境与表达意图，按顺序给 3 条可直接发送的独立回复：稳妥、主动、设边界。每条 text 尽量短、自然、不油腻，不编造共同经历、承诺或对方动机；when 用一句话说明适用情境与取舍。不得给操控、施压或违背用户真实意愿的话术。若缺少对方原话、关系目标不清，或涉及暴力胁迫等不宜生成发信话术的情境，options 返回空数组，summary 提一个最关键的澄清问题或安全建议。不要输出 Markdown。" : ""),
+    content: COACH_RULES + "\n" + MODE_RULES[body.mode] + "\n\n" + knowledge.instructions + (profileContext ? "\n\n" + profileContext : "") + (body.mode === "reply" ? "\n\n仅返回 JSON 对象：{summary:string,options:[{label:string,text:string,when:string}]}。summary 用不超过 160 字说明当前判断与关键未知。若用户提供了对方可辨认的原话或足够明确的情境与表达意图，给2–3条不同用意、可直接发送的备选，label说明这句想怎么接；只有1条合理就给1条，不强制设边界。每条 text 尽量短、自然、不油腻，不编造共同经历、承诺或对方动机；when 用一句话说明适用情境与取舍。不得给操控、施压或违背用户真实意愿的话术。若缺少会改变这句话的关键原文，或涉及暴力胁迫等不宜生成发信话术的情境，options 返回空数组，summary 提一个最关键的澄清问题或安全建议。不要输出 Markdown。" : ""),
   });
-  if (body.mode === "reply") messages.push({ role: "system", content: "每个 options 元素再提供 next:{positive:string,unclear:string,stop:string}。这三项分别是在对方积极接话、含糊或暂未回应、拒绝或不适时，用户可以如何应对，每项不超过 45 汉字，贴合该回复，不能预测对方一定如此。拒绝分支必须尊重停止；不把沉默当同意，不建议连续追问。若用户是在发送前检查自己的草稿，summary 先指出草稿的主要沟通影响，再给三个符合真实意图的改写。" });
+  if (body.mode === "reply") messages.push({ role: "system", content: "每个 options 元素再提供 next:{positive:string,unclear:string,stop:string}。这三项分别是在对方积极接话、含糊或暂未回应、拒绝或不适时，用户可以如何应对，每项不超过 45 汉字，贴合该回复，不能预测对方一定如此。拒绝分支必须尊重停止；不把沉默当同意，不建议连续追问。若用户是在发送前检查自己的草稿，summary 先指出草稿的主要沟通影响，再给符合真实意图的备选改写。" });
   try {
     if (body.mode === "reply") {
       const raw = await qwenChat(messages, { vision: hasImage, fast: true, json: true, quality: "flash", maxTokens: 2400, timeoutMs: 60000 });
       const result = parseQwenJson<ReplyResult>(raw);
       const summary = typeof result.summary === "string" ? result.summary.trim().slice(0, 500) : "";
       if (!summary) throw new Error("QWEN_REPLY_FORMAT_INVALID");
-      const candidates = Array.isArray(result.options) ? result.options : [];
-      const replyOptions = candidates.length === 3 ? candidates.map((item, index) => {
-        const option = item && typeof item === "object" ? item as { text?: unknown; when?: unknown; next?: unknown } : {};
-        return { label: replyLabels[index], text: typeof option.text === "string" ? option.text.trim().slice(0, 240) : "", when: typeof option.when === "string" ? option.when.trim().slice(0, 150) : "", next: parseReplyPaths(option.next) };
-      }).filter((item) => item.text) : [];
-      const completeOptions = replyOptions.length === 3 ? replyOptions : [];
+      const completeOptions = normalizeReplyChoices(result.options).map(option => ({...option,next:parseReplyPaths(option.next)}));
       const text = summary + (completeOptions.length ? "\n\n" + completeOptions.map((item) => item.label + "：" + item.text).join("\n") : "");
       return json({ text, displayText: summary, replyOptions: completeOptions, knowledgeSources: knowledge.sources });
     }

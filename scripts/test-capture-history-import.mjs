@@ -239,6 +239,57 @@ await test("unknown transport errors retain the live job and reload polls it wit
   assert.equal(result.added, 2703); assert.equal(bridge.starts.length, 6);
 });
 
+await test("unchanged worker heartbeats stop waiting and reconnect the same task without duplicate jobs", async () => {
+  const bridge = new FakeBridge(), vault = new FakeVault(), jobs = [], updates = [];
+  const realNow = Date.now; let now = realNow(); Date.now = () => now;
+  try {
+    bridge.hook = () => { now += 1000; return { status: "running", progress: 0, message: "正在检查本机聊天与语音" }; };
+    await assert.rejects(run(bridge, vault, fresh(), { idleTimeoutMs: 2000, onJob: id => jobs.push(id), onProgress: update => updates.push(update) }),
+      error => error.code === "HISTORY_STALLED" && /尚未返回聊天.*同一任务/.test(error.message));
+    assert.equal(bridge.starts.length, 1); assert.equal(vault.rows.size, 0);
+    assert.deepEqual(jobs, ["job_1"], "polling must not reset the UI idle timer by re-announcing a live task");
+    assert.equal(updates.length, 1, "repeated heartbeat messages are not new progress");
+    assert.equal(updates[0].progress, 0);
+    const saved = readHistoryProgress(owner, friend);
+    assert.equal(saved.pendingJob, "job_1"); assert.equal(saved.count, 0); assert.equal(saved.cursor, null);
+    assert.ok(!bridge.calls.some(call => call.path.endsWith("/cancel")), "a UI wait timeout must not silently cancel the helper");
+    bridge.hook = undefined;
+    const result = await run(bridge, vault, newHistoryProgress(owner, friend, saved));
+    assert.equal(result.progress.complete, true); assert.equal(bridge.starts.length, 6);
+    assert.equal(vault.rows.size, 2703); assert.equal(result.added, 2703);
+  } finally { Date.now = realNow; }
+});
+
+await test("real worker progress keeps a long page alive without duplicate job announcements", async () => {
+  const bridge = new FakeBridge(), vault = new FakeVault(), jobs = [];
+  const realNow = Date.now; let now = realNow(); Date.now = () => now;
+  try {
+    bridge.hook = job => {
+      now += 1000;
+      if (job.reads < 7) return { status: "running", progress: job.reads * 10, message: "正在读取聊天", phase: "reading" };
+    };
+    const result = await run(bridge, vault, fresh(), { idleTimeoutMs: 2000, onJob: id => jobs.push(id) });
+    assert.equal(result.progress.complete, true); assert.equal(result.added, 2703);
+    assert.equal(jobs.filter(Boolean).length, 6); assert.equal(jobs.filter(id => id === null).length, 6);
+  } finally { Date.now = realNow; }
+});
+
+await test("stalled page after an accepted partial keeps originals and resumes with its receipt", async () => {
+  const bridge = new FakeBridge(), vault = new FakeVault();
+  const realNow = Date.now; let now = realNow(); Date.now = () => now;
+  try {
+    bridge.hook = job => { now += 1000; return { status: "running", progress: 30, partial: job.partial, partialRevision: 1, message: "已读到聊天" }; };
+    await assert.rejects(run(bridge, vault, fresh(), { idleTimeoutMs: 2000 }), error => error.code === "HISTORY_STALLED" && /已保存 500 条/.test(error.message));
+    const saved = readHistoryProgress(owner, friend);
+    assert.equal(saved.pendingJob, "job_1"); assert.equal(saved.count, 0); assert.equal(saved.pages, 0);
+    assert.equal(vault.rows.size, 500); assert.equal(vault.accepted.length, 1);
+    bridge.hook = undefined;
+    const result = await run(bridge, vault, newHistoryProgress(owner, friend, saved));
+    assert.equal(result.progress.complete, true); assert.equal(result.added, 2203);
+    assert.equal(vault.rows.size, 2703); assert.equal(bridge.starts.length, 6);
+  } finally { Date.now = realNow; }
+});
+
 await test("IDB failure after a successful first page retains the second page cursor and completed job", async () => {
   const bridge = new FakeBridge(), vault = new FakeVault(); let accepts = 0;
   await assert.rejects(run(bridge, vault, fresh(), { accept: async (...args) => {
@@ -346,6 +397,116 @@ await test("a final partial containing all transcripts can still close its exist
   const result = await run(bridge, vault, readHistoryProgress(owner, friend), { voiceIds: [] });
   assert.equal(result.progress.complete, true); assert.equal(result.progress.pendingJob, null);
   assert.equal(bridge.starts.length, 1);
+});
+
+await test("a changing source after 500 rows resumes the same cursor automatically", async () => {
+  const bridge = new FakeBridge(), vault = new FakeVault(), updates = [];
+  let failed = false;
+  bridge.hook = job => {
+    if (!failed && job.body.cursor) { failed = true; return { status: "failed", error: { code: "SOURCE_CHANGED", message: "synthetic source update" } }; }
+  };
+  const result = await run(bridge, vault, fresh(), { onProgress: update => updates.push(update) });
+  assert.equal(result.progress.complete, true); assert.equal(result.progress.count, 2703);
+  assert.equal(result.added, 2703); assert.equal(vault.rows.size, 2703);
+  assert.equal(bridge.starts.length, 7); assert.equal(bridge.starts.filter(body => !body.cursor).length, 1);
+  assert.equal(bridge.starts[1].cursor, bridge.starts[2].cursor);
+  assert.ok(updates.some(update => /已保存 500 条.*自动继续/.test(update.message)));
+  assert.ok(bridge.calls.every(call => call.path === "/capture" || call.path.startsWith("/jobs/")), "recovery never requests analysis or credits");
+});
+
+await test("source-change retries are bounded and permanent cursor/account errors never restart", async () => {
+  for (const code of ["SOURCE_CHANGED", "CURSOR_SOURCE_CHANGED", "ACCOUNT_CHANGED"]) {
+    storage.clear(); const bridge = new FakeBridge(), vault = new FakeVault();
+    bridge.hook = job => job.body.cursor ? { status: "failed", error: { code, message: "synthetic failure" } } : undefined;
+    await assert.rejects(run(bridge, vault), error => error.code === code);
+    const saved = readHistoryProgress(owner, friend);
+    assert.equal(saved.count, 500); assert.equal(saved.pages, 1); assert.equal(saved.cursor, "c_2703_0_500");
+    assert.equal(saved.snapshot, "sample_2703"); assert.equal(saved.pendingJob, null); assert.equal(saved.complete, false);
+    assert.equal(vault.rows.size, 500); assert.equal(bridge.starts.length, code === "SOURCE_CHANGED" ? 4 : 2);
+    assert.ok(bridge.starts.slice(1).every(body => body.cursor === saved.cursor));
+  }
+});
+
+await test("capture rejection retries its unchanged page while polling errors retain the same worker", async () => {
+  for (const duringPoll of [false, true]) {
+    storage.clear(); const bridge = new FakeBridge(), vault = new FakeVault(), attempts = []; let failed = false;
+    const request = async (path, options = {}) => {
+      if (path === "/capture") attempts.push(clone(options.body));
+      if (!failed && (duringPoll ? path === "/jobs/job_2" : path === "/capture" && options.body.cursor)) {
+        failed = true; throw Object.assign(new Error("synthetic source update"), { code: "SOURCE_CHANGED" });
+      }
+      return bridge.request(path, options);
+    };
+    const result = await run(bridge, vault, fresh(), { request });
+    assert.equal(result.progress.complete, true); assert.equal(vault.rows.size, 2703);
+    assert.equal(bridge.starts.length, 6); assert.equal(attempts.length, duringPoll ? 6 : 7);
+    if (!duringPoll) assert.equal(attempts[1].cursor, attempts[2].cursor);
+  }
+});
+
+await test("a saved normal partial survives source recovery without false duplicate rejection", async () => {
+  const bridge = new FakeBridge(), vault = new FakeVault(); let failed = false;
+  bridge.hook = job => {
+    if (!failed && job.body.cursor) {
+      failed = true; return { status: "failed", error: { code: "SOURCE_CHANGED" }, partial: job.partial, partialRevision: 1 };
+    }
+  };
+  const result = await run(bridge, vault);
+  assert.equal(result.progress.complete, true); assert.equal(result.progress.count, 2703);
+  assert.equal(result.added, 2703); assert.equal(vault.rows.size, 2703); assert.equal(bridge.starts.length, 7);
+  const partial = vault.accepted.findIndex(page => page.interim);
+  assert.ok(partial >= 0); assert.deepEqual(vault.accepted[partial].ids, vault.accepted[partial + 1].ids);
+  assert.equal([...storage.data.keys()].some(key => key.endsWith(":accepted-page")), false);
+});
+
+await test("reload resumes an accepted normal page using only a digest receipt", async () => {
+  const bridge = new FakeBridge(), vault = new FakeVault(); let lost = false;
+  bridge.hook = job => {
+    if (job.id === "job_1" && job.reads === 1) return { status: "running", partial: job.partial, partialRevision: 1 };
+    if (!lost) { lost = true; throw new TypeError("synthetic lost connection"); }
+  };
+  await assert.rejects(run(bridge, vault), /lost connection/);
+  const saved = readHistoryProgress(owner, friend);
+  assert.equal(vault.rows.size, 500); assert.equal(saved.count, 0); assert.equal(saved.pendingJob, "job_1");
+  const receipt = [...storage.data].find(([key]) => key.endsWith(":accepted-page"))?.[1];
+  assert.match(receipt, /^[a-f0-9]{64}$/);
+  assert.doesNotMatch([...storage.data.values()].join(""), /wechat-db:|合成原文/);
+  const result = await run(bridge, vault, newHistoryProgress(owner, friend, saved));
+  assert.equal(result.progress.complete, true); assert.equal(result.progress.count, 2703);
+  assert.equal(result.added, 2203); assert.equal(vault.rows.size, 2703); assert.equal(bridge.starts.length, 6);
+});
+
+await test("source recovery cannot change an already accepted page's identity", async () => {
+  for (const polling of [false, true]) {
+    storage.clear(); const bridge = new FakeBridge(), vault = new FakeVault(); let failed = false;
+    bridge.hook = job => {
+      if (job.id === "job_1" && job.reads === 1) return { status: "running", partial: job.partial, partialRevision: 1 };
+      if (!failed) {
+        failed = true;
+        if (polling) throw Object.assign(new Error("source updating"), { code: "SOURCE_CHANGED" });
+        return { status: "failed", error: { code: "SOURCE_CHANGED" } };
+      }
+      const changed = clone(job.result); changed.records[0].id = "wechat-db:changed-page";
+      return { status: "completed", result: changed };
+    };
+    await assert.rejects(run(bridge, vault), /同一页的消息范围发生变化/);
+    assert.equal(vault.rows.size, 500); assert.equal(vault.rows.has("wechat-db:changed-page"), false);
+    assert.equal(readHistoryProgress(owner, friend).count, 0); assert.equal(readHistoryProgress(owner, friend).complete, false);
+    assert.equal(bridge.starts.length, polling ? 1 : 2);
+  }
+});
+
+await test("cancelling the source-recovery delay does not launch another page or mark it complete", async () => {
+  const bridge = new FakeBridge(), vault = new FakeVault(), abort = new AbortController();
+  bridge.hook = job => job.body.cursor ? { status: "failed", error: { code: "SOURCE_CHANGED" } } : undefined;
+  const began = Date.now();
+  await assert.rejects(run(bridge, vault, fresh(), { pollMs: 1000, signal: abort.signal,
+    onProgress: update => { if (update.message.includes("自动继续")) abort.abort(); },
+  }), error => error.name === "AbortError");
+  assert.ok(Date.now() - began < 1000, "abort must interrupt the recovery delay immediately");
+  const saved = readHistoryProgress(owner, friend);
+  assert.equal(saved.count, 500); assert.equal(saved.complete, false); assert.equal(saved.pendingJob, null);
+  assert.equal(bridge.starts.length, 2); assert.equal(vault.rows.size, 500);
 });
 
 console.log(`History import state machine: ${passed} tests passed; all messages and transports were synthetic.`);

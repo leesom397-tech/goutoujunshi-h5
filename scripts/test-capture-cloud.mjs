@@ -26,6 +26,37 @@ const conflictRequest=await route.POST(request({...first,records:[record(500)]})
 for(let offset=100;offset<1105;offset+=100){const items=Array.from({length:Math.min(100,1105-offset)},(_,i)=>record(i+offset));const result=await server.syncCloudCaptureLibrary(owner,body(items,{libraryId:id,expectedEpoch:epoch}),db);assert.equal(result.conflicts.length,0)}
 let cursor=null,all=[];do{const page=await server.readCloudCaptureLibrary(owner,id,cursor,73,false,db);all.push(...page.records);cursor=page.nextCursor}while(cursor);assert.equal(all.length,1105);assert.equal(new Set(all.map(r=>r.localId)).size,1105);assert.equal(all[0].text,record(0).text);assert.equal(all.at(-1).at,record(1104).at);assert.ok(all.every(r=>!('secretKey'in r.source)&&!('databasePath'in r.source)));checks++;
 const larger=await route.GET(request(undefined,'/api/web/capture/library?id='+id+'&limit=500','GET'));const largerPage=await larger.json();assert.equal(largerPage.records.length,500);assert.ok(largerPage.nextCursor);checks++;
+// Cited images must resolve deep sources by the existing unique local-ID
+// index instead of downloading the preceding thousand record bodies.
+const requestedSources=['source-1104','source-3','missing-source'];let selectedRows=0,sourcePlan=[];
+const exactDb={...db,prepare(query){const statement=db.prepare(query);if(query.includes('CROSS JOIN coach_capture_records')){const all=statement.all;statement.all=async function(){sourcePlan=sql.prepare('EXPLAIN QUERY PLAN '+query).all(...this.values).map(row=>row.detail);const value=await all.call(this);selectedRows+=value.results.length;return value;};}return statement;}};
+const selected=await server.readCloudCaptureSources(owner,id,requestedSources,exactDb);
+assert.deepEqual(selected.records.map(row=>row.localId),['source-1104','source-3']);assert.equal(selectedRows,2);
+assert.deepEqual(selected.sourceSelection,{version:1,sourceIds:requestedSources});assert.equal(selected.nextCursor,null);assert.equal(selected.library.total,1105);
+assert.ok(sourcePlan.some(detail=>/SEARCH coach_capture_records USING INDEX .*\(library_id=\? AND epoch=\? AND local_id=\?\)/.test(detail)),sourcePlan.join('\n'));
+const sourcePath='/api/web/capture/library?id='+id+'&sourceIds='+encodeURIComponent(JSON.stringify(requestedSources));
+const exactResponse=await route.GET(request(undefined,sourcePath,'GET'));assert.equal(exactResponse.status,200);assert.deepEqual((await exactResponse.json()).sourceSelection,selected.sourceSelection);
+assert.equal((await route.GET(request(undefined,sourcePath,'GET',{'x-test-owner':other}))).status,404);
+assert.equal((await route.GET(request(undefined,sourcePath,'GET',{'x-test-owner':'none'}))).status,401);
+assert.equal((await route.GET(request(undefined,sourcePath,'GET',{origin:'https://other.test'}))).status,403);
+for(const invalid of [[],Array.from({length:13},(_,n)=>String(n)),['source-3','source-3'],[1],null,[''],['a'.repeat(1201)],['bad\0id']]){
+ const reply=await route.GET(request(undefined,'/api/web/capture/library?id='+id+'&sourceIds='+encodeURIComponent(JSON.stringify(invalid)),'GET'));assert.equal(reply.status,400,JSON.stringify(invalid));
+}
+for(const query of ['&cursor=abc','&order=desc','&reportId='+crypto.randomUUID(),'&mediaId=cm_'+'a'.repeat(64),'&chunk=0','&sourceIds=%5B%5D'])assert.equal((await route.GET(request(undefined,sourcePath+query,'GET'))).status,400,query);
+assert.equal((await route.GET(request(undefined,'/api/web/capture/library?sourceIds=%5B%22source-3%22%5D','GET'))).status,400);
+assert.equal((await route.GET(request(undefined,'/api/web/capture/library?id='+id+'&sourceIds=%5B','GET'))).status,400);
+assert.equal((await route.GET(request(undefined,'/api/web/capture/library?id='+id+'&sourceIds='+encodeURIComponent(' '.repeat(15001)),'GET'))).status,400);
+assert.deepEqual((await server.readCloudCaptureSources(owner,id,['source-3',"x') OR 1=1 --"],db)).records.map(row=>row.localId),['source-3'],'source IDs remain SQL-bound literals');
+for(const [localId,recordOwner,recordEpoch]of[['wrong-owner',other,epoch],['wrong-epoch',owner,epoch+1]])sql.prepare('INSERT INTO coach_capture_records(library_id,owner_id,epoch,local_id,digest,record_json,updated_at) VALUES(?,?,?,?,?,?,1)').run(id,recordOwner,recordEpoch,localId,'synthetic',JSON.stringify({...record(9999),localId}));
+assert.deepEqual((await server.readCloudCaptureSources(owner,id,['wrong-owner','wrong-epoch'],db)).records,[],'record owner and active epoch both constrain exact lookups');
+sql.prepare("DELETE FROM coach_capture_records WHERE local_id IN ('wrong-owner','wrong-epoch')").run();
+let raced=false;const racedDb={...db,prepare(query){const statement=db.prepare(query);if(query.includes('CROSS JOIN coach_capture_records')){const all=statement.all;statement.all=async function(){const value=await all.call(this);if(!raced){raced=true;sql.prepare('UPDATE coach_capture_libraries SET revision=revision+1 WHERE id=?').run(id);}return value;};}return statement;}};
+await assert.rejects(()=>server.readCloudCaptureSources(owner,id,['source-3'],racedDb),error=>error.status===409);
+for(const [change,status]of[['deleted',410],['epoch',409]]){
+ let changed=false;const changedDb={...db,prepare(query){const statement=db.prepare(query);if(query.includes('CROSS JOIN coach_capture_records')){const all=statement.all;statement.all=async function(){const value=await all.call(this);if(!changed){changed=true;sql.prepare(change==='deleted'?'UPDATE coach_capture_libraries SET deleted_at=1 WHERE id=?':'UPDATE coach_capture_libraries SET epoch=epoch+1 WHERE id=?').run(id);}return value;};}return statement;}};
+ try{await assert.rejects(()=>server.readCloudCaptureSources(owner,id,['source-3'],changedDb),error=>error.status===status);}finally{sql.prepare('UPDATE coach_capture_libraries SET deleted_at=NULL,epoch=? WHERE id=?').run(epoch,id);}
+}
+console.log(JSON.stringify({case:'exact-cited-source',libraryRows:1105,returnedRows:selectedRows,sourcePlan}));checks++;
 const largeTextRecords=Array.from({length:100},(_,i)=>({...record(5000+i),text:'字'.repeat(6000)}));const byteLibrary={...library,friend:'合成大字段分页'};let byteId;for(let offset=0;offset<200;offset+=100){const saved=await server.syncCloudCaptureLibrary(owner,body(largeTextRecords.map((row,index)=>({...row,localId:'large-'+(offset+index),id:'large-message-'+(offset+index)})),{library:byteLibrary,...(byteId?{libraryId:byteId,expectedEpoch:1}:{})}),db);byteId=saved.library.id;}let byteCursor=null,byteRows=[];do{const page=await server.readCloudCaptureLibrary(owner,byteId,byteCursor,500,false,db);assert.ok(new TextEncoder().encode(JSON.stringify(page.records)).length<=751000);byteRows.push(...page.records);byteCursor=page.nextCursor;}while(byteCursor);assert.equal(byteRows.length,200);assert.equal(new Set(byteRows.map(row=>row.localId)).size,200);await server.deleteCloudCaptureLibrary(owner,{libraryId:byteId,expectedEpoch:1,confirmed:true},db);checks++;
 const mixed=[{...record(1200),at:'2020-02-01T00:00:00.000Z'},{...record(1201),at:'昨天 11:00'},{...record(1202),at:'2026-02-30 11:00'}];await server.syncCloudCaptureLibrary(owner,body(mixed,{libraryId:id,expectedEpoch:epoch}),db);const ordered=await server.readCloudCaptureLibrary(owner,id,null,2,false,db);assert.equal(ordered.records[0].localId,'source-1200');const newest=await server.readCloudCaptureLibrary(owner,id,null,2,true,db);assert.equal(newest.records[0].localId,'source-1104');assert.deepEqual(newest.records[0].order,{known:true,time:Date.parse(record(1104).at),sequence:newest.records[0].seq});assert.equal(newest.library.startAt,'2020-02-01T00:00:00.000Z');assert.equal(newest.library.endAt,record(1104).at);await assert.rejects(()=>server.readCloudCaptureLibrary(owner,id,ordered.nextCursor,2,true,db),e=>e.status===409);checks++;
 const beforeConflict=revision();const duplicate=await server.syncCloudCaptureLibrary(owner,body([record(1)],{libraryId:id,expectedEpoch:epoch}),db);assert.equal(duplicate.repeated,1);const changed=await server.syncCloudCaptureLibrary(owner,body([{...record(1),text:'另一份正文'}],{libraryId:id,expectedEpoch:epoch}),db);assert.deepEqual(changed.conflicts,['source-1']);assert.equal(JSON.parse(sql.prepare('SELECT record_json FROM coach_capture_records WHERE local_id=?').get('source-1').record_json).text,record(1).text);assert.equal(revision(),beforeConflict,'repeated and rejected text cannot change the snapshot');checks++;
@@ -43,6 +74,39 @@ const replacementBytes=Buffer.concat([Buffer.from(png,'base64'),Buffer.from('syn
 const partialReplacement=await server.syncCloudCaptureMedia(owner,{...replacementMedia,chunkIndex:0,data:replacementPng.slice(0,44)},db);assert.equal(revision(),beforeImageUpload+1);
 await server.syncCloudCaptureMedia(owner,{...extraMedia,chunkIndex:1,data:png.slice(44)},db);assert.equal(sql.prepare('SELECT status FROM coach_capture_media WHERE id=?').get(partialReplacement.media.id).status,'uploading','replaying an old ready image cannot delete a replacement upload');assert.equal(revision(),beforeImageUpload+1);
 await server.syncCloudCaptureMedia(owner,{...replacementMedia,chunkIndex:1,data:replacementPng.slice(44)},db);assert.equal(revision(),beforeImageUpload+2,'a verified replacement image invalidates prior reports');assert.equal(sql.prepare('SELECT COUNT(*) AS n FROM coach_capture_media WHERE id=?').get(completedImages[0].media.id).n,0);checks++;
+// Eight upload chunks used to pull 1+2+...+8 chunks back out of the DB.
+// Count metadata while incomplete; materialize and validate the image once.
+const chunkedBytes=new Uint8Array(73728);chunkedBytes.set(Buffer.from(png,'base64'));
+const chunkedData=Buffer.from(chunkedBytes).toString('base64'),chunkedSha=await server.captureCloudDigest(chunkedBytes);
+await server.syncCloudCaptureLibrary(owner,body([{...record(6300),imageCount:1}],{libraryId:id,expectedEpoch:epoch}),db);
+const chunkedMedia={libraryId:id,expectedEpoch:epoch,localId:'source-6300',index:0,mime:'image/png',name:'synthetic-chunked.png',sha256:chunkedSha,chunkCount:8};
+let fullImageReads=0,imageReadBytes=0;
+const measuredDb={...db,prepare(query){const statement=db.prepare(query);if(query.startsWith('SELECT chunk_index,data FROM coach_capture_media_chunks')){const all=statement.all;statement.all=async function(){const result=await all.call(this);fullImageReads++;imageReadBytes+=result.results.reduce((sum,row)=>sum+row.data.length,0);return result;};}return statement;}};
+const chunkRevision=revision();
+for(const n of [3,0,5,1,6,2,4,7]){const done=await server.syncCloudCaptureMedia(owner,{...chunkedMedia,chunkIndex:n,data:chunkedData.slice(n*12288,(n+1)*12288)},measuredDb);assert.equal(done.ready,n===7);if(n!==7)assert.equal(fullImageReads,0,'incomplete images do not reread prior image bodies');}
+assert.equal(fullImageReads,1);assert.equal(imageReadBytes,chunkedData.length);assert.equal(revision(),chunkRevision+1);
+const beforeReplayReads=fullImageReads;
+await server.syncCloudCaptureMedia(owner,{...chunkedMedia,chunkIndex:0,data:chunkedData.slice(0,12288)},measuredDb);
+assert.equal(fullImageReads,beforeReplayReads,'verified identical chunk retry skips whole-image decoding and hashing');assert.equal(revision(),chunkRevision+1);
+await assert.rejects(server.syncCloudCaptureMedia(owner,{...chunkedMedia,chunkIndex:0,data:'AAAA'+chunkedData.slice(4,12288)},measuredDb),error=>error.status===409);
+await assert.rejects(server.syncCloudCaptureMedia(other,{...chunkedMedia,chunkIndex:0,data:chunkedData.slice(0,12288)},measuredDb),error=>error.status===404);
+console.log(JSON.stringify({case:'eight-image-chunks',previousImageBodyReadBytes:12288*36,imageBodyReadBytes:imageReadBytes,fullImageReads}));checks++;
+// A completed-image retry can race with a replacement. Pause immediately
+// after reading the old chunk, finish the replacement, then resume the retry:
+// the old ready snapshot must not resurrect a partial obsolete image.
+const replayOldId=sql.prepare("SELECT id FROM coach_capture_media WHERE owner_id=? AND library_id=? AND local_id=? AND status='ready'").get(owner,id,chunkedMedia.localId).id;
+const replayReplacementBytes=Buffer.concat([chunkedBytes,Buffer.from('replacement during ready replay')]);
+const replayReplacement={...chunkedMedia,chunkCount:1,chunkIndex:0,sha256:await server.captureCloudDigest(replayReplacementBytes),data:replayReplacementBytes.toString('base64')};
+let replayPaused=false,replayReplacementResult;
+const replayRaceDb={...db,prepare(query){const statement=db.prepare(query);if(query==='SELECT data FROM coach_capture_media_chunks WHERE media_id=? AND chunk_index=?'){const first=statement.first;statement.first=async function(){const found=await first.call(this);if(!replayPaused){replayPaused=true;replayReplacementResult=await server.syncCloudCaptureMedia(owner,replayReplacement,db);}return found;};}return statement;}};
+const beforeReplacedReplay=revision();
+await assert.rejects(server.syncCloudCaptureMedia(owner,{...chunkedMedia,chunkIndex:0,data:chunkedData.slice(0,12288)},replayRaceDb),error=>error.status===409);
+assert.ok(replayPaused);assert.equal(replayReplacementResult.ready,true);
+assert.equal(sql.prepare('SELECT COUNT(*) AS n FROM coach_capture_media WHERE id=?').get(replayOldId).n,0,'an obsolete ready-image retry cannot recreate the removed old media row');
+assert.equal(sql.prepare('SELECT COUNT(*) AS n FROM coach_capture_media_chunks WHERE media_id=?').get(replayOldId).n,0,'the retry cannot leave orphaned or partial old chunks');
+assert.equal(sql.prepare('SELECT status FROM coach_capture_media WHERE id=?').get(replayReplacementResult.media.id).status,'ready');
+assert.equal((await server.readCloudCaptureMedia(owner,id,replayReplacementResult.media.id,0,db)).data,replayReplacement.data);
+assert.equal(revision(),beforeReplacedReplay+1,'only the verified replacement advances the evidence revision');checks++;
 async function concurrentSync(first,second){
  const originalBatch=db.batch,pending=[];
  db.batch=statements=>new Promise((resolve,reject)=>{pending.push({statements,resolve,reject});if(pending.length===2)for(const item of pending)originalBatch(item.statements).then(item.resolve,item.reject);});

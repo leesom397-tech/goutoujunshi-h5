@@ -43,6 +43,7 @@ await build({
     },
   }, react()],
   resolve: { alias: [
+    { find: /^@\/lib\/desktop-download$/, replacement: resolve(here, 'desktop-download.ts') },
     { find: /^next\/navigation$/, replacement: resolve(here, 'navigation.tsx') },
     { find: /^next\/image$/, replacement: resolve(here, 'next-image.ts') },
     { find: /^next\/link$/, replacement: resolve(here, 'next-link.ts') },
@@ -69,6 +70,9 @@ for (const path of visuals) {
 await writeFile(resolve(output, 'routes.json'), JSON.stringify(routes, null, 2) + '\n');
 await writeFile(resolve(output, 'route-manifest.json'), JSON.stringify({ schemaVersion: 1, renderer: 'local-react-spa', routes }, null, 2) + '\n');
 await writeFile(resolve(output, 'source-inputs.json'), JSON.stringify([...inputs].sort(), null, 2) + '\n');
+const sourceDigests={};
+for(const name of [...inputs].sort()) sourceDigests[name]=createHash('sha256').update(await readFile(resolve(root,name))).digest('hex');
+await writeFile(resolve(output, 'source-integrity.json'), JSON.stringify({schemaVersion:1,files:sourceDigests},null,2)+'\n');
 const assets = [];
 for (const path of await files(output)) {
   const bytes = await readFile(path);

@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Protocol
 from urllib.parse import urlsplit, urlunsplit
 from xml.etree import ElementTree
+from local_chat_images import MAX_PACKED_IMAGE_BYTES, packed_image_reference
 
 MAX_ROWS = 1000
 MAX_TEXT = 20_000
@@ -499,6 +500,15 @@ def _message_id(account, session, shard, server_id, local_id):
     return "wechat-db:" + hashlib.sha256(material.encode("utf-8")).hexdigest()
 
 
+def _packed_image_sql(conn, table):
+    """Optional 4.x local DAT identity, bounded before copying any BLOB."""
+    columns = {str(row[1]) for row in _execute(conn, f'PRAGMA table_info("{table}")').fetchall()}
+    if "packed_info_data" not in columns:
+        return "NULL"
+    return (f"CASE WHEN (local_type & 4294967295)=3 AND length(packed_info_data)<={MAX_PACKED_IMAGE_BYTES} "
+            "THEN CAST(packed_info_data AS BLOB) ELSE NULL END")
+
+
 def _read_messages(source, session, limit):
     table = "Msg_" + hashlib.md5(session.encode("utf-8")).hexdigest()
     rows = []
@@ -510,9 +520,10 @@ def _read_messages(source, session, limit):
         seen_shards.add(shard)
         if not _execute(conn, "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
             continue
+        packed_sql = _packed_image_sql(conn, table)
         got = _execute(conn,
             f'SELECT local_id,server_id,local_type,real_sender_id,create_time,sort_seq,'
-            f'CAST(message_content AS BLOB),CAST(compress_content AS BLOB) FROM "{table}" '
+            f'CAST(message_content AS BLOB),CAST(compress_content AS BLOB),{packed_sql} FROM "{table}" '
             'ORDER BY sort_seq DESC,local_id DESC LIMIT ?', (limit,)).fetchall()
         sender_ids = tuple({int(row[3]) for row in got if row[3] is not None})
         sender_map = {}
@@ -523,7 +534,8 @@ def _read_messages(source, session, limit):
         for row in got:
             rows.append({"localId": row[0], "serverId": row[1], "type": int(row[2]) & 0xFFFFFFFF,
                          "sender": sender_map.get(row[3], ""), "timestamp": row[4], "sequence": row[5],
-                         "content": _decode_text(row[6]) or _decode_text(row[7]), "shard": shard})
+                         "content": _decode_text(row[6]) or _decode_text(row[7]), "shard": shard,
+                         "imageFileReference": packed_image_reference(row[8])})
         # Retain only the global newest window after every shard. Large accounts
         # must not accumulate MAX_SHARDS * limit decoded private messages.
         rows.sort(key=lambda r: (int(r["sequence"] or 0), r["shard"], int(r["localId"] or 0)), reverse=True)
@@ -575,6 +587,7 @@ def _read_history_page(source, session, options):
     rows = []
     for shard_key, bound in upper.items():
         label, conn = shards[shard_key]
+        packed_sql = _packed_image_sql(conn, table)
         where = "rowid>? AND rowid<=?"
         parameters = [lower.get(shard_key, 0), bound]
         if cursor:
@@ -582,7 +595,7 @@ def _read_history_page(source, session, options):
             parameters.extend([label, *cursor["after"]])
         got = _execute(conn,
             f'SELECT local_id,server_id,local_type,real_sender_id,create_time,sort_seq,'
-            f'CAST(message_content AS BLOB),CAST(compress_content AS BLOB),rowid FROM "{table}" '
+            f'CAST(message_content AS BLOB),CAST(compress_content AS BLOB),rowid,{packed_sql} FROM "{table}" '
             f'WHERE {where} ORDER BY COALESCE(sort_seq,0) {order},COALESCE(local_id,0) {order},rowid {order} LIMIT ?',
             (*parameters, size + 1)).fetchall()
         sender_ids = tuple({int(row[3]) for row in got if row[3] is not None})
@@ -594,7 +607,8 @@ def _read_history_page(source, session, options):
         for row in got:
             rows.append({"localId": row[0], "serverId": row[1], "type": int(row[2]) & 0xFFFFFFFF,
                          "sender": sender_map.get(row[3], ""), "timestamp": row[4], "sequence": row[5],
-                         "content": _decode_text(row[6]) or _decode_text(row[7]), "shard": label, "rowId": row[8]})
+                         "content": _decode_text(row[6]) or _decode_text(row[7]), "shard": label, "rowId": row[8],
+                         "imageFileReference": packed_image_reference(row[9])})
         # Only one page plus its lookahead survives each shard merge.
         rows.sort(key=_history_key, reverse=newest_first)
         del rows[size + 1:]
@@ -634,13 +648,14 @@ def _read_voice_page(source, session, options, refs, *, media_type=34):
             continue
         if not _execute(conn, "SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
             continue
+        packed_sql = _packed_image_sql(conn, table) if media_type == 3 else "NULL"
         ids = sorted({ref["messageId"] for ref in grouped[label]})
         marks = ",".join("?" for _ in ids)
         # messageId uses server_id where present, and local_id for unsent/local
         # voice messages. Query once per shard, not once per voice bubble.
         matches = _execute(conn,
             f'SELECT local_id,server_id,local_type,real_sender_id,create_time,sort_seq,'
-            f'CAST(message_content AS BLOB),CAST(compress_content AS BLOB),rowid FROM "{table}" '
+            f'CAST(message_content AS BLOB),CAST(compress_content AS BLOB),rowid,{packed_sql} FROM "{table}" '
             f'WHERE (local_type & 4294967295)={media_type} AND (server_id IN ({marks}) '
             f'OR ((server_id IS NULL OR server_id=0) AND local_id IN ({marks}))) LIMIT 1001',
             (*ids, *ids)).fetchall()
@@ -669,7 +684,8 @@ def _read_voice_page(source, session, options, refs, *, media_type=34):
             rows_by_ref[(label, ref["messageId"], ref.get("localId"))] = {
                 "localId": row[0], "serverId": row[1], "type": int(row[2]) & 0xFFFFFFFF,
                 "sender": sender_map.get(row[3], ""), "timestamp": row[4], "sequence": row[5],
-                "content": _decode_text(row[6]) or _decode_text(row[7]), "shard": label, "rowId": row[8]}
+                "content": _decode_text(row[6]) or _decode_text(row[7]), "shard": label, "rowId": row[8],
+                "imageFileReference": packed_image_reference(row[9])}
     if len(rows_by_ref) != len(refs):
         raise BackgroundCaptureError("IMAGE_MESSAGE_MISSING" if media_type == 3 else "VOICE_MESSAGE_MISSING",
             f"有 {len(refs) - len(rows_by_ref)} 条待补全{media_label}已无法在本机核对，请重新同步该联系人的聊天后重试；已保存文字不会丢失。")
@@ -784,7 +800,8 @@ def _build_batch(source, friend, session, rows, audio):
         from local_chat_images import LocalChatImages
         image_reader = LocalChatImages(source.account_dir, [row["content"] for row in photo_rows],
                                        account_id=account,
-                                       image_key_context=getattr(source, "image_key_context", None))
+                                       image_key_context=getattr(source, "image_key_context", None),
+                                       file_references=[row.get("imageFileReference") for row in photo_rows])
     for index, row in enumerate(rows):
         try:
             at = datetime.fromtimestamp(int(row["timestamp"]), timezone.utc).isoformat()
@@ -825,7 +842,7 @@ def _build_batch(source, friend, session, rows, audio):
             metadata["mediaAvailability"] = "not-collected"
         image = None
         if media_type == 3:
-            image, availability = image_reader.resolve(row["content"]) if image_reader else (None, "missing-local")
+            image, availability = image_reader.resolve(row["content"], file_reference=row.get("imageFileReference")) if image_reader else (None, "missing-local")
             if image and image_bytes + len(image["data"]) > 20 * 1024 * 1024:
                 image, availability = None, "batch-image-budget"
             metadata["mediaAvailability"] = availability
@@ -989,9 +1006,11 @@ def capture_background(request, progress, on_partial=None):
         except (TypeError, ValueError):
             percent = 27
         message = str(event.get("message") or "正在准备本地语音转写。")[:300]
-        if str(event.get("stage", "")).startswith("voice-model-"):
+        stage = str(event.get("stage", ""))
+        if stage.startswith("voice-model-"):
             percent = 25 + min(5, int(percent * .05))
-            message = "首次使用，正在准备本地语音模型；聊天已保存，可继续使用电脑。"
+            if stage == "voice-model-ready":
+                message = "本地语音模型已就绪，正在转写；聊天已保存。"
         progress(percent, message)
     published = False
     def publish(batch):

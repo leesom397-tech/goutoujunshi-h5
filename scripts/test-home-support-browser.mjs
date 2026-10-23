@@ -78,7 +78,7 @@ try {
       await page.waitForSelector('[data-account-state="ready"]');
       assert.equal(await page.$$eval("[data-home-start]",els=>els.length),1,"one main home action");
       assert.equal(await page.$("[data-home-task]"),null,"old three-card home removed");
-      const sizes=await page.$$eval('[data-home-start], [data-home-more] summary',els=>els.map(el=>Number.parseFloat(getComputedStyle(el).fontSize)));
+      const sizes=await page.$$eval('[data-home-start], [data-home-more]',els=>els.map(el=>Number.parseFloat(getComputedStyle(el).fontSize)));
       assert.ok(sizes.every(size=>size>=16),"opening controls remain readable");
       assert.equal(await page.$("dialog"),null,"home features never require opening a dialog");
       const choices=await page.$$eval("#home-more-ways [data-feature-entry]",els=>els.map(el=>({
@@ -98,25 +98,19 @@ try {
       assert.equal(await page.$$eval("#home-more-ways article",els=>els.length),4,"no empty fifth card");
       assert.equal(await page.$('#home-more-ways[hidden], #home-more-ways details, #home-more-ways button[aria-expanded]'),null,"no collapsed feature list");
       await fits();await shot("home");
-      await page.click('[data-home-more] summary');
-      await page.waitForFunction(()=>document.querySelector('[data-home-more]').open);
-      const quick=await page.$$eval('[aria-label="更多方式快捷入口"] a',els=>els.map(el=>({href:el.getAttribute('href'),visible:el.checkVisibility(),height:el.getBoundingClientRect().height})));
-      assert.deepEqual(quick.map(row=>row.href),expectedFeatures.map(row=>row[1]));
-      assert.ok(quick.every(row=>row.visible&&row.height>=44),'click reveals real immediate actions');
+      await page.click('[data-home-more]');
+      await page.waitForFunction(()=>location.hash==='#home-more-ways');
+      assert.equal(await page.$$eval('[data-feature-entry]',els=>els.length),4,'one set of usable feature entries');
       await fits();await page.screenshot({path:resolve(output,`more-ways-${width}.png`),fullPage:false});
-      await page.click('[data-home-more] summary');
-      assert.equal(await page.$eval('[data-home-more]',el=>el.open),false);
-      await page.focus('[data-home-more] summary');await page.keyboard.press("Enter");
-      await page.waitForFunction(()=>document.querySelector('[data-home-more]').open);
-      // Native details remains operable without React hydration or hash scrolling.
+      // The native anchor still reaches the same tools before hydration.
       await page.setJavaScriptEnabled(false);
       await page.goto(origin+'/workspace',{waitUntil:'networkidle0'});
-      await page.click('[data-home-more] summary');
-      assert.equal(await page.$eval('[data-home-more]',el=>el.open),true);
+      await page.click('[data-home-more]');
+      await page.waitForFunction(()=>location.hash==='#home-more-ways');
       await page.setJavaScriptEnabled(true);
       await navigate('/workspace');
-      assert.equal(await page.$eval("[data-home-start]",el=>el.textContent),"关系透视");
-      assert.equal(await page.$eval('.web-nav-tools a[href="/relationship"]',el=>el.textContent),"关系透视");
+      assert.equal(await page.$eval("[data-home-start]",el=>el.textContent),"关系破译");
+      assert.equal(await page.$eval('.web-nav-tools a[href="/relationship"]',el=>el.textContent),"关系破译");
       for(const task of [
         {href:affinityHref,params:{mode:"chat",focus:"affinity"}},
         {href:"/analyze?mode=chat",params:{mode:"chat"}},
@@ -157,7 +151,7 @@ try {
         links:[...el.querySelectorAll("nav a")].map(a=>({text:a.textContent,href:a.getAttribute("href")})),
       })));
       for(const [subjectId,reportId,chatCount,momentsCount] of [[subjectA,reportA,75,13],[subjectB,reportB,42,7]]) {
-        const entry=entries.find(row=>row.primary==="/report?id="+reportId);
+        const entry=entries.find(row=>new URL(row.primary,origin).searchParams.get("id")===reportId);
         assert.ok(entry,"primary opens that subject's existing report");
         assert.match(entry.text,new RegExp(`${chatCount} 条聊天`));
         assert.match(entry.text,new RegExp(`${momentsCount} 条朋友圈`));
@@ -172,8 +166,8 @@ try {
         assert.ok(entry.links.some(link=>new URL(link.href,origin).pathname==="/analyze"&&new URL(link.href,origin).searchParams.get("subjectId")===subjectId));
       }
       await downloadVisible();await fits();await shot("same-name-people");
-      await page.$eval(`[data-person-entry] > a[href="/report?id=${reportA}"]`,el=>el.scrollIntoView({block:"center",behavior:"instant"}));
-      await page.click(`[data-person-entry] > a[href="/report?id=${reportA}"]`);
+      await page.$eval(`[data-person-entry] > a[href^="/report?id=${reportA}"]`,el=>el.scrollIntoView({block:"center",behavior:"instant"}));
+      await page.click(`[data-person-entry] > a[href^="/report?id=${reportA}"]`);
       await page.waitForFunction(id=>location.pathname==="/report"&&new URLSearchParams(location.search).get("id")===id,{},reportA);
       assert.equal(calls.filter(call=>call.method==="POST"&&/analyze|screenshot|rewrite/.test(call.path)).length,0,"browsing and updates never initiate analysis");
 
@@ -191,7 +185,7 @@ try {
       await page.evaluate(()=>[...document.querySelectorAll("button")].find(el=>el.textContent==="重新连接").click());
       await page.waitForFunction(()=>document.querySelectorAll("[data-person-entry]").length===2);
       assert.deepEqual(errors,[]);
-      console.log(`PASS ${width}: one home action; four grouped tools; native expandable shortcut menu with keyboard and JavaScript disabled; affinity/screenshot routes; guest EXE/persistent download; same-name subject/library grouping; 20s timeout and 503 recover; no analysis POST`);
+      console.log(`PASS ${width}: one home action; four grouped tools; native feature anchor with JavaScript disabled; affinity/screenshot routes; guest EXE/persistent download; same-name subject/library grouping; 20s timeout and 503 recover; no analysis POST`);
     } catch(error) {
       console.error(`FAIL ${width}`,error,page.url(),errors,await page.$eval("body",el=>el.innerText).catch(()=>"(navigation in progress)"));
       await shot("failure").catch(()=>{});

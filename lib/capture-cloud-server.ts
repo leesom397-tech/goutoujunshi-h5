@@ -51,6 +51,21 @@ export async function readCloudCaptureLibrary(owner:string,id:unknown,cursor:str
  for(const record of candidates){const length=new TextEncoder().encode(JSON.stringify(record)).byteLength;if(records.length&&bytes+length>750000)break;records.push(record);bytes+=length;}
  const last=rows.results[records.length-1];return {library:await libraryMetadata(row,db),records,nextCursor:rows.results.length>records.length&&last?btoa(JSON.stringify({i:row.id,e:row.epoch,d:desc,k:last.sort_known,t:last.sort_time,s:last.seq})):null};
 }
+/** A small exact selection of cited originals, using the existing unique
+ * (library_id,epoch,local_id) index. Media remains behind its own owner checks. */
+export async function readCloudCaptureSources(owner:string,id:unknown,input:unknown,db:Database=getD1()){
+ const sourceIds=limitedIds(input,12);if(!sourceIds.length)fail("请选择要查看的原文。");
+ const row=await ownLibrary(owner,id,db);activeLibrary(row);
+ // Drive from the at-most-12 IDs so SQLite chooses a point lookup in the
+ // unique source index, rather than scanning the owner's whole paging index.
+ const selected=await db.prepare("SELECT seq,local_id,digest,record_json,sort_known,sort_time FROM json_each(?) requested CROSS JOIN coach_capture_records WHERE owner_id=? AND library_id=? AND epoch=? AND local_id=requested.value").bind(JSON.stringify(sourceIds),owner,row.id,row.epoch).all<RecordRow>();
+ const records=await withMedia(row,selected.results,db),byId=new Map(records.map(record=>[record.localId,record])),library=await libraryMetadata(row,db);
+ const current=await ownLibrary(owner,id,db);activeLibrary(current,row.epoch);
+ if(current.revision!==row.revision)fail("材料已更新，请重新打开依据。",409);
+ // Explicit acknowledgement distinguishes this contract from older servers
+ // which ignore sourceIds and return the first ordinary cursor page instead.
+ return {library,records:sourceIds.flatMap(sourceId=>byId.has(sourceId)?[byId.get(sourceId)!]:[]),sourceSelection:{version:1,sourceIds},nextCursor:null};
+}
 function bodyEquivalent(a:CloudCaptureRecord,b:CloudCaptureRecord){return a.kind===b.kind&&a.text===b.text&&a.sender===b.sender&&a.senderRole===b.senderRole&&a.at===b.at&&(a.id||"")===(b.id||"")&&b.imageCount>=a.imageCount;}
 // Re-seeing the same evidence updates capture audit times without changing the
 // material available to an analysis. Keep all other source metadata significant.
@@ -117,13 +132,37 @@ export async function syncCloudCaptureMedia(owner:string,body:Record<string,unkn
  const record=await db.prepare("SELECT record_json FROM coach_capture_records WHERE owner_id=? AND library_id=? AND epoch=? AND local_id=?").bind(owner,library.id,library.epoch,localId).first<{record_json:string}>();if(!record||index>=Number(JSON.parse(record.record_json).imageCount))fail("这张图片没有对应的已同步原记录。",404);
  const id="cm_"+await captureCloudDigest(canonical([library.id,library.epoch,localId,index,sha]));const previous=await db.prepare("SELECT * FROM coach_capture_media WHERE id=? AND owner_id=?").bind(id,owner).first<MediaRow>();if(previous&&(previous.chunk_count!==chunkCount||previous.mime!==mime||previous.name!==name))fail("同一图片的分块描述不同，请重新核对。",409);
  const oldChunk=await db.prepare("SELECT data FROM coach_capture_media_chunks WHERE media_id=? AND chunk_index=?").bind(id,chunkIndex).first<{data:string}>();if(oldChunk&&oldChunk.data!==data)fail("同一图片分块内容不同，已保留原数据。",409);
- await db.batch([db.prepare(`INSERT INTO coach_capture_media(id,owner_id,library_id,epoch,local_id,image_index,mime,name,sha256,chunk_count,created_at) SELECT ?,?,?,?,?,?,?,?,?,?,? WHERE ${liveSQL} ON CONFLICT(id) DO NOTHING`).bind(id,owner,library.id,library.epoch,localId,index,mime,name,sha,chunkCount,Date.now(),library.id,owner,library.epoch),db.prepare(`INSERT INTO coach_capture_media_chunks(media_id,chunk_index,data) SELECT ?,?,? WHERE ${liveSQL} AND EXISTS(SELECT 1 FROM coach_capture_media WHERE id=? AND owner_id=?) ON CONFLICT(media_id,chunk_index) DO NOTHING`).bind(id,chunkIndex,data,library.id,owner,library.epoch,id,owner)]);
- const chunks=await db.prepare("SELECT chunk_index,data FROM coach_capture_media_chunks WHERE media_id=? ORDER BY chunk_index").bind(id).all<{chunk_index:number;data:string}>();if(chunks.results.length===chunkCount){const removeUpload=()=>db.batch([db.prepare("DELETE FROM coach_capture_media_chunks WHERE media_id=?").bind(id),db.prepare("DELETE FROM coach_capture_media WHERE id=? AND owner_id=?").bind(id,owner)]);const encoded=chunks.results.map(r=>r.data).join("");let bytes:Uint8Array;try{bytes=Uint8Array.from(atob(encoded),c=>c.charCodeAt(0));}catch{await removeUpload();fail("图片内容编码不正确。");}if(bytes!.length>5000000||!bytes!.length){await removeUpload();fail("单张图片不能超过 5 MB。");}const head=String.fromCharCode(...bytes!.slice(0,12)),magic=mime==="image/png"?head.startsWith("\x89PNG\r\n\x1a\n"):mime==="image/jpeg"?head.startsWith("\xff\xd8\xff"):head.startsWith("RIFF")&&head.slice(8,12)==="WEBP";
-  if(!magic||await captureCloudDigest(bytes!)!==sha){await removeUpload();fail("图片校验失败，请重新同步这张图。");}
-  const completing="EXISTS(SELECT 1 FROM coach_capture_media pending WHERE pending.id=? AND pending.owner_id=? AND pending.status='uploading')";
-  await db.batch([db.prepare(`DELETE FROM coach_capture_media_chunks WHERE media_id IN(SELECT id FROM coach_capture_media WHERE owner_id=? AND library_id=? AND epoch=? AND local_id=? AND image_index=? AND id!=?) AND ${completing} AND ${liveSQL}`).bind(owner,library.id,library.epoch,localId,index,id,id,owner,library.id,owner,library.epoch),db.prepare(`DELETE FROM coach_capture_media WHERE owner_id=? AND library_id=? AND epoch=? AND local_id=? AND image_index=? AND id!=? AND ${completing} AND ${liveSQL}`).bind(owner,library.id,library.epoch,localId,index,id,id,owner,library.id,owner,library.epoch),db.prepare(`UPDATE coach_capture_media SET status='ready',bytes=? WHERE id=? AND owner_id=? AND status='uploading' AND ${liveSQL}`).bind(bytes!.length,id,owner,library.id,owner,library.epoch),db.prepare("UPDATE coach_capture_libraries SET revision=revision+1 WHERE id=? AND owner_id=? AND epoch=? AND deleted_at IS NULL AND changes()>0").bind(library.id,owner,library.epoch)]);
+ // Recheck after reading the old chunk: another upload may have replaced
+ // this image meanwhile. A replay must not resurrect its discarded media row.
+ if(previous?.status==="ready"&&oldChunk?.data===data){
+  const ready=await db.prepare(`SELECT * FROM coach_capture_media WHERE id=? AND owner_id=? AND status='ready' AND ${liveSQL}`).bind(id,owner,library.id,owner,library.epoch).first<MediaRow>();
+  if(!ready)fail("图片或资料已更新，请重新打开资料后继续同步。",409);
+  return {media:mediaRef(ready!),receivedChunks:chunkCount,ready:true};
  }
- const final=await db.prepare("SELECT * FROM coach_capture_media WHERE id=? AND owner_id=?").bind(id,owner).first<MediaRow>();if(!final)fail("资料库已删除，图片未保存。",410);return {media:mediaRef(final!),receivedChunks:chunks.results.length,ready:final!.status==="ready"};
+ await db.batch([db.prepare(`INSERT INTO coach_capture_media(id,owner_id,library_id,epoch,local_id,image_index,mime,name,sha256,chunk_count,created_at) SELECT ?,?,?,?,?,?,?,?,?,?,? WHERE ${liveSQL} ON CONFLICT(id) DO NOTHING`).bind(id,owner,library.id,library.epoch,localId,index,mime,name,sha,chunkCount,Date.now(),library.id,owner,library.epoch),db.prepare(`INSERT INTO coach_capture_media_chunks(media_id,chunk_index,data) SELECT ?,?,? WHERE ${liveSQL} AND EXISTS(SELECT 1 FROM coach_capture_media WHERE id=? AND owner_id=?) ON CONFLICT(media_id,chunk_index) DO NOTHING`).bind(id,chunkIndex,data,library.id,owner,library.epoch,id,owner)]);
+ // Do not read every previously uploaded image byte after each chunk. A
+ // count is sufficient until all chunks exist; then verify the complete image
+ // once. Replays of an already verified, identical chunk need no re-hash.
+ let receivedChunks=0;
+ if(chunkCount>1){
+  const received=await db.prepare("SELECT COUNT(*) AS total FROM coach_capture_media_chunks WHERE media_id=?").bind(id).first<{total:number}>();
+  receivedChunks=received?.total||0;
+ }
+ if(chunkCount===1||receivedChunks===chunkCount){
+  const chunks=await db.prepare("SELECT chunk_index,data FROM coach_capture_media_chunks WHERE media_id=? ORDER BY chunk_index").bind(id).all<{chunk_index:number;data:string}>();
+  receivedChunks=chunks.results.length;
+  if(receivedChunks===chunkCount){
+   const removeUpload=()=>db.batch([db.prepare("DELETE FROM coach_capture_media_chunks WHERE media_id=?").bind(id),db.prepare("DELETE FROM coach_capture_media WHERE id=? AND owner_id=?").bind(id,owner)]);
+   const encoded=chunks.results.map(r=>r.data).join("");let bytes:Uint8Array;
+   try{bytes=Uint8Array.from(atob(encoded),c=>c.charCodeAt(0));}catch{await removeUpload();fail("图片内容编码不正确。");}
+   if(bytes!.length>5000000||!bytes!.length){await removeUpload();fail("单张图片不能超过 5 MB。");}
+   const head=String.fromCharCode(...bytes!.slice(0,12)),magic=mime==="image/png"?head.startsWith("\x89PNG\r\n\x1a\n"):mime==="image/jpeg"?head.startsWith("\xff\xd8\xff"):head.startsWith("RIFF")&&head.slice(8,12)==="WEBP";
+   if(!magic||await captureCloudDigest(bytes!)!==sha){await removeUpload();fail("图片校验失败，请重新同步这张图。");}
+   const completing="EXISTS(SELECT 1 FROM coach_capture_media pending WHERE pending.id=? AND pending.owner_id=? AND pending.status='uploading')";
+   await db.batch([db.prepare(`DELETE FROM coach_capture_media_chunks WHERE media_id IN(SELECT id FROM coach_capture_media WHERE owner_id=? AND library_id=? AND epoch=? AND local_id=? AND image_index=? AND id!=?) AND ${completing} AND ${liveSQL}`).bind(owner,library.id,library.epoch,localId,index,id,id,owner,library.id,owner,library.epoch),db.prepare(`DELETE FROM coach_capture_media WHERE owner_id=? AND library_id=? AND epoch=? AND local_id=? AND image_index=? AND id!=? AND ${completing} AND ${liveSQL}`).bind(owner,library.id,library.epoch,localId,index,id,id,owner,library.id,owner,library.epoch),db.prepare(`UPDATE coach_capture_media SET status='ready',bytes=? WHERE id=? AND owner_id=? AND status='uploading' AND ${liveSQL}`).bind(bytes!.length,id,owner,library.id,owner,library.epoch),db.prepare("UPDATE coach_capture_libraries SET revision=revision+1 WHERE id=? AND owner_id=? AND epoch=? AND deleted_at IS NULL AND changes()>0").bind(library.id,owner,library.epoch)]);
+  }
+ }
+ const final=await db.prepare("SELECT * FROM coach_capture_media WHERE id=? AND owner_id=?").bind(id,owner).first<MediaRow>();if(!final)fail("资料库已删除，图片未保存。",410);return {media:mediaRef(final!),receivedChunks,ready:final!.status==="ready"};
 }
 export async function readCloudCaptureMedia(owner:string,libraryId:unknown,mediaId:unknown,chunk:unknown,db:Database=getD1()){
  const library=await ownLibrary(owner,libraryId,db);activeLibrary(library);if(typeof mediaId!=="string"||!/^cm_[a-f0-9]{64}$/.test(mediaId)||!/^\d{1,2}$/.test(String(chunk)))fail("图片分页参数无效。");const row=await db.prepare("SELECT * FROM coach_capture_media WHERE owner_id=? AND library_id=? AND epoch=? AND id=? AND status='ready'").bind(owner,library.id,library.epoch,mediaId).first<MediaRow>();if(!row)fail("图片尚未同步完成或已经删除。",404);const chunkIndex=Number(chunk);if(chunkIndex>=row!.chunk_count)fail("图片分块不存在。",404);const data=await db.prepare("SELECT data FROM coach_capture_media_chunks WHERE media_id=? AND chunk_index=?").bind(mediaId,chunkIndex).first<{data:string}>();if(!data)fail("图片分块暂时不可用。",404);return {media:mediaRef(row!),data:data!.data,chunkIndex};

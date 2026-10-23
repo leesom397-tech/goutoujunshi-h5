@@ -72,6 +72,34 @@ def _timestamp(value):
         return ""
 
 
+def _shared_text(object_node, own_text):
+    """Keep visible shared-card text without importing URLs or third-party identity.
+
+    These are explicit XML fields, not interpretations of a numeric content
+    type (whose meaning differs between WeChat builds). Label every addition
+    so a song, note or quoted article is not treated as the contact's own words.
+    """
+    parts, seen = [], {own_text}
+
+    def add(label, value):
+        value = value.strip()
+        if value and value not in seen:
+            seen.add(value)
+            parts.append(label + "：" + value)
+
+    add("分享标题", _text(object_node, "title"))
+    add("分享摘要", _text(object_node, "description"))
+    add("分享音乐·歌手", _text(object_node, "musicShareItem/mvSingerName"))
+    add("分享音乐·专辑", _text(object_node, "musicShareItem/mvAlbumName"))
+    for media in object_node.findall("mediaList/media"):
+        add("分享媒体标题", _text(media, "title"))
+        add("分享媒体说明", _text(media, "description"))
+    for item in object_node.findall("noteinfo//dataitem"):
+        if item.get("datatype") == "1":
+            add("分享笔记", _text(item, "datadesc"))
+    return "\n".join(filter(None, [own_text, *parts]))
+
+
 def parse_moment_xml(content):
     """Return metadata from one XML item, or raise ValueError on unknown input.
 
@@ -105,20 +133,11 @@ def parse_moment_xml(content):
     object_node = timeline.find("ContentObject")
     media_count = 0
     if object_node is not None:
-        # Shared-card text is kept as a visibly labelled quotation, never
-        # silently attributed as something the contact personally said.
-        title = _text(object_node, "title")
-        description = _text(object_node, "description")
-        additions = []
-        if title and title != content_text:
-            additions.append("分享标题：" + title)
-        if description and description not in (content_text, title):
-            additions.append("分享摘要：" + description)
-        if additions:
-            content_text = "\n".join(filter(None, [content_text, *additions]))
+        content_text = _shared_text(object_node, content_text)
         media_count = len(object_node.findall("mediaList/media"))
         # Finder/Live media paths vary; do not label them as selfies or pictures.
         media_count += len(object_node.findall("finderFeed/mediaList/media"))
+        media_count += sum(item.get("datatype") == "2" for item in object_node.findall("noteinfo//dataitem"))
     if len(content_text) > MAX_TEXT:
         raise ValueError("post-too-large")
     source_id = _text(timeline, "id")
@@ -134,8 +153,9 @@ def read_moments_connection(connection, contact_id, friend, *, limit=MAX_POSTS,
                             assert_unchanged=None, progress=None):
     """Read a provider-owned immutable read-only connection (APSW or sqlite3).
 
-    All cached rows are inspected because rowid insertion order need not be
-    chronological. Hard row/node/byte bounds prevent unbounded local work.
+    Prefer the real schema's author column before decoding XML, then verify its
+    embedded author again. Older schemas without that column retain the bounded
+    scan. We do not assume rowid insertion order is chronological.
     The query does not read contact/comment tables or mutate the database.
     """
     if type(limit) is not int or not 1 <= limit <= MAX_POSTS:
@@ -146,10 +166,18 @@ def read_moments_connection(connection, contact_id, friend, *, limit=MAX_POSTS,
         columns = {str(row[1]) for row in connection.execute('PRAGMA table_info("SnsTimeLine")')}
         if not {"tid", "content"} <= columns:
             _fail("MAC_MOMENTS_SCHEMA_UNSUPPORTED", "当前微信朋友圈缓存结构尚未适配，请保留当前微信版本并提交兼容性诊断。")
-        cursor = connection.execute('SELECT "tid", CASE WHEN length("content") <= ? THEN "content" ELSE NULL END '
-                                    'FROM "SnsTimeLine" LIMIT ?', (MAX_XML_BYTES, MAX_SCAN_ROWS + 1))
-        posts, seen, unknown, scanned, scan_limited = [], set(), 0, 0, False
+        # A byte-valued user_name is valid in SQLite, too. Explicit BINARY
+        # equality avoids inheriting a case-insensitive column collation and
+        # never turns a wxid into a wildcard pattern. Empty legacy author
+        # fields still get their XML identity checked; mismatches are excluded.
+        author_filter = "user_name" in columns
+        where = (' WHERE "user_name" COLLATE BINARY IN (?, ?) OR "user_name" IS NULL '
+                 'OR "user_name" = \'\' OR "user_name" = X\'\'' if author_filter else "")
+        parameters = (MAX_XML_BYTES, contact_id, contact_id.encode("utf-8"), MAX_SCAN_ROWS + 1) if author_filter else (MAX_XML_BYTES, MAX_SCAN_ROWS + 1)
         deadline = time.monotonic() + MAX_SCAN_SECONDS
+        cursor = connection.execute('SELECT "tid", CASE WHEN length(CAST("content" AS BLOB)) <= ? '
+                                    'THEN "content" ELSE NULL END FROM "SnsTimeLine"' + where + ' LIMIT ?', parameters)
+        posts, seen, unknown, scanned, scan_limited = [], set(), 0, 0, False
         for tid, content in cursor:
             scanned += 1
             if scanned > MAX_SCAN_ROWS or time.monotonic() >= deadline:
@@ -200,7 +228,9 @@ def read_moments_connection(connection, contact_id, friend, *, limit=MAX_POSTS,
     total = len(seen)
     posts = [item[2] for item in sorted(posts, reverse=True)]
     return posts, {"cachedTargetCount": total, "scanLimited": scan_limited,
-                   "unparsedCacheRecords": unknown}
+                   "unparsedCacheRecords": unknown,
+                   "scannedCacheRecords": min(scanned, MAX_SCAN_ROWS),
+                   "authorFilterApplied": author_filter}
 
 
 def capture_moments_from_source(request, progress, on_partial, source):

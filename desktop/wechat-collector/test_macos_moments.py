@@ -57,6 +57,54 @@ def request(**extras):
 
 
 class MomentsTests(unittest.TestCase):
+    def test_author_column_filters_before_xml_decode_including_blob_ids(self):
+        conn = sqlite3.connect(":memory:")
+        conn.execute("CREATE TABLE SnsTimeLine(tid INTEGER,user_name,content TEXT)")
+        conn.executemany("INSERT INTO SnsTimeLine VALUES(?,?,?)", [
+            *[(i, "wxid_unselected", xml("wxid_unselected", "UNSELECTED", post_id=str(i))) for i in range(1, 501)],
+            (501, "wxid_friend", xml(post_id="501")),
+            (502, b"wxid_friend", xml(post_id="502")),
+        ])
+        with patch.object(moments, "parse_moment_xml", wraps=moments.parse_moment_xml) as parse, \
+                patch.object(moments, "MAX_SCAN_ROWS", 3):
+            rows, detail = moments.read_moments_connection(conn, "wxid_friend", "好友")
+        self.assertEqual(parse.call_count, 2)
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(detail["scannedCacheRecords"], 2)
+        self.assertTrue(detail["authorFilterApplied"])
+        self.assertFalse(detail["scanLimited"])
+        self.assertNotIn("UNSELECTED", json.dumps(rows))
+
+    def test_author_index_is_not_substitute_for_xml_identity_and_empty_legacy_ids(self):
+        conn = sqlite3.connect(":memory:")
+        conn.execute("CREATE TABLE SnsTimeLine(tid INTEGER,user_name TEXT COLLATE NOCASE,content TEXT)")
+        conn.executemany("INSERT INTO SnsTimeLine VALUES(?,?,?)", [
+            (1, "wxid_friend", xml("wxid_someone_else", "WRONG_XML_AUTHOR", post_id="1")),
+            (2, "WXID_FRIEND", xml("WXID_FRIEND", "WRONG_CASE", post_id="2")),
+            (3, None, xml(post_id="3")),
+            (4, "", xml(post_id="4")),
+            (5, b"", xml(post_id="5")),
+        ])
+        with patch.object(moments, "parse_moment_xml", wraps=moments.parse_moment_xml) as parse:
+            rows, detail = moments.read_moments_connection(conn, "wxid_friend", "好友")
+        self.assertEqual(parse.call_count, 4)
+        self.assertEqual({row["source"]["sourceRecordId"] for row in rows}, {"3", "4", "5"})
+        self.assertNotIn("WRONG_", json.dumps(rows))
+        self.assertTrue(detail["authorFilterApplied"])
+
+    def test_author_filter_uses_literal_id_not_sql_or_like_pattern(self):
+        target = "wxid_%' OR 1=1--"
+        conn = sqlite3.connect(":memory:")
+        conn.execute("CREATE TABLE SnsTimeLine(tid INTEGER,user_name TEXT,content TEXT)")
+        conn.executemany("INSERT INTO SnsTimeLine VALUES(?,?,?)", [
+            (1, target, xml(target, post_id="1")),
+            (2, "wxid_other", xml("wxid_other", "UNSELECTED", post_id="2")),
+        ])
+        with patch.object(moments, "parse_moment_xml", wraps=moments.parse_moment_xml) as parse:
+            rows, _ = moments.read_moments_connection(conn, target, "好友")
+        self.assertEqual(parse.call_count, 1)
+        self.assertEqual(len(rows), 1)
+
     def test_exact_author_filter_not_display_name(self):
         conn = connection((1, xml("wxid_friend", "selected", post_id="1")),
                           (2, xml("wxid_someone_else", "other private", post_id="2")))
@@ -87,6 +135,37 @@ class MomentsTests(unittest.TestCase):
         exported = json.dumps(parsed)
         for value in ["SECRET_KEY", "SECRET_TOKEN", "private", "PRIVATE COMMENT"]:
             self.assertNotIn(value, exported)
+
+    def test_music_note_and_media_text_are_kept_as_shared_content(self):
+        content = xml(text="", extra=(
+            "<ContentObject><type>999</type><title>歌曲标题</title><description>媒体说明</description>"
+            "<musicShareItem><mvSingerName>歌手名字</mvSingerName><mvAlbumName>专辑名字</mvAlbumName>"
+            "<mid>PRIVATE_MUSIC_ID</mid></musicShareItem>"
+            "<mediaList><media><title>歌曲标题</title><description>媒体说明</description>"
+            "<url token='PRIVATE_TOKEN'>https://example.invalid/PRIVATE_URL</url></media></mediaList>"
+            "<noteinfo><datalist><dataitem datatype='1'><datadesc>笔记正文</datadesc></dataitem>"
+            "<dataitem datatype='2'><datadesc>PRIVATE_IMAGE_DETAIL</datadesc></dataitem>"
+            "</datalist></noteinfo></ContentObject>"))
+        parsed = moments.parse_moment_xml(content)
+        self.assertEqual(parsed["text"], "分享标题：歌曲标题\n分享摘要：媒体说明\n分享音乐·歌手：歌手名字\n分享音乐·专辑：专辑名字\n分享笔记：笔记正文")
+        self.assertEqual(parsed["media_count"], 2)
+        self.assertNotIn("PRIVATE_", json.dumps(parsed))
+
+    def test_media_description_without_caption_is_not_silently_lost(self):
+        content = xml(text="", extra="<ContentObject><mediaList><media><description>分享文章内容</description></media></mediaList></ContentObject>")
+        rows, _ = moments.read_moments_connection(connection((1, content)), "wxid_friend", "好友")
+        self.assertEqual(rows[0]["text"], "分享媒体说明：分享文章内容")
+
+    def test_xml_sql_bound_is_bytes_not_unicode_characters(self):
+        content = xml(text="多" * 150)
+        limit = len(content) + 1
+        self.assertGreater(len(content.encode("utf-8")), limit)
+        with patch.object(moments, "MAX_XML_BYTES", limit), \
+                patch.object(moments, "parse_moment_xml", wraps=moments.parse_moment_xml) as parse:
+            rows, detail = moments.read_moments_connection(connection((1, content)), "wxid_friend", "好友")
+        self.assertIsNone(parse.call_args.args[0])
+        self.assertEqual(rows, [])
+        self.assertEqual(detail["unparsedCacheRecords"], 1)
 
     def test_unknown_time_not_inferred_from_record_id(self):
         parsed = moments.parse_moment_xml(xml(stamp="昨天", post_id="4291130000000000"))

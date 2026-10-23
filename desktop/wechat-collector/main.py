@@ -1,7 +1,13 @@
 """Visible, stoppable local helper. Launch never captures messages or uploads data."""
+import multiprocessing
+# Divert frozen spawn workers before importing GUI/collector dependencies. This
+# is also required when a worker is launched by the desktop service's HTTP
+# thread rather than the original application's main thread.
+if __name__ == "__main__":
+    multiprocessing.freeze_support()
+
 import argparse
 import json
-import multiprocessing
 import sys
 from pathlib import Path
 import threading
@@ -83,12 +89,13 @@ def main():
     modes.add_argument("--voice-self-test", action="store_true", help="仅用本机合成音频检查语音运行库及已有模型，不联网或采集")
     modes.add_argument("--database-self-test", action="store_true", help="仅用自建临时数据库检查加密与只读组件，不读取微信")
     modes.add_argument("--runtime-self-test", action="store_true", help="检查 Mac 运行库及合成材料，不读取微信或请求系统权限")
+    modes.add_argument("--worker-self-test", action="store_true", help="检查桌面采集子进程和私有通信，只使用合成材料")
     modes.add_argument("--prepare-voice-model", action="store_true", help="显式下载并校验本机语音模型，不读取用户语音")
     modes.add_argument("--mac-diagnostics", action="store_true", help="仅检查 Mac 版本、依赖及匿名辅助功能元数据")
     modes.add_argument("--gui-self-test", action="store_true", help="Mac 合成界面检查，不打开网页或读取微信资料")
     parser.add_argument("--probe-output", type=Path, help="仅与 --probe 或本机 --*-self-test 一起使用，写入检查结果")
     args = parser.parse_args()
-    if args.probe_output is not None and not (args.probe or args.voice_self_test or args.database_self_test or args.runtime_self_test or args.mac_diagnostics or args.gui_self_test):
+    if args.probe_output is not None and not (args.probe or args.voice_self_test or args.database_self_test or args.runtime_self_test or args.worker_self_test or args.mac_diagnostics or args.gui_self_test):
         parser.error("--probe-output requires --probe, --voice-self-test or --database-self-test")
     if args.gui_self_test and (sys.platform != "darwin" or args.probe_output is None):
         parser.error("--gui-self-test requires macOS and --probe-output")
@@ -108,8 +115,11 @@ def main():
             args.probe_output.write_text(result, encoding="utf-8")
         print(result)
         return
-    if args.voice_self_test or args.database_self_test or args.runtime_self_test:
-        if args.voice_self_test:
+    if args.voice_self_test or args.database_self_test or args.runtime_self_test or args.worker_self_test:
+        if args.worker_self_test:
+            from worker_runtime_self_test import run_worker_self_test
+            metadata = run_worker_self_test()
+        elif args.voice_self_test:
             from voice_runtime_self_test import run_voice_self_test
             metadata = run_voice_self_test()
         elif args.runtime_self_test:
@@ -250,5 +260,4 @@ def main():
 
 
 if __name__ == "__main__":
-    multiprocessing.freeze_support()
     main()

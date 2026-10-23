@@ -2,6 +2,7 @@
 
 import { AudioLines, Check, CloudUpload, Images, Layers3, MessageCircle, ScanLine, Sparkles } from "lucide-react";
 import type { CSSProperties } from "react";
+import { BrandField } from "./BrandField";
 import styles from "./ImportFlowVisual.module.css";
 
 export type ImportFlowPhase = "chat" | "voice" | "images" | "moments" | "upload" | "analysis";
@@ -41,6 +42,7 @@ export default function ImportFlowVisual({ phase, paused = false, counts }: Impo
 
   return (
     <section className={styles.visual} data-phase={stage} data-paused={paused || undefined} aria-label="资料导入状态">
+      <BrandField variant="waiting" paused={paused}/>
       <div className={styles.eyebrow} aria-hidden="true">
         <span className={styles.liveDot} />
         <span>{stage === "analysis" ? "关系分析" : "资料汇聚"}</span>

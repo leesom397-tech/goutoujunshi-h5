@@ -115,13 +115,13 @@ class MacEncryptedCaptureIntegrationTests(unittest.TestCase):
 
     def _write_sns(self, text):
         def populate(conn):
-            conn.execute("CREATE TABLE SnsTimeLine(tid INTEGER,content BLOB)")
+            conn.execute("CREATE TABLE SnsTimeLine(tid INTEGER,user_name TEXT,content BLOB)")
             for identifier, username, body in [(101, self.target, text), (102, self.other, "UNSELECTED_SNS")]:
                 xml = (f"<SnsDataItem><TimelineObject><id>{identifier}</id><username>{username}</username>"
                        f"<createTime>1780000000</createTime><contentDesc>{body}</contentDesc>"
                        "<ContentObject><mediaList><media><url>https://example.invalid/never-fetch</url>"
                        "</media></mediaList></ContentObject></TimelineObject></SnsDataItem>")
-                conn.execute("INSERT INTO SnsTimeLine VALUES(?,?)", (identifier, xml.encode()))
+                conn.execute("INSERT INTO SnsTimeLine VALUES(?,?,?)", (identifier, username, xml.encode()))
         self._write_db("sns/sns.db", populate)
 
     def _selection(self):

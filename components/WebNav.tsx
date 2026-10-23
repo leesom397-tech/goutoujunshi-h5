@@ -13,7 +13,7 @@ const links = [
   { href: "/chat", label: "问成子", icon: MessageCircle },
   { href: "/archive", label: "人物", icon: Users },
   { href: "/reports", label: "记录", icon: History },
-  { href: "/support", label: "下载", icon: Download },
+  { href: "/support", label: "下载桌面版", icon: Download },
 ];
 export function WebNav({guideReady=false,backHref,backLabel,reportReturn=false}:{guideReady?:boolean;backHref?:string;backLabel?:string;reportReturn?:boolean}={}) {
   const pathname=usePathname();

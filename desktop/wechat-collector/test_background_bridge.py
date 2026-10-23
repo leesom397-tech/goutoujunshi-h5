@@ -32,6 +32,15 @@ def fake_exits_without_message(conn, request):
     return
 
 
+def fake_never_starts(conn, request):
+    time.sleep(10)
+
+
+def fake_reader_stalls(conn, request):
+    conn.send({"type": "progress", "progress": 3, "message": "synthetic opened"})
+    time.sleep(10)
+
+
 class BackgroundBridgeTest(unittest.TestCase):
     def test_background_start_does_not_probe_the_desktop_per_page(self):
         state = CollectorState(capture_target=fake_background)
@@ -158,6 +167,36 @@ class BackgroundBridgeTest(unittest.TestCase):
             self.assertLess(time.monotonic() - began, 3)
             self.assertEqual(job["error"]["code"], "CAPTURE_INTERRUPTED")
             self.assertIn("进程已退出", job["message"])
+        finally:
+            state.cancel_active()
+
+    def test_alive_child_without_handshake_does_not_wait_twenty_minutes(self):
+        state = self.state()
+        state.capture_target = fake_never_starts
+        try:
+            with patch("bridge.WORKER_START_TIMEOUT", .35):
+                began = time.monotonic()
+                job_id = state.start({"kind": "chat", "friend": "synthetic", "limit": 10,
+                                      "mode": "background"})["jobId"]
+                job = self.wait(state, job_id, "failed")
+                self.assertLess(time.monotonic() - began, 2)
+                self.assertEqual(job["error"]["code"], "CAPTURE_START_TIMEOUT")
+                self.assertNotIn("result", job)
+        finally:
+            state.cancel_active()
+
+    def test_text_reader_stall_has_its_own_bounded_deadline(self):
+        state = self.state()
+        state.capture_target = fake_reader_stalls
+        try:
+            with patch("bridge.BACKGROUND_READER_IDLE_TIMEOUT", .35):
+                began = time.monotonic()
+                job_id = state.start({"kind": "chat", "friend": "synthetic", "limit": 10,
+                                      "mode": "background"})["jobId"]
+                job = self.wait(state, job_id, "failed")
+                self.assertLess(time.monotonic() - began, 3)
+                self.assertEqual(job["error"]["code"], "CHAT_READER_STALLED")
+                self.assertNotIn("result", job)
         finally:
             state.cancel_active()
 

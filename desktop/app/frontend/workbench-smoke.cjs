@@ -4,6 +4,7 @@ const { app, BrowserWindow, session, ipcMain } = require('electron');
 const { readFile, writeFile, mkdir } = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
+const { textContrast } = require('../test/ui-metrics.cjs');
 const root = path.resolve(__dirname, '../frontend-dist');
 const output = path.resolve(__dirname, '../.stage/workbench-smoke');
 const origin = 'https://coach.lovetalk.love';
@@ -18,7 +19,8 @@ const reports = Array.from({ length: 16 }, (_, i) => ({
   createdAt: 1792713600000 - i * 86400000,
   ...(i === 2 ? { format: 'risk' } : i === 3 ? { analysisScope: 'supplement' } : {}),
 }));
-const errors = [], checks = {}, requests = [], missingAssets = [], consoleErrors = [], nativeCalls = [], computedStyles = {}, renderedFonts = {};
+const errors = [], checks = {}, requests = [], missingAssets = [], consoleErrors = [], nativeCalls = [], computedStyles = {}, renderedFonts = {}, contrastMetrics = {};
+const minimumWidth = 772, minimumHeight = 616; // 980×680 app, 208px sidebar and 64px toolbar.
 let win, pairAttempts = 0, accountMode = 'signed-in';
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 function assert(name, value, detail) { checks[name] = !!value; if (!value) errors.push({ name, detail }); }
@@ -40,13 +42,18 @@ async function navigate(route) {
   await until(`location.pathname+location.search===${JSON.stringify(route)}`, route);
 }
 async function screenshot(name) {
-  await pause(220);
+  await pause(650);
   await writeFile(path.join(output, name + '.png'), (await win.webContents.capturePage()).toPNG());
 }
 async function layout(name, width, height) {
   win.setSize(width, height); await pause(200);
   const result = await js(`({width:innerWidth,scrollWidth:document.documentElement.scrollWidth,focus:[...document.querySelectorAll('.dw-primary,.dw-report-item,.dw-search input')].filter(e=>e.getBoundingClientRect().height>0).slice(0,8).map(e=>({tag:e.tagName,width:e.getBoundingClientRect().width,height:e.getBoundingClientRect().height}))})`);
   assert(name + ' no horizontal overflow', result.scrollWidth <= result.width + 1, result);
+  const contrastSelector = name.startsWith('home') ? '.dw-home :is(h1,h2,p,.dw-muted,.dw-eyebrow,.dw-row-copy strong,.dw-row-copy>span,.dw-row-copy small,.dw-person strong,.dw-person small,.dw-primary,.dw-button)' : name.startsWith('report') ? '.dw-report-rail :is(h1,strong,p,time,.dw-report-type,.dw-rail-caption span,input),.dw-reading-title>span,.dw-reading-title small,.dw-reading-toggle,.dw-library-empty :is(h2,p),.dw-report-body :is(h1,h2,h3,p)' : '.dw-capture :is(h1,h2,p,label,button,.dw-capture-foot span,.dw-capture-foot a),.dw-capture-steps strong';
+  contrastMetrics[name] = await js(`(${textContrast.toString()})(${JSON.stringify(contrastSelector)})`);
+  assert(name + ' text meets contrast requirements', contrastMetrics[name].samples.length >= 3 && contrastMetrics[name].failures.length === 0, contrastMetrics[name].failures);
+  const primaryTargets = await js(`[...document.querySelectorAll('.dw-primary')].filter(e=>e.getBoundingClientRect().height>0).map(e=>({text:e.textContent.trim(),width:e.getBoundingClientRect().width,height:e.getBoundingClientRect().height}))`);
+  assert(name + ' primary actions retain usable target size', primaryTargets.every(target => target.width >= 42 && target.height >= 42), primaryTargets);
   computedStyles[name] = await js(`['.dw-people h2','.dw-person strong','.dw-capture-surface [class*="selectedPerson"] span'].flatMap(selector=>[...document.querySelectorAll(selector)].map(e=>({selector,text:e.textContent.trim().slice(0,65),fontFamily:getComputedStyle(e).fontFamily,fontSize:getComputedStyle(e).fontSize,color:getComputedStyle(e).color})))`);
   renderedFonts[name] = await platformFonts();
   await screenshot(name);
@@ -75,6 +82,7 @@ async function visibleCapturePrimary(name) {
   assert(name + ' connect action is visible and usable', !!result && result.left >= 0 && result.right <= result.viewport[0] && result.top >= 0 && result.bottom <= result.viewport[1] && result.height >= 42, result);
 }
 async function searchShortcut(name) {
+  await js(`window.__searchFocus=[...document.querySelectorAll('.web-search-trigger')].find(e=>e.getClientRects().length>0);window.__searchFocus?.focus()`);
   await js(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'k',code:'KeyK',ctrlKey:true,bubbles:true,cancelable:true}))`);
   await until(`document.querySelectorAll('dialog[open]').length>0`, name + ' shortcut opens search');
   const count = await js(`document.querySelectorAll('dialog[open]').length`);
@@ -82,6 +90,20 @@ async function searchShortcut(name) {
   await click('dialog[open] button[aria-label="关闭搜索"]');
   await until(`document.querySelectorAll('dialog[open]').length===0`, name + ' shortcut dialog closes');
   assert(name + ' shortcut dialog closes completely', await js(`document.querySelectorAll('dialog[open]').length===0`));
+  assert(name + ' shortcut restores the prior focus', await js(`!!window.__searchFocus&&document.activeElement===window.__searchFocus`));
+}
+async function readingMode(name) {
+  const before = requests.filter(request => request.path === '/api/web/report').length;
+  await js(`window.__reader=document.querySelector('.dw-report-body');window.__reader.scrollTop=120;window.__readerScroll=window.__reader.scrollTop;window.__pageLabel=document.querySelector('.dw-page-controls')?.textContent;window.__filter=document.querySelector('.dw-search input').value;window.__listNode=document.querySelector('.dw-report-rail');void 0`);
+  for (let turn = 0; turn < 2; turn++) {
+    const previous = await js(`document.querySelector('.dw-reports').classList.contains('is-focused')`);
+    await click('.dw-reading-toggle');
+    await until(`document.querySelector('.dw-reports').classList.contains('is-focused')===${!previous}`, name + ' reading mode toggles');
+    await pause(250);
+    assert(name + ' mode ' + turn + ' preserves report instance and scroll', await js(`document.querySelector('.dw-report-body')===window.__reader&&Math.abs(window.__reader.scrollTop-window.__readerScroll)<2`));
+    assert(name + ' mode ' + turn + ' preserves list query and pagination', await js(`document.querySelector('.dw-report-rail')===window.__listNode&&document.querySelector('.dw-search input').value===window.__filter&&document.querySelector('.dw-page-controls')?.textContent===window.__pageLabel`));
+  }
+  assert(name + ' reading mode never reloads report data', requests.filter(request => request.path === '/api/web/report').length === before);
 }
 function savedReport(id) {
   const item = reports.find(row => row.id === id);
@@ -118,7 +140,7 @@ async function handler(request) {
     if (url.pathname === '/api/web/account-context') {
       if (accountMode === 'signed-out') return json({ error: '请登录后继续。' }, 401);
       if (accountMode === 'unavailable') return json({ error: '账户服务暂时未连接，请重试。' }, 503);
-      return json({ account: { userId: 'desktop-synthetic-test-owner', name: '合成测试账户' }, people, balance: 100, prices: {} });
+      return json({ account: { userId: 'desktop-synthetic-test-owner', balance: 100, reserved: 0, spent: 0, features: ['analysis', 'chat'], active: true, enabledUntil: 1893456000000, signupCredits: 0, entries: [] }, user: { name: '合成测试账户' }, admin: false, people, prices: {} });
     }
     if (url.pathname === '/api/account/credits') return json({ account: { userId: 'desktop-synthetic-test-owner' }, balance: 100, prices: {} });
     if (url.pathname === '/api/web/profile') return json({ enabled: true, paused: false, self: {}, subjects: people.map(person => ({ ...person, updatedAt: 1792713600000 })), facts: [], signals: [], trends: [] });
@@ -164,7 +186,7 @@ app.whenReady().then(async () => {
   assert('signed-out capture has one login action', await js(`document.querySelectorAll('.dw-capture a[href^="/login"]').length===1`));
   assert('signed-out capture omits collector controls and underlying capture', await js(`!document.querySelector('[data-desktop-capture-step]')&&![...document.querySelectorAll('.dw-capture button')].some(e=>/连接本机微信|本机采集设置/.test(e.textContent))`));
   assert('signed-out capture cannot start native service', nativeCalls.length === 0 && requests.every(row => !row.local), { nativeCalls: [...nativeCalls], localRequests: requests.filter(row => row.local) });
-  await layout('capture-signed-out-minimum', 784, 616);
+  await layout('capture-signed-out-minimum', minimumWidth, minimumHeight);
   await captureReadability('signed-out capture');
   accountMode = 'unavailable';
   await win.loadURL(origin + '/capture?method=desktop');
@@ -178,7 +200,7 @@ app.whenReady().then(async () => {
   await until(`!!document.querySelector('[data-desktop-capture-step="0"]')&&[...document.querySelectorAll('button')].some(e=>e.textContent.includes('连接本机微信')&&!e.disabled)`, 'retry restores authenticated capture');
   assert('account retry recovers without a login redirect', await js(`location.pathname==='/capture'&&document.querySelectorAll('.dw-capture a[href^="/login"]').length===0`));
   assert('account retry does not silently start collector', nativeCalls.length === 0);
-  await layout('capture-authenticated-minimum', 784, 616);
+  await layout('capture-authenticated-minimum', minimumWidth, minimumHeight);
   await captureReadability('authenticated capture');
   await visibleCapturePrimary('minimum capture');
   assert('minimum capture footer is visible without empty page height', await js(`(()=>{const e=document.querySelector('.dw-capture-foot'),r=e?.getBoundingClientRect();return !!r&&r.top>=0&&r.bottom<=innerHeight})()`));
@@ -189,7 +211,7 @@ app.whenReady().then(async () => {
   assert('home person names are at least 15px', await js(`[...document.querySelectorAll('.dw-person strong')].every(e=>parseFloat(getComputedStyle(e).fontSize)>=15)`));
   assert('home import action links to capture', await js(`document.querySelector('.dw-start a')?.getAttribute('href')==='/capture?method=desktop'`));
   await layout('home-wide', 1184, 836);
-  await layout('home-minimum', 784, 616);
+  await layout('home-minimum', minimumWidth, minimumHeight);
   await click('.dw-toolbar .web-search-trigger');
   assert('search dialog opens', await until(`!!document.querySelector('dialog[open] #quick-search-field')`, 'search'));
   await click('button[aria-label="关闭搜索"]');
@@ -202,10 +224,16 @@ app.whenReady().then(async () => {
   await js(`window.__syntheticRail=document.querySelector('.dw-report-rail');window.__syntheticSearch=document.querySelector('.dw-search input');document.querySelector('.dw-report-items').scrollTop=170;window.__syntheticRailScroll=document.querySelector('.dw-report-items').scrollTop;window.__syntheticDocument='retained'`);
   await click('.dw-report-item');
   await until(`!!document.querySelector('[data-report-mode]')`, 'saved report reader');
+  assert('small window opens report in focused reading mode', await js(`document.querySelector('.dw-reports').classList.contains('is-focused')&&document.querySelector('.dw-reading-toggle').getAttribute('aria-label')==='显示报告列表'`));
   assert('selection keeps list instance and query', await js(`document.querySelector('.dw-report-rail')===window.__syntheticRail&&document.querySelector('.dw-search input')===window.__syntheticSearch&&document.querySelector('.dw-search input').value==='小林'`));
-  assert('selection preserves rail scroll', await js(`Math.abs(document.querySelector('.dw-report-items').scrollTop-window.__syntheticRailScroll)<2`));
+  await readingMode('filtered report');
+  await click('.dw-reading-toggle');
+  await until(`document.querySelector('.dw-report-rail').getBoundingClientRect().width>0`, 'report list revealed');
+  assert('selection preserves rail scroll after revealing list', await js(`Math.abs(document.querySelector('.dw-report-items').scrollTop-window.__syntheticRailScroll)<2`));
+  await click('.dw-reading-toggle');
   assert('selected row is marked', await js(`document.querySelector('.dw-report-item[aria-current="page"]')?.getAttribute('href')===location.pathname+location.search`));
-  await layout('report-minimum', 784, 616);
+  await layout('report-minimum', minimumWidth, minimumHeight);
+  assert('minimum report shows the complete first judgment above the fold', await js(`(()=>{const r=document.querySelector('[data-report-decision-summary] h2')?.getBoundingClientRect();return !!r&&r.top>=64&&r.bottom<=innerHeight})()`));
   await layout('report-wide', 1184, 836);
   await searchShortcut('open report');
   await js(`window.history.back()`);
@@ -218,6 +246,9 @@ app.whenReady().then(async () => {
   await input('.dw-search input', ''); await until(`document.querySelectorAll('.dw-report-item').length===12&&!document.querySelector('[aria-label="下一页"]')?.disabled`, 'restore all reports');
   await click('[aria-label="下一页"]'); await until(`document.querySelectorAll('.dw-report-item').length===4`, 'report pagination');
   assert('pagination shows second page', await js(`document.querySelector('.dw-page-controls').textContent.includes('2 / 2')`));
+  await click('.dw-report-item');
+  await until(`!!document.querySelector('[data-report-mode]')`, 'second page report');
+  await readingMode('second-page report');
   await navigate('/capture?method=desktop');
   await until(`!!document.querySelector('[data-desktop-capture-step="0"]')&&[...document.querySelectorAll('button')].some(e=>e.textContent.includes('连接本机微信')&&!e.disabled)`, 'desktop capture entry');
   assert('capture stage 1 matches source', await js(`document.querySelector('.dw-capture-steps [aria-current="step"]')?.textContent.includes('连接微信')`));
@@ -241,7 +272,7 @@ app.whenReady().then(async () => {
   assert('capture is not automatically started', requests.every(row => row.path !== '/capture'));
   await until(`document.querySelector('[data-selected-person] img')?.naturalWidth>0`, 'selected contact avatar');
   assert('selected contact avatar renders', await js(`document.querySelector('[data-selected-person] img')?.naturalWidth>0`));
-  await layout('capture-selected-minimum', 784, 616);
+  await layout('capture-selected-minimum', minimumWidth, minimumHeight);
   await captureReadability('selected contact');
   await layout('capture-selected-wide', 1184, 836);
   await js(`document.querySelector('[data-selected-person] img').dispatchEvent(new Event('error'))`);
@@ -255,12 +286,23 @@ app.whenReady().then(async () => {
   await until(`document.querySelector('img[alt="演示小林的头像"]')?.naturalWidth>0&&document.querySelector('img[alt="演示小雨的头像"]')?.naturalWidth>0`, 'saved archive avatars');
   assert('archive remote avatar uses desktop proxy', await js(`document.querySelector('img[alt="演示小林的头像"]').getAttribute('src').startsWith('/_desktop/contact-avatar?url=')`));
   assert('archive uploaded avatar remains data image', await js(`document.querySelector('img[alt="演示小雨的头像"]').getAttribute('src').startsWith('data:image/png;base64,')`));
+  await screenshot('archive-wide');
+  assert('archive native header has no duplicate generic Home return', await js(`(()=>{const e=document.querySelector('[data-page-back][href="/workspace"]');return !e||e.getClientRects().length===0})()`));
+  assert('archive hero keeps title and action in a compact row', await js(`document.querySelector('[data-aurora-hero]').getBoundingClientRect().height<145`));
   await js(`document.querySelector('img[alt="演示小林的头像"]').dispatchEvent(new Event('error'))`);
   await until(`!document.querySelector('img[alt="演示小林的头像"]')`, 'expired archive avatar fallback');
   assert('archive failed avatar retains initials', await js(`[...document.querySelectorAll('span[aria-hidden="true"]')].some(e=>e.textContent==='演'&&e.getBoundingClientRect().width>0)`));
   await win.loadURL(origin + '/relationship');
   await until(`document.querySelector('img[alt="演示小林的头像"]')?.naturalWidth>0&&document.querySelector('img[alt="演示小雨的头像"]')?.naturalWidth>0`, 'saved relationship avatars');
   assert('relationship remote and uploaded avatars both render', await js(`document.querySelector('img[alt="演示小林的头像"]').getAttribute('src').startsWith('/_desktop/contact-avatar?url=')&&document.querySelector('img[alt="演示小雨的头像"]').getAttribute('src').startsWith('data:')`));
+  for (const [route, name] of [['/chat', 'chat-wide'], ['/account', 'account-wide'], ['/analyze?mode=chat', 'analyze-wide']]) {
+    await win.loadURL(origin + route);
+    await until(`!!document.querySelector('h1')?.textContent.trim()`, name + ' heading');
+    await pause(350);
+    await screenshot(name);
+    assert(name + ' has no horizontal overflow', await js(`document.documentElement.scrollWidth<=innerWidth+1`));
+  }
+  assert('viewing and navigating never sends a paid or mutating API request', requests.every(request => request.local || request.method === 'GET'), requests.filter(request => !request.local && request.method !== 'GET'));
   assert('no asset missing', missingAssets.length === 0, missingAssets);
   const actualFonts = Object.values(renderedFonts).flat().flatMap(row => row.fonts);
   assert('real platform glyphs use Chinese UI sans font', actualFonts.length >= 3 && actualFonts.every(font => /Microsoft YaHei|PingFang/.test(font.familyName)), actualFonts);
@@ -269,7 +311,7 @@ app.whenReady().then(async () => {
 }).catch(async error => { errors.push({ name: 'workbench flow', detail: error.stack }); if (win) await screenshot('failure').catch(() => {}); await finish(); });
 async function finish() {
   await mkdir(output, { recursive: true });
-  const result = { ok: errors.length === 0, syntheticOnly: true, realNetworkUsed: false, realAccountUsed: false, checks, errors, consoleErrors, missingAssets, nativeCalls, requests, computedStyles, renderedFonts };
+  const result = { ok: errors.length === 0, syntheticOnly: true, realNetworkUsed: false, realAccountUsed: false, checks, errors, consoleErrors, missingAssets, nativeCalls, requests, computedStyles, renderedFonts, contrastMetrics };
   await writeFile(path.join(output, 'receipt.json'), JSON.stringify(result, null, 2));
   console.log(JSON.stringify({ ok: result.ok, checks, errors, output }));
   win?.destroy(); app.exit(result.ok ? 0 : 1);

@@ -17,14 +17,17 @@ import "./aurora-ui.css";
 import "./interaction-motion.css";
 import { AuxiliaryWebNav } from "@/components/AuxiliaryWebNav";
 import {PwaRegistration} from "@/components/pwa-registration";
+import {MotionPolicy} from "@/components/MotionPolicy";
+import {ReportSessionNavigation} from "@/components/web-analysis/ReportSessionNavigation";
 
 export const metadata: Metadata = {
   title: "成子关系决策智能体",
   description: "聊天截图、朋友圈与社交主页分析，人物档案、关系趋势和实时语音，手机与电脑均可使用。",
   manifest: "/manifest.webmanifest",
   icons: {
-    icon: "/favicon.svg?v=aurora-1",
-    shortcut: "/favicon.svg?v=aurora-1",
+    icon: [{ url: "/brand/chengzi-fluted-chat-v1-32.png", sizes: "32x32", type: "image/png" }, { url: "/brand/chengzi-fluted-chat-v1-48.png", sizes: "48x48", type: "image/png" }],
+    shortcut: "/brand/chengzi-fluted-chat-v1-32.png",
+    apple: "/brand/chengzi-fluted-chat-v1-180.png",
   },
 };
 
@@ -35,7 +38,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="zh-CN">
-      <body className="antialiased cz-product"><PwaRegistration/><AuxiliaryWebNav/>{children}</body>
+      <body className="antialiased cz-product"><ReportSessionNavigation/><MotionPolicy/><PwaRegistration/><AuxiliaryWebNav/>{children}</body>
     </html>
   );
 }

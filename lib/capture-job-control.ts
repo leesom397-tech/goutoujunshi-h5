@@ -1,6 +1,6 @@
 import type { qwenChat } from "./qwen";
 import { CaptureJobYield, CaptureJobRetry, CAPTURE_ALARM_MODEL_CALLS, registerCaptureModelProgress } from "./capture-job-signals.mjs";
-import { historySynthesisIssue, hasGroundedChunkResult } from "./capture-semantic-history";
+import { historySynthesisIssue, historySynthesisRepairPlan, applyHistorySynthesisRepair, hasGroundedChunkResult } from "./capture-semantic-history";
 import { validatedCaptureImageObservations } from "./capture-image-observations";
 export { CaptureJobYield, CaptureJobRetry, isCaptureJobControl, allCaptureSteps } from "./capture-job-signals.mjs";
 
@@ -32,6 +32,21 @@ export function checkpointedCaptureModel(qwen: typeof qwenChat, checkpoint: Capt
       if (phase !== "segments") return cached.text;
       try { if (groundedSegment(JSON.parse(cached.text.replace(/^\s*```(?:json)?\s*|\s*```\s*$/g, "")))) return cached.text; } catch {}
     }
+    let repairDraft: Record<string, unknown> | null = null;
+    if (phase === "synthesis" && cached?.draft && typeof cached.text === "string") {
+      try { const value=JSON.parse(cached.text); if(value&&typeof value==="object"&&!Array.isArray(value))repairDraft=value; } catch {}
+    }
+    const repairPlan=repairDraft?historySynthesisRepairPlan(repairDraft,Array.isArray(detail.findings)?detail.findings:[],detail.fullHistory===true,detail.question):null;
+    if(repairDraft&&repairPlan&&!repairPlan.issues.length&&typeof repairDraft.summary==="string"){
+      // A corrected validator can accept an old rejected draft unchanged.
+      // Recheck current authorization/context, then promote through the same
+      // owner-bound checkpoint; no provider call or alarm budget is consumed.
+      await validate?.();
+      await checkpoint("progress",{phase});
+      const text=JSON.stringify(repairDraft);
+      await checkpoint(key,{text,phase,count:0,captionCount:0,imageCount:0});
+      return text;
+    }
     // Finish this alarm's outstanding work before yielding to the next alarm.
     // Leave room for the longest (85 s) synthesis call before the 180 s
     // recovery alarm. A large import must yield, never overlap alarm workers.
@@ -43,19 +58,36 @@ export function checkpointedCaptureModel(qwen: typeof qwenChat, checkpoint: Capt
     const run = (async () => {
       await checkpoint("progress", {phase, segment: detail.segment || null});
       let text: string;
-      const repairMessages = phase === "synthesis" && cached?.draft && typeof cached.text === "string" ? [
-        ...messages.slice(0, -1),
+      const repairPrefix=messages.slice(0,-1);
+      if(repairPlan){
+        const instruction=`本次是既有报告的字段补全。证据与判断规范继续有效，但本次输出格式改为只返回指定字段的 JSON 对象，不要重写其他字段。\n${repairPlan.instruction}`;
+        const first=repairPrefix[0];
+        if(first?.role==="system"&&typeof first.content==="string")repairPrefix[0]={...first,content:first.content+"\n\n"+instruction};
+        else repairPrefix.unshift({role:"system",content:instruction});
+      }
+      const repairMessages = repairDraft && repairPlan ? [
+        ...repairPrefix,
         {role: "user" as const, content: JSON.stringify({...detail, repair: {
-          issue: cached.issue, draft: cached.text,
-          instruction: "草稿未通过核验。只依据 findings 修正缺项或无效引用，保留成立的判断，返回完整 JSON。不得新增事实或编造证据。affinityAssessment.dimensions 的 key 必须严格取 affinityRubric 的 key；status 只能 clear/ambiguous/insufficient；level 必须是 0–4 整数（不是百分数），insufficient 必须 level:null；有分项必须有非空 reason 和有效 evidenceIds。riskAssessment 每项须有对方原话、resolution、verify.action 和至少两个不同的 verify.outcomes；澄清须有更晚原话，否则 unknown/unresolved。actionPlan.steps 须有 title/action/why/evidenceIds/observeFor/advanceWhen/stopWhen；画像 subject 用 self/other/interaction。公开图片不支持好感。无依据的可选推断删除。"
+          issues: repairPlan.issues, fields: repairPlan.fields, draft: repairDraft,
+          instruction: repairPlan.instruction,
         }})},
       ] : messages;
       try { text = await qwen(repairMessages, options); }
-      catch { throw new CaptureJobRetry("当前步骤暂未完成，正在重试。已完成的段落会保留。"); }
+      catch (error) {
+        // Keep provider diagnostics useful without logging messages, prompts,
+        // report drafts or source material.
+        const status=(error as {status?:unknown})?.status;
+        console.warn("capture_model_retry",{phase,errorType:error instanceof Error?error.name:typeof error,...(typeof status==="number"?{status}:{})});
+        throw new CaptureJobRetry("当前步骤暂未完成，正在重试。已完成的段落会保留。");
+      }
       await validate?.();
       // Do not keep malformed model output as a successful checkpoint.
       let parsed: any;
       try { parsed = JSON.parse(text.replace(/^\s*```(?:json)?\s*|\s*```\s*$/g, "")); } catch { throw new CaptureJobRetry("本段结果需要重新核对。"); }
+      if(!parsed||typeof parsed!=="object"||Array.isArray(parsed))throw new CaptureJobRetry("本段结果需要重新核对。");
+      // A repair returns only the failed sections. Keep already valid sections
+      // unchanged, then validate the entire reconstructed report as usual.
+      if(repairDraft&&repairPlan){parsed=applyHistorySynthesisRepair(repairDraft,parsed,repairPlan.fields);text=JSON.stringify(parsed);}
       if (phase === "segments" && !groundedSegment(parsed) || phase === "images" && (imageIds.length ? !validatedCaptureImageObservations(parsed, imageIds) : typeof parsed?.readable !== "boolean" || typeof parsed?.observation !== "string") || phase === "synthesis" && typeof parsed?.summary !== "string") {
         throw new CaptureJobRetry("本段结果需要重新核对。");
       }

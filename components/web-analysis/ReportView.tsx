@@ -27,6 +27,8 @@ import { buildRelationshipDiagnosis } from "@/lib/relationship-diagnosis";
 import { directedCommitment } from "@/lib/conversation-context";
 import { ConversationMemoryReview } from "@/components/ConversationMemoryReview";
 import { ChatReportBrief, ReportChapterArt } from "./ReportBrief";
+import { ReplyAttentionOverview } from "./ReplyAttentionOverview";
+import { HistorySentenceReader } from "./HistorySentenceReader";
 import { ReportVisualMetrics } from "./ReportVisualMetrics";
 import { ReportDetails } from "./ReportDetails";
 import { AffinityOverview } from "./AffinityOverview";
@@ -90,6 +92,7 @@ const chatSections:ReadingSection[]=[
  {id:'status',label:'结论',caption:'判断、好感信号与关键依据',tone:'coral'},
  {id:'moments',label:'朋友圈',caption:'动态、图片与聊天的联系',tone:'amber'},
  {id:'change',label:'聊天细节',caption:'推理、原话、风险与关系变化',tone:'teal'},
+ {id:'sentences',label:'逐句解读',caption:'全部可读聊天的语气与语义',tone:'teal'},
  {id:'next',label:'相处与回复',caption:'共同点、具体回法与下一步',tone:'slate'},
 ];
 const screenshotSections:ReadingSection[]=[
@@ -142,6 +145,7 @@ export function ChatReport({report,account,styleReportIds,preview=false,publicEx
    {active==='status'&&<>
     {affinityFirst&&<><AffinityOverview report={report}/><Replies compact options={options} report={report} account={account} publicExample={publicExample}/></>}
     <ChatReportBrief report={report} diagnosis={diagnosis} showMetrics={fullHistory&&!momentOnly}/>
+    {!momentOnly&&<ReplyAttentionOverview report={report} ownerId={publicExample?undefined:account?.account?.userId}/>}
     {fullHistory&&!momentOnly&&<AffinityOverview report={report}/>}
     {!fullHistory&&!affinityFirst&&<><AffinityOverview report={report}/><Replies compact options={options} report={report} account={account} publicExample={publicExample}/></>}
     {decision.partial&&<p className="wa-status">部分材料未识别；下方依据只覆盖可读内容。</p>}
@@ -158,7 +162,7 @@ export function ChatReport({report,account,styleReportIds,preview=false,publicEx
    {active==='moments'&&fullHistory&&<HistoryReportReading report={report} diagnosis={diagnosis} section="moments"/>}
    {active==='change'&&<>
     {!fullHistory ? <><ToneEvidence key={readingScope||"public-tone"} report={report} storageKey={readingScope}/>{hasCurrentLines&&<ReportDetails title="本次上传中的回应与边界" description="只统计当前上传的行为线索"><ReportVisualMetrics report={report}/><InteractionEvidence report={report} owner={publicExample?undefined:account?.account?.userId}/></ReportDetails>}</> : <>
-    <HistoryReportReading report={report} diagnosis={diagnosis} section={momentOnly?'profile':'chat'} recentReading={recentReading}/>
+    <HistoryReportReading report={report} diagnosis={diagnosis} section={momentOnly?'profile':'chat'} recentReading={recentReading} hideSentences={!momentOnly}/>
     <ReportChapterArt kind="change"/>
     {fullHistory?<HistoryChangeReading report={report}/>:<RelationshipJourney embedded context={journey} currentReportId={report.reportId||report.id}/>}
     <RelationshipChanges diagnosis={diagnosis} semantic={semantic}/>
@@ -167,6 +171,7 @@ export function ChatReport({report,account,styleReportIds,preview=false,publicEx
     {fullHistory&&<details className={readerStyles.supplemental}><summary>完整相处历程与来源</summary><RelationshipJourney embedded context={journey} currentReportId={report.reportId||report.id}/></details>}
     </>}
    </>}
+   {active==='sentences'&&fullHistory&&!momentOnly&&<HistorySentenceReader report={report} publicExample={publicExample}/>}
    {active==='next'&&<>
     <section className="wa-card" id="replies"><Replies key={`${account?.account?.userId}:${report.id}`} options={options} report={report} account={account} styleReportIds={styleReportIds} publicExample={publicExample}/></section>
     <section className="wa-card" data-report-connection><h2><HeartHandshake size={21}/>怎么与{identity.other}相处</h2>{report.guidanceUpdatedAt&&!Number.isNaN(Date.parse(report.guidanceUpdatedAt))&&<p className="wa-muted" data-guidance-updated>建议更新于 {new Date(report.guidanceUpdatedAt).toLocaleString("zh-CN",{timeZone:"Asia/Shanghai",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hour12:false})}</p>}<PersonalConnection report={report} publicExample={publicExample} embedded/>{fit&&<FitReport fit={fit} current={Object.prototype.hasOwnProperty.call(report,'latestCompatibility')}/>}</section>

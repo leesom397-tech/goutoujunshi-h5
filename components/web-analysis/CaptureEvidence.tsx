@@ -14,6 +14,7 @@ type Selection = { quote?: string; sourceIds?: string[]; label?: string; library
 type EvidenceContext = { ownerId?: string; reportId?: string; visible: boolean; open: (selection: Selection, trigger: HTMLElement) => void };
 type ProviderProps = { ownerId?: string; reportId?: string; captureOrigin?: boolean; fullHistory?: boolean; historyKind?: 'chat' | 'moments'; historyCount?: number; showSourceBar?: boolean; children: ReactNode };
 const Context = createContext<EvidenceContext | null>(null);
+export function useCaptureEvidenceContext() { return useContext(Context); }
 const plain = (value: unknown) => typeof value === "string" ? value.trim() : "";
 const normalized = (value: string) => value.replace(/[\s“”‘’「」『』，。！？：；、,.!?;:'"()（）]/gu, "");
 

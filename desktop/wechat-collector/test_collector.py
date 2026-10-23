@@ -296,8 +296,9 @@ class TwoPhaseCaptureTest(unittest.TestCase):
         conn = SimpleNamespace(send=events.append, close=lambda: None)
         with patch("adapter.capture", side_effect=run):
             _capture_process(conn, {"includeVoice": True})
-        self.assertEqual([event["type"] for event in events], ["partial", "progress", "result"])
-        self.assertEqual(events[0]["partial"], partial)
+        self.assertEqual([event["type"] for event in events], ["progress", "partial", "progress", "result"])
+        self.assertEqual(events[0]["phase"], "initializing")
+        self.assertEqual(events[1]["partial"], partial)
         self.assertEqual(events[-1]["result"], final)
 
 

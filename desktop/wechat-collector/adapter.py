@@ -699,7 +699,7 @@ def _moments_window(main, window):
         try:
             # No found_index: the query must resolve one album, not silently
             # choose the first. Avoid wrapping every unrelated main-window list.
-            selected = main.child_window(auto_id="sns_list", control_type="List")
+            selected = main.child_window(auto_id="sns_list", control_type="List", visible_only=True)
             if selected.exists(timeout=.1) and selected.is_visible():
                 return main
         except Exception:
@@ -901,7 +901,7 @@ def _open_moments_from_chat(main, friend, modules, expected_identifier=None, _re
         try:
             _click_control(candidate)
             album = _moments_window(main, window)
-            if _wait_exists(album.child_window(**ui.Lists.MomentsList), timeout=2, visible=True):
+            if _resolve_moments_listing(album, ui.Lists.MomentsList, fallback=main, timeout=2) is not None:
                 return album
         except Exception:
             continue
@@ -959,6 +959,38 @@ def _moment_wrapper(control):
         return control.wrapper_object()
     except Exception:
         return control
+
+
+def _resolve_moments_listing(window, selector, *, fallback=None, timeout=0):
+    """Resolve the current album, never the first hidden or cached Qt list.
+
+    WeChat 4.2 replaces sns_list on pinned/detail transitions. The old wrapper
+    can still claim to be visible, so transitions must resolve from the stable
+    parent. Upstream's found_index=0 bypasses that uniqueness check.
+    """
+    criteria = {key: value for key, value in selector.items() if key != "found_index"}
+    criteria["visible_only"] = True
+    deadline = time.monotonic() + max(0, timeout)
+    while True:
+        try:
+            current = window.child_window(**criteria)
+            if _wait_exists(current, timeout=0, visible=True):
+                return _moment_wrapper(current)
+        except Exception:
+            pass
+        if fallback is not None:
+            try:
+                current_lists = [item for item in fallback.descendants(control_type="List")
+                                 if getattr(item.element_info, "automation_id", "") == selector.get("auto_id", "sns_list")
+                                 and _is_visible(item)]
+                if len(current_lists) == 1:
+                    return current_lists[0]
+            except Exception:
+                pass
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None
+        time.sleep(min(.1, remaining))
 
 
 def _visible_moment_cells(listing):
@@ -1103,10 +1135,11 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
     except TypeError:
         progress(12, "正在核对好友资料和朋友圈入口")
     window = timings.measure("openAlbum", _open_moments_from_chat, main, friend, modules, expected_identifier=search_query)
-    listing = window.child_window(**ui.Lists.MomentsList)
+    listing = timings.measure("listReady", _resolve_moments_listing, window,
+                              ui.Lists.MomentsList, fallback=main, timeout=8)
     detail = window.child_window(**ui.Lists.SnsDetailList)
     back = window.child_window(**ui.Buttons.BackButton)
-    if not timings.measure("listReady", _wait_exists, listing, timeout=8, visible=True):
+    if listing is None:
         raise CaptureError("MOMENTS_UNREADABLE", "朋友圈列表不可读，可能未开放、暂无内容或当前微信版本界面不兼容。")
     try:
         listing.wait("ready", timeout=4)
@@ -1119,7 +1152,7 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
         if (main.handle, main.process_id()) != main_identity:
             raise CaptureError("MOMENTS_VIEW_CHANGED", "当前朋友圈已切换，已停止读取，避免混入另一位好友的动态。")
 
-    def refresh_listing(force=False):
+    def refresh_listing(force=False, timeout=0):
         nonlocal listing, detail, back
         if not force:
             # A bound wrapper stays valid across ordinary virtual-row changes.
@@ -1129,21 +1162,10 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
                     return listing
             except Exception:
                 pass
-        try:
-            # Resolve the narrowly scoped album control first. Traversing the
-            # entire main-window UI tree twice per post is expensive with long
-            # chat lists; only stale/replaced album wrappers need that fallback.
-            current = window.child_window(**ui.Lists.MomentsList)
-            if _wait_exists(current, timeout=0, visible=True):
-                listing = _moment_wrapper(current)
-            else:
-                current_lists = [item for item in main.descendants(control_type="List")
-                                 if getattr(item.element_info, "automation_id", "") == "sns_list"
-                                 and _is_visible(item)]
-                if len(current_lists) == 1:
-                    listing = current_lists[0]
-        except Exception:
-            pass
+        # Never retain the previous bound wrapper when its replacement has not
+        # appeared yet: in 4.2 that object can still expose the old album rows.
+        listing = _resolve_moments_listing(window, ui.Lists.MomentsList,
+                                           fallback=main, timeout=timeout)
         try:
             detail = window.child_window(**ui.Lists.SnsDetailList)
             back = window.child_window(**ui.Buttons.BackButton)
@@ -1278,8 +1300,8 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
                         lambda timeout: _wait_hidden(detail, timeout=timeout),
                         3, native_modes, timings, click_state):
                     raise CaptureError("MOMENTS_DETAIL_STALE", "上一条动态详情没有关闭，已保留当前进度。")
-                timings.measure("listRefresh", refresh_listing, force=True)
-                timings.measure("listReady", _wait_exists, listing, timeout=3, visible=True)
+                if timings.measure("listRefresh", refresh_listing, force=True, timeout=3) is None:
+                    raise CaptureError("MOMENTS_LIST_STALE", "动态已读取，但朋友圈列表尚未恢复；已保留当前进度。")
             phase = parent_phase
 
     def read_pinned():
@@ -1291,7 +1313,6 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
         if not top_cells:
             return
         top = top_cells[0]
-        before = _viewport_fingerprint(listing)
         try:
             _click_control(_find_clickable_ancestor(top))
         except Exception:
@@ -1299,11 +1320,17 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
         deadline = time.monotonic() + 4
         entered = False
         while time.monotonic() < deadline:
-            if _viewport_fingerprint(listing) != before:
+            refresh_listing(force=True)
+            # A pinned page may show the very same posts as the ordinary feed.
+            # Its removed entry row plus readable current post rows prove the
+            # transition; fingerprints from the previous wrapper cannot.
+            if listing is not None and not _moment_special_cells(listing, "mmui::AlbumTopCell") and _visible_moment_cells(listing):
                 entered = True
                 break
             time.sleep(.15)
         if not entered:
+            if listing is None or not _moment_special_cells(listing, "mmui::AlbumTopCell"):
+                raise CaptureError("PINNED_ENTRY_TIMEOUT", "置顶列表尚未加载完成，已保留当前进度；请继续采集。")
             warnings.append("置顶区域没有展开，已继续读取普通朋友圈；置顶内容需要再次确认。")
             completion["unreadableCount"] += 1
             return
@@ -1313,7 +1340,8 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
             if not all_visible and moment_count() >= limit:
                 break
             pinned_steps += 1
-            refresh_listing()
+            if refresh_listing(timeout=3) is None:
+                raise CaptureError("MOMENTS_LIST_STALE", "朋友圈列表尚未恢复，已保留当前进度。")
             cells = timings.measure("scanVisible", _visible_moment_cells, listing)
             fresh = []
             for cell in cells:
@@ -1359,7 +1387,7 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
             returned = False
             while time.monotonic() < deadline:
                 refresh_listing(force=True)
-                returned = bool(_moment_special_cells(listing, "mmui::AlbumTopCell"))
+                returned = listing is not None and bool(_moment_special_cells(listing, "mmui::AlbumTopCell"))
                 if returned:
                     break
                 time.sleep(.15)
@@ -1379,7 +1407,8 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
             completion["stopReason"] = "requested-count"
             break
         assert_view()
-        refresh_listing()
+        if refresh_listing(timeout=3) is None:
+            raise CaptureError("MOMENTS_LIST_STALE", "朋友圈列表尚未恢复，已保留当前进度。")
         cells = timings.measure("scanVisible", _visible_moment_cells, listing)
         fresh = []
         for cell in cells:

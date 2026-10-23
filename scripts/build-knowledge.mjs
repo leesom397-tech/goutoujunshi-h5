@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
+import "./build-chat-skills.mjs";
 
 const root = fileURLToPath(new URL("../knowledge", import.meta.url));
 const output = fileURLToPath(new URL("../lib/knowledge.generated.json", import.meta.url));

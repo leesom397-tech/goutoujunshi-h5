@@ -47,10 +47,50 @@ class WindowSelectionTests(unittest.TestCase):
 
 
 class RecoveryTests(unittest.TestCase):
+    def test_explicit_recovery_requires_fresh_provider_and_reports_rollback_failure(self):
+        from unittest.mock import Mock
+        unavailable = {"ready":False,"uiCode":"WECHAT_UI_UNAVAILABLE"}
+        ready = {"ready":True,"uiCode":"READY"}
+        gate = Mock(side_effect=lambda hwnd, verify: verify())
+        modules={"psutil":SimpleNamespace(process_iter=lambda *args:[SimpleNamespace(pid=123,info={"name":"Weixin.exe"})]),
+                 "win32gui":SimpleNamespace(GetWindowText=lambda hwnd:"微信",SetForegroundWindow=lambda hwnd:None),
+                 "qt_accessibility_recovery":SimpleNamespace(recover_qt_accessibility=gate,AccessibilityRollbackError=RuntimeError)}
+        with patch.dict(sys.modules,modules), patch.object(compatibility,"wechat_windows",return_value=[(1,123,True)]), \
+             patch.object(compatibility,"restore_window"),patch.object(compatibility,"ui_metadata",return_value=[(1,"mmui::MainWindow")]), \
+             patch.object(compatibility.time,"sleep"), \
+             patch.object(compatibility,"compatibility_probe",side_effect=[unavailable]*5+[ready]):
+            self.assertEqual(compatibility.prepare_capture_ui(),ready)
+        gate.assert_called_once()
+        # UIA may briefly verify before the transaction rejects a changed
+        # window or gate readback. Never publish its intermediate ready state.
+        gate.reset_mock()
+        def rejected_after_verification(hwnd, verify):
+            self.assertTrue(verify())
+            return False
+        gate.side_effect=rejected_after_verification
+        with patch.dict(sys.modules,modules), patch.object(compatibility,"wechat_windows",return_value=[(1,123,True)]), \
+             patch.object(compatibility,"restore_window"),patch.object(compatibility,"ui_metadata",return_value=[(1,"mmui::MainWindow")]), \
+             patch.object(compatibility.time,"sleep"), \
+             patch.object(compatibility,"compatibility_probe",side_effect=[unavailable]*5+[ready]):
+            self.assertEqual(compatibility.prepare_capture_ui(),unavailable)
+        gate.assert_called_once()
+        # A rejected binary or an unsuccessful provider check is not readiness.
+        gate.reset_mock();gate.side_effect=None;gate.return_value=False
+        with patch.dict(sys.modules,modules), patch.object(compatibility,"wechat_windows",return_value=[(1,123,True)]), \
+             patch.object(compatibility,"restore_window"),patch.object(compatibility,"ui_metadata"), \
+             patch.object(compatibility.time,"sleep"),patch.object(compatibility,"compatibility_probe",return_value=unavailable):
+            self.assertFalse(compatibility.prepare_capture_ui()["ready"])
+        gate.side_effect=RuntimeError("synthetic rollback failure")
+        with patch.dict(sys.modules,modules), patch.object(compatibility,"wechat_windows",return_value=[(1,123,True)]), \
+             patch.object(compatibility,"restore_window"),patch.object(compatibility,"ui_metadata"), \
+             patch.object(compatibility.time,"sleep"),patch.object(compatibility,"compatibility_probe",return_value=unavailable):
+            self.assertEqual(compatibility.prepare_capture_ui()["uiCode"],"WECHAT_UI_RECOVERY_FAILED")
+
     def test_shell_recovers_after_standard_accessibility_request_without_restart(self):
         events=[]
         modules={"psutil":SimpleNamespace(process_iter=lambda *args:[SimpleNamespace(pid=123,info={"name":"Weixin.exe"})]),
                  "win32gui":SimpleNamespace(ShowWindowAsync=lambda *args:events.append("restore"),
+                                              GetWindowText=lambda hwnd:"微信",
                                               SetForegroundWindow=lambda *args:events.append("foreground")),
                  "win32process":SimpleNamespace()}
         status={"ready":False,"uiCode":"WECHAT_UI_UNAVAILABLE"}

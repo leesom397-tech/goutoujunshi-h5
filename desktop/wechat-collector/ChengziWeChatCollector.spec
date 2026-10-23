@@ -21,7 +21,10 @@ version_info_path = write_version_info(
 
 datas = [('local_ocr.ps1', '.'), ('LICENSE-voice-dependencies.txt', '.'),
          ('chengzi-fluted-chat-v1.ico', '.'), ('chengzi-fluted-chat-v1.png', '.'),
-         ('vendor/LICENSE.wechatauto-replica.txt', 'vendor'), ('vendor/NOTICE.md', 'vendor')]
+         ('vendor/LICENSE.wechatauto-replica.txt', 'vendor'), ('vendor/NOTICE.md', 'vendor'),
+         ('vendor/WECHATAUTO_ACCESSIBILITY_LICENSE', 'vendor'),
+         ('vendor/WECHATAUTO_ACCESSIBILITY_NOTICE.md', 'vendor'),
+         ('vendor/wechatauto-accessibility-pin.json', 'vendor')]
 binaries = []
 hiddenimports = ['desktop_service', 'pythoncom', 'pywintypes', 'voice_ui', 'voice_transcript', 'voice_ocr', 'local_ocr',
                  'voice_context', 'voice_candidates', 'visual_voice_enrichment', 'voice_menu_ui', 'native_transcript',

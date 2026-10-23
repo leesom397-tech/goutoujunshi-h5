@@ -61,3 +61,9 @@
 .panel>.chapterHeading h2{margin:0;font-size:25px;color:#244c46;line-height:1.4}
 .continuous[data-embedded=true]{--page-navigation-height:70px}
 @media(max-width:700px){.continuous{--report-navigation-height:64px;--report-navigation-gap:3px}.directory{gap:2px;padding:3px;border-radius:11px}.directory a{min-height:48px;padding:7px 2px;font-size:14px;word-break:keep-all;overflow-wrap:normal}.continuous>.panel{padding-bottom:26px;margin-bottom:23px}.panel>.chapterHeading h2{font-size:22px}.chapterHeading{margin-bottom:18px}}
+.directory { box-shadow:0 7px 25px -18px #9f4e3844,inset 0 1px #fff; background:#fffaf4f2; border-color:#e6d8ca; backdrop-filter:blur(16px); }
+.directory a { transition:background .18s,color .18s,box-shadow .18s; }
+.directory a[aria-current=location] { background:#9f4e38; box-shadow:0 3px 10px #9f4e3824; }
+.panel>.chapterHeading h2 { color:#28251f; }
+@media(max-width:560px) { .directory { display:flex!important; overflow-x:auto; scroll-snap-type:x proximity; } .directory a { flex:0 0 auto; min-width:84px; padding-inline:12px; white-space:nowrap; scroll-snap-align:start; } }
+@media(prefers-reduced-motion:reduce) { .directory a { transition:none; } }

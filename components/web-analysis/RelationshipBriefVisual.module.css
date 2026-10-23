@@ -30,3 +30,12 @@
 .chapterArt{height:100px;overflow:hidden;border-radius:16px;margin:0 0 24px;background:#fff9f3}.chapterArt :global([data-glass-ready]) img{object-fit:cover}.chapterArt :global(button){width:44px;min-width:44px;height:44px}
 @media(max-width:700px){.hero{grid-template-columns:minmax(0,1fr);border-radius:17px}.verdict{padding:26px 20px 21px}.verdictLabel{margin:13px 0 6px}.brief .verdict h2{font-size:24px;line-height:1.5}.brief .verdictBody{font-size:16px;margin-top:11px}.scope{font-size:14px!important;margin-top:12px!important}.originalAnalysis{margin-top:10px}.action{margin:0;padding:20px;gap:10px;border-left:0;border-top:1px solid #dce4d5}.brief .action h3{font-size:19px}.brief .action>p{font-size:16px}.action :is(button,a){margin-top:5px;width:100%;min-height:48px}.readingGrid{margin-top:18px}.evidence{padding:18px 16px}.evidence :global([data-key-evidence])>ol{grid-template-columns:1fr;gap:16px}.chapterArt{height:74px;margin-bottom:20px}}
 @media(prefers-reduced-motion:reduce){.action :is(button,a){transition:none}}
+/* Original fluted glass carries into the verdict and its immediate next step. */
+.hero { border-color:#ead4c3; box-shadow:0 14px 48px -32px #a85c3b44; }
+.hero::before { height:12px; }
+.action { isolation:isolate; background:#fff4e9; border-left-color:#ecdbcb; }
+.action::before { content:""; position:absolute; inset:0; z-index:0; opacity:.54; background:linear-gradient(90deg,#fff9f3e6,#fff9f37a),url('/images/aurora-fluted-light-v5.webp') 66% center/cover; }
+.brief .verdict h2,.brief .action h3 { color:#28251f; }
+.brief .verdictBody { font-size:16px; color:#51483e; }
+.chapterArt { height:120px; border:1px solid #eeded0; }
+@media(max-width:700px) { .chapterArt { height:84px; } .brief .verdict h2 { font-size:23px; } }

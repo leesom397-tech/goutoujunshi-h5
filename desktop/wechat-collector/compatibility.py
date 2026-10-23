@@ -55,7 +55,7 @@ def prepare_capture_ui():
     """Only called by an explicitly requested capture worker, never /health.
 
     Restore one verified WeChat top-level window before rechecking UIA. Do not
-    launch/restart WeChat, click arbitrary content or change accessibility flags.
+    launch/restart WeChat or change system accessibility settings.
     Readiness requires a real main-window provider after activation. A Qt shell
     alone does not prove account restrictions or a successful recovery.
     """
@@ -69,6 +69,11 @@ def prepare_capture_ui():
         pids = {p.pid for p in psutil.process_iter(["name"])
                 if (p.info["name"] or "").lower() == "weixin.exe"}
         windows = wechat_windows(pids)
+        # WeChat 4.2 exposes independent history/search windows with the same
+        # Qt host class. They are not another account. Only restore a window
+        # with the app's exact main title; UIA still has to verify readiness.
+        windows = [window for window in windows
+                   if win32gui.GetWindowText(window[0]) in ("微信", "Weixin", "WeChat")]
         if len(windows) > 1:
             return {**before, "uiCode": "WECHAT_WINDOW_AMBIGUOUS", "message": "检测到多个微信主窗口，请只保留要采集的账号窗口后重试。"}
         if len(windows) == 1:
@@ -88,6 +93,26 @@ def prepare_capture_ui():
             current = compatibility_probe()
             if current.get("ready"):
                 return current
+        if len(windows) == 1 and current.get("uiCode") == "WECHAT_UI_UNAVAILABLE":
+            # WeChat 4.2 can leave its Qt provider inactive after startup. Only
+            # the explicitly requested capture reaches this verified recovery;
+            # passive /health probes never modify the application. The helper
+            # rejects unknown/ambiguous binaries and rolls back failed checks.
+            from qt_accessibility_recovery import recover_qt_accessibility, AccessibilityRollbackError
+            verified = [current]
+            def verify_provider():
+                if ui_metadata([windows[0]]) != [(windows[0][0], "mmui::MainWindow")]:
+                    return False
+                verified[0] = compatibility_probe()
+                return verified[0].get("ready") is True
+            try:
+                if recover_qt_accessibility(windows[0][0], verify_provider):
+                    return verified[0]
+            except AccessibilityRollbackError:
+                return {**current, "uiCode": "WECHAT_UI_RECOVERY_FAILED", "message": "微信界面连接恢复未完成，已停止本次采集；已保存的资料保留。请退出并重新打开微信后再连接。"}
+            # The callback is only an intermediate observation. A later
+            # window/readback check can reject the transaction and roll it
+            # back, so only recover() == True may publish that readiness.
         return current
     except Exception:
         return before

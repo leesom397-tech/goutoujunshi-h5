@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "version": "0.1.0-preview.10",
+  "files": {
+    "windows": {"available": false, "label": "Windows", "system": "Windows 10 / 11 · 64 位"},
+    "mac": {"available": false, "label": "Mac", "system": "Apple 芯片 · arm64"}
+  }
+}

@@ -5,7 +5,7 @@ export function cleanCommunicationReading(value: unknown) {
   const findings=(Array.isArray(v.hypotheses)?v.hypotheses:[]).slice(0,8).flatMap(row=>{
     if(!row||typeof row!=="object"||Array.isArray(row))return [];
     const x={title:text(row.title,40),evidence:text(row.evidence,180),possibility:text(row.possibility,240),alternative:text(row.alternative,120),verify:text(row.verify,160)};
-    return x.title&&x.evidence&&x.possibility&&x.alternative?[x]:[];
+    return x.title&&x.evidence&&x.possibility?[x]:[];
   }).filter((x,i,all)=>all.findIndex(y=>y.title===x.title)===i).slice(0,3);
   if(!findings.length)return null;
   const a=v.approach && typeof v.approach==='object' && !Array.isArray(v.approach) ? v.approach as Record<string,unknown> : null;

@@ -73,10 +73,11 @@ def build(manifest_path: Path, output_dir: Path | None = None, build_dir: Path |
     command = [
         sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--onefile",
         "--windowed", "--noupx", "--log-level", "WARN", "--name", name,
-        "--icon", str(ROOT / "launcher.ico"),
+        "--icon", str(ROOT / "chengzi-fluted-chat-v1.ico"),
         "--version-file", str(version_info_path),
         "--distpath", str(output_dir), "--workpath", str(build_dir / "work"),
         "--specpath", str(build_dir), "--add-data", f"{manifest_path}{';' if sys.platform == 'win32' else ':'}.",
+        "--add-data", f"{ROOT / 'chengzi-fluted-chat-v1.ico'}{';' if sys.platform == 'win32' else ':'}.",
         str(ROOT / "launcher.py"),
     ]
     environment = dict(os.environ)

@@ -1,5 +1,9 @@
 This product adapts the behavior framework of powerycy/goutoujunshi.
 
+## Directly bundled conversation skills
+
+Reviewed, verbatim paragraphs from [tomwong001/qingsheng-skill](https://github.com/tomwong001/qingsheng-skill), commit `fd762df2e0ce4b8ec68b0087ba7178761045bd1a`, and [op7418/Humanizer-zh](https://github.com/op7418/Humanizer-zh), commit `f4518a8eab97b8bfebc66a89d34320a89bef6930`, are loaded into the product's existing reply generation calls. Complete snapshots, paragraph selectors, SHA-256 checksums and MIT licenses are retained in [third-party/chat-skills](third-party/chat-skills/README.md). Copyright (c) 2026 tomwong001 and qingsheng-skill contributors; Copyright (c) 2026 歸藏. No upstream tool or installation commands are executed by the product.
+
 The relationship-analysis workflow and independently written comparison/review guide reference EMANUELALIU/wechat-chat-analysis, pinned commit fd59b2d1d11f492acde2963d6d2560aa165ed653. Its README declares MIT, but the inspected snapshot has no standalone LICENSE or copyright-holder notice; the exact declaration and provenance are retained in [third-party/wechat-chat-analysis/UPSTREAM-LICENSE-NOTICE.md](third-party/wechat-chat-analysis/UPSTREAM-LICENSE-NOTICE.md). Its export scripts and original implementation code are not included in the hosted product. The referenced full-export procedure applies to Mac WeChat 4.x, not to Windows WeChat backups.
 
 Homepage photograph: "Two chairs and a table with sunlight streaming in" by Maximilian Bungart, downloaded from https://unsplash.com/photos/two-chairs-and-a-table-with-sunlight-streaming-in-EClL92YshcE and used under the Unsplash License (https://unsplash.com/license).

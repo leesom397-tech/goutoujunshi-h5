@@ -18,6 +18,70 @@ MAX_PIXELS = 20_000_000
 MAX_INDEX_ENTRIES = 100_000
 INDEX_SECONDS = 3.0
 PHOTO_ROOTS = ("msg/attach", "FileStorage/Image", "FileStorage/Cache")
+MAX_PACKED_IMAGE_BYTES = 4096
+
+
+def packed_image_reference(data):
+    """Read only packed_info_data field 3 -> field 4's local image name.
+
+    In 4.x the XML md5 identifies content, while this protobuf field names the
+    cached DAT. They need not match. Do not pick arbitrary hex strings (which
+    may be unrelated metadata), partial protobufs, or ambiguous file names.
+    """
+    if not isinstance(data, bytes) or not 0 < len(data) <= MAX_PACKED_IMAGE_BYTES:
+        return ""
+
+    def fields(blob):
+        cursor = 0
+        def number():
+            nonlocal cursor
+            value = 0
+            for shift in range(0, 70, 7):
+                if cursor >= len(blob):
+                    raise ValueError()
+                byte = blob[cursor]
+                cursor += 1
+                value |= (byte & 127) << shift
+                if byte < 128:
+                    return value
+            raise ValueError()
+        result = []
+        while cursor < len(blob):
+            tag = number()
+            field, wire = tag >> 3, tag & 7
+            if not 0 < field < (1 << 29):
+                raise ValueError()
+            if wire == 0:
+                number()
+            elif wire in (1, 2, 5):
+                size = number() if wire == 2 else (8 if wire == 1 else 4)
+                end = cursor + size
+                if end > len(blob):
+                    raise ValueError()
+                if wire == 2:
+                    result.append((field, blob[cursor:end]))
+                cursor = end
+            else:
+                raise ValueError()
+        return result
+
+    try:
+        names = []
+        for field, nested in fields(data):
+            if field != 3:
+                continue
+            for subfield, name in fields(nested):
+                if subfield == 4:
+                    if re.fullmatch(rb"[0-9a-fA-F]{32}", name) is None:
+                        return ""
+                    names.append(name.decode("ascii").lower())
+        return names[0] if len(names) == 1 else ""
+    except (ValueError, UnicodeError):
+        return ""
+
+
+def _local_reference(value):
+    return value.lower() if isinstance(value, str) and re.fullmatch(r"[0-9a-fA-F]{32}", value) else ""
 
 
 def image_reference(content):
@@ -84,12 +148,13 @@ def _preview(data, image_keys=None):
 
 
 class LocalChatImages:
-    def __init__(self, account_dir, contents, *, account_id=None, image_key_context=None,
+    def __init__(self, account_dir, contents, *, account_id=None, image_key_context=None, file_references=(),
                  max_entries=MAX_INDEX_ENTRIES, seconds=INDEX_SECONDS):
         self.root = Path(account_dir).resolve()
         self.account_id = account_id
         self.image_key_context = image_key_context
         self.targets = {value for content in contents if (value := image_reference(content))}
+        self.targets.update(value for reference in file_references if (value := _local_reference(reference)))
         self.files = {value: [] for value in self.targets}
         self.complete = True
         self.cache = {}
@@ -124,13 +189,14 @@ class LocalChatImages:
                         if path.resolve().is_relative_to(self.root) and not path.is_symlink():
                             self.files[match[1]].append(path)
 
-    def resolve(self, content):
-        reference = image_reference(content)
-        if not reference:
+    def resolve(self, content, *, file_reference=None):
+        references = tuple(dict.fromkeys(reference for reference in
+            (_local_reference(file_reference), image_reference(content)) if reference))
+        if not references:
             return None, "message-reference-missing"
-        if reference in self.cache:
-            return self.cache[reference]
-        paths = self.files.get(reference, [])
+        if references in self.cache:
+            return self.cache[references]
+        paths = [path for reference in references for path in self.files.get(reference, [])]
         # Prefer an original-sized cached file to the _t thumbnail, when usable.
         paths = sorted(paths, key=lambda path: (bool(re.search(r"(?:_t|thumb)", path.stem, re.I)), str(path)))
         status = "missing-local" if self.complete else "scan-incomplete"
@@ -147,9 +213,9 @@ class LocalChatImages:
                 if image:
                     if len(self.cache) >= 16:
                         self.cache.pop(next(iter(self.cache)))
-                    self.cache[reference] = image, status
+                    self.cache[references] = image, status
                     return image, status
             except OSError:
                 status = "missing-local"
-        self.cache[reference] = None, status
+        self.cache[references] = None, status
         return None, status

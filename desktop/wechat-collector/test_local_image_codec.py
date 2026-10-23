@@ -221,13 +221,17 @@ class TargetedImageRepairTests(unittest.TestCase):
             photos = Path(temporary) / "msg/attach"
             photos.mkdir(parents=True)
             xml = '<img md5="' + "a" * 32 + '"/>'
-            (photos / ("a" * 32 + ".dat")).write_bytes(encrypted_image(raster(), key=keys[0], xor_key=keys[1]))
+            # 4.2's local DAT name differs from the content MD5 in the XML.
+            (photos / ("b" * 32 + ".dat")).write_bytes(encrypted_image(raster(), key=keys[0], xor_key=keys[1]))
             selected = source.shard("message_0.db")
             source.add(selected, 1, 101, mtype=3, text=xml)
             source.add(selected, 2, 102, mtype=1, text="不可回扫的文字")
             source.add(selected, 3, 103, mtype=34, text="不可重复转写的语音")
             other = source.shard("message_1.db")
             source.add(other, 1, 104, mtype=3, text=xml)
+            selected[0].execute(f'ALTER TABLE "{selected[1]}" ADD COLUMN packed_info_data BLOB')
+            selected[0].execute(f'UPDATE "{selected[1]}" SET packed_info_data=? WHERE server_id=101',
+                (b"\x08\x01\x10\x02\x1a\x22\x22\x20" + b"b" * 32 + b"\x58\x01",))
             source.selected_message_shards = Mock(return_value=iter([("message_0.db", selected[0])]))
             source.message_shards = Mock(side_effect=AssertionError("all shards"))
             events = []

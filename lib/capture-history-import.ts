@@ -11,7 +11,7 @@ export type HistoryPage = {
   nextCursor: string | null; snapshot: string; complete: boolean;
 };
 export type HistoryBatch = CaptureBatch & { history: HistoryPage };
-export type HistoryUpdate = { message: string; pageCount: number; readCount: number; added: number; updatedVoice: number; complete: boolean };
+export type HistoryUpdate = { message: string; pageCount: number; readCount: number; added: number; updatedVoice: number; complete: boolean; progress?: number };
 export type HistoryAcceptResult = { added: number; updatedVoice: number; total: number; libraryId: string };
 export type HistoryRequest = (path: string, options?: { body?: unknown; signal?: AbortSignal }) => Promise<unknown>;
 export type HistoryImportOptions = {
@@ -24,6 +24,8 @@ export type HistoryImportOptions = {
   imageIds?: Array<{ messageShard: string; messageId: string; localId?: string }>;
   includeVoice?: boolean; onProgress?: (update: HistoryUpdate) => void;
   onJob?: (id: string | null) => void; signal?: AbortSignal; pollMs?: number;
+  /** Stop foreground waiting after no helper progress; retain the live job for reconnection. */
+  idleTimeoutMs?: number;
 };
 
 const PAGE_SIZE = 500, MAX_TOKEN = 24_000;
@@ -223,14 +225,27 @@ async function runHistoryPages(options: HistoryImportOptions): Promise<HistoryAc
   if (progress.complete) throw invalid("这次历史导入已经完成，请从已完成的快照创建增量导入。");
   const pollMs = options.pollMs ?? 1000;
   if (!Number.isFinite(pollMs) || pollMs < 0 || pollMs > 60_000) throw invalid();
+  const idleTimeoutMs = options.idleTimeoutMs ?? (options.includeVoice || options.imageIds ? 300_000 : 120_000);
+  if (!Number.isFinite(idleTimeoutMs) || idleTimeoutMs < 1 || idleTimeoutMs > 25 * 60_000) throw invalid();
   const totals: HistoryAcceptResult = { added: 0, updatedVoice: 0, total: 0, libraryId: "" };
   // A broken provider must not be able to keep returning the same messages
   // behind changing cursor metadata forever.
   const seenRecordIds = new Set<string>();
   let pendingIdentity: string | null = null;
   const seenCursors = new Set<string>(progress.cursor ? [progress.cursor] : []);
-  const notify = (message: string) => options.onProgress?.({ message, pageCount: progress.pages, readCount: progress.count,
-    added: totals.added, updatedVoice: totals.updatedVoice, complete: progress.complete });
+  let observedProgress: number | undefined, lastNotification = "", announcedJob: string | null | undefined;
+  const announceJob = (id: string | null) => {
+    if (id === announcedJob) return;
+    announcedJob = id; options.onJob?.(id);
+  };
+  const notify = (message: string) => {
+    const update = { message, pageCount: progress.pages, readCount: progress.count,
+      added: totals.added, updatedVoice: totals.updatedVoice, complete: progress.complete,
+      ...(observedProgress === undefined ? {} : { progress: observedProgress }) };
+    const signature = JSON.stringify(update);
+    if (signature === lastNotification) return;
+    lastNotification = signature; options.onProgress?.(update);
+  };
   const persist = () => writeHistoryProgress(progress);
   // A partial page may already be in IndexedDB when the helper stops or the
   // browser reloads. A digest proves this exact position/page was accepted;
@@ -269,6 +284,9 @@ async function runHistoryPages(options: HistoryImportOptions): Promise<HistoryAc
       let missingRetried = false, revision = 0, identity: string | null = null, sourceRetries = 0;
       pendingIdentity = null;
       const began = Date.now();
+      let lastActivityAt = began, lastActivity = "";
+      observedProgress = undefined;
+      const stalled = () => Object.assign(new Error(`本机读取暂时没有新进展${Math.max(totals.total,progress.count)>0 ? `，已保存 ${Math.max(totals.total,progress.count)} 条` : "，尚未返回聊天"}。读取位置和任务已保留；点击“继续导入”会重新连接同一任务，也可以先暂停后检查微信。`), { code: "HISTORY_STALLED" });
       const retrySourceChange = async (error: unknown) => {
         if (!isHistorySourceUpdating(error) || sourceRetries >= 2) return false;
         sourceRetries++;
@@ -280,7 +298,7 @@ async function runHistoryPages(options: HistoryImportOptions): Promise<HistoryAc
       };
       for (;;) {
         checkAbort(options.signal);
-        if (Date.now() - began > 25 * 60_000) throw invalid("本页任务仍未结束，读取位置已保留，稍后可继续查看。");
+        if (Date.now() - began > 25 * 60_000) throw stalled();
         if (!progress.pendingJob) {
           let started: unknown;
           try { started = await options.request("/capture", { signal: options.signal, body: {
@@ -300,7 +318,9 @@ async function runHistoryPages(options: HistoryImportOptions): Promise<HistoryAc
           revision = 0;
           progress.pendingJob = started.jobId; persist();
         }
-        options.onJob?.(progress.pendingJob);
+        // Re-announcing a live job on every poll overwrote its real message,
+        // resetting the UI's idle clock even when the worker was stuck.
+        announceJob(progress.pendingJob);
         let job: unknown;
         try { job = await options.request(`/jobs/${progress.pendingJob}`, { signal: options.signal }); }
         catch (error) {
@@ -309,12 +329,17 @@ async function runHistoryPages(options: HistoryImportOptions): Promise<HistoryAc
           // the same job, never spawn a parallel capture from uncertain state.
           if (await retrySourceChange(error)) continue;
           if (!missingJob(error) || missingRetried) throw error;
-          missingRetried = true; progress.pendingJob = null; persist(); options.onJob?.(null);
+          missingRetried = true; progress.pendingJob = null; persist(); announceJob(null);
           revision = 0; identity = null; pendingIdentity = null;
           continue;
         }
         checkAbort(options.signal);
         if (!object(job) || !["running", "done", "completed", "error", "failed", "cancelled"].includes(String(job.status))) throw invalid("本机助手返回了无法识别的任务状态。");
+        observedProgress = typeof job.progress === "number" && Number.isFinite(job.progress) ? Math.min(100,Math.max(0,job.progress)) : undefined;
+        // Poll success is only a heartbeat. Actual worker changes or a new
+        // accepted partial are evidence of progress; repeated reads are not.
+        const activity = JSON.stringify([job.message, observedProgress, job.phase, job.recordCount, job.pinnedCount, job.partialRevision]);
+        if (activity !== lastActivity) { lastActivity = activity; lastActivityAt = Date.now(); }
         const inspect = (value: unknown) => {
           const valid = batch(value, progress), current = pageIdentity(valid);
           const refs = options.imageIds || options.voiceIds;
@@ -347,7 +372,7 @@ async function runHistoryPages(options: HistoryImportOptions): Promise<HistoryAc
           if (job.result === undefined) {
             progress.pendingJob = null;
             persist();
-            options.onJob?.(null);
+            announceJob(null);
             throw invalid("助手已结束这项任务，但没有返回可保存的原文。请重新导入；已保存的内容不会删除。");
           }
           const result = inspect(job.result);
@@ -355,7 +380,7 @@ async function runHistoryPages(options: HistoryImportOptions): Promise<HistoryAc
           if (duplicate) {
             progress.pendingJob = null;
             persist();
-            options.onJob?.(null);
+            announceJob(null);
             throw invalid("本机助手重复返回了已经读取的聊天，已停止继续循环；已保存的内容可以继续使用，请重新连接助手后重试。");
           }
           const replayingAcceptedPage = await receiptMatches(result);
@@ -366,7 +391,7 @@ async function runHistoryPages(options: HistoryImportOptions): Promise<HistoryAc
           if (options.includeVoice !== true && !options.imageIds && result.records.length > 0 && accepted.added === 0 && !replayingAcceptedPage) {
             progress.pendingJob = null;
             persist();
-            options.onJob?.(null);
+            announceJob(null);
             throw invalid("本机助手返回的历史页与已保存内容重复，已停止继续读取；已保存的聊天可以继续使用，请重新连接助手后重试。");
           }
           for (const record of result.records) seenRecordIds.add(record.id!);
@@ -374,18 +399,19 @@ async function runHistoryPages(options: HistoryImportOptions): Promise<HistoryAc
           progress = { ...progress, account: result.account, cursor: next, since: null, snapshot: result.history.snapshot,
             count: progress.count + result.history.count, pages: progress.pages + 1,
             complete: !result.history.hasMore, pendingJob: null };
-          persist(); globalThis.localStorage?.removeItem(receiptKey); options.onJob?.(null);
+          persist(); globalThis.localStorage?.removeItem(receiptKey); announceJob(null);
           if (next) seenCursors.add(next);
           notify(options.imageIds ? `已检查 ${progress.count} 条聊天图片。` : options.voiceIds ? `已处理 ${progress.count} 条语音。` : progress.complete ? `历史导入完成，已核对 ${progress.count} 条消息。` : `已核对 ${progress.count} 条消息，正在继续读取历史。`);
           break;
         }
         if (job.status === "failed" || job.status === "error" || job.status === "cancelled") {
-          progress.pendingJob = null; persist(); options.onJob?.(null);
+          progress.pendingJob = null; persist(); announceJob(null);
           const error = failure(job);
           if (job.status !== "cancelled" && await retrySourceChange(error)) continue;
           if (isHistorySourceUpdating(error)) error.message=`微信仍在更新聊天，已保存 ${Math.max(totals.total,progress.count)} 条。读取位置已保留，点击“继续导入”可从这里接着读取。`;
           throw error;
         }
+        if (Date.now() - lastActivityAt >= idleTimeoutMs) throw stalled();
         await wait(pollMs, options.signal);
       }
     }
@@ -406,7 +432,7 @@ async function runHistoryPages(options: HistoryImportOptions): Promise<HistoryAc
               // the last poll. Save it without advancing this page's cursor.
               await save(value, true, true);
             }
-            progress.pendingJob = null; persist(); options.onJob?.(null);
+            progress.pendingJob = null; persist(); announceJob(null);
           }
         } catch { /* Preserve the live job checkpoint for an explicit retry. */ }
       }

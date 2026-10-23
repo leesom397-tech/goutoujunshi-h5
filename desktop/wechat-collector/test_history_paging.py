@@ -189,7 +189,7 @@ class HistoryPagingTests(unittest.TestCase):
                                      "voiceOnly": True, "voiceIds": refs}, events.append, None, self.source(), transcribe)
         self.assertTrue(all(row["source"]["transcriptionStatus"] == "failed" for row in batch["records"]))
         self.assertTrue(all(row["source"]["voiceAvailability"] == "transcribe-failed" for row in batch["records"]))
-        self.assertEqual(events[-1]["message"], "正在转写语音 2/2 条")
+        self.assertEqual(events[-1]["message"], "语音已处理 2/2 条")
 
     def test_voice_only_uses_only_requested_message_shards(self):
         source = self.source()

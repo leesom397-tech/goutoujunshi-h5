@@ -48,6 +48,9 @@ def main():
     else:
         executable = artifact / "ChengziDesktopService.exe"
         subprocess.run([str(executable), "--database-self-test", "--probe-output", str(output / "database-self-test.json")], check=True, timeout=120)
+    # Startup alone cannot validate a frozen worker launched by the service's
+    # background request thread. Exercise that exact path before packaging.
+    subprocess.run([str(executable), "--worker-self-test", "--probe-output", str(output / "worker-self-test.json")], check=True, timeout=90)
     print("Built native service:", artifact)
 
 

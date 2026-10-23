@@ -1,0 +1,10 @@
+{
+  "repository": "https://github.com/fanyuantaier/wechatauto-replica",
+  "commit": "d322c4a9b1124228820bab363e5676016f188fc6",
+  "reference": "wechatauto/accessibility.py",
+  "referenceSha256": "045bbf826a1bab8410886090988a3e32afdec403b4beec6b64c0406c47830f38",
+  "license": "Apache-2.0",
+  "licenseSha256": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+  "integration": "Adapted gate signature and RIP-reference discovery only; independent fail-closed recovery implementation.",
+  "reviewed": "2026-10-24"
+}

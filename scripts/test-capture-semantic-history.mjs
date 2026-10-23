@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { build } from "esbuild";
 const compiled=await build({entryPoints:["lib/capture-semantic-history.ts"],bundle:true,write:false,format:"cjs",platform:"node",logLevel:"silent"});
 const compiledModule={exports:{}};new Function("module","exports",compiled.outputFiles[0].text)(compiledModule,compiledModule.exports);
-const { analyzeCaptureSemanticHistory, chunkCaptureHistory, hasCompleteHistorySynthesis, validatedHistoryAffinity, validatedChunkFindings, validatedSynthesis,validatedRiskAssessment,groundedRiskFindings }=compiledModule.exports;
+const { analyzeCaptureSemanticHistory, chunkCaptureHistory, hasCompleteHistorySynthesis, historySynthesisIssue, historySynthesisIssues, historySynthesisRepairPlan, applyHistorySynthesisRepair, validatedHistoryAffinity, validatedChunkFindings, validatedSynthesis,validatedRiskAssessment,groundedRiskFindings }=compiledModule.exports;
 
 const row = (index, text = `第${index}条消息：周末见面以后继续聊安排。`) => ({
   localId: `real-source-${index}`, kind: "text", senderRole: index % 2 ? "other" : "self",
@@ -197,6 +197,22 @@ assert.equal(validatedRiskAssessment({...riskAssessment,items:[{...riskItem,reso
 assert.equal(validatedRiskAssessment({...riskAssessment,items:[{...riskItem,subject:'self'}]},riskFinding),undefined);
 assert.equal(validatedRiskAssessment({...riskAssessment,items:[{...riskItem,evidenceIds:['refusal']}]},riskFinding),undefined);
 assert.equal(validatedRiskAssessment({...riskAssessment,items:[{...riskItem,evidenceIds:['photo']}]},[...riskFinding,...evidenceFindings]),undefined,'public photos cannot become private risk signals');
+const bundledRiskFinding=riskFinding.map(item=>item.id==='risk:1'?{...item,evidence:[...item.evidence,...riskFinding.find(source=>source.id==='clarification').evidence]}:item);
+assert.equal(validatedRiskAssessment(riskAssessment,bundledRiskFinding).items[0].resolution.status,'clarified','a grounded finding may include both the original request and the independently cited later correction');
+for(const status of ['clarified','changed']){
+  const assessment={...riskAssessment,items:[{...riskItem,resolution:{...riskItem.resolution,status}}]};
+  const sameTime=riskFinding.map(item=>item.id==='clarification'?{...item,evidence:item.evidence.map(source=>({...source,at:riskOriginal[0].at}))}:item);
+  assert.equal(validatedRiskAssessment(assessment,sameTime),undefined,'a correction at the same timestamp does not establish a later response');
+  const onlySelf=riskFinding.map(item=>item.id==='clarification'?{...item,evidence:item.evidence.map(source=>({...source,senderRole:'self'}))}:item);
+  assert.equal(validatedRiskAssessment(assessment,onlySelf),undefined,'the user responding is never evidence of the other person clarifying');
+  const repeatedOriginal=riskFinding.map(item=>item.id==='clarification'?{...item,evidence:[{...riskFinding[0].evidence[0],at:riskOriginal[2].at}]}:item);
+  assert.equal(validatedRiskAssessment(assessment,repeatedOriginal),undefined,'the same original source ID cannot become both the event and its later resolution');
+  const noEarlierSource=bundledRiskFinding.map(item=>item.id==='risk:1'?{...item,evidence:[riskFinding.find(source=>source.id==='clarification').evidence[0]]}:item);
+  const nonSolicitationAssessment={...assessment,items:assessment.items.map(item=>({...item,title:'操作说明前后变化',meaning:'当前说明与原先不同，需要核对。'}))};
+  assert.equal(validatedRiskAssessment(nonSolicitationAssessment,noEarlierSource),undefined,'a later explanation alone cannot establish an original event');
+}
+const acrossLibraries=riskFinding.map(item=>item.id==='risk:1'?{...item,evidence:item.evidence.map(source=>({...source,libraryId:'chat-a'}))}:item.id==='clarification'?{...item,evidence:item.evidence.map(source=>({...source,sourceId:riskOriginal[0].localId,libraryId:'chat-b'}))}:item);
+assert.equal(validatedRiskAssessment(riskAssessment,acrossLibraries).items[0].resolution.status,'clarified','identical local IDs from distinct libraries still identify distinct original records');
 const riskBase={summary:'核实账号边界',explanation:'原始要求与后续更正都存在，应保持不提供验证码的边界。',summaryEvidenceIds:['risk:1'],affinityAssessment:{dimensions:[],unavailableReason:'这些原话不支持评价接近意愿。'}};
 assert.equal(hasCompleteHistorySynthesis(riskBase,riskFinding,true,'risk'),false,'risk goals cannot complete with only generic prose');
 assert.equal(hasCompleteHistorySynthesis({...riskBase,riskAssessment},riskFinding,true,'risk'),true);
@@ -210,6 +226,35 @@ assert.equal(hasCompleteHistorySynthesis(fullContract,riskFinding,true,'panorama
 assert.equal(hasCompleteHistorySynthesis({...fullContract,riskAssessment:undefined},riskFinding,true,'panorama'),false,'global analysis must not silently omit risk review');
 assert.equal(hasCompleteHistorySynthesis({...fullContract,actionPlan:undefined},riskFinding,true,'panorama'),false,'global analysis needs a usable next step');
 assert.equal(hasCompleteHistorySynthesis({...fullContract,profileUnavailableReason:undefined},riskFinding,true,'panorama'),false,'missing personality interpretation must be explicit');
+// A single draft may have several missing sections. Report all of them before
+// retrying; otherwise each repaired field consumes another full-report call.
+const incompleteDraft={...fullContract,affinityAssessment:undefined,riskAssessment:undefined,actionPlan:undefined};
+const repairPlan=historySynthesisRepairPlan(incompleteDraft,riskFinding,true,'panorama');
+assert.deepEqual(repairPlan.issues,['affinity_dimensions_missing','risk_assessment_invalid','action_steps_missing']);
+assert.deepEqual(historySynthesisIssues(incompleteDraft,riskFinding,true,'panorama'),repairPlan.issues);
+assert.equal(historySynthesisIssue(incompleteDraft,riskFinding,true,'panorama'),repairPlan.issues[0],'existing single-issue callers remain compatible');
+assert.ok(repairPlan.fields.includes('affinityAssessment')&&repairPlan.fields.includes('riskAssessment')&&repairPlan.fields.includes('actionPlan'));
+assert.ok(!repairPlan.fields.includes('summary')&&!repairPlan.fields.includes('explanation')&&!repairPlan.fields.includes('profileUnavailableReason'),'verified sections are not regenerated for unrelated defects');
+const repaired=applyHistorySynthesisRepair(incompleteDraft,{affinityAssessment:fullContract.affinityAssessment,riskAssessment:fullContract.riskAssessment,actionPlan:fullContract.actionPlan,summary:'修复模型不应覆盖的总结',findings:[{id:'invented'}]},repairPlan.fields);
+assert.equal(repaired.summary,fullContract.summary);assert.equal(repaired.explanation,fullContract.explanation);assert.equal(repaired.profileUnavailableReason,fullContract.profileUnavailableReason);
+assert.equal(Object.hasOwn(repaired,'findings'),false,'a patch cannot insert its own evidence source');
+assert.equal(incompleteDraft.actionPlan,undefined,'repair merge must not mutate the stored draft');
+assert.equal(hasCompleteHistorySynthesis(repaired,riskFinding,true,'panorama'),true);
+const badRepair=applyHistorySynthesisRepair(incompleteDraft,{affinityAssessment:fullContract.affinityAssessment,riskAssessment:{status:'no_supported_signal',summary:'没有风险',items:[]},actionPlan:fullContract.actionPlan},repairPlan.fields);
+assert.equal(hasCompleteHistorySynthesis(badRepair,riskFinding,true,'panorama'),false,'targeted repair never bypasses full evidence validation');
+assert.ok(historySynthesisIssues(badRepair,riskFinding,true,'panorama').includes('anchored_risk_missing'));
+assert.equal(hasCompleteHistorySynthesis(applyHistorySynthesisRepair(incompleteDraft,{},repairPlan.fields),riskFinding,true,'panorama'),false,'empty patches cannot complete an unfinished report');
+assert.throws(()=>applyHistorySynthesisRepair(incompleteDraft,[],repairPlan.fields));
+assert.deepEqual(historySynthesisRepairPlan(fullContract,riskFinding,true,'panorama').fields,[],'a complete report has nothing to regenerate');
+// When every proposed risk item is invalid the reported issue is the parent
+// assessment issue, so its repair guidance must include the item contract too.
+const missingResolutionDraft={...fullContract,riskAssessment:{...riskAssessment,items:[{...riskItem,resolution:{status:'clarified',evidenceIds:['clarification']}}]}};
+const riskRepair=historySynthesisRepairPlan(missingResolutionDraft,riskFinding,true,'panorama');
+assert.deepEqual(riskRepair.issues,['risk_assessment_invalid']);assert.deepEqual(riskRepair.fields,['riskAssessment']);
+for(const required of ['unresolved/clarified/changed/unknown','非空 reading','时间严格晚于主证据','when 和 nextStep 都非空','至少有一项通过核验'])assert.ok(riskRepair.instruction.includes(required),'all-items-rejected repairs must explain '+required);
+const correctedRisk=applyHistorySynthesisRepair(missingResolutionDraft,{riskAssessment},riskRepair.fields);
+assert.equal(hasCompleteHistorySynthesis(correctedRisk,riskFinding,true,'panorama'),true);
+assert.equal(correctedRisk.summary,fullContract.summary);assert.deepEqual(correctedRisk.actionPlan,fullContract.actionPlan);
 const dimensions=['沟通方式','关系期待','投入与行动','边界与相处','生活与兴趣','情绪表达','价值与匹配','说法与兑现'];
 const expandedProfiles=validatedSynthesis({profileInsights:dimensions.map(dimension=>({subject:'other',dimension,reading:'这个维度只能依据具体邀请和后续回应作有限解释。',evidenceIds:['chat'],alternative:'也可能是普通朋友活动。'}))},evidenceFindings);
 assert.equal(expandedProfiles.profileInsights.length,8,'supported personality dimensions must not be truncated to four');

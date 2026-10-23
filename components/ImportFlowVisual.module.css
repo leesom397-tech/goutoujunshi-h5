@@ -1,5 +1,5 @@
 .visual {
-  --ink: #31574f;
+  --ink: #28251f;
   --copper: #b56b50;
   position: relative;
   isolation: isolate;
@@ -110,3 +110,10 @@
   .flight, .scan, .arrival { display: none; }
   .liveDot, .signal span { opacity: 1; }
 }
+
+/* The homepage material remains visible throughout each import stage. */
+.visual > :not([data-brand-field]) { position:relative; z-index:1; }
+.visual .scene { z-index:1; }
+.visual .vault { z-index:4; }
+.visual .copy h3 { color:#28251f; }
+.visual :is(.copy p,.counts dt,.counts dd span,.stageMark) { color:#666157; }

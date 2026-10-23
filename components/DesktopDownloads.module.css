@@ -1,0 +1,20 @@
+.section { position:relative; padding:30px; margin:24px 0 32px; border:1px solid #ead8c8; border-radius:22px; background:linear-gradient(100deg,#fff9f3 15%,#fff9f3dd 60%,#fff9f366),url('/images/aurora-fluted-light-v5.webp') right center/cover; color:#28251f; scroll-margin-top:110px; }
+.intro span { color:#87523d; font-size:12px; letter-spacing:.08em; }
+.intro h2 { font-size:27px; margin:8px 0!important; line-height:1.4; }
+.intro p { margin:0; color:#665d52; font-size:15px; }
+.platforms { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; margin-top:24px; }
+.platform { display:grid; grid-template-columns:auto minmax(0,1fr); gap:12px 15px; padding:21px; border:1px solid #e7d9cb; border-radius:16px; background:#fffdf9ed; align-items:center; min-width:0; }
+.platform > svg { color:#9f4e38; }
+.platform h3 { margin:0; font-size:19px; font-weight:650; }
+.platform p { margin:4px 0 0; color:#665d52; font-size:13px; }
+.platform small { grid-column:1/-1; color:#665d52; font-size:12px; line-height:1.6; }
+.section a.download { grid-column:1/-1; display:flex; align-items:center; justify-content:center; gap:9px; padding:10px 13px; min-height:46px; border-radius:10px; text-decoration:none; background:#9f4e38; color:#fff9f3; font-weight:600; font-size:15px; transition:background .2s,transform .2s; }
+.download:hover { background:#843e2d!important; transform:translateY(-1px); }
+.pending { grid-column:1/-1; min-height:46px; display:grid; place-items:center; color:#736758; border:1px solid #ded3c7; border-radius:10px; font-size:14px; }
+.section a.more { display:inline-flex; align-items:center; gap:8px; margin-top:15px; color:#855039; min-height:36px; font-size:14px; }
+.section :is(a,button):focus-visible { outline:2px solid #37675f; outline-offset:4px; }
+.section[data-compact] { margin:10px 5% 28px; padding:24px; }
+.section[data-compact] .intro h2 { font-size:22px; }
+.section[data-compact] .platforms { margin-top:16px; }
+@media(max-width:700px) { .section { padding:22px 18px; } .platforms { grid-template-columns:1fr; } .intro h2 { font-size:23px; } .section[data-compact] { margin:10px 20px 24px; } }
+@media(prefers-reduced-motion:reduce) { .download { transition:none!important; } }

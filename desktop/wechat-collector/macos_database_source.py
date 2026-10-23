@@ -139,19 +139,55 @@ def open_authorized_source(*, contacts_only=False):
 
 
 class ContactSourceCache:
-    """Keep only the query lock. Every contact request rechecks the live account."""
+    """Serialize fresh queries without retaining credentials or database views.
+
+    Contact readers close their input in a finally block. Give them a borrowed
+    view so this owner can complete the final identity check before closing the
+    real source. Revocation never waits for a database query or native process
+    inspection, and an old in-flight result cannot escape after clear().
+    """
     def __init__(self):
-        self.lock = threading.RLock()
+        self._lock = threading.Lock()
+        self._operation = threading.Lock()
+        self._generation = 0
 
     def clear(self):
-        pass
+        with self._lock:
+            self._generation += 1
 
     def run(self, read, *, refresh=False):
-        with self.lock:
+        if not self._operation.acquire(blocking=False):
+            raise _fail("CONTACT_SEARCH_BUSY", "正在准备联系人，请稍等当前搜索完成。")
+        source = None
+        try:
+            if refresh:
+                self.clear()
+            with self._lock:
+                generation = self._generation
             source = open_authorized_source(contacts_only=True)
-            try:
-                result = read(source)
-                source.assert_unchanged()
+            result = read(_ContactQueryLease(source))
+            source.assert_unchanged()
+            with self._lock:
+                if generation != self._generation:
+                    raise _fail("CONTACT_SEARCH_REVOKED", "连接已更新，请重新搜索联系人。")
                 return result
+        finally:
+            try:
+                if source is not None:
+                    source.close()
             finally:
-                source.close()
+                self._operation.release()
+
+
+class _ContactQueryLease:
+    """The query owner, not the reader callback, closes the real source."""
+    def __init__(self, source):
+        self._source = source
+
+    def __getattr__(self, name):
+        return getattr(self._source, name)
+
+    def close(self):
+        # search_contacts_from_source closes every input, including exceptions.
+        # The owner performs its final account check and closes exactly once.
+        pass
