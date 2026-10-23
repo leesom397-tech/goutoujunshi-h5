@@ -116,9 +116,12 @@ function stageResources(platform = process.platform) {
   fs.mkdirSync(brand);
   const logo = path.join(REPO, 'public/brand/chengzi-fluted-chat-v1-512.png');
   const icon = path.join(COLLECTOR, 'chengzi-fluted-chat-v1.ico');
-  requiredFile(logo); requiredFile(icon);
+  requiredFile(logo);
   fs.copyFileSync(logo, path.join(brand, 'icon.png'));
-  fs.copyFileSync(icon, path.join(brand, 'icon.ico'));
+  if (platform === 'win32') {
+    requiredFile(icon);
+    fs.copyFileSync(icon, path.join(brand, 'icon.ico'));
+  }
   const manifest = { schema: 1, platform, arch: platform === 'darwin' ? 'arm64' : 'x64', files };
   fs.writeFileSync(path.join(target, 'service-manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
   return { target, manifest };
