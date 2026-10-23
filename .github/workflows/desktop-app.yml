@@ -62,6 +62,19 @@ jobs:
           assert Path(name).name == name, 'Unexpected executable path'
           executable = bundle / 'Contents/MacOS' / name
           smoke = output / 'smoke-mac'
+          smoke.mkdir(parents=True, exist_ok=True)
+          service = bundle / 'Contents/Resources/collector/ChengziDesktopService.app/Contents/MacOS/ChengziDesktopService'
+          database_receipt = smoke / 'service-database.json'
+          subprocess.run([str(service), '--database-self-test', '--probe-output', str(database_receipt)], check=True, timeout=120)
+          database = json.loads(database_receipt.read_text())
+          assert database.get('ok') is True and database.get('userDataUsed') is False
+          service_run = subprocess.run([str(service), '--desktop-service'],
+              input='{"id":1,"command":"status"}\n{"id":2,"command":"shutdown"}\n',
+              capture_output=True, text=True, timeout=45, check=True)
+          rows = [json.loads(line) for line in service_run.stdout.splitlines() if line.strip()]
+          assert any(row.get('event') == 'ready' for row in rows), 'Final nested service did not become ready'
+          assert all(any(row.get('id') == request_id and row.get('ok') is True for row in rows) for request_id in (1, 2))
+          (smoke / 'service-stdio.json').write_text(json.dumps({'ok': True, 'ready': True, 'status': True, 'shutdown': True, 'userDataUsed': False}) + '\n')
           subprocess.run([str(executable), '--smoke-test'],
                          env=dict(os.environ, CHENGZI_SMOKE_OUTPUT=str(smoke)),
                          check=True, timeout=180)
@@ -103,3 +116,5 @@ jobs:
             outputs/desktop-app/0.1.0-preview.1/smoke-mac/receipt.json
             outputs/desktop-app/0.1.0-preview.1/smoke-mac/window.png
             outputs/desktop-app/0.1.0-preview.1/smoke-mac/workspace.png
+            outputs/desktop-app/0.1.0-preview.1/smoke-mac/service-database.json
+            outputs/desktop-app/0.1.0-preview.1/smoke-mac/service-stdio.json
