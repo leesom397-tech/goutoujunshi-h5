@@ -1,0 +1,101 @@
+name: Mac collector GUI smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/macos-collector-preview
+    paths:
+      - .github/workflows/collector-macos-gui.yml
+      - desktop/wechat-collector/main.py
+      - desktop/wechat-collector/macos_gui_smoke.py
+      - desktop/wechat-collector/macos_official_client_smoke.py
+      - desktop/wechat-collector/test_macos_gui_smoke.py
+      - desktop/wechat-collector/test_macos_official_client_smoke.py
+      - desktop/wechat-collector/build_macos.py
+      - desktop/wechat-collector/ChengziWeChatCollector-macos.spec
+      - desktop/wechat-collector/requirements-macos*.txt
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mac-collector-gui-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  gui-arm64:
+    # Official runner-images maps macos-26 to arm64. Assert the OS/CPU below.
+    runs-on: macos-26
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: desktop/wechat-collector
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+          architecture: arm64
+          cache: pip
+          cache-dependency-path: |
+            desktop/wechat-collector/requirements-macos.txt
+            desktop/wechat-collector/requirements-macos-voice.txt
+      - name: Verify macOS 26 Apple Silicon host
+        id: host
+        run: |
+          python -c "import platform,sys; assert sys.platform == 'darwin' and platform.machine() == 'arm64' and platform.mac_ver()[0].split('.')[0] == '26' and sys.version_info[:2] == (3,12); print(platform.platform()); print(sys.version)"
+          python -c "from build_macos import PREVIEW_VERSION; print('preview-version=' + PREVIEW_VERSION)" >> "$GITHUB_OUTPUT"
+          xcrun --find clang
+          echo "CHENGZI_VOICE_DATA_DIR=$RUNNER_TEMP/chengzi-synthetic-voice" >> "$GITHUB_ENV"
+          echo "CHENGZI_CI_PREVIEW_DIR=$RUNNER_TEMP/chengzi-macos-gui-preview" >> "$GITHUB_ENV"
+          echo "CHENGZI_CI_GUI_OUTPUT=$RUNNER_TEMP/chengzi-gui-smoke" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/chengzi-gui-smoke"
+      - name: Install pinned public dependencies
+        run: |
+          python -m pip install --only-binary=:all: -r requirements-macos.txt
+      - name: Verify pinned source and synthetic regressions
+        run: |
+          python build_macos.py --check-sources
+          python -m unittest discover -s . -p 'test_macos*.py'
+          python -m unittest test_local_voice_transcriber test_platform_runtime
+          python main.py --runtime-self-test --probe-output "$CHENGZI_CI_GUI_OUTPUT/source-runtime-self-test.json"
+      - name: Build current source and verify frozen runtime
+        id: build
+        run: |
+          python build_macos.py --output-dir "$CHENGZI_CI_PREVIEW_DIR"
+          cd "$CHENGZI_CI_PREVIEW_DIR"
+          shasum -a 256 -c ./*.sha256.txt
+      - name: Verify official WeChat without signing in
+        timeout-minutes: 8
+        # The script checks the publisher signature and never replaces an app.
+        # It leaves only the official, signed, logged-out client open for probing.
+        run: |
+          python macos_official_client_smoke.py --install-for-ci --output "$CHENGZI_CI_GUI_OUTPUT/official-wechat-smoke.json"
+      - name: Exercise the packaged assistant with synthetic GUI state
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        timeout-minutes: 4
+        # The dedicated CLI mode does not open production pages or pair accounts.
+        # Screenshots, if permitted, contain only the assistant's own test window.
+        run: |
+          python macos_gui_smoke.py --app "$CHENGZI_CI_PREVIEW_DIR/ChengziWeChatCollector.app" --output-dir "$CHENGZI_CI_GUI_OUTPUT"
+      - name: Upload preview and sanitized GUI receipts
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: chengzi-${{ steps.host.outputs.preview-version }}-macos26-gui-${{ github.run_number }}
+          if-no-files-found: warn
+          retention-days: 14
+          compression-level: 0
+          # Do not upload the official WeChat app, desktop, logs, or account data.
+          path: |
+            ${{ runner.temp }}/chengzi-macos-gui-preview/*.zip
+            ${{ runner.temp }}/chengzi-macos-gui-preview/*.sha256.txt
+            ${{ runner.temp }}/chengzi-macos-gui-preview/manifest-macos-preview.json
+            ${{ runner.temp }}/chengzi-macos-gui-preview/runtime-self-test.json
+            ${{ runner.temp }}/chengzi-gui-smoke/*.json
+            ${{ runner.temp }}/chengzi-gui-smoke/assistant-window.png

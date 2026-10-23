@@ -30,7 +30,7 @@ hiddenimports = [
     "background_reader", "capture_transport", "local_voice_transcriber", "voice_media_cache",
     "voice_runtime_self_test", "database_runtime_self_test", "macos_runtime_self_test",
     "macos_key_provider", "macos_database_source", "macos_moments", "macos_accessibility",
-    "macos_setup_ui", "platform_runtime",
+    "macos_setup_ui", "macos_gui_smoke", "platform_runtime",
     "sqlcipher_primitives", "local_chat_images", "local_image_codec", "_cffi_backend",
     "apsw", "zstandard", "psutil", "cryptography.hazmat.bindings._rust",
 ]

@@ -26,6 +26,7 @@ from background_reader import BackgroundCaptureError
 from sqlcipher_primitives import effective_page_key
 
 UPSTREAM_COMMIT = "2225294fd0761e10ce15540f21e7dbb2ac304c3c"
+COLLECTOR_BUNDLE_ID = "love.lovetalk.coach.collector.macpreview"
 SUPPORTED_BUILDS = frozenset({("4.1.11", "269136"), ("4.1.12", "269340"),
     ("4.1.12", "269364"), ("4.1.13", "269579"), ("4.1.15", "270100"), ("4.1.15", "270102")})
 WECHAT_APP = Path("/Applications/WeChat.app")
@@ -241,16 +242,82 @@ def _private_support_dir():
     return root / "mac-support"
 
 
+def _regular_component_path(root, relative, *, directory=False):
+    """Reject linked sources and linked parent directories within the fixed root."""
+    relative = Path(relative)
+    if relative.is_absolute() or not relative.parts or any(part in {".", ".."} for part in relative.parts):
+        raise ValueError("invalid component path")
+    current = root
+    for part in relative.parts:
+        current = current / part
+        if current.is_symlink():
+            raise ValueError("linked component")
+    metadata = current.lstat()
+    if not (stat.S_ISDIR(metadata.st_mode) if directory else stat.S_ISREG(metadata.st_mode)):
+        raise ValueError("invalid component type")
+    if not current.resolve(strict=True).is_relative_to(root.resolve(strict=True)):
+        raise ValueError("component escaped root")
+    return current
+
+
+def _upstream_vendor_root():
+    if not getattr(sys, "frozen", False):
+        return _regular_component_path(Path(__file__).resolve().parent, "vendor", directory=True)
+    # PyInstaller's Python __file__ is under Frameworks, whose resource entries
+    # are symlinks. Import the real, pinned sources in Resources instead. Neither
+    # _MEIPASS nor a search of neighbouring directories may choose this root.
+    executable = Path(sys.executable)
+    if (not executable.is_absolute() or ".." in executable.parts
+            or executable.parent.name != "MacOS" or executable.parent.parent.name != "Contents"
+            or executable.parent.parent.parent.suffix != ".app"):
+        raise ValueError("invalid app executable")
+    bundle = executable.parent.parent.parent
+    if bundle.is_symlink() or not bundle.is_dir():
+        raise ValueError("linked app")
+    _regular_component_path(bundle, executable.relative_to(bundle))
+    info_path = _regular_component_path(bundle, "Contents/Info.plist")
+    with info_path.open("rb") as handle:
+        info = plistlib.load(handle)
+    if (info.get("CFBundleIdentifier") != COLLECTOR_BUNDLE_ID
+            or info.get("CFBundleExecutable") != executable.name):
+        raise ValueError("unexpected collector bundle")
+    return _regular_component_path(bundle, "Contents/Resources/vendor", directory=True)
+
+
+def _verify_frozen_native_inputs(vendor):
+    """Allow PyInstaller's two internal binary links, never an external target."""
+    bundle = vendor.parents[2].resolve(strict=True)
+    for name in ("macos_memory_scan", "macos_wechat_key_capture.dylib"):
+        resource = vendor / "chatlog_keeper/scripts" / name
+        target = resource.resolve(strict=True)
+        allowed = (bundle / "Contents/Resources/vendor/chatlog_keeper/scripts" / name,
+                   bundle / "Contents/Frameworks/vendor/chatlog_keeper/scripts" / name)
+        if target not in allowed:
+            raise ValueError("native component escaped fixed bundle location")
+        _regular_component_path(bundle, target.relative_to(bundle))
+
+
 def _load_upstream():
-    vendor = Path(__file__).resolve().parent / "vendor"
-    pin = json.loads((vendor / "chatlog-keeper-pin.json").read_text(encoding="utf-8-sig"))
-    if pin.get("commit") != UPSTREAM_COMMIT:
-        raise _fail("MAC_COMPONENT_INVALID", "Mac 授权组件版本无法核验，请重新安装助手。")
-    # These Python/C sources are shipped with the app. Never download a script.
-    for relative, digest in pin["files"].items():
-        path = vendor / "chatlog_keeper" / relative
-        if not path.resolve().is_relative_to((vendor / "chatlog_keeper").resolve()) or path.is_symlink() or hashlib.sha256(path.read_bytes()).hexdigest() != digest:
-            raise _fail("MAC_COMPONENT_INVALID", "Mac 授权组件校验失败，请重新安装助手。")
+    try:
+        vendor = _upstream_vendor_root()
+        pin_path = _regular_component_path(vendor, "chatlog-keeper-pin.json")
+        pin = json.loads(pin_path.read_text(encoding="utf-8-sig"))
+        if (pin.get("commit") != UPSTREAM_COMMIT or not isinstance(pin.get("files"), dict)
+                or not pin["files"]):
+            raise ValueError("invalid component pin")
+        package_path = _regular_component_path(vendor, "chatlog_keeper", directory=True)
+        # These Python/C sources are shipped with the app. Never download a script.
+        for relative, digest in pin["files"].items():
+            if (not isinstance(relative, str) or "\\" in relative or not isinstance(digest, str)
+                    or not re.fullmatch(r"[a-f0-9]{64}", digest)):
+                raise ValueError("invalid source pin")
+            path = _regular_component_path(package_path, relative)
+            if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+                raise ValueError("component hash mismatch")
+        if getattr(sys, "frozen", False):
+            _verify_frozen_native_inputs(vendor)
+    except (OSError, ValueError, KeyError, TypeError, plistlib.InvalidFileException):
+        raise _fail("MAC_COMPONENT_INVALID", "Mac 授权组件校验失败，请重新安装助手。") from None
     existing = sys.modules.get("chatlog_keeper")
     if existing is not None and not Path(existing.__file__).resolve().is_relative_to(vendor.resolve()):
         raise _fail("MAC_COMPONENT_INVALID", "Mac 授权组件发生冲突，请重新打开助手。")

@@ -14,7 +14,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parent
 BASE_VERSION = "1.2.23"
-PREVIEW_VERSION = BASE_VERSION + "-mac-preview.1"
+PREVIEW_VERSION = BASE_VERSION + "-mac-preview.2"
 APP_NAME = "ChengziWeChatCollector"
 PINNED_KEEPER_COMMIT = "2225294fd0761e10ce15540f21e7dbb2ac304c3c"
 

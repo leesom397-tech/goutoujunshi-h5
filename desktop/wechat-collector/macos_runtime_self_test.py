@@ -39,6 +39,7 @@ def run_runtime_self_test():
         "frozen": bool(getattr(sys, "frozen", False)),
         "userDataUsed": False, "processMemoryRead": False, "networkUsed": False,
         "permissionPromptsUsed": False, "modelLoaded": False, "codecReady": False,
+        "vendorRuntimeReady": False,
     }
     try:
         if sys.platform != "darwin" or platform.machine() != "arm64":
@@ -51,6 +52,12 @@ def run_runtime_self_test():
         for name in REQUIRED_MODULES:
             importlib.import_module(name)
         result["dependenciesReady"] = True
+        # Exercise the same pinned resource loader used by initialization. This
+        # only validates and imports shipped code; never invoke key extraction.
+        # Frozen apps must pass too, including PyInstaller resource relocation.
+        import macos_key_provider as provider
+        provider._load_upstream()
+        result["vendorRuntimeReady"] = True
         _check_codec()
         result["codecReady"] = True
         from database_runtime_self_test import run_database_self_test

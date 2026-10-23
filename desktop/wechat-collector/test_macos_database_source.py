@@ -1,7 +1,13 @@
 """Synthetic Mac source/authorization tests. No process memory or WeChat access."""
 from dataclasses import replace
 import hashlib
+import importlib
+import json
+import os
 from pathlib import Path
+import plistlib
+import shutil
+import sys
 import tempfile
 import time
 import unittest
@@ -196,6 +202,143 @@ class MacSourceTests(unittest.TestCase):
             read.assert_not_called()
             upstream.assert_not_called()
             opened.assert_not_called()
+
+
+class MacPackagedComponentTests(unittest.TestCase):
+    """Real pinned module imports against a synthetic PyInstaller .app tree."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="chengzi-bundle-synthetic-")
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name).resolve()
+        self.bundle = self.root / "Renamed Collector.app"
+        self.executable = self.bundle / "Contents/MacOS/ChengziWeChatCollector"
+        self.executable.parent.mkdir(parents=True)
+        self.executable.write_bytes(b"synthetic executable; never launched")
+        self.resources = self.bundle / "Contents/Resources"
+        self.frameworks = self.bundle / "Contents/Frameworks"
+        self.vendor = self.resources / "vendor"
+        self.links_available = True
+        self.vendor.mkdir(parents=True)
+        upstream_vendor = Path(provider.__file__).resolve().parent / "vendor"
+        pin = json.loads((upstream_vendor / "chatlog-keeper-pin.json").read_text("utf-8"))
+        shutil.copyfile(upstream_vendor / "chatlog-keeper-pin.json", self.vendor / "chatlog-keeper-pin.json")
+        for name in pin["files"]:
+            target = self.vendor / "chatlog_keeper" / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(upstream_vendor / "chatlog_keeper" / name, target)
+            linked = self.frameworks / "vendor/chatlog_keeper" / name
+            linked.parent.mkdir(parents=True, exist_ok=True)
+            self._link(linked, target, required=False)
+        for name in ("macos_memory_scan", "macos_wechat_key_capture.dylib"):
+            binary = self.frameworks / "vendor/chatlog_keeper/scripts" / name
+            binary.write_bytes(b"synthetic native input; never launched")
+            self._link(self.vendor / "chatlog_keeper/scripts" / name, binary, required=False)
+        self.info = {"CFBundleIdentifier": provider.COLLECTOR_BUNDLE_ID,
+                     "CFBundleExecutable": self.executable.name}
+        (self.bundle / "Contents/Info.plist").write_bytes(plistlib.dumps(self.info))
+        self.addCleanup(patch.stopall)
+        patch.object(provider.sys, "frozen", True, create=True).start()
+        patch.object(provider.sys, "executable", str(self.executable)).start()
+        patch.object(provider, "__file__", str(self.frameworks / "macos_key_provider.py")).start()
+        # Import actual modules, but never permit a native process or support
+        # directory creation. Restore the module cache after every fixture.
+        patch.dict(sys.modules).start()
+        for name in list(sys.modules):
+            if name == "chatlog_keeper" or name.startswith("chatlog_keeper."):
+                del sys.modules[name]
+        self.launch = patch.object(provider.subprocess, "run", side_effect=AssertionError("no native launches in synthetic test")).start()
+        self.support = patch.object(provider, "_private_support_dir", side_effect=AssertionError("no user directory access in synthetic test")).start()
+
+    def _link(self, link, target, *, directory=False, required=True):
+        try:
+            link.symlink_to(os.path.relpath(target, link.parent), target_is_directory=directory)
+        except OSError as exc:
+            if required:
+                self.skipTest("Synthetic bundle links require symlink support: " + str(exc))
+            self.links_available = False
+            shutil.copyfile(target, link)
+
+    def assert_invalid(self):
+        with self.assertRaises(BackgroundCaptureError) as raised:
+            provider._load_upstream()
+        self.assertEqual(raised.exception.code, "MAC_COMPONENT_INVALID")
+        self.launch.assert_not_called()
+        self.support.assert_not_called()
+
+    def test_frozen_imports_resources_and_reads_bundled_native_inputs(self):
+        loaded = provider._load_upstream()
+        self.assertEqual(Path(loaded.__file__).parent, self.vendor / "chatlog_keeper")
+        self.assertEqual((self.frameworks / "vendor/chatlog_keeper/macos_key.py").is_symlink(), self.links_available)
+        for module_name in ("macos_key", "macos_wechat_capture"):
+            module = importlib.import_module("chatlog_keeper." + module_name)
+            self.assertEqual(module._prebuilt_path().is_symlink(), self.links_available)
+            input_path = module._helper_input_path()
+            self.assertEqual(input_path.read_bytes(), b"synthetic native input; never launched")
+        self.launch.assert_not_called()
+        self.support.assert_not_called()
+
+    def test_frozen_real_pyinstaller_cross_links(self):
+        if not self.links_available:
+            self.skipTest("Actual PyInstaller cross-link fixture needs symlink support")
+        self.test_frozen_imports_resources_and_reads_bundled_native_inputs()
+
+    def test_nonfrozen_keeps_source_vendor_root(self):
+        with patch.object(provider.sys, "frozen", False), patch.object(provider, "__file__", str(self.resources / "macos_key_provider.py")):
+            self.assertEqual(Path(provider._load_upstream().__file__).parent, self.vendor / "chatlog_keeper")
+
+    def test_frozen_does_not_use_meipass_or_module_location(self):
+        with patch.object(provider.sys, "_MEIPASS", str(self.root / "external"), create=True), \
+                patch.object(provider, "__file__", str(self.root / "external/macos_key_provider.py")):
+            self.assertEqual(Path(provider._load_upstream().__file__).parent, self.vendor / "chatlog_keeper")
+
+    def test_changed_pinned_source_is_rejected(self):
+        (self.vendor / "chatlog_keeper/macos_key.py").write_text("raise RuntimeError('not pinned')", "utf-8")
+        self.assert_invalid()
+
+    def test_external_source_link_even_with_identical_bytes_is_rejected(self):
+        source_path = self.vendor / "chatlog_keeper/macos_key.py"
+        external = self.root / "external.py"
+        external.write_bytes(source_path.read_bytes())
+        source_path.unlink()
+        self._link(source_path, external)
+        self.assert_invalid()
+
+    def test_external_source_parent_link_is_rejected(self):
+        core = self.vendor / "chatlog_keeper/core"
+        external = self.root / "external-core"
+        core.rename(external)
+        self._link(core, external, directory=True)
+        self.assert_invalid()
+
+    def test_external_native_input_link_is_rejected(self):
+        external = self.root / "external-native"
+        external.write_bytes(b"synthetic native input; never launched")
+        linked = self.vendor / "chatlog_keeper/scripts/macos_memory_scan"
+        linked.unlink()
+        self._link(linked, external)
+        self.assert_invalid()
+
+    def test_external_resources_link_is_rejected(self):
+        external = self.root / "external-resources"
+        self.resources.rename(external)
+        self._link(self.resources, external, directory=True)
+        self.assert_invalid()
+
+    def test_wrong_bundle_identity_is_rejected(self):
+        self.info["CFBundleIdentifier"] = "example.unrelated"
+        (self.bundle / "Contents/Info.plist").write_bytes(plistlib.dumps(self.info))
+        self.assert_invalid()
+
+    def test_executable_link_is_rejected(self):
+        external = self.root / "external-executable"
+        self.executable.rename(external)
+        self._link(self.executable, external)
+        self.assert_invalid()
+
+    def test_frozen_non_bundle_path_does_not_fall_back_to_sources(self):
+        with patch.object(provider.sys, "executable", str(self.root / "python")):
+            self.assert_invalid()
 
 
 if __name__ == "__main__":

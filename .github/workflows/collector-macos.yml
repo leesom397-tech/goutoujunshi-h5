@@ -36,8 +36,10 @@ jobs:
             desktop/wechat-collector/requirements-macos.txt
             desktop/wechat-collector/requirements-macos-voice.txt
       - name: Verify native build host
+        id: host
         run: |
           python -c "import platform,sys; assert sys.platform == 'darwin' and platform.machine() == 'arm64' and sys.version_info[:2] == (3,12); print(platform.platform()); print(sys.version)"
+          python -c "from build_macos import PREVIEW_VERSION; print('preview-version=' + PREVIEW_VERSION)" >> "$GITHUB_OUTPUT"
           xcrun --find clang
           echo "CHENGZI_VOICE_DATA_DIR=$RUNNER_TEMP/chengzi-synthetic-voice" >> "$GITHUB_ENV"
       - name: Install pinned public dependencies
@@ -60,7 +62,7 @@ jobs:
         # This creates a run artifact only; no tag, public release or deployment.
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: chengzi-1.2.23-mac-preview.1-arm64-${{ github.run_number }}
+          name: chengzi-${{ steps.host.outputs.preview-version }}-arm64-${{ github.run_number }}
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
