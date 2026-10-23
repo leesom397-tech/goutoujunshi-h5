@@ -26,6 +26,7 @@ PAGE_SIZE = 4096
 RESERVE = 80
 MAX_WAL_FRAMES = 500_000
 MAX_PAGE_CACHE = 64
+MAX_VERIFIED_PAGES = 262_144
 KEY_SCAN_SECONDS = 70
 SCAN_CHUNK_BYTES = 8 * 1024 * 1024
 MAX_SCAN_BYTES = 8 * 1024 * 1024 * 1024
@@ -53,7 +54,7 @@ def probe_authorized_source():
 def _stat(path):
     try:
         s = os.stat(path)
-        return s.st_size, s.st_mtime_ns
+        return s.st_size, s.st_mtime_ns, s.st_dev, s.st_ino
     except FileNotFoundError:
         return None
 
@@ -83,10 +84,15 @@ class EncryptedSnapshot:
         self.before = (_stat(self.path), _stat(self.wal_path))
         self.key = bytes(key)
         self.cache = OrderedDict()
+        # Only hashes of pages actually consumed by selected-contact queries.
+        # This allows a checkpoint to move identical committed pages from WAL
+        # into the main file, without retaining decrypted database contents.
+        self.read_fingerprints = {}
         self.frames = {}
         self._file = self.path.open("rb")
         self._wal = None
         self._wal_prefix_hash = None
+        self._wal_prefix_size = 0
         self.closed = False
         try:
             first = self._file.read(PAGE_SIZE)
@@ -110,6 +116,8 @@ class EncryptedSnapshot:
             return
         self._wal = self.wal_path.open("rb")
         header = self._wal.read(32)
+        if len(header) != 32:
+            raise _fail("SOURCE_CHANGED", "微信正在整理本地聊天日志，正在重新核对这一页。")
         magic, version, page_size = struct.unpack(">III", header[:12])
         if magic not in (0x377F0682, 0x377F0683) or version != 3_007_000 or page_size != PAGE_SIZE:
             raise _fail("UNSUPPORTED_DATABASE", "当前微信数据库日志格式暂不支持。")
@@ -122,6 +130,9 @@ class EncryptedSnapshot:
             raise _fail("SOURCE_TOO_LARGE", "微信正在整理较大的聊天日志，请稍后再导入。")
         salt = header[16:24]
         pending = {}
+        committed_end = 32
+        indexed_digest = hashlib.sha256(header)
+        committed_digest = indexed_digest.digest()
         for index in range(count):
             offset = 32 + index * (24 + PAGE_SIZE)
             self._wal.seek(offset)
@@ -133,7 +144,11 @@ class EncryptedSnapshot:
                 break
             checksum = _wal_checksum(frame[:8] + data, checksum, endian)
             if checksum != struct.unpack(">II", frame[16:24]):
+                if (_stat(self.path), _stat(self.wal_path)) != self.before:
+                    raise _fail("SOURCE_CHANGED", "微信正在提交新聊天，正在重新核对这一页。")
                 raise _fail("DATABASE_INTEGRITY", "本地聊天日志事务校验未通过，未导入。")
+            indexed_digest.update(frame)
+            indexed_digest.update(data)
             page_no, committed_size = struct.unpack(">II", frame[:8])
             if not 1 <= page_no <= 0x7FFFFFFF:
                 raise _fail("DATABASE_INTEGRITY", "本地聊天日志页号异常，未导入。")
@@ -144,36 +159,63 @@ class EncryptedSnapshot:
                 self.frames.update(pending)
                 pending.clear()
                 self.pages = committed_size
+                committed_end = offset + 24 + PAGE_SIZE
+                committed_digest = indexed_digest.digest()
         # Uncommitted trailing frames must never be visible to SQLite.
         self.frames = {pg: offset for pg, offset in self.frames.items() if pg <= self.pages}
-        self._wal_prefix_hash = self._wal_prefix_digest(self.before[1][0])
+        # Do not bind the snapshot to uncommitted/preallocated trailing bytes:
+        # SQLite can overwrite them without changing any committed page.
+        self._wal_prefix_size = committed_end
+        # Hash the exact bytes indexed, not a later re-read that might already
+        # contain a reset WAL with different transaction/frame boundaries.
+        self._wal_prefix_hash = committed_digest
 
     def _wal_prefix_digest(self, size):
         digest = hashlib.sha256()
-        with self.wal_path.open("rb") as handle:
-            while size:
-                data = handle.read(min(size, 1024 * 1024))
-                if not data:
-                    return None
-                digest.update(data)
-                size -= len(data)
+        try:
+            with self.wal_path.open("rb") as handle:
+                while size:
+                    data = handle.read(min(size, 1024 * 1024))
+                    if not data:
+                        return None
+                    digest.update(data)
+                    size -= len(data)
+        except FileNotFoundError:
+            return None
         return digest.digest()
 
-    def assert_unchanged(self):
+    def assert_unchanged(self, *, allow_equivalent=True):
         current = (_stat(self.path), _stat(self.wal_path))
         if self.before == current:
             return
         if self.before[0] == current[0]:
             # An append adds newer transactions outside this snapshot; the
-            # original committed frame offsets remain valid. Verify the entire
-            # old prefix before tolerating it. A checkpoint/truncate/rewrite
-            # still fails closed and is retried from a fresh source.
+            # original committed frame offsets remain valid. Verify only the
+            # committed prefix; uncommitted/preallocated tail changes are safe.
             if self.before[1] is None and current[1] is not None:
                 return
-            if (self.before[1] and current[1] and current[1][0] > self.before[1][0]
+            if (self.before[1] and current[1] and current[1][0] >= self._wal_prefix_size
                     and self._wal_prefix_hash is not None
-                    and self._wal_prefix_digest(self.before[1][0]) == self._wal_prefix_hash):
+                    and self._wal_prefix_digest(self._wal_prefix_size) == self._wal_prefix_hash
+                    and _stat(self.path) == self.before[0]):
                 return
+        if allow_equivalent and self.read_fingerprints:
+            # A normal WAL checkpoint/truncate changes physical file metadata.
+            # Accept it only if a fresh authenticated, stable committed view has
+            # exactly the pages SQLite already used. A changed tree/root/row
+            # rejects this page; the caller can retry the same keyset cursor.
+            # No recursive fallback, no broad private-row queries, no disk copy.
+            fresh = EncryptedSnapshot(self.path, self.key)
+            try:
+                if fresh.pages != self.pages:
+                    raise _fail("SOURCE_CHANGED", "微信正在同步新记录，正在重新核对这一页。")
+                for page_no, expected in self.read_fingerprints.items():
+                    if hashlib.sha256(fresh.read_page(page_no)).digest() != expected:
+                        raise _fail("SOURCE_CHANGED", "微信聊天内容刚更新，正在重新核对这一页。")
+                fresh.assert_unchanged(allow_equivalent=False)
+                return
+            finally:
+                fresh.close()
         raise _fail("SOURCE_CHANGED", "微信聊天正在同步或更新，请稍后重新导入。")
 
     def read_page(self, page_no):
@@ -193,6 +235,8 @@ class EncryptedSnapshot:
         start = 16 if page_no == 1 else 0
         digest = hmac.new(self.mac_key, encrypted[start:PAGE_SIZE - 64] + struct.pack("<I", page_no), hashlib.sha512).digest()
         if not hmac.compare_digest(digest, encrypted[-64:]):
+            if (_stat(self.path), _stat(self.wal_path)) != self.before:
+                raise _fail("SOURCE_CHANGED", "微信正在写入本地聊天，正在重新核对这一页。")
             raise _fail("DATABASE_INTEGRITY", "本地聊天页校验未通过，未导入。")
         plain = bytearray(_primitives()._decrypt_page(self.key, encrypted, page_no))
         if page_no == 1:
@@ -201,6 +245,13 @@ class EncryptedSnapshot:
             plain[18:20] = b"\x01\x01"  # WAL is already overlaid; SQLite must not open it.
             plain[28:32] = struct.pack(">I", self.pages)
         result = bytes(plain)
+        fingerprint = hashlib.sha256(result).digest()
+        previous = self.read_fingerprints.get(page_no)
+        if previous is not None and previous != fingerprint:
+            raise _fail("SOURCE_CHANGED", "本次读取中的聊天页已变化，正在重新核对这一页。")
+        if previous is None and len(self.read_fingerprints) >= MAX_VERIFIED_PAGES:
+            raise _fail("SOURCE_TOO_LARGE", "本次本地页校验范围较大，请先完成微信同步后重试。")
+        self.read_fingerprints[page_no] = fingerprint
         self.cache[page_no] = result
         if len(self.cache) > MAX_PAGE_CACHE:
             self.cache.popitem(last=False)
@@ -223,6 +274,7 @@ class EncryptedSnapshot:
             return
         self.closed = True
         self.cache.clear()
+        self.read_fingerprints.clear()
         self.frames.clear()
         self.key = b""
         self.mac_key = b""
@@ -549,6 +601,15 @@ class LocalDatabaseSource:
         for relative in self._relative_shards():
             if Path(relative).name.startswith("media_"):
                 yield relative, self._open(relative)
+
+    def voice_cache_revision(self, relative):
+        snapshot = self.snapshots.get(relative)
+        if snapshot is None or not Path(relative).name.startswith("media_"):
+            return None
+        # Physical file identity plus the exact indexed committed WAL prefix.
+        # Any checkpoint/append/replacement invalidates these optional row hints.
+        return {"files": snapshot.before, "walEnd": snapshot._wal_prefix_size,
+                "walHash": snapshot._wal_prefix_hash.hex() if snapshot._wal_prefix_hash else None}
 
     def assert_unchanged(self):
         _verify_login(self.login_proof)

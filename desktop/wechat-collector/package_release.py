@@ -29,6 +29,7 @@ SOURCE_FILES += ('test_moments_capture.py', 'test_contact_search.py', 'test_cont
 SOURCE_FILES += ('compatibility_ui.py', 'test_compatibility.py')
 SOURCE_FILES += ('local_chat_images.py', 'test_local_chat_images.py')
 SOURCE_FILES += ('local_image_codec.py', 'test_local_image_codec.py')
+SOURCE_FILES += ('voice_media_cache.py', 'test_voice_worker.py')
 SOURCE_FILES += ('launcher.py', 'build_launcher.py', 'test_launcher.py', 'launcher.ico',
                  'windows_version_info.py', 'test_windows_version_info.py', 'sign_release.ps1')
 SOURCE_FILES += ('release_signature.py', 'test_release_signing.py', 'test_main.py')
