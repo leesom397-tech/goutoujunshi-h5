@@ -90,16 +90,22 @@ async function runSmoke(routes){
   const wc=view.webContents;
   const errors=[];wc.on('console-message',(_event,details)=>{if(details.level==='error'||details.level===3)errors.push(details.message);});
   const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+  const readPage=()=>wc.executeJavaScript(`(()=>{const text=document.body?.innerText||'';return {textLength:text.length,failed:text.includes('这个页面暂时没有打开'),preview:text.slice(0,150)};})()`);
+  const waitForPage=async()=>{
+    const started=Date.now();let page;
+    do{page=await readPage();if(page.textLength>20||page.failed)break;await pause(50);}while(Date.now()-started<5000);
+    return {...page,readyMilliseconds:Date.now()-started};
+  };
   const checks={sandbox:wc.getLastWebPreferences().sandbox===true,nodeDisabled:wc.getLastWebPreferences().nodeIntegration===false,contextIsolation:wc.getLastWebPreferences().contextIsolation===true};
-  await wc.loadURL(ORIGIN+'/workspace');await pause(700);
+  await wc.loadURL(ORIGIN+'/workspace');await waitForPage();
   checks.homeLocal=await wc.executeJavaScript('document.body.innerText.includes("成子") && document.body.innerText.length > 100');
   checks.hostAvailable=await wc.executeJavaScript('typeof window.chengziDesktop?.connectCollector === "function"');
   checks.nodeUnavailable=await wc.executeJavaScript('typeof require === "undefined"');
   checks.apiUpload=await wc.executeJavaScript(`fetch('/api/__desktop_smoke',{method:'POST',headers:{'content-type':'application/json','x-request-id':'synthetic-desktop'},body:'中文测试'}).then(r=>r.json()).then(x=>x.method==='POST'&&x.body==='中文测试')`);
   const visited=[];
   for(const route of routes.filter(value=>value!=='/'&&value!=='/logout')){
-    await wc.loadURL(ORIGIN+route);await pause(700);
-    visited.push({route,textLength:await wc.executeJavaScript('document.body.innerText.length'),failed:await wc.executeJavaScript('document.body.innerText.includes("这个页面暂时没有打开")'),preview:await wc.executeJavaScript('document.body.innerText.slice(0,150)')});
+    await wc.loadURL(ORIGIN+route);
+    visited.push({route,...await waitForPage()});
   }
   checks.routes=visited.every(page=>page.textLength>20&&!page.failed);
   await wc.loadURL(ORIGIN+'/workspace');await pause(200);await wc.loadURL(ORIGIN+'/login');await pause(200);wc.navigationHistory.goBack();await pause(400);

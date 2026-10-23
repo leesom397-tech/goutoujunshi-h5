@@ -5,6 +5,7 @@ import { ArrowRight, LockKeyhole, X } from "lucide-react";
 import { PhoneRegisterForm } from "@/components/PhoneRegisterForm";
 import styles from "./AnalysisAuthGate.module.css";
 import { announceAccountChange } from '@/lib/web-account-session';
+import { createLoginRequest, LoginRequestError } from '@/lib/login-request';
 
 type Props = {
   open: boolean;
@@ -33,6 +34,7 @@ function AuthDialog({ onClose, returnTo, contextLabel = "当前分析", onSucces
   const dialog = useRef<HTMLDialogElement>(null);
   const active = useRef(true);
   const inFlight = useRef(false);
+  const [loginRequest] = useState(() => createLoginRequest());
   const [mode, setMode] = useState<"login" | "register">("login");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -49,6 +51,7 @@ function AuthDialog({ onClose, returnTo, contextLabel = "当前分析", onSucces
     element?.showModal();
     return () => {
       active.current = false;
+      loginRequest.cancel();
       element?.close();
       document.body.style.overflow = previousOverflow;
       priorFocus?.focus();
@@ -87,17 +90,12 @@ function AuthDialog({ onClose, returnTo, contextLabel = "当前分析", onSucces
     setBusy(true);
     setError("");
     try {
-      const response = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
-      });
-      const data = await response.json() as { error?: string };
-      if (!response.ok) throw Error(data.error || "登录失败，请检查账号密码。");
+      await loginRequest.submit(username,password);
+      if (!active.current) return;
       announceAccountChange();
       await complete();
     } catch (cause) {
-      if (active.current) setError(cause instanceof Error ? cause.message : "网络异常，请稍后重试。");
+      if (active.current && !(cause instanceof LoginRequestError && cause.code === "cancelled")) setError(cause instanceof Error ? cause.message : "网络异常，请稍后重试。");
     } finally {
       inFlight.current = false;
       if (active.current) setBusy(false);

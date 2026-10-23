@@ -37,6 +37,7 @@ jobs:
           npm ci --prefix desktop/app
       - name: Test private service and desktop package guards
         run: |
+          node scripts/test-login-request.mjs
           cd desktop/wechat-collector
           python -m unittest test_desktop_service test_platform_runtime
           cd ../app
@@ -75,15 +76,16 @@ jobs:
           assert any(row.get('event') == 'ready' for row in rows), 'Final nested service did not become ready'
           assert all(any(row.get('id') == request_id and row.get('ok') is True for row in rows) for request_id in (1, 2))
           (smoke / 'service-stdio.json').write_text(json.dumps({'ok': True, 'ready': True, 'status': True, 'shutdown': True, 'userDataUsed': False}) + '\n')
-          subprocess.run([str(executable), '--smoke-test'],
+          interface_run = subprocess.run([str(executable), '--smoke-test'],
                          env=dict(os.environ, CHENGZI_SMOKE_OUTPUT=str(smoke)),
-                         check=True, timeout=180)
+                         timeout=180)
           receipt = json.loads((smoke / 'receipt.json').read_text())
+          print(json.dumps(receipt), flush=True)
+          assert interface_run.returncode == 0, 'Packaged local UI smoke exited with an error'
           assert receipt.get('ok') is True, 'Packaged local UI smoke failed'
           assert receipt.get('userDataUsed') is False and receipt.get('networkRequestsMocked') is True
           for name in ('window.png', 'workspace.png'):
               assert (smoke / name).stat().st_size > 0, 'Expected synthetic desktop screenshot'
-          print(json.dumps(receipt))
           PY
       - name: Record preview checksums
         run: |
