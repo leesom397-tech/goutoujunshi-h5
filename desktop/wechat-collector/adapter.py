@@ -106,42 +106,48 @@ def _is_enabled(control):
 
 
 def _wait_exists(control, timeout=5.0, visible=False):
+    # Own the polling deadline here. UIA's exists(timeout=.15) adds another
+    # complete wait every time a control is absent (including timeout=0 probes).
+    # Fast transitions should finish immediately; slow transitions retain the
+    # caller's full allowance and still require a visible, resolved control.
     def ready():
         try:
-            exists = control.exists(timeout=.15) if hasattr(control, "exists") else True
+            exists = control.exists(timeout=0) if hasattr(control, "exists") else True
             return bool(exists and (not visible or _is_visible(control)))
         except Exception:
             try:
                 if hasattr(control, "wait"):
-                    control.wait("visible" if visible else "ready", timeout=.3)
+                    control.wait("visible" if visible else "ready", timeout=0)
                     return True
             except Exception:
                 return False
         return False
-    if ready():
-        return control
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
+    deadline = time.monotonic() + max(0, timeout)
+    while True:
         if ready():
             return control
-        time.sleep(.12)
-    return None
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return None
+        time.sleep(min(.05, remaining))
 
 
 def _wait_hidden(control, timeout=3.0):
     def hidden():
         try:
-            return not control.exists(timeout=.1) or not control.is_visible()
+            # Absence is the successful case here, not a condition to wait
+            # another 100 ms for, twice for every collected post.
+            return not control.exists(timeout=0) or not control.is_visible()
         except Exception:
             return True
-    if hidden():
-        return True
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
+    deadline = time.monotonic() + max(0, timeout)
+    while True:
         if hidden():
             return True
-        time.sleep(.12)
-    return False
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        time.sleep(min(.05, remaining))
 
 
 def _control_rect(control):
@@ -218,11 +224,274 @@ def _click_control(control, attempts=3):
     return False
 
 
-def _open_target(friend, modules, search_query=None):
+class _MomentsTimings:
+    """Local numeric diagnostics only: no names, control text or image data."""
+    def __init__(self):
+        self.started = time.perf_counter()
+        self.stages = {}
+        self.actions = {}
+
+    def measure(self, stage, callback, *args, **kwargs):
+        began = time.perf_counter()
+        try:
+            return callback(*args, **kwargs)
+        finally:
+            elapsed = max(0, (time.perf_counter() - began) * 1000)
+            value = self.stages.setdefault(stage, {"count": 0, "ms": 0.0, "maxMs": 0.0})
+            value["count"] += 1
+            value["ms"] += elapsed
+            value["maxMs"] = max(value["maxMs"], elapsed)
+
+    def action(self, name):
+        self.actions[name] = self.actions.get(name, 0) + 1
+
+    def snapshot(self):
+        return {"version": 1, "totalMs": round(max(0, (time.perf_counter() - self.started) * 1000), 1),
+                "stages": {name: {"count": value["count"], "ms": round(value["ms"], 1),
+                                  "maxMs": round(value["maxMs"], 1)} for name, value in self.stages.items()},
+                "actions": dict(self.actions)}
+
+
+def _try_moment_invoke(control, role, expected_pid):
+    """Use an advertised action on a verified album control, never coordinates.
+
+    Physical click_input waits the system double-click interval before every
+    click, even when switching from a post to Back. Invoke has no such delay.
+    Its return is NOT proof of success: the caller always checks the resulting
+    detail state and retains the physical fallback for unsupported Qt builds.
+    """
+    try:
+        target = _moment_wrapper(control)
+        kind = target.element_info.control_type
+        if role == "post":
+            if kind != "ListItem" or target.class_name() not in ("mmui::AlbumContentCell", "mmui::AlbumCell"):
+                return False
+        elif role != "back" or kind != "Button":
+            return False
+        if not target.is_visible() or not target.is_enabled():
+            return False
+        if target.process_id() != expected_pid:
+            raise CaptureError("MOMENTS_VIEW_CHANGED", "当前朋友圈已切换，已停止读取，避免混入另一位好友的动态。")
+        pattern = target.iface_invoke
+    except CaptureError:
+        raise
+    except Exception:
+        return False
+    _ensure_foreground(target)
+    try:
+        # Call the pattern directly: wrapper.invoke() also reads and logs the
+        # entire private post title on every action.
+        pattern.Invoke()
+    except Exception:
+        # Some providers dispatch then throw. Wait for the expected state
+        # before considering a physical fallback; never immediately double-act.
+        pass
+    _ensure_foreground(target)
+    return True
+
+
+def _moment_click_anchor(control):
+    """Resolve geometry BEFORE clicking: Back can destroy its own provider."""
+    try:
+        target = _moment_wrapper(control)
+        if target.backend.name != "uia":
+            return target, None
+        rect = _control_rect(target)
+        point = ((rect[0] + rect[2]) // 2, (rect[1] + rect[3]) // 2) if rect else None
+        return target, point
+    except Exception:
+        return control, None
+
+
+def _remember_moment_click(point, expected_pid, state):
+    state.clear()
+    if point is None:
+        return
+    try:
+        import win32api
+        if tuple(win32api.GetCursorPos()) != point:
+            return
+        state.update(point=point, inputTick=int(win32api.GetLastInputInfo()), pid=expected_pid)
+    except Exception:
+        state.clear()
+
+
+def _wait_after_fast_moment_click(point, previous):
+    """Protect fallback input from our raw click, including the same OS tick.
+
+    The bundled pywinauto uses GetLastInputInfo (not a private click cache),
+    but its guard skips elapsed=0. Keep our own clock for the nearby/unknown
+    fallback case; never mutate its globals or Windows double-click settings.
+    """
+    if not previous:
+        return False
+    interval_ms = previous["intervalMs"]
+    dx, dy = previous["tolerance"]
+    try:
+        import win32api
+        import win32gui
+        interval_ms = max(interval_ms, win32gui.GetDoubleClickTime())
+        dx, dy = max(dx, win32api.GetSystemMetrics(36)), max(dy, win32api.GetSystemMetrics(37))
+    except Exception:
+        pass  # The values captured before dispatch still give a safe window.
+    if point is not None and (abs(point[0] - previous["point"][0]) > dx
+                              or abs(point[1] - previous["point"][1]) > dy):
+        return False
+    deadline = previous["at"] + interval_ms / 1000
+    waited = False
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return waited
+        waited = True
+        time.sleep(min(.05, remaining))
+
+
+def _fast_moment_click(control, role, expected_pid, state):
+    """Skip only a demonstrably irrelevant double-click guard.
+
+    The first click and unknown/intervening input still use click_input. Later
+    clicks at a different location cannot be a double-click of the prior one.
+    Use the same Win32 mouse events as pywinauto, with fresh control, foreground,
+    hit-test and geometry checks. Never change Windows/global library timings.
+    """
+    if state.get("pid") != expected_pid:
+        return False
+    try:
+        target = _moment_wrapper(control)
+        if target.backend.name != "uia":
+            return False
+        kind = target.element_info.control_type
+        if role == "post":
+            if kind != "ListItem" or target.class_name() not in ("mmui::AlbumContentCell", "mmui::AlbumCell"):
+                return False
+        elif role != "back" or kind != "Button":
+            return False
+        if not target.is_visible() or not target.is_enabled():
+            return False
+        if target.process_id() != expected_pid:
+            raise CaptureError("MOMENTS_VIEW_CHANGED", "当前朋友圈已切换，已停止读取，避免混入另一位好友的动态。")
+        import win32api
+        import win32con
+        import win32gui
+        import win32process
+        # GetLastInputInfo includes user mouse/keyboard input. An intervening
+        # input makes our prior-click coordinates unreliable: take the old path.
+        if int(win32api.GetLastInputInfo()) != state.get("inputTick"):
+            return False
+        rect = _control_rect(target)
+        if not rect or rect[2] <= rect[0] or rect[3] <= rect[1]:
+            return False
+        point = ((rect[0] + rect[2]) // 2, (rect[1] + rect[3]) // 2)
+        previous = state["point"]
+        elapsed_ms = (int(win32api.GetTickCount()) - state["inputTick"]) & 0xffffffff
+        # Full rectangle extents are intentionally conservative (Windows uses
+        # half-extents). Close/repeated points keep the normal guard until expiry.
+        tolerance = (win32api.GetSystemMetrics(36), win32api.GetSystemMetrics(37))
+        interval_ms = win32gui.GetDoubleClickTime()
+        close = (abs(point[0] - previous[0]) <= tolerance[0]
+                 and abs(point[1] - previous[1]) <= tolerance[1])
+        if close and elapsed_ms < interval_ms:
+            return False
+        # A profile/dialog in the same WeChat PID is still the wrong surface.
+        # Resolve the expected native root while the target provider is alive.
+        target_root = win32gui.GetAncestor(target.top_level_parent().handle, 2)
+        if not target_root:
+            return False
+    except CaptureError:
+        raise
+    except Exception:
+        return False
+    _ensure_foreground(target)
+    win32api.SetCursorPos(point)
+    foreground = win32gui.GetForegroundWindow()
+    hit = win32gui.WindowFromPoint(point)
+    if (not foreground or not hit
+            or win32process.GetWindowThreadProcessId(foreground)[1] != expected_pid
+            or win32process.GetWindowThreadProcessId(hit)[1] != expected_pid
+            or win32gui.GetAncestor(foreground, 2) != target_root
+            or win32gui.GetAncestor(hit, 2) != target_root):
+        state.clear()
+        raise CaptureError("FOCUS_CHANGED", "微信被其他窗口遮挡，已暂停采集以免点错位置。请把微信放到最前面后重试。")
+    if tuple(win32api.GetCursorPos()) != point or _control_rect(target) != rect:
+        state.clear()
+        return False
+    # Respect left-handed system button mapping exactly as click_input does.
+    swapped = bool(win32api.GetSystemMetrics(23))
+    down = win32con.MOUSEEVENTF_RIGHTDOWN if swapped else win32con.MOUSEEVENTF_LEFTDOWN
+    up = win32con.MOUSEEVENTF_RIGHTUP if swapped else win32con.MOUSEEVENTF_LEFTUP
+    state.clear()
+    try:
+        win32api.mouse_event(down, 0, 0, 0, 0)
+    finally:
+        win32api.mouse_event(up, 0, 0, 0, 0)
+    _ensure_foreground(target)
+    _remember_moment_click(point, expected_pid, state)
+    state["fastClick"] = {"at": time.monotonic(), "point": point,
+                          "intervalMs": interval_ms, "tolerance": tolerance}
+    return True
+
+
+def _moment_transition(control, role, expected_pid, wait_for_state, timeout, native_modes, timings, click_state=None):
+    """One action at a time, with state-confirmed fallback for slow providers."""
+    if native_modes.get(role, True):
+        attempted = timings.measure(role + "Invoke", _try_moment_invoke, control, role, expected_pid)
+        if attempted:
+            timings.action(role + "InvokeAttempted")
+            if timings.measure(role + "Wait", wait_for_state, timeout):
+                timings.action(role + "InvokeConfirmed")
+                return True
+            # A provider which advertises an action but does nothing should
+            # incur this compatibility probe only once per role in this job.
+            timings.action(role + "InvokeFallback")
+            native_modes[role] = False
+            if wait_for_state(0):
+                return True
+        else:
+            timings.action(role + "InvokeUnsupported")
+            native_modes[role] = False
+    try:
+        # A geometry check can invalidate the ordinary tracking state. Retain
+        # the prior raw event until a guarded fallback has actually completed.
+        previous_fast = click_state.get("fastClick") if click_state is not None else None
+        fast = click_state is not None and timings.measure(role + "Click", _fast_moment_click,
+                                                          control, role, expected_pid, click_state)
+        if fast:
+            timings.action(role + "PhysicalFast")
+        else:
+            target, point = _moment_click_anchor(control) if click_state is not None else (control, None)
+            if timings.measure(role + "ClickGuard", _wait_after_fast_moment_click, point, previous_fast):
+                timings.action(role + "NearbyClickGuard")
+            timings.measure(role + "Click", _click_control, target)
+            if click_state is not None:
+                _remember_moment_click(point, expected_pid, click_state)
+            timings.action(role + "PhysicalGuarded")
+        timings.action(role + "PhysicalClick")
+    except CaptureError:
+        raise
+    except Exception:
+        # A physical provider can also throw after dispatching. Confirm the
+        # resulting state before declaring the open/close transition failed.
+        timings.action(role + "PhysicalClickError")
+    return bool(timings.measure(role + "Wait", wait_for_state, timeout))
+
+
+def _open_target(friend, modules, search_query=None, *, reuse_prepared=False):
     # Never delegate candidate selection to upstream search_friend: it chooses
     # the first equal name and can fall back to an online phone/ID lookup.
     Navigator, Tools, ui = modules
-    main = Navigator.open_weixin(is_maximize=False)
+    main = None
+    if reuse_prepared:
+        # Moments already opened/restored the same main window to verify the
+        # visible account. Reconnecting avoids a second resize/restore cycle;
+        # selected-contact and foreground checks below still run in full.
+        try:
+            main = Navigator.connect_weixin()
+        except Exception:
+            pass
+    if main is None:
+        main = Navigator.open_weixin(is_maximize=False)
+    _ensure_foreground(main)
     main.child_window(**ui.SideBar.Weixin).click_input()
     edits = main.descendants(**ui.Main_window.Search)
     if not edits:
@@ -427,6 +696,14 @@ def _moments_window(main, window):
     deadline = time.monotonic() + 4
     visible_lists = []
     while time.monotonic() < deadline:
+        try:
+            # No found_index: the query must resolve one album, not silently
+            # choose the first. Avoid wrapping every unrelated main-window list.
+            selected = main.child_window(auto_id="sns_list", control_type="List")
+            if selected.exists(timeout=.1) and selected.is_visible():
+                return main
+        except Exception:
+            pass  # Ambiguous/stale providers still take the full uniqueness check.
         visible_lists = [item for item in main.descendants(control_type="List")
                          if item.element_info.automation_id == "sns_list" and item.is_visible()]
         if visible_lists:
@@ -526,7 +803,7 @@ def _open_moments_from_chat(main, friend, modules, expected_identifier=None, _re
     from pywinauto import Desktop
     _, Tools, ui = modules
     pane = main.child_window(auto_id="single_chat_info_view", control_type="Group")
-    if not _wait_exists(pane, timeout=.5, visible=True):
+    if not _wait_exists(pane, timeout=0, visible=True):
         try:
             _click_control(main.child_window(**ui.Buttons.ChatInfoButton))
         except Exception:
@@ -561,7 +838,7 @@ def _open_moments_from_chat(main, friend, modules, expected_identifier=None, _re
     # after each click instead of assuming a successful click_input opened it.
     profile = Desktop(backend="uia").window(class_name="mmui::ProfileUniquePop",
                                                process=main.process_id(), visible_only=True)
-    if not _wait_exists(profile, timeout=.2, visible=True):
+    if not _wait_exists(profile, timeout=0, visible=True):
         for target in [avatar, avatar, *nested_buttons, avatar]:
             try:
                 _click_control(target, attempts=1)
@@ -619,7 +896,7 @@ def _open_moments_from_chat(main, friend, modules, expected_identifier=None, _re
     except Exception:
         pass
     click_targets.extend([target, link])
-    window = Desktop(backend="uia").window(**ui.Windows.MomentsWindow)
+    window = Desktop(backend="uia").window(**{**ui.Windows.MomentsWindow, "process": main.process_id()})
     for candidate in click_targets:
         try:
             _click_control(candidate)
@@ -638,13 +915,59 @@ def _open_moments_from_chat(main, friend, modules, expected_identifier=None, _re
     raise CaptureError("MOMENTS_ENTRY_UNAVAILABLE", "朋友圈入口没有打开，请保持微信窗口可见后重试。") from None
 
 
+def _moment_children(control):
+    """Prefer direct list items; only older nested layouts need a subtree read.
+
+    A detail's first direct item is the same item previously selected after
+    children + descendants. Avoid walking every nested comment/photo again.
+    """
+    try:
+        nodes = control.children(control_type="ListItem")
+    except Exception:
+        nodes = []
+    if nodes:
+        return nodes
+    try:
+        return control.descendants(control_type="ListItem") or []
+    except Exception:
+        return []
+
+
+def _moment_special_cells(listing, class_name, minimum=1):
+    """Find header/pinned rows without traversing all post descendants."""
+    try:
+        nodes = listing.children(control_type="ListItem")
+    except Exception:
+        nodes = []
+    found = [cell for cell in nodes if getattr(cell, "class_name", lambda: "")() == class_name]
+    if len(found) >= minimum:
+        return found
+    # Keep the nested-layout fallback, including a header split across depths.
+    try:
+        nested = listing.descendants(control_type="ListItem", class_name=class_name)
+    except Exception:
+        nested = []
+    for cell in nested:
+        if getattr(cell, "class_name", lambda: "")() == class_name and cell not in found:
+            found.append(cell)
+    return found
+
+
+def _moment_wrapper(control):
+    """Bind a resolved UIA control once instead of rerunning its main-tree query."""
+    try:
+        return control.wrapper_object()
+    except Exception:
+        return control
+
+
 def _visible_moment_cells(listing):
     try:
         nodes = listing.children(control_type="ListItem")
     except Exception:
         nodes = []
     if not nodes:
-        nodes = _children_and_descendants(listing, control_type="ListItem")
+        nodes = _moment_children(listing)
     bounds = _control_rect(listing)
     cells = []
     for cell in nodes:
@@ -763,43 +1086,56 @@ def _advance_moments_list(listing):
 
 def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=None, search_query=None):
     Navigator, Tools, ui = modules
+    began = time.monotonic()
+    timings = _MomentsTimings()
+    native_modes = {"post": True, "back": True}
+    click_state = {}
     try:
         progress(8, "正在打开所选好友", phase="searching_contact", recordCount=0, pinnedCount=0,
                  lastAction="open_chat")
     except TypeError:
         progress(8, "正在打开所选好友")
-    main = _open_target(friend, modules, search_query=search_query)
+    main = timings.measure("openContact", _open_target, friend, modules, search_query=search_query, reuse_prepared=True)
     main_identity = (main.handle, main.process_id())
     try:
         progress(12, "正在核对好友资料和朋友圈入口", phase="opening_profile", recordCount=0,
                  pinnedCount=0, lastAction="open_profile")
     except TypeError:
         progress(12, "正在核对好友资料和朋友圈入口")
-    window = _open_moments_from_chat(main, friend, modules, expected_identifier=search_query)
+    window = timings.measure("openAlbum", _open_moments_from_chat, main, friend, modules, expected_identifier=search_query)
     listing = window.child_window(**ui.Lists.MomentsList)
     detail = window.child_window(**ui.Lists.SnsDetailList)
     back = window.child_window(**ui.Buttons.BackButton)
-    if not _wait_exists(listing, timeout=8, visible=True):
+    if not timings.measure("listReady", _wait_exists, listing, timeout=8, visible=True):
         raise CaptureError("MOMENTS_UNREADABLE", "朋友圈列表不可读，可能未开放、暂无内容或当前微信版本界面不兼容。")
     try:
         listing.wait("ready", timeout=4)
     except Exception:
         pass
+    listing = _moment_wrapper(listing)
 
     phase = "opening_moments"
     def assert_view():
         if (main.handle, main.process_id()) != main_identity:
             raise CaptureError("MOMENTS_VIEW_CHANGED", "当前朋友圈已切换，已停止读取，避免混入另一位好友的动态。")
 
-    def refresh_listing():
+    def refresh_listing(force=False):
         nonlocal listing, detail, back
+        if not force:
+            # A bound wrapper stays valid across ordinary virtual-row changes.
+            # A hidden/stale provider must be resolved afresh, never assumed OK.
+            try:
+                if listing.is_visible():
+                    return listing
+            except Exception:
+                pass
         try:
             # Resolve the narrowly scoped album control first. Traversing the
             # entire main-window UI tree twice per post is expensive with long
             # chat lists; only stale/replaced album wrappers need that fallback.
             current = window.child_window(**ui.Lists.MomentsList)
             if _wait_exists(current, timeout=0, visible=True):
-                listing = current
+                listing = _moment_wrapper(current)
             else:
                 current_lists = [item for item in main.descendants(control_type="List")
                                  if getattr(item.element_info, "automation_id", "") == "sns_list"
@@ -838,6 +1174,7 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
 
     def report(value, message, action=None):
         completion["phase"] = phase
+        completion["timings"] = timings.snapshot()
         if action:
             completion["lastAction"] = action
         try:
@@ -847,15 +1184,15 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
             progress(value, message)
 
     def moment_count():
-        return sum(row.get("kind") == "post" for row in rows)
+        return completion["recordCount"]
 
+    report(15, "朋友圈已打开，正在读取首条动态", "read_first_post")
     # Header cells contain the cover and signature on supported WeChat builds.
-    header = [cell for cell in _children_and_descendants(listing, control_type="ListItem")
-              if getattr(cell, "class_name", lambda: "")() == "mmui::AlbumBaseCell"]
+    header = _moment_special_cells(listing, "mmui::AlbumBaseCell", minimum=2)
     if len(header) >= 2:
         try:
             rows.append({"kind": "image", "sender": friend, "senderRole": "other", "text": "朋友圈封面",
-                         "images": [_image(header[0], "moments-cover.jpg")],
+                         "images": [timings.measure("preview", _image, header[0], "moments-cover.jpg")],
                          "source": {"materialRole": "moments-cover", "imageType": "visible-ui-preview"}})
         except Exception:
             warnings.append("朋友圈封面未能读取，未纳入画面分析。")
@@ -871,26 +1208,29 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
         completion["phase"] = phase
         opened = False
         try:
-            if not _wait_hidden(detail, timeout=2):
+            if not timings.measure("previousDetailClosed", _wait_hidden, detail, timeout=2):
                 raise CaptureError("MOMENTS_DETAIL_STALE", "上一条动态详情尚未关闭，已暂停以避免把内容归到错误动态。")
-            _click_control(item)
-            if not _wait_exists(detail, timeout=4, visible=True):
+            if not _moment_transition(item, "post", main_identity[1],
+                    lambda timeout: _wait_exists(detail, timeout=timeout, visible=True),
+                    4, native_modes, timings, click_state):
                 raise CaptureError("MOMENTS_DETAIL_TIMEOUT", "动态详情没有打开，已保留当前进度。")
             opened = True
             content_item = None
+            raw = ""
+            detail_body = _moment_wrapper(detail)
             deadline = time.monotonic() + 3
             while True:
-                items = _children_and_descendants(detail, control_type="ListItem")
+                items = timings.measure("detailItems", _moment_children, detail_body)
                 if items:
                     content_item = items[0]
-                    if _safe_text(content_item) or _is_visible(content_item):
+                    raw = timings.measure("detailText", _safe_text, content_item)
+                    if raw or _is_visible(content_item):
                         break
                 if time.monotonic() >= deadline:
                     break
                 time.sleep(.12)
             if content_item is None:
                 raise CaptureError("MOMENTS_DETAIL_UNREADABLE", "动态详情已打开，但内容尚未加载。")
-            raw = _safe_text(content_item)
             matches = list(ui.Regex_Patterns.Snsdetail_Timestamp_pattern.finditer(raw))
             stamp = matches[-1] if matches else None
             at = stamp.group(0).strip() if stamp else ""
@@ -901,8 +1241,12 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
                    "source": {"materialRole": "moment", "pinned": pinned,
                               "imageType": "visible-ui-preview",
                               "timePrecision": "ui-label" if at else "unknown"}}
+            # Pinned posts can reappear in the ordinary feed. They already use
+            # this exact identity below, so don't capture/encode them twice.
+            if content.strip() and (at, _normalized_label(content)) in post_keys:
+                return None
             try:
-                preview = _image(content_item, f"moment-preview-{len(rows)+1}.jpg")
+                preview = timings.measure("preview", _image, content_item, f"moment-preview-{len(rows)+1}.jpg")
                 size = len(preview["data"])
                 if image_bytes + size <= 20 * 1024 * 1024:
                     row["images"] = [preview]
@@ -917,35 +1261,33 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
                 completion["unreadableCount"] += 1
                 warnings.append("部分朋友圈无法读取文字或图片，已保留位置并继续。")
                 return None
-            preview_hash = hashlib.sha256(row["images"][0]["data"].encode("ascii")).hexdigest() if row.get("images") else ""
+            preview_hash = (hashlib.sha256(row["images"][0]["data"].encode("ascii")).hexdigest()
+                            if not content.strip() and row.get("images") else "")
             post_key = (at, _normalized_label(content) or preview_hash)
             if post_key in post_keys:
                 return None
             post_keys.add(post_key)
             rows.append(row)
-            completion["recordCount"] = moment_count()
+            completion["recordCount"] += 1
             if pinned:
                 completion["pinnedCount"] += 1
             return row
         finally:
             if opened:
-                try:
-                    _click_control(back)
-                except Exception:
-                    pass
-                if not _wait_hidden(detail, timeout=3):
+                if not _moment_transition(back, "back", main_identity[1],
+                        lambda timeout: _wait_hidden(detail, timeout=timeout),
+                        3, native_modes, timings, click_state):
                     raise CaptureError("MOMENTS_DETAIL_STALE", "上一条动态详情没有关闭，已保留当前进度。")
-                _wait_exists(listing, timeout=3, visible=True)
-                refresh_listing()
+                timings.measure("listRefresh", refresh_listing, force=True)
+                timings.measure("listReady", _wait_exists, listing, timeout=3, visible=True)
             phase = parent_phase
 
     def read_pinned():
         nonlocal phase, listing, last_publish
         phase = "reading_pinned"
         completion["phase"] = phase
-        top_cells = [cell for cell in _children_and_descendants(listing, control_type="ListItem")
-                     if getattr(cell, "class_name", lambda: "")() == "mmui::AlbumTopCell"
-                     and "置顶" in _safe_text(cell)]
+        top_cells = [cell for cell in _moment_special_cells(listing, "mmui::AlbumTopCell")
+                     if "置顶" in _safe_text(cell)]
         if not top_cells:
             return
         top = top_cells[0]
@@ -972,7 +1314,7 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
                 break
             pinned_steps += 1
             refresh_listing()
-            cells = _visible_moment_cells(listing)
+            cells = timings.measure("scanVisible", _visible_moment_cells, listing)
             fresh = []
             for cell in cells:
                 key = _cell_scan_key(cell)
@@ -995,10 +1337,10 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
                 report(50 if all_visible else min(90, 15 + int(moment_count() / max(limit, 1) * 70)),
                        f"已读取置顶 {completion['pinnedCount']} 条朋友圈", "read_pinned")
                 if on_rows and moment_count() and (moment_count() == 1 or time.monotonic() - last_publish >= 5):
-                    on_rows(rows, warnings, dict(completion))
+                    timings.measure("publishPartial", on_rows, rows, warnings, dict(completion))
                     last_publish = time.monotonic()
                 continue
-            if not _advance_moments_list(listing):
+            if not timings.measure("scroll", _advance_moments_list, listing):
                 pinned_stall += 1
             else:
                 pinned_stall = 0
@@ -1016,9 +1358,8 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
             deadline = time.monotonic() + 4
             returned = False
             while time.monotonic() < deadline:
-                refresh_listing()
-                returned = any(getattr(cell, "class_name", lambda: "")() == "mmui::AlbumTopCell"
-                               for cell in _children_and_descendants(listing, control_type="ListItem"))
+                refresh_listing(force=True)
+                returned = bool(_moment_special_cells(listing, "mmui::AlbumTopCell"))
                 if returned:
                     break
                 time.sleep(.15)
@@ -1039,7 +1380,7 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
             break
         assert_view()
         refresh_listing()
-        cells = _visible_moment_cells(listing)
+        cells = timings.measure("scanVisible", _visible_moment_cells, listing)
         fresh = []
         for cell in cells:
             key = _cell_scan_key(cell)
@@ -1061,9 +1402,9 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
                 else:
                     raise
             report(50 if all_visible else min(90, 15 + int(moment_count() / max(limit, 1) * 70)),
-                   f"已读取 {moment_count()} 条朋友圈，正在继续向下翻页…", "read_feed")
+                   f"已读取 {moment_count()} 条朋友圈 · 已用 {max(0, int(time.monotonic() - began))} 秒，继续读取…", "read_feed")
             if on_rows and moment_count() and (moment_count() == 1 or time.monotonic() - last_publish >= 5):
-                on_rows(rows, warnings, dict(completion))
+                timings.measure("publishPartial", on_rows, rows, warnings, dict(completion))
                 last_publish = time.monotonic()
             if not all_visible and moment_count() >= limit:
                 completion["stopReason"] = "requested-count"
@@ -1071,7 +1412,9 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
             continue
         completion["lastAction"] = "scroll"
         completion["scrollAttempts"] += 1
-        if _advance_moments_list(listing):
+        report(50 if all_visible else min(90, 15 + int(moment_count() / max(limit, 1) * 70)),
+               f"已读取 {moment_count()} 条，正在{'确认可见末尾' if scroll_stalls else '翻页等待更早动态'}…", "scroll")
+        if timings.measure("scroll", _advance_moments_list, listing):
             scroll_stalls = 0
             continue
         scroll_stalls += 1
@@ -1092,6 +1435,7 @@ def _moments(friend, limit, progress, modules, *, all_visible=False, on_rows=Non
         warnings.append(f"已保留所有读到的动态文字；其中 {completion['imageOmittedCount']} 条详情预览因容量或截图不可用未附加图片。")
     warnings.append("仅采集当前账号可见的朋友圈；可见末尾可能由权限决定，不代表对方全部历史。")
     warnings.append("朋友圈时间保留原界面标签，未出现完整日期的内容不会推测年份。")
+    completion["timings"] = timings.snapshot()
     return rows, warnings, completion
 
 
@@ -1121,6 +1465,7 @@ def capture(request, progress, on_partial=None):
         if request["kind"] == "chat":
             rows, warnings = _chat(request["friend"], request["limit"], nickname, first_progress, modules, convert_voices=False)
         else:
+            progress(6, "正在核对所选联系人，首次连接可能需要几秒")
             moments_source = _open_moments_source(request, account)
             moments_selection = _resolve_moments_contact(request, moments_source)
             target, search_query, canonical_account = moments_selection

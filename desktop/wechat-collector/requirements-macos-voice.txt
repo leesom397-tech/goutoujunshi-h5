@@ -1,0 +1,8 @@
+# CPython 3.12. Native wheels exist for macOS arm64 and x86_64; first Mac
+# collector target is arm64. Keep the model/runtime identical to Windows.
+numpy==2.5.4
+silk-python==0.2.8
+sherpa-onnx==1.13.8
+sherpa-onnx-core==1.13.8
+cffi==2.1.1
+pycparser==3.11

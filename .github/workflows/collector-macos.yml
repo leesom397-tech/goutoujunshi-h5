@@ -1,0 +1,71 @@
+name: Mac collector preview
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/macos-collector-preview
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mac-collector-preview-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build-arm64:
+    # Official runner-images lists macos-15 as arm64; assert again at runtime.
+    runs-on: macos-15
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: desktop/wechat-collector
+    env:
+      PYTHONUTF8: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+          architecture: arm64
+          cache: pip
+          cache-dependency-path: |
+            desktop/wechat-collector/requirements-macos.txt
+            desktop/wechat-collector/requirements-macos-voice.txt
+      - name: Verify native build host
+        run: |
+          python -c "import platform,sys; assert sys.platform == 'darwin' and platform.machine() == 'arm64' and sys.version_info[:2] == (3,12); print(platform.platform()); print(sys.version)"
+          xcrun --find clang
+          echo "CHENGZI_VOICE_DATA_DIR=$RUNNER_TEMP/chengzi-synthetic-voice" >> "$GITHUB_ENV"
+      - name: Install pinned public dependencies
+        run: |
+          python -m pip install --only-binary=:all: -r requirements-macos.txt
+      - name: Verify vendored source integrity
+        run: python build_macos.py --check-sources
+      - name: Synthetic source regressions
+        run: |
+          python -m unittest discover -s . -p 'test_macos*.py'
+          python -m unittest test_local_voice_transcriber test_platform_runtime
+          python main.py --runtime-self-test --probe-output "$RUNNER_TEMP/source-runtime-self-test.json"
+      - name: Build app and verify frozen runtime
+        run: python build_macos.py --output-dir "$RUNNER_TEMP/chengzi-macos-preview"
+      - name: Prepare fixed public speech model and test synthetic ASR
+        run: |
+          "$RUNNER_TEMP/chengzi-macos-preview/ChengziWeChatCollector.app/Contents/MacOS/ChengziWeChatCollector" --prepare-voice-model
+          "$RUNNER_TEMP/chengzi-macos-preview/ChengziWeChatCollector.app/Contents/MacOS/ChengziWeChatCollector" --voice-self-test --probe-output "$RUNNER_TEMP/chengzi-macos-preview/voice-runtime-self-test.json"
+      - name: Upload preview build artifact
+        # This creates a run artifact only; no tag, public release or deployment.
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: chengzi-1.2.23-mac-preview.1-arm64-${{ github.run_number }}
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+          path: |
+            ${{ runner.temp }}/chengzi-macos-preview/*.zip
+            ${{ runner.temp }}/chengzi-macos-preview/*.sha256.txt
+            ${{ runner.temp }}/chengzi-macos-preview/*self-test.json
+            ${{ runner.temp }}/chengzi-macos-preview/manifest-macos-preview.json

@@ -4,5 +4,6 @@ dist/
 __pycache__/
 *.spec
 !ChengziWeChatCollector.spec
+!ChengziWeChatCollector-macos.spec
 *.zip
 build-log.txt

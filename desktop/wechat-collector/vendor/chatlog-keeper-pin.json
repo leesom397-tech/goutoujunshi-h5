@@ -1,0 +1,24 @@
+{
+  "repository": "https://github.com/labazhou2024/chatlog-keeper",
+  "commit": "2225294fd0761e10ce15540f21e7dbb2ac304c3c",
+  "license": "MIT",
+  "files": {
+    "core/_windows_process_memory.py": "cde9239d4d8c304e8adf049fae9167deb9a5e5bc0813404cf2aff3868493fa14",
+    "macos_wechat_capture.py": "ed4e4e5bb6bc7344564062c36bfb958311df128928931b0fe24a0b68f0b0928b",
+    "core/_wal.py": "f6ab568e169225a5149213947e898a159d65e7910f02b75a7432fcb9c331d970",
+    "core/_secrets.py": "b161cea36ea649848e894488881b141244e71935bec5edfc9716b46ddc16c9ad",
+    "core/_macos.py": "832a880958380e6cb4bc7b84f55d2543246ead1d80e554c6480e2fbf1ffeea6a",
+    "wechat_db.py": "9009de93101b631899002ce1621ca920317bed39e3040c871c0a65c1952b9add",
+    "active_key.py": "e856b792fd4884d32d7123ea8707bbb3f0b03c9b4f465fae50facb2fecf7311b",
+    "macos_key.py": "ef1526e311dd47aa680bb46c495f0f65b4a04b2fd73529c34fc5f046eaa05b7a",
+    "macos_debug_app.py": "866a5395166700493d1b3606f417b8f2082acd10949ca3e161ef7c345a1d3816",
+    "core/_paths.py": "938f46057ff06db33fe45be9ef4f7062bf152b603f567802fef2342d5015058b",
+    "scripts/macos_wechat_key_capture.c": "e361c4afe885f46c39f162009d0a1603bf26ee7509171cd0854945cdb20321a3",
+    "__init__.py": "070e46bc11cb891cea434c7d1bd54f56fc731d3997a8b2211f93786989dc1966",
+    "core/_private_temp.py": "524e1afbdf084e7545a0b7e044031cc0680d91f6434cd131ee026bed82e83c17",
+    "core/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "scripts/macos_memory_scan.c": "3f61b27159d3d1194feb1d393736107e12e617ec0da441d4142413d3faba0315",
+    "core/_snapshot.py": "b39a21dba004ffb1eef2bdcfb3020add7c5d5bd1f20aa95c4cdc41e87ae0dc48",
+    "core/_path_resolver.py": "78d635c80a1e2209403c0b35c5ee02e92e47df9a9ab00d6863663f5fc6e14ceb"
+  }
+}

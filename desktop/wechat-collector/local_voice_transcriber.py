@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import re
 import struct
+import sys
 import tarfile
 import tempfile
 import threading
@@ -37,6 +38,8 @@ SAMPLE_RATE = 16000
 MAX_AUDIO_BYTES = 2 * 1024 * 1024
 MAX_SECONDS = 65
 MAX_DOWNLOAD_SECONDS = 900
+MAX_INFERENCE_BATCH = 4
+MAX_PADDED_BATCH_SECONDS = 80
 _lock = threading.RLock()
 _model_root = None
 _cache_root = None
@@ -69,6 +72,10 @@ def _storage_root():
     override = os.environ.get("CHENGZI_VOICE_DATA_DIR")
     if override:
         return Path(override).resolve()
+    if sys.platform == "darwin":
+        # Keep the model and scoped transcripts inside the user's standard app
+        # data directory. Do not use imported Windows environment variables.
+        return Path.home() / "Library" / "Application Support" / "ChengziWeChatCollector" / "voice"
     base = os.environ.get("LOCALAPPDATA")
     return (Path(base) if base else Path.home() / ".local" / "share") / "ChengziWeChatCollector" / "voice"
 
@@ -304,6 +311,7 @@ def _validate_silk(blob):
             raise TranscriptionError("invalid-audio", "这条语音超出了单条微信语音的长度范围。")
     if frames < 5:
         raise TranscriptionError("invalid-audio", "这条语音太短，无法可靠转写。")
+    return frames * 0.02
 
 
 def _decode_silk(blob):
@@ -385,29 +393,106 @@ def _write_cache(path, audio_hash, text):
         temporary.unlink(missing_ok=True)
 
 
-def transcribe_silk(blob: bytes, cache_key: str) -> str:
-    """Transcribe one selected voice. Caller supplies account/conversation/message scope."""
-    _validate_silk(blob)
-    audio_hash = hashlib.sha256(blob).hexdigest()
-    path = _cache_path(cache_key, audio_hash)
-    with _lock:
-        _check_cancelled()
-        cached = _read_cache(path, audio_hash)
-        if cached is not None:
-            return cached
-        samples = _decode_silk(blob)
-        _check_cancelled()
-        recognizer = _get_recognizer()
+def transcribe_silk_batches(items):
+    """Yield bounded completed groups, identified by their original input index.
+
+    Read every scoped/content-addressed cache before loading the model. A model
+    preparation failure applies to this request once, not once per voice. Only
+    four similar-length streams at most are decoded together; PCM is discarded
+    before the next group. No raw audio is written to disk.
+    """
+    pending, ready = [], []
+    for index, (blob, cache_key) in enumerate(items):
         _check_cancelled()
         try:
-            stream = recognizer.create_stream()
-            stream.accept_waveform(SAMPLE_RATE, samples)
-            recognizer.decode_stream(stream)
-            text = re.sub(r"<\|[^|]*\|>", "", stream.result.text).strip()
-        except Exception:
-            raise TranscriptionError("asr-failed", "这条语音暂时无法转写，可稍后重试。") from None
+            duration = _validate_silk(blob)
+            digest = hashlib.sha256(blob).hexdigest()
+            path = _cache_path(cache_key, digest)
+            cached = _read_cache(path, digest)
+            if cached is not None:
+                ready.append({"index": index, "text": cached, "cached": True})
+            else:
+                pending.append((duration, index, blob, digest, path))
+        except TranscriptionError as error:
+            if error.code == "cancelled":
+                raise
+            ready.append({"index": index, "error": error})
+    if ready:
         _check_cancelled()
-        if not text or len(text) > 4000:
-            raise TranscriptionError("no-speech", "这条语音没有识别出可靠文字，未自动补写。")
-        _write_cache(path, audio_hash, text)
-        return text
+        yield ready
+    if not pending:
+        return
+
+    # Sort by length to avoid padding a short clip to a sixty-second neighbour.
+    pending.sort(key=lambda item: (item[0], item[1]))
+    recognizer, model_error = None, None
+    while pending:
+        group = [pending.pop(0)]
+        while pending and len(group) < MAX_INFERENCE_BATCH:
+            longest = pending[0][0]
+            if longest > max(1.0, group[0][0] * 2) or longest * (len(group) + 1) > MAX_PADDED_BATCH_SECONDS:
+                break
+            group.append(pending.pop(0))
+        completed, streams = [], []
+        with _lock:
+            _check_cancelled()
+            for _, index, blob, digest, path in group:
+                if model_error is not None:
+                    completed.append({"index": index, "error": model_error})
+                    continue
+                try:
+                    samples = _decode_silk(blob)
+                    _check_cancelled()
+                    if recognizer is None:
+                        try:
+                            recognizer = _get_recognizer()
+                        except TranscriptionError as error:
+                            if error.code == "cancelled":
+                                raise
+                            model_error = error
+                            raise
+                    stream = recognizer.create_stream()
+                    stream.accept_waveform(SAMPLE_RATE, samples)
+                    streams.append((index, stream, digest, path))
+                    del samples
+                except TranscriptionError as error:
+                    if error.code == "cancelled":
+                        raise
+                    completed.append({"index": index, "error": error})
+                except Exception:
+                    completed.append({"index": index, "error": TranscriptionError("asr-failed", "这条语音暂时无法转写，可稍后重试。")})
+            _check_cancelled()
+            if streams:
+                inference_error = None
+                try:
+                    if len(streams) == 1:
+                        recognizer.decode_stream(streams[0][1])
+                    else:
+                        recognizer.decode_streams([item[1] for item in streams])
+                except Exception:
+                    inference_error = TranscriptionError("asr-failed", "这组语音暂时无法转写，可稍后重试。")
+                _check_cancelled()
+                for index, stream, digest, path in streams:
+                    text = "" if inference_error else re.sub(r"<\|[^|]*\|>", "", stream.result.text).strip()
+                    error = inference_error or (None if text and len(text) <= 4000 else
+                        TranscriptionError("no-speech", "这条语音没有识别出可靠文字，未自动补写。"))
+                    if error:
+                        completed.append({"index": index, "error": error})
+                    else:
+                        try:
+                            _write_cache(path, digest, text)
+                        except OSError:
+                            pass  # A full cache disk must not discard a completed transcript.
+                        completed.append({"index": index, "text": text, "cached": False})
+        _check_cancelled()
+        yield completed
+
+
+def transcribe_silk(blob: bytes, cache_key: str) -> str:
+    """Transcribe one selected voice with the same scoped cache and validation."""
+    for completed in transcribe_silk_batches([(blob, cache_key)]):
+        result = completed[0]
+        if result.get("error") is not None:
+            raise result["error"]
+        return result["text"]
+    raise TranscriptionError("asr-failed", "这条语音暂时无法转写，可稍后重试。")

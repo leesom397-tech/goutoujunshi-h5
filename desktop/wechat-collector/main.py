@@ -2,6 +2,7 @@
 import argparse
 import json
 import multiprocessing
+import sys
 from pathlib import Path
 import threading
 from bridge import BridgeError, CollectorState, server_for
@@ -60,14 +61,33 @@ def main():
     modes.add_argument("--probe", action="store_true", help="仅检查依赖、版本及窗口类，不读取正文")
     modes.add_argument("--voice-self-test", action="store_true", help="仅用本机合成音频检查语音运行库及已有模型，不联网或采集")
     modes.add_argument("--database-self-test", action="store_true", help="仅用自建临时数据库检查加密与只读组件，不读取微信")
+    modes.add_argument("--runtime-self-test", action="store_true", help="检查 Mac 运行库及合成材料，不读取微信或请求系统权限")
+    modes.add_argument("--prepare-voice-model", action="store_true", help="显式下载并校验本机语音模型，不读取用户语音")
+    modes.add_argument("--mac-diagnostics", action="store_true", help="仅检查 Mac 版本、依赖及匿名辅助功能元数据")
     parser.add_argument("--probe-output", type=Path, help="仅与 --probe 或本机 --*-self-test 一起使用，写入检查结果")
     args = parser.parse_args()
-    if args.probe_output is not None and not (args.probe or args.voice_self_test or args.database_self_test):
+    if args.probe_output is not None and not (args.probe or args.voice_self_test or args.database_self_test or args.runtime_self_test or args.mac_diagnostics):
         parser.error("--probe-output requires --probe, --voice-self-test or --database-self-test")
-    if args.voice_self_test or args.database_self_test:
+    if args.prepare_voice_model:
+        from local_voice_transcriber import prepare_model
+        prepare_model()
+        print(json.dumps({"ok": True, "mode": "prepare-voice-model", "userAudioUsed": False}))
+        return
+    if args.mac_diagnostics:
+        from macos_accessibility import probe_accessibility
+        metadata = probe_accessibility(prompt=False, include_tree=True)
+        result = json.dumps(metadata, ensure_ascii=False)
+        if args.probe_output is not None:
+            args.probe_output.write_text(result, encoding="utf-8")
+        print(result)
+        return
+    if args.voice_self_test or args.database_self_test or args.runtime_self_test:
         if args.voice_self_test:
             from voice_runtime_self_test import run_voice_self_test
             metadata = run_voice_self_test()
+        elif args.runtime_self_test:
+            from macos_runtime_self_test import run_runtime_self_test
+            metadata = run_runtime_self_test()
         else:
             from database_runtime_self_test import run_database_self_test
             metadata = run_database_self_test()
@@ -88,8 +108,16 @@ def main():
     import tkinter as tk
     from tkinter import messagebox
     root = tk.Tk()
+    try:
+        if sys.platform == "darwin":
+            root._brand_icon = tk.PhotoImage(file=str(Path(__file__).resolve().with_name('chengzi-fluted-chat-v1.png')))
+            root.iconphoto(True, root._brand_icon)
+        else:
+            root.iconbitmap(str(Path(__file__).resolve().with_name('chengzi-fluted-chat-v1.ico')))
+    except tk.TclError:
+        pass
     root.title("成子 · 电脑微信采集助手")
-    root.geometry("570x540")
+    root.geometry("590x680" if sys.platform == "darwin" else "570x540")
     root.resizable(False, False)
     root.configure(bg="#fff8f1")
     try:
@@ -100,6 +128,10 @@ def main():
         return
     threading.Thread(target=server.serve_forever, daemon=True).start()
     tk.Label(root, text="连接你的网页", font=("Microsoft YaHei UI", 21, "bold"), bg="#fff8f1", fg="#322921").pack(pady=(26, 6))
+    setup_close = None
+    if sys.platform == "darwin":
+        from macos_setup_ui import install_setup_controls
+        setup_close = install_setup_controls(tk, root, state)
     tk.Label(root, text="正在打开网页并连接；若未打开，可点击下方按钮", font=("Microsoft YaHei UI", 12), bg="#fff8f1", fg="#756151").pack()
     def connect():
         try:
@@ -116,7 +148,10 @@ def main():
     code, reset_copy_feedback = connection_code_controls(tk, root, state)
     status = tk.StringVar(value=state.local_message)
     tk.Label(root, textvariable=status, wraplength=500, font=("Microsoft YaHei UI", 11), bg="#fff8f1", fg="#322921").pack(pady=8)
-    tk.Label(root, text="手机记录可先通过微信「导出到电脑」同步指定聊天。\n连接成功后，在网页选择联系人并点击导入。\n后台聊天与语音不占用微信窗口；朋友圈仍需微信前台。\n分析前会请你确认导入的材料。", justify="left", font=("Microsoft YaHei UI", 10), bg="#fff8f1", fg="#756151").pack(pady=12)
+    instructions = ("首次设置后重新打开微信，在网页选择联系人。\n聊天与语音在本机读取和转写。\n当前 Mac 预览版朋友圈只读取已加载缓存，未自动扫描全量。\n分析前会请你确认导入的材料。"
+                    if sys.platform == "darwin" else
+                    "手机记录可先通过微信「导出到电脑」同步指定聊天。\n连接成功后，在网页选择联系人并点击导入。\n后台聊天与语音不占用微信窗口；朋友圈仍需微信前台。\n分析前会请你确认导入的材料。")
+    tk.Label(root, text=instructions, justify="left", font=("Microsoft YaHei UI", 10), bg="#fff8f1", fg="#756151").pack(pady=12)
     buttons = tk.Frame(root, bg="#fff8f1")
     buttons.pack(pady=10)
     def rotate():
@@ -128,6 +163,8 @@ def main():
             state.cancel_active()
             state.local_message = "已停止采集，可重新开始"
     def close():
+        if setup_close:
+            setup_close()
         with state.lock:
             state.cancel_active()
             state.jobs.clear()
@@ -152,7 +189,7 @@ def main():
     root.protocol("WM_DELETE_WINDOW", close)
     tick()
     def connect_at_startup():
-        if connect():
+        if connect() and sys.platform != "darwin":
             root.iconify()
     # server_for has bound the loopback socket, and serve_forever has started.
     # Wait for Tk's event loop so the browser handoff is a startup action, not a capture.
