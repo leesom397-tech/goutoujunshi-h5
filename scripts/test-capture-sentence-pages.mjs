@@ -106,6 +106,10 @@ try{
   const attentionCalls=calls,attention=await readSentenceAttention(db,owner,id);
   assert.equal(attention.totalReadable,1);assert.equal(attention.replyAttention.messages,2);assert.equal(attention.replyAttention.questions[0].status,'unread-context');assert.equal(attention.cached,false);assert.equal(attention.cost,0);
   assert.equal((await readSentenceAttention(db,owner,id)).cached,true);assert.equal(calls,attentionCalls);
+  sql.prepare("UPDATE coach_report_sentence_pages SET payload=json_remove(payload,'$.replyAttention.rulesVersion') WHERE page_key='attention'").run();
+  const repairedAttention=await readSentenceAttention(db,owner,id);
+  assert.equal(repairedAttention.cached,false,'an old rule cache must be recomputed from originals');
+  assert.equal(repairedAttention.replyAttention.rulesVersion,2);assert.equal(calls,attentionCalls,'rule updates never require another model analysis');
   assert.equal((await readSentencePage(db,owner,id,{offset:0})).totalAnalyzed,0,'behavior summary never counts as model sentence analysis');
   await assert.rejects(()=>readSentenceAttention(db,'foreign',id),e=>e.status===404);
   const racedb={prepare:query=>({bind:(...values)=>{const statement=db.prepare(query).bind(...values);return{...statement,first:async()=>{const value=await statement.first();if(query.startsWith('SELECT payload FROM coach_report_sentence_pages'))sql.prepare("UPDATE coach_capture_libraries SET subject_id='changed' WHERE id=?").run(libraryId);return value;}};}})};

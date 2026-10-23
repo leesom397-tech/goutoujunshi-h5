@@ -12,8 +12,9 @@ export type ReplyAttentionQuestion = {
   label: string; reading: string; elapsedMinutes: number | null;
 };
 type Window = { from: string; to: string; questions: number; answered: number; bypassed: number; unclear: number; cutoff: number; unread: number; observedResponses: number };
+export const REPLY_ATTENTION_RULES_VERSION = 2;
 export type ReplyAttentionSummary = {
-  version: 1; scope: ReplyAttentionScope; cutoffAt: string; status: 'ready' | 'insufficient';
+  version: 1; rulesVersion: number; scope: ReplyAttentionScope; cutoffAt: string; status: 'ready' | 'insufficient';
   messages: number; questionCount: number; headline: string; reading: string;
   questions: ReplyAttentionQuestion[]; recent: Window | null; previous: Window | null;
   comparison: { status: 'changed' | 'similar' | 'insufficient'; text: string };
@@ -55,6 +56,9 @@ function explicitAnswer(question: string, text: string): boolean {
   if (!answer || isDirectReplyQuestion(text)) return false;
   // A yes/no acknowledgment does not fill an open time/place/choice slot.
   const openQuestion=/(?:什么时候|几[点时天]|多久|在哪|哪里|哪儿|哪天|哪个|哪种|为什么|为何|怎么|多少|什么|还是)/.test(q);
+  // An explicit closed-question answer can introduce a separate explanation.
+  // Require a clause boundary: “对了…” / “可以的话…” are not confirmations.
+  if (!openQuestion && /^(?:yes|no|yeah|yep|nope|nah|ok|okay|sure|好的|好呀|行|可以|不可以|不行|是的|不是|是|没有|有|嗯嗯|嗯|对|不对|愿意|不愿意)[呀啊吧呢哒哦噢哈]*[\s，,。.!！；;]/i.test(text.trim())) return true;
   if (!openQuestion&&(/^(?:yes|no|yeah|yep|nope|nah|ok|okay|sure)$/.test(answer)
     || /^(?:好(?:的|呀|啊)?|行(?:啊|呀)?|可以|不可以|不行|不去|去|不来|来|不了|不用|不要|要|想|不想|是|不是|有|没有|没|有空|没空|不方便|没时间|嗯|嗯嗯|对|不对|愿意|不愿意)[呀啊吧呢哒哦噢哈]*$/.test(answer))) return true;
   const clockAnswer=/(?:[0-9一二三四五六七八九十两]+点(?:半|[0-9一二三四五六七八九十]+分?)?|\d{1,2}[:：]\d{2})/.test(answer);
@@ -80,7 +84,7 @@ function windowStats(questions: ReplyAttentionQuestion[], start: number, end: nu
     unread: items.filter(q => q.status === 'unread-context').length, observedResponses: items.filter(q => q.responses.length > 0).length };
 }
 export function computeReplyAttention(input: readonly ReplyAttentionRow[], options: {scope: ReplyAttentionScope; cutoffAt?: string}): ReplyAttentionSummary {
-  const result: ReplyAttentionSummary = {version:1, scope:options.scope, cutoffAt:'', status:'insufficient', messages:0, questionCount:0,
+  const result: ReplyAttentionSummary = {version:1, rulesVersion:REPLY_ATTENTION_RULES_VERSION, scope:options.scope, cutoffAt:'', status:'insufficient', messages:0, questionCount:0,
     headline:'近期回应尚不能核对', reading:'需要连续的原始聊天，才能看清问题后发生了什么。', questions:[], recent:null, previous:null,
     comparison:{status:'insufficient',text:'尚无两个可比较的近期时间段。'}, initiations:[], limitations:[]};
   if (options.scope === 'evidence-only') { result.limitations.push('报告精选引用并非连续聊天，不能用引用间的空白判断未回复。'); return result; }

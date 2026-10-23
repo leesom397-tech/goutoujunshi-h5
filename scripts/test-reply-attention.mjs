@@ -19,6 +19,14 @@ for(const answer of ['yes','YES!','No.','nope','OK']) {
   const got=compute([row('q','self','要换模式了吗',at(10)),row('a','other',answer,at(10,10,5))],full);
   assert.equal(got.questions[0].status,'answered',`a closed question accepts explicit ${answer}`);
 }
+for(const answer of ['对，明天开始准备。','是的。还有一点紧张','可以，我们先试试','Yes, I already started.','No, I changed my mind.']) {
+  const got=compute([row('q','self','你已经开始了吗？',at(10)),row('a','other',answer,at(10,10,5))],full);
+  assert.equal(got.questions[0].status,'answered','an explicit closed-question answer can include an explanation');
+  assert.equal(got.rulesVersion,2);
+}
+for(const answer of ['对了，我今天买了新衣服','好像还没听说过','可以的话再说']) {
+  assert.equal(compute([row('q','self','你已经开始了吗？',at(10)),row('a','other',answer,at(10,10,5))],full).questions[0].status,'unclear','similar prefixes without a clause boundary do not confirm');
+}
 for(const [question,answer] of [
   ['几点出发？','可以'],['几点见？','嗯'],['几点见？','今天没事'],['几点走？','不知道8点能不能走'],
   ['什么时候来？','周六还没定'],['你在哪儿？','yes'],['在哪见？','我在忙'],

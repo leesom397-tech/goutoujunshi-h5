@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { riskAwarePresentation } from "@/lib/risk-aware-presentation";
 import { ArrowRight, ChartNoAxesCombined, Check, CircleHelp, Copy, Lightbulb, MessageCircle, Quote, ScanEye, Sparkles } from "lucide-react";
 import type { Json } from "./client";
@@ -39,7 +39,7 @@ export function ReportChapterArt({kind}:{kind:"change"|"next"}) {
   return <div className={visual.chapterArt} data-report-art={kind}><GlassStudy imageSrc={`/images/report-aurora-${kind}-v3.webp`} variant="report"/></div>;
 }
 
-export function ChatReportBrief({ report, diagnosis, showMetrics=true }: { report: Json; diagnosis?: Json | null; showMetrics?:boolean }) {
+export function ChatReportBrief({ report, diagnosis, showMetrics=true, afterSummary }: { report: Json; diagnosis?: Json | null; showMetrics?:boolean; afterSummary?:ReactNode }) {
   const presentation = riskAwarePresentation(report);
   const identity=reportIdentity(report),goal=reportGoal(report);
   const source = diagnosis || report.relationshipDiagnosis || {};
@@ -71,6 +71,7 @@ export function ChatReportBrief({ report, diagnosis, showMetrics=true }: { repor
       </div>
       <aside className={visual.action}><span className={visual.actionLabel}>{updated&&observation?"这一步之后":"接下来怎么做"}</span><h3>{updated&&observation?"留意对方的具体回应":updated?"选一句适合你的回复":"下一步"}</h3>{updated&&observation?<p>{observation}</p>:!updated?<p>{action}</p>:null}<ReportSectionLink section="next">{replyCount?`看 ${replyCount} 种回法与相处建议`:"看具体相处建议"}<ArrowRight size={17}/></ReportSectionLink><div className={visual.actionContour} aria-hidden="true"/></aside>
     </div>
+    {afterSummary}
     {hasDecisionInsights?<ReportDecisionInsights report={report}/>:<div className={visual.readingGrid}>
       <div className={visual.evidence} data-brief-evidence><header><span className={visual.chapter}>01</span><h3>{updated?"原判断引用的依据":"判断从这里来"}</h3><Quote size={23}/></header>{updated?<details><summary>核对原话依据</summary><KeyEvidenceList report={report} priorityEvidence={presentation.mode !== "normal" ? presentation.evidence : undefined} showReferences={false}/></details>:<KeyEvidenceList report={report} priorityEvidence={presentation.mode !== "normal" ? presentation.evidence : undefined} showReferences={false}/>}</div>
     </div>}

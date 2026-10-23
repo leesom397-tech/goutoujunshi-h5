@@ -1,7 +1,7 @@
 import type { getD1 } from "@/db";
 import type { CaptureMemoryRow } from "./capture-analysis-input";
 import { analyzeSentencePage, boundedSentenceRows, sentenceLine, SENTENCE_PAGE_SIZE, SENTENCE_READING_VERSION, validatedSentenceReadings, type SentenceAnnotation, type SentencePage } from "./capture-sentence-reading";
-import {computeReplyAttention,type ReplyAttentionRow} from "./reply-attention";
+import {computeReplyAttention,REPLY_ATTENTION_RULES_VERSION,type ReplyAttentionRow} from "./reply-attention";
 
 type Database=ReturnType<typeof getD1>;
 type Snapshot={libraryId:string;epoch:number;revision:number};
@@ -88,7 +88,7 @@ export async function readSentencePage(db:Database,owner:string,id:string,select
 export async function readSentenceAttention(db:Database,owner:string,id:string){
   const s=await source(db,owner,id);
   const cached=await db.prepare("SELECT payload FROM coach_report_sentence_pages WHERE owner_id=? AND report_id=? AND epoch=? AND revision=? AND version=? AND page_key='attention' AND status='complete'").bind(...params(s)).first<{payload:string}>();
-  if(cached){const payload=parse(cached.payload);if(payload.replyAttention?.version===1){
+  if(cached){const payload=parse(cached.payload);if(payload.replyAttention?.version===1&&payload.replyAttention.rulesVersion===REPLY_ATTENTION_RULES_VERSION){
     const current=await source(db,owner,id);
     if(current.snapshot.revision!==s.snapshot.revision)throw new SentenceReadingError("读取期间资料更新了，请重新核对。",409);
     return {...payload,sourceUpdated:current.snapshot.revision!==current.reportRevision,reportRevision:current.reportRevision,revision:current.snapshot.revision,cost:0,cached:true};

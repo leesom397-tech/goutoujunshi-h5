@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowDownRight, MessageCircle, MessageCircleQuestion } from 'lucide-react';
-import { computeReplyAttention, type ReplyAttentionEvidence, type ReplyAttentionRow, type ReplyAttentionSummary } from '@/lib/reply-attention';
+import { computeReplyAttention, REPLY_ATTENTION_RULES_VERSION, type ReplyAttentionEvidence, type ReplyAttentionRow, type ReplyAttentionSummary } from '@/lib/reply-attention';
 import { getCaptureLibrary, readReportSources } from '@/lib/desktop-capture-vault';
 import { CaptureEvidence } from './CaptureEvidence';
 import styles from './ReplyAttentionOverview.module.css';
@@ -12,7 +12,7 @@ function savedSummary(input: unknown): ReplyAttentionSummary | null {
   if(!input||typeof input!=='object'||Array.isArray(input))return null;
   const report=input as Report;
   const value=report.replyAttention||report.semanticHistory?.replyAttention;
-  return value?.version===1&&Array.isArray(value.questions)&&Array.isArray(value.initiations)&&typeof value.headline==='string'?value:null;
+  return value?.version===1&&value.rulesVersion===REPLY_ATTENTION_RULES_VERSION&&Array.isArray(value.questions)&&Array.isArray(value.initiations)&&typeof value.headline==='string'?value:null;
 }
 function availableRows(report: Report): ReplyAttentionRow[] | null {
   const full=report.analysisScope==='fullHistory'||report.analysisScope==='uploadedHistory'||report.captureFormat==='full-history';
