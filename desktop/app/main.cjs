@@ -1,5 +1,5 @@
 'use strict';
-const {app,BrowserWindow,WebContentsView,ipcMain,session,dialog,shell,Menu,protocol,net}=require('electron');
+const {app,BrowserWindow,WebContentsView,ipcMain,session,dialog,shell,Menu,protocol,net,nativeTheme}=require('electron');
 const path=require('node:path');
 const {pathToFileURL}=require('node:url');
 const {Collector}=require('./collector.cjs');
@@ -9,6 +9,7 @@ protocol.registerSchemesAsPrivileged([{scheme:'chengzi',privileges:{standard:tru
 let win,view,collector,quitting=false,closing=false,loading=true,failed=false,lastRoute=ORIGIN+'/',message='';
 const shellURL='chengzi://app/shell.html';
 const smoke=process.argv.includes('--smoke-test');
+nativeTheme.themeSource='light';
 if(smoke){const fs=require('node:fs');const location=path.join(require('node:os').tmpdir(),'chengzi-desktop-smoke-'+process.pid);fs.mkdirSync(location,{recursive:true});app.setPath('userData',location);}
 function snapshot(){const wc=view?.webContents;return {platform:process.platform,version:app.getVersion(),...collector?.state(),loading,failed,message,canGoBack:wc?.navigationHistory.canGoBack()||false,canGoForward:wc?.navigationHistory.canGoForward()||false,path:wc&&!wc.isDestroyed()?new URL(wc.getURL()||ORIGIN).pathname:'/',online:net.isOnline()};}
 function publish(){if(win&&!win.isDestroyed())win.webContents.send('shell:state',snapshot());}
@@ -73,7 +74,7 @@ async function createWindow(){
     if(!details.mediaTypes?.length||details.mediaTypes.some(type=>type!=='audio'))return callback(false);
     const answer=await dialog.showMessageBox(win,{message:'允许成子使用麦克风进行语音输入？',buttons:['不允许','允许'],defaultId:0,cancelId:0});microphoneAllowed=answer.response===1;callback(microphoneAllowed);
   });
-  win=new BrowserWindow({title:'成子',width:1380,height:900,minWidth:980,minHeight:680,backgroundColor:'#fff9f3',icon:path.join(__dirname,'assets/logo.png'),show:false,webPreferences:{preload:path.join(__dirname,'shell-preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true}});
+  win=new BrowserWindow({title:'成子',width:1380,height:900,minWidth:980,minHeight:680,backgroundColor:'#f7f4ee',autoHideMenuBar:true,icon:path.join(__dirname,'assets/logo.png'),show:false,webPreferences:{preload:path.join(__dirname,'shell-preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true}});
   win.webContents.setWindowOpenHandler(()=>({action:'deny'}));win.webContents.on('will-navigate',event=>event.preventDefault());
   view=new WebContentsView({webPreferences:{session:persistent,preload:path.join(__dirname,'preload.cjs'),contextIsolation:true,nodeIntegration:false,sandbox:true,webSecurity:true,allowRunningInsecureContent:false}});
   win.contentView.addChildView(view);

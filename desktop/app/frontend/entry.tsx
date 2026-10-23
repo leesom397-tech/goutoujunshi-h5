@@ -21,6 +21,7 @@ import "@/app/product-redesign.css";
 import "@/app/aurora-ui.css";
 import "@/app/interaction-motion.css";
 import "./local.css";
+import "./desktop-theme.css";
 
 const modules = import.meta.glob("../../../app/**/page.tsx") as Record<string, () => Promise<{ default: ComponentType }>>;
 const pages = new Map(Object.entries(modules).map(([file, load]) => [file.replace("../../../app", "").replace(/\/page\.tsx$/, "") || "/", lazy(load)]));

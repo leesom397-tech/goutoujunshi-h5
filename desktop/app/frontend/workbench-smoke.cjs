@@ -1,6 +1,6 @@
 /* Run with Electron after frontend:build. Only synthetic accounts and local
    protocol responses are used; no host collector, real account or network. */
-const { app, BrowserWindow, session } = require('electron');
+const { app, BrowserWindow, session, ipcMain } = require('electron');
 const { readFile, writeFile, mkdir } = require('node:fs/promises');
 const path = require('node:path');
 const os = require('node:os');
@@ -17,8 +17,8 @@ const reports = Array.from({ length: 16 }, (_, i) => ({
   createdAt: 1792713600000 - i * 86400000,
   ...(i === 2 ? { format: 'risk' } : i === 3 ? { analysisScope: 'supplement' } : {}),
 }));
-const errors = [], checks = {}, requests = [], missingAssets = [], consoleErrors = [];
-let win, pairAttempts = 0;
+const errors = [], checks = {}, requests = [], missingAssets = [], consoleErrors = [], nativeCalls = [], computedStyles = {}, renderedFonts = {};
+let win, pairAttempts = 0, accountMode = 'signed-in';
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 function assert(name, value, detail) { checks[name] = !!value; if (!value) errors.push({ name, detail }); }
 const json = (data, status = 200) => Response.json(data, { status, headers: { 'access-control-allow-origin': origin, 'access-control-allow-headers': 'content-type,authorization', 'access-control-allow-methods': 'GET,POST,OPTIONS', 'access-control-allow-private-network': 'true' } });
@@ -46,7 +46,41 @@ async function layout(name, width, height) {
   win.setSize(width, height); await pause(200);
   const result = await js(`({width:innerWidth,scrollWidth:document.documentElement.scrollWidth,focus:[...document.querySelectorAll('.dw-primary,.dw-report-item,.dw-search input')].filter(e=>e.getBoundingClientRect().height>0).slice(0,8).map(e=>({tag:e.tagName,width:e.getBoundingClientRect().width,height:e.getBoundingClientRect().height}))})`);
   assert(name + ' no horizontal overflow', result.scrollWidth <= result.width + 1, result);
+  computedStyles[name] = await js(`['.dw-people h2','.dw-person strong','.dw-capture-surface [class*="selectedPerson"] span'].flatMap(selector=>[...document.querySelectorAll(selector)].map(e=>({selector,text:e.textContent.trim().slice(0,65),fontFamily:getComputedStyle(e).fontFamily,fontSize:getComputedStyle(e).fontSize,color:getComputedStyle(e).color})))`);
+  renderedFonts[name] = await platformFonts();
   await screenshot(name);
+}
+async function platformFonts() {
+  const selectors = ['.dw-people h2', '.dw-person strong', '.dw-capture-surface [class*="selectedPerson"] div>span'];
+  win.webContents.debugger.attach('1.3');
+  try {
+    await win.webContents.debugger.sendCommand('DOM.enable');
+    await win.webContents.debugger.sendCommand('CSS.enable');
+    const { root: document } = await win.webContents.debugger.sendCommand('DOM.getDocument');
+    const result = [];
+    for (const selector of selectors) {
+      const { nodeId } = await win.webContents.debugger.sendCommand('DOM.querySelector', { nodeId: document.nodeId, selector });
+      if (nodeId) result.push({ selector, ...(await win.webContents.debugger.sendCommand('CSS.getPlatformFontsForNode', { nodeId })) });
+    }
+    return result;
+  } finally { win.webContents.debugger.detach(); }
+}
+async function captureReadability(name) {
+  const result = await js(`(()=>{const selectors='.dw-capture :is(p,label,button,.dw-primary),.dw-capture-steps strong';return [...document.querySelectorAll(selectors)].filter(e=>{const r=e.getBoundingClientRect(),s=getComputedStyle(e);return r.width>0&&r.height>0&&s.visibility!=='hidden'&&e.textContent.trim()}).map(e=>({text:e.textContent.trim().slice(0,65),size:parseFloat(getComputedStyle(e).fontSize),color:getComputedStyle(e).color})).filter(e=>e.size<14)})()`);
+  assert(name + ' body copy at least 14px', result.length === 0, result);
+}
+async function visibleCapturePrimary(name) {
+  const result = await js(`(()=>{const e=[...document.querySelectorAll('.dw-capture button')].find(e=>e.textContent.includes('连接本机微信')&&!e.disabled);if(!e)return null;const r=e.getBoundingClientRect();return {left:r.left,right:r.right,top:r.top,bottom:r.bottom,width:r.width,height:r.height,viewport:[innerWidth,innerHeight]}})()`);
+  assert(name + ' connect action is visible and usable', !!result && result.left >= 0 && result.right <= result.viewport[0] && result.top >= 0 && result.bottom <= result.viewport[1] && result.height >= 42, result);
+}
+async function searchShortcut(name) {
+  await js(`document.dispatchEvent(new KeyboardEvent('keydown',{key:'k',code:'KeyK',ctrlKey:true,bubbles:true,cancelable:true}))`);
+  await until(`document.querySelectorAll('dialog[open]').length>0`, name + ' shortcut opens search');
+  const count = await js(`document.querySelectorAll('dialog[open]').length`);
+  assert(name + ' Ctrl+K opens exactly one dialog', count === 1, { count });
+  await click('dialog[open] button[aria-label="关闭搜索"]');
+  await until(`document.querySelectorAll('dialog[open]').length===0`, name + ' shortcut dialog closes');
+  assert(name + ' shortcut dialog closes completely', await js(`document.querySelectorAll('dialog[open]').length===0`));
 }
 function savedReport(id) {
   const item = reports.find(row => row.id === id);
@@ -76,7 +110,11 @@ async function handler(request) {
   if (url.pathname.startsWith('/api/')) {
     requests.push({ path: url.pathname, query: url.search, method: request.method, local: false });
     if (request.method !== 'GET') return json({ error: 'Synthetic test does not mutate server state' }, 405);
-    if (url.pathname === '/api/web/account-context') return json({ account: { userId: 'desktop-synthetic-test-owner', name: '合成测试账户' }, people, balance: 100, prices: {} });
+    if (url.pathname === '/api/web/account-context') {
+      if (accountMode === 'signed-out') return json({ error: '请登录后继续。' }, 401);
+      if (accountMode === 'unavailable') return json({ error: '账户服务暂时未连接，请重试。' }, 503);
+      return json({ account: { userId: 'desktop-synthetic-test-owner', name: '合成测试账户' }, people, balance: 100, prices: {} });
+    }
     if (url.pathname === '/api/account/credits') return json({ account: { userId: 'desktop-synthetic-test-owner' }, balance: 100, prices: {} });
     if (url.pathname === '/api/web/report/list') {
       const q = url.searchParams.get('q') || '', page = Math.max(1, Number(url.searchParams.get('page')) || 1);
@@ -86,7 +124,9 @@ async function handler(request) {
     }
     if (url.pathname === '/api/web/report') return savedReport(url.searchParams.get('id'));
     if (url.pathname === '/api/web/workspace') return json({ people, reports, tasks: [], balances: { credits: 100 } });
-    if (url.pathname.includes('capture/library')) return json({ libraries: [] });
+    if (url.pathname.includes('capture/library')) return url.searchParams.has('reportId')
+      ? json({ ownerId: 'desktop-synthetic-test-owner', error: '这份演示报告没有关联导入资料。' }, 404)
+      : json({ ownerId: 'desktop-synthetic-test-owner', libraries: [], nextCursor: null });
     if (url.pathname.includes('capture/task')) return json({ jobs: [] });
     return json({ enabled: true, subjects: people, libraries: [], rows: [], items: [], reports: [], tasks: [] });
   }
@@ -101,15 +141,46 @@ app.setPath('userData', path.join(os.tmpdir(), 'chengzi-workbench-synthetic-' + 
 app.whenReady().then(async () => {
   await mkdir(output, { recursive: true });
   const preload = path.join(output, 'synthetic-preload.cjs');
-  await writeFile(preload, `const {contextBridge}=require('electron');contextBridge.exposeInMainWorld('chengziDesktop',{connectCollector:async()=>({handoff:'s'.repeat(43)}),openCollectorSetup:async()=>({opened:true}),getRuntimeState:async()=>({platform:'win32',version:'synthetic',collectorStatus:'stopped'})});`);
+  ipcMain.handle('synthetic-workbench-native', (_event, operation) => {
+    nativeCalls.push(operation);
+    return operation === 'connect' ? { handoff: 's'.repeat(43) } : { opened: true };
+  });
+  await writeFile(preload, `const {contextBridge,ipcRenderer}=require('electron');contextBridge.exposeInMainWorld('chengziDesktop',{connectCollector:()=>ipcRenderer.invoke('synthetic-workbench-native','connect'),openCollectorSetup:()=>ipcRenderer.invoke('synthetic-workbench-native','setup'),getRuntimeState:async()=>({platform:'win32',version:'synthetic',collectorStatus:'stopped'})});`);
   const ses = session.fromPartition('synthetic-workbench-' + process.pid);
   ses.webRequest.onBeforeRequest((details, callback) => callback({ cancel: ![origin + '/', local + '/', 'data:', 'blob:'].some(prefix => details.url.startsWith(prefix)) }));
   await ses.protocol.handle('https', handler); await ses.protocol.handle('http', handler);
   win = new BrowserWindow({ show: false, width: 1184, height: 836, webPreferences: { session: ses, preload, sandbox: true, contextIsolation: true, nodeIntegration: false, offscreen: true, backgroundThrottling: false } });
   win.webContents.on('console-message', details => { if (details.level === 'error' && !/status of 401|net::ERR_BLOCKED_BY_CLIENT/.test(details.message)) consoleErrors.push(details.message.slice(0, 500)); });
+  accountMode = 'signed-out';
+  await win.loadURL(origin + '/capture?method=desktop');
+  await until(`document.querySelectorAll('.dw-capture a[href^="/login"]').length>0`, 'signed-out capture gate');
+  await pause(300);
+  assert('signed-out capture has one login action', await js(`document.querySelectorAll('.dw-capture a[href^="/login"]').length===1`));
+  assert('signed-out capture omits collector controls and underlying capture', await js(`!document.querySelector('[data-desktop-capture-step]')&&![...document.querySelectorAll('.dw-capture button')].some(e=>/连接本机微信|本机采集设置/.test(e.textContent))`));
+  assert('signed-out capture cannot start native service', nativeCalls.length === 0 && requests.every(row => !row.local), { nativeCalls: [...nativeCalls], localRequests: requests.filter(row => row.local) });
+  await layout('capture-signed-out-minimum', 784, 616);
+  await captureReadability('signed-out capture');
+  accountMode = 'unavailable';
+  await win.loadURL(origin + '/capture?method=desktop');
+  await until(`[...document.querySelectorAll('.dw-capture button')].some(e=>/重新连接|重试/.test(e.textContent)&&!e.disabled)`, 'account failure retry');
+  assert('account network error does not suggest signing in', await js(`document.querySelectorAll('.dw-capture a[href^="/login"]').length===0&&!document.querySelector('[data-desktop-capture-step]')&&!/请先登录|登录后|登录账户/.test(document.querySelector('.dw-capture').innerText)`));
+  assert('account network error cannot start native service', nativeCalls.length === 0 && requests.every(row => !row.local));
+  await screenshot('capture-account-error');
+  await captureReadability('account failure');
+  accountMode = 'signed-in';
+  await js(`[...document.querySelectorAll('.dw-capture button')].find(e=>/重新连接|重试/.test(e.textContent)&&!e.disabled)?.click()`);
+  await until(`!!document.querySelector('[data-desktop-capture-step="0"]')&&[...document.querySelectorAll('button')].some(e=>e.textContent.includes('连接本机微信')&&!e.disabled)`, 'retry restores authenticated capture');
+  assert('account retry recovers without a login redirect', await js(`location.pathname==='/capture'&&document.querySelectorAll('.dw-capture a[href^="/login"]').length===0`));
+  assert('account retry does not silently start collector', nativeCalls.length === 0);
+  await layout('capture-authenticated-minimum', 784, 616);
+  await captureReadability('authenticated capture');
+  await visibleCapturePrimary('minimum capture');
+  assert('minimum capture footer is visible without empty page height', await js(`(()=>{const e=document.querySelector('.dw-capture-foot'),r=e?.getBoundingClientRect();return !!r&&r.top>=0&&r.bottom<=innerHeight})()`));
+  await searchShortcut('authenticated capture');
   await win.loadURL(origin + '/workspace');
   await until(`document.querySelectorAll('.dw-recent-row').length===4`, 'real synthetic recent reports');
   assert('home shows actual API people', await js(`document.querySelectorAll('.dw-person').length===2`));
+  assert('home person names are at least 15px', await js(`[...document.querySelectorAll('.dw-person strong')].every(e=>parseFloat(getComputedStyle(e).fontSize)>=15)`));
   assert('home import action links to capture', await js(`document.querySelector('.dw-start a')?.getAttribute('href')==='/capture?method=desktop'`));
   await layout('home-wide', 1184, 836);
   await layout('home-minimum', 784, 616);
@@ -118,6 +189,7 @@ app.whenReady().then(async () => {
   await click('button[aria-label="关闭搜索"]');
   await navigate('/reports');
   await until(`document.querySelectorAll('.dw-report-item').length===12`, 'report list');
+  assert('report list heading and body are readable', await js(`[...document.querySelectorAll('.dw-report-item strong')].every(e=>parseFloat(getComputedStyle(e).fontSize)>=15)&&[...document.querySelectorAll('.dw-report-item p')].every(e=>parseFloat(getComputedStyle(e).fontSize)>=14)`));
   assert('list count comes from API', await js(`document.querySelector('.dw-report-rail header').textContent.includes('16')`));
   await input('.dw-search input', '小林');
   await until(`document.querySelectorAll('.dw-report-item').length===8`, 'filtered reports');
@@ -129,6 +201,7 @@ app.whenReady().then(async () => {
   assert('selected row is marked', await js(`document.querySelector('.dw-report-item[aria-current="page"]')?.getAttribute('href')===location.pathname+location.search`));
   await layout('report-minimum', 784, 616);
   await layout('report-wide', 1184, 836);
+  await searchShortcut('open report');
   await js(`window.history.back()`);
   await until(`location.pathname==='/reports'&&!document.querySelector('.dw-report-body')`, 'back to report list');
   assert('back retains filtered list', await js(`document.querySelector('.dw-search input').value==='小林'&&document.querySelector('.dw-report-rail')===window.__syntheticRail`));
@@ -141,7 +214,8 @@ app.whenReady().then(async () => {
   assert('pagination shows second page', await js(`document.querySelector('.dw-page-controls').textContent.includes('2 / 2')`));
   await navigate('/capture?method=desktop');
   await until(`!!document.querySelector('[data-desktop-capture-step="0"]')&&[...document.querySelectorAll('button')].some(e=>e.textContent.includes('连接本机微信')&&!e.disabled)`, 'desktop capture entry');
-  assert('capture stage 1 matches source', await js(`document.querySelector('.dw-capture-rail [aria-current="step"]')?.textContent.includes('连接微信')`));
+  assert('capture stage 1 matches source', await js(`document.querySelector('.dw-capture-steps [aria-current="step"]')?.textContent.includes('连接微信')`));
+  assert('capture uses one content column', await js(`!document.querySelector('.dw-capture-rail')&&!!document.querySelector('.dw-capture-steps')`));
   await screenshot('capture-connect');
   await js(`[...document.querySelectorAll('button')].find(e=>e.textContent.includes('连接本机微信'))?.click()`);
   await until(`document.body.innerText.includes('连接已失效')`, 'synthetic handoff failure');
@@ -149,26 +223,30 @@ app.whenReady().then(async () => {
   assert('pair failure clears busy hint', await js(`![...document.querySelectorAll('[role="status"]')].some(e=>e.textContent.includes('正在准备本机采集'))&&[...document.querySelectorAll('button')].some(e=>e.textContent.includes('连接本机微信')&&!e.disabled)`));
   await js(`[...document.querySelectorAll('button')].find(e=>e.textContent.includes('连接本机微信'))?.click()`);
   await until(`!!document.querySelector('[data-desktop-capture-step="1"]')`, 'paired capture stage');
-  assert('capture stage 2 reflects successful pairing', await js(`document.querySelector('.dw-capture-rail [aria-current="step"]')?.textContent.includes('选择人物')`));
+  assert('capture stage 2 reflects successful pairing', await js(`document.querySelector('.dw-capture-steps [aria-current="step"]')?.textContent.includes('选择好友')`));
   await input('input[placeholder="输入好友的备注或昵称"]', '演示');
   await until(`!!document.querySelector('[aria-label="选择要导入的微信联系人"] button')`, 'synthetic contact search');
   await click('[aria-label="选择要导入的微信联系人"] button');
   await until(`!!document.querySelector('[data-desktop-capture-step="2"]')`, 'selected capture stage');
-  assert('capture stage 3 reflects contact selection', await js(`document.querySelector('.dw-capture-rail [aria-current="step"]')?.textContent.includes('同步资料')`));
+  assert('capture stage 3 reflects contact selection', await js(`document.querySelector('.dw-capture-steps [aria-current="step"]')?.textContent.includes('导入资料')`));
+  assert('valid library response has no false owner error', await js(`!document.body.innerText.includes('登录账号已变化')`));
   assert('capture is not automatically started', requests.every(row => row.path !== '/capture'));
   await layout('capture-selected-minimum', 784, 616);
+  await captureReadability('selected contact');
   await layout('capture-selected-wide', 1184, 836);
   win.webContents.debugger.attach('1.3');
   await win.webContents.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
   assert('reduced motion disables entrance animation', await js(`getComputedStyle(document.querySelector('.dw-enter')).animationName==='none'||parseFloat(getComputedStyle(document.querySelector('.dw-enter')).animationDuration)<=0.01`));
   win.webContents.debugger.detach();
   assert('no asset missing', missingAssets.length === 0, missingAssets);
+  const actualFonts = Object.values(renderedFonts).flat().flatMap(row => row.fonts);
+  assert('real platform glyphs use Chinese UI sans font', actualFonts.length >= 3 && actualFonts.every(font => /Microsoft YaHei|PingFang/.test(font.familyName)), actualFonts);
   assert('no renderer exceptions', consoleErrors.filter(row => !/401|400|Failed to load resource/.test(row)).length === 0, consoleErrors);
   await finish();
 }).catch(async error => { errors.push({ name: 'workbench flow', detail: error.stack }); if (win) await screenshot('failure').catch(() => {}); await finish(); });
 async function finish() {
   await mkdir(output, { recursive: true });
-  const result = { ok: errors.length === 0, syntheticOnly: true, realNetworkUsed: false, realAccountUsed: false, checks, errors, consoleErrors, missingAssets, requests };
+  const result = { ok: errors.length === 0, syntheticOnly: true, realNetworkUsed: false, realAccountUsed: false, checks, errors, consoleErrors, missingAssets, nativeCalls, requests, computedStyles, renderedFonts };
   await writeFile(path.join(output, 'receipt.json'), JSON.stringify(result, null, 2));
   console.log(JSON.stringify({ ok: result.ok, checks, errors, output }));
   win?.destroy(); app.exit(result.ok ? 0 : 1);

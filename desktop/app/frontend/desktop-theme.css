@@ -1,0 +1,77 @@
+/* Shared desktop tokens also apply to the bundled feature pages. The web app
+   does not load this stylesheet. Native chrome uses the same values. */
+body.cz-desktop {
+  --desktop-ink: #2b302c;
+  --desktop-muted: #62665f;
+  --desktop-accent: #98543d;
+  --desktop-paper: #f7f4ee;
+  --desktop-border: #dfd9cf;
+  --cz-font: "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  --font-sans: var(--cz-font);
+  background: var(--desktop-paper);
+  color: var(--desktop-ink);
+  font-family: "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  font-size: 16px;
+  line-height: 1.65;
+}
+.cz-desktop :is(button, input, select, textarea, h1, h2, h3, h4, p, a, label, summary, span, strong, small, li, time) {
+  font-family: "PingFang SC", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif !important;
+}
+.cz-desktop [class*="_page_"] {
+  --aurora-bg: var(--desktop-paper);
+  --aurora-ink: var(--desktop-ink);
+  --aurora-muted: var(--desktop-muted);
+  --aurora-edge: var(--desktop-border);
+  --aurora-accent: var(--desktop-accent);
+}
+.cz-desktop :is([class*="_primary_"], [class*="_secondary_"], .dw-primary, .dw-button) {
+  border-radius: 10px !important;
+  min-height: 46px;
+  font-size: 15px;
+  line-height: 1.5;
+  text-decoration: none !important;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+.cz-desktop :is([class*="_primary_"], .dw-primary) {
+  background: #98543d !important;
+  border-color: #98543d !important;
+  color: #fff !important;
+  box-shadow: 0 3px 10px #98543d15 !important;
+}
+.cz-desktop :is([class*="_primary_"], .dw-primary):hover:not(:disabled) {
+  background: #80432f !important;
+  border-color: #80432f !important;
+}
+.cz-desktop :is([class*="_secondary_"], .dw-button) {
+  background: #fffdfa !important;
+  color: #704631 !important;
+  border-color: #d8cabd !important;
+  box-shadow: none !important;
+}
+.cz-desktop :is([class*="_secondary_"], .dw-button):hover:not(:disabled) { background: #f5eae0 !important; }
+.cz-desktop :is(input:not([type=checkbox]):not([type=radio]), select, textarea) {
+  color: #2b302c;
+  font-size: 16px;
+  border-radius: 10px;
+}
+.cz-desktop :is(input,textarea)::placeholder { color: #73766e; opacity: 1; }
+.cz-desktop :is(button,a,input,textarea,summary,select):focus-visible {
+  outline: 2px solid #98543d !important;
+  outline-offset: 3px !important;
+}
+.cz-desktop .web-search-trigger {
+  min-height: 44px !important;
+  padding: 9px 12px !important;
+  background: #fffdfa !important;
+  border: 1px solid #dfd9cf !important;
+  border-radius: 10px !important;
+  color: #51574f !important;
+  font-size: 14px !important;
+  flex: none;
+}
+.cz-desktop .web-search-trigger kbd { font-size: 13px; color: #62665f; }
+.cz-desktop .dw-capture-surface :is(button,summary) { min-height: 44px; }
+.cz-desktop .dw-capture-surface [class*="_primary_"] small { color: #fff !important; opacity: .9; }
+.cz-desktop .dw-capture-surface [hidden] { display: none !important; }
+@media (max-width:900px) { .cz-desktop .web-search-trigger kbd { display: none; } }
