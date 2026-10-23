@@ -255,7 +255,19 @@ def _short_id(value, label):
 def _execute(conn, sql, parameters=()):
     # SQLite query_only also protects providers inadvertently opened read/write.
     conn.execute("PRAGMA query_only=ON")
-    return conn.execute(sql, parameters)
+    try:
+        return conn.execute(sql, parameters)
+    except Exception as error:
+        # Required WeChat table/column changes are compatibility failures, not
+        # empty history or a transient sync. Keep the raw SQL/schema identifier
+        # out of the browser response; unrelated I/O/integrity errors retain
+        # their existing handling and must not be hidden by this classification.
+        kind = (type(error).__module__, type(error).__name__)
+        if kind in (("sqlite3", "OperationalError"), ("apsw", "SQLError")) and re.match(
+                r"^no such (?:table|column):", str(error), re.IGNORECASE):
+            raise BackgroundCaptureError("UNSUPPORTED_DATABASE",
+                                         "当前微信更新了本地资料结构，暂未完成兼容。已保存内容保留，请更新成子桌面版后重试。") from None
+        raise
 
 
 def _contact_text(value):

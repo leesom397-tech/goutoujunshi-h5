@@ -25,6 +25,11 @@ import "./local.css";
 const modules = import.meta.glob("../../../app/**/page.tsx") as Record<string, () => Promise<{ default: ComponentType }>>;
 const pages = new Map(Object.entries(modules).map(([file, load]) => [file.replace("../../../app", "").replace(/\/page\.tsx$/, "") || "/", lazy(load)]));
 pages.set("/support", lazy(() => import("./DesktopSupport")));
+pages.set("/workspace", lazy(() => import("./DesktopWorkbench").then(module => ({default: module.DesktopHome}))));
+const Reports = lazy(() => import("./DesktopWorkbench").then(module => ({default: module.DesktopReports})));
+pages.set("/reports", Reports);
+pages.set("/report", Reports);
+pages.set("/capture", lazy(() => import("./DesktopWorkbench").then(module => ({default: module.DesktopCapture}))));
 installDesktopNavigation(new Set(pages.keys()));
 
 class RouteBoundary extends Component<{ children: ReactNode }, { failed: boolean }> {
@@ -37,6 +42,8 @@ function App() {
   const url = useDesktopLocation();
   const path = new URL(url, location.origin).pathname.replace(/\/$/, "") || "/";
   const Page = path === "/" ? HomeRedirect : pages.get(path);
-  return <><ReportSessionNavigation/><MotionPolicy/><AuxiliaryWebNav/><RouteBoundary key={path}><Suspense fallback={<main className="desktop-route-message" role="status">正在打开…</main>}>{Page ? <Page key={path + new URL(url, location.origin).search}/> : <main className="desktop-route-message"><h1>页面不存在</h1><a href="/workspace">返回工作台</a></main>}</Suspense></RouteBoundary></>;
+  const routeKey = path === '/reports' || path === '/report' ? 'report-library' : path;
+  return <><ReportSessionNavigation/><MotionPolicy/><AuxiliaryWebNav/><RouteBoundary key={routeKey}><Suspense fallback={<main className="desktop-route-message" role="status">正在打开…</main>}>{Page ? <Page key={routeKey === 'report-library' ? routeKey : path + new URL(url, location.origin).search}/> : <main className="desktop-route-message"><h1>页面不存在</h1><a href="/workspace">返回工作台</a></main>}</Suspense></RouteBoundary></>;
 }
+document.body.classList.add('cz-desktop');
 createRoot(document.getElementById("root")!).render(<App/>);

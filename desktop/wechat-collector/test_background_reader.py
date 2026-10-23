@@ -8,7 +8,7 @@ from unittest.mock import patch, Mock
 from background_reader import (BackgroundCaptureError, capture_from_source,
                                capture_background, probe_background, _voice_duration, _validate_request,
                                local_chat_image)
-from background_reader import _read_audio
+from background_reader import _read_audio, _execute
 
 
 class Source:
@@ -65,6 +65,62 @@ REQUEST = {"kind": "chat", "friend": "测试联系人", "limit": 500, "includeVo
 
 
 class BackgroundReaderTests(unittest.TestCase):
+    def test_new_database_schema_is_reported_without_exposing_identifiers(self):
+        conn = sqlite3.connect(":memory:")
+        self.addCleanup(conn.close)
+        conn.execute("CREATE TABLE contact(username TEXT, changed_nickname TEXT)")
+        for query in ("SELECT nick_name FROM contact", "SELECT * FROM private_missing_schema_name"):
+            with self.subTest(query=query), self.assertRaises(BackgroundCaptureError) as caught:
+                _execute(conn, query).fetchall()
+            self.assertEqual(caught.exception.code, "UNSUPPORTED_DATABASE")
+            self.assertNotIn("private_missing_schema_name", caught.exception.message)
+            self.assertNotIn("nick_name", caught.exception.message)
+        self.assertEqual(conn.execute("PRAGMA query_only").fetchone()[0], 1)
+
+    def test_non_schema_sqlite_errors_keep_their_original_classification(self):
+        conn = sqlite3.connect(":memory:")
+        self.addCleanup(conn.close)
+        conn.execute("CREATE TABLE contact(username TEXT)")
+        with self.assertRaises(sqlite3.OperationalError) as caught:
+            _execute(conn, "INSERT INTO contact VALUES(?)", ("synthetic",))
+        self.assertIn("readonly", str(caught.exception))
+        unrelated = Mock()
+        unrelated.execute.side_effect = [None, RuntimeError("no such table: synthetic")]
+        with self.assertRaises(RuntimeError):
+            _execute(unrelated, "SELECT 1")
+
+    def test_apsw_schema_change_has_the_same_safe_error(self):
+        try:
+            import apsw
+        except ImportError:
+            self.skipTest("APSW is provided by the packaged collector environment")
+        conn = apsw.Connection(":memory:")
+        self.addCleanup(conn.close)
+        with self.assertRaises(BackgroundCaptureError) as caught:
+            _execute(conn, "SELECT * FROM synthetic_missing_table").fetchall()
+        self.assertEqual(caught.exception.code, "UNSUPPORTED_DATABASE")
+        self.assertNotIn("synthetic_missing_table", caught.exception.message)
+
+    def test_selected_voice_sender_lookup_is_once_per_shard(self):
+        from background_reader import _read_voice_page
+        source = Source()
+        shard = source.shard("message_0.db")
+        refs = []
+        for index in range(500):
+            source.add(shard, index + 1, index + 1001, mtype=34,
+                       sender=7 if index % 2 else 2, sequence=index)
+            refs.append({"messageShard": "message_0.db", "messageId": str(index + 1001)})
+        statements = []
+        shard[0].set_trace_callback(statements.append)
+        try:
+            rows, _ = _read_voice_page(source, "target-user", {"direction": "backward"}, refs)
+            self.assertEqual(len(rows), 500)
+            self.assertEqual([row["sender"] for row in rows],
+                             ["self-user" if index % 2 else "target-user" for index in range(500)])
+            self.assertEqual(sum("FROM Name2Id" in sql for sql in statements), 1)
+        finally:
+            source.close()
+
     def test_contact_media_aliases_use_one_bounded_query_without_other_contacts(self):
         source = Source()
         source.add_audio(101, b"first")

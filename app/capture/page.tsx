@@ -8,6 +8,7 @@ import { WebNav } from "@/components/WebNav";
 import { FirstUseTour } from "@/components/FirstUseTour";
 import {CaptureAnalysisStatus} from "@/components/CaptureAnalysisStatus";
 import {WaitingProgress} from "@/components/WaitingProgress";
+import ImportFlowVisual from "@/components/ImportFlowVisual";
 import {importTimingStart,type ImportTiming} from "@/lib/waiting-time";
 import {CaptureCoverage} from "@/components/CaptureCoverage";
 import {captureCoverage,captureMediaNotice} from "@/lib/capture-coverage";
@@ -15,7 +16,7 @@ import { ScreenCapture, type CapturedFrame } from "@/components/ScreenCapture";
 import { VideoImport, type ImportedVideoFrame, type VideoImportContext } from "@/components/VideoImport";
 import { api, message, useAccount, AccountNotice, PersonSelect, InlinePerson, WebError, type Json } from "@/components/web-analysis/client";
 import { bridgeRequest, BridgeError, type BridgeHealth } from "@/lib/desktop-bridge-client";
-import { getDesktopHost } from "@/lib/desktop-host";
+import { getDesktopHost, desktopConnectionMessage } from "@/lib/desktop-host";
 import { createContactSearchQueue, parseContactSearchPage } from "@/lib/capture-contact-search";
 import { readHistoryProgress, writeHistoryProgress, clearHistoryProgress, newHistoryProgress, runHistoryImport, isHistorySourceUpdating, type HistoryProgress } from "@/lib/capture-history-import";
 import { saveCaptureBatch, getCaptureLibrary, pendingCaptureRecords, removeCaptureLibrary, type CaptureLibrary } from "@/lib/desktop-capture-vault";
@@ -797,6 +798,12 @@ export default function CapturePage() {
       throw cause;
     }
   }
+  function connectionErrorMessage(cause:unknown){
+    const detail=message(cause);
+    if(!getDesktopHost())return detail;
+    if(cause instanceof BridgeError)return ["HANDOFF_INVALID","HANDOFF_EXPIRED","TOKEN_INVALID","PAIR_REQUIRED"].includes(cause.code)?"本机采集连接已失效，请点击重新连接。已导入的资料会保留。":detail;
+    return desktopConnectionMessage(detail);
+  }
   async function openDesktopSetup(){
     try{const native=getDesktopHost();if(!native)return;const result=await native.openCollectorSetup();if(!result.opened)setError("本机设置暂未打开，请从桌面应用重新尝试。");}
     catch(cause){setError(message(cause));}
@@ -820,7 +827,7 @@ export default function CapturePage() {
       if(!current())return;
       setHealth(status);setPairExpanded(true);setConnectionHint("助手已打开。输入助手窗口的 8 位连接码，即可在这里连接。");
       setTimeout(()=>document.getElementById("capture-code")?.focus(),0);
-    }catch(cause){if(current()){setError(message(cause));setConnectionHint("");}}
+    }catch(cause){if(current()){setError(connectionErrorMessage(cause));setConnectionHint("");}}
     finally{if(current()){connectionState.current.busy=false;setBusy(false);connectionDiscovery.current?.refresh();}}
   }
   function requestAssistantConnection(mode:"opened"|"code"){
@@ -837,7 +844,7 @@ export default function CapturePage() {
   }
   function connectionFailed(e:unknown) {
     if(e instanceof BridgeError&&e.status===401&&["PAIR_REQUIRED","TOKEN_INVALID"].includes(e.code)){token.current="";setConnected(false);remember(scopeKey("connection"),null);void forgetCaptureConnectionSession(owner);const stale=stored<StoredCaptureJob>(scopeKey("job"));if(stale?.jobId){clearStoredJob(stale.jobId);setJobPhase("missing");setJobMessage("本机助手连接已失效，已保存的聊天不会删除。重新连接后可继续导入。");setJobId("");setProgress(0);}}
-    setError(message(e));
+    setError(connectionErrorMessage(e));
   }
   async function connect(oneTimeHandoff?:string,enteredCode=code.trim()) {
     if (!owner) return;
@@ -856,8 +863,8 @@ export default function CapturePage() {
       await saveCaptureConnectionSession(owner,verified,current);
       if(!current())return;
       token.current = pair.token; remember(scopeKey("connection"), {...verified,revision:captureConnectionRevision()}); setConnected(true); setCode("");setPairExpanded(false);setConnectionHint(""); setNote("已连接本机采集助手。选择好友后开始。");
-    } catch (e) { if (current()) { setError(message(e)); setConnected(false); } }
-    finally { if (current()) {connectionState.current.busy=false;setBusy(false);} }
+    } catch (e) { if (current()) { setError(connectionErrorMessage(e)); setConnected(false); } }
+    finally { if (current()) {connectionState.current.busy=false;setBusy(false);setConnectionHint("");} }
   }
   async function poll(id: string, ticket: number, scope: string, preserveReading = false) {
     abort.current?.abort(); const controller = new AbortController(); abort.current = controller;
@@ -1542,7 +1549,7 @@ export default function CapturePage() {
   // Account effects clear stored material after commit. Hide it immediately
   // during an owner change so the old person's content cannot flash first.
   if(library&&library.ownerId!==owner)return <div className={ui.page}><WebNav/><main className={`${ui.wrap} ${styles.page}`}><AccountNotice state={account}/><p role="status">正在切换账户资料…</p></main></div>;
-  return <div className={ui.page}><WebNav guideReady={!!owner && !account.loading}/><FirstUseTour owner={owner} page="capture" method={method} ready={!account.loading} auto={method !== "desktop" && !locked && !jobId && !receipt && !library}/><main className={`${ui.wrap} ${styles.page}`}>
+  return <div className={ui.page} data-desktop-capture-step={desktopStep} data-desktop-capture-phase={processingImport ? importStage || 'chat' : analyzing || backgroundAnalysis ? 'analysis' : 'idle'}><WebNav guideReady={!!owner && !account.loading}/><FirstUseTour owner={owner} page="capture" method={method} ready={!account.loading} auto={method !== "desktop" && !locked && !jobId && !receipt && !library}/><main className={`${ui.wrap} ${styles.page}`}>
     <header className={styles.pageHeader} data-intake={method==="desktop"&&showIntake} data-confirm={reviewing} hidden={processingImport || analyzing || backgroundAnalysis || compactImport && !reviewing && !browsingMaterials}><div><p>{kind === "moments" ? "朋友圈 · 补充人物线索" : personIntent ? "聊天 · 朋友圈 · 完整关系报告" : "完整聊天 · 关系报告"}</p><h1>{reviewing ? "确认费用，生成报告" : browsingMaterials ? "查看已保存的材料" : compactImport ? "材料已就位，生成你的关系报告" : kind === "moments" ? "导入 TA 的朋友圈" : personIntent ? "导入 TA 的全部资料" : "导入聊天，看清这段关系"}</h1>{!library && <span>看清现状，看见变化，知道下一步。</span>}</div>{returnTo && <a className={ui.secondary} href={returnTo}><History size={17}/>{returnTo.startsWith('/archive')?'返回人物档案':'返回原报告'}</a>}</header>
 
     <ol id="capture-steps" hidden={processingImport || analyzing || backgroundAnalysis || compactImport || reviewing || browsingMaterials || needsWindows && method==="desktop" && !connected && (!library || supplementMoments)} className={styles.steps} aria-label="使用步骤">{(method === "desktop" && kind === "chat" ? ["连接助手", "选择联系人", "导入资料", "生成关系报告"] : method === "library" ? ["打开已导入聊天", "查看关系报告"] : method === "video" ? ["选择录屏", "核对画面", "确认后分析"] : ["连接助手", "选择联系人", "采集朋友圈", "生成分析报告"]).map((label, i) => { const active = method === "desktop" ? desktopStep : method === "library" ? library ? 1 : 0 : method === "video" ? library ? 1 : 0 : desktopStep; return <li key={label} data-active={active === i} data-done={active > i}><span>{active > i ? <Check size={18}/> : `0${i + 1}`}</span><strong>{label}</strong></li>; })}</ol>
@@ -1550,6 +1557,7 @@ export default function CapturePage() {
     {receipt && !analyzing && <p className={styles.warning}>上次分析尚未完成，继续即可取回结果，无需再次导入。</p>}
     {needsWindows && method==="desktop" && !connected && (!library || supplementMoments) && <section className={`${styles.panel} ${styles.windowsHandoff}`}><Monitor size={28}/><h2>完整导入，请在 Windows 电脑继续</h2><p>在电脑打开此页并连接微信助手。手机可以先传截图，或查看已同步的材料。</p><button className={ui.primary} onClick={()=>void copyWindowsHandoff()}>{handoffCopied?"链接已复制":"复制到电脑继续的链接"}</button><a className={ui.secondary} href={intakeHref('/analyze',{mode:kind,subjectId:subject})}>先用截图分析<ArrowRight size={17}/></a><a href="/relationship">查看已保存的人与材料</a></section>}
     {processingImport && <section className={styles.importProgress} aria-live="polite" data-import-stage={importStage||"chat"}>
+      {getDesktopHost() && <ImportFlowVisual phase={importStage||'chat'} paused={!!jobId&&idleSeconds>=60} counts={{chat:progressChat?.records.length||0,voice:progressVoice?.transcribed||0,moments:currentMomentsAttempt?.received||relatedMomentCount||0}}/>}
       <div className={styles.importProgressHeading}><LoaderCircle size={26} className={styles.spin}/><div><h2>{importStage==="voice"?"正在转写语音":importStage==="images"?"正在补齐聊天图片":importStage==="moments"?"正在导入朋友圈":importStage==="upload"?"正在完成资料上传":"正在导入全部聊天"}</h2><p>{contactDisplayName(selectedContact?.label||library?.friend||friend)}</p></div></div>
       <progress aria-label="当前导入进度" max={100} value={importStage==="voice"&&progress>0?progress:undefined}/>
       <WaitingProgress startedAt={importStartedAt||currentMomentsAttempt?.startedAt} phaseKey={`import:${importStartedAt}:${importStage}`} steps={importSteps} step={importStep} detail={importDetail}/>
@@ -1562,6 +1570,7 @@ export default function CapturePage() {
       {(jobId || historyRunning) && <button className={ui.secondary} disabled={analyzing} onClick={()=>void cancel()}><Square size={16}/>暂停导入</button>}
     </section>}
     {analyzing && <section className={styles.importProgress} aria-live="polite" data-analysis-starting>
+      {getDesktopHost() && <ImportFlowVisual phase="analysis"/>}
       <div className={styles.importProgressHeading}><LoaderCircle size={26} className={styles.spin}/><div><h2>正在准备你的关系报告</h2><p>{subjectLabel || contactDisplayName(library?.friend||friend)}</p></div></div>
       <progress aria-label="正在建立报告任务"/>
       <WaitingProgress startedAt={analysisStartedAt} phaseKey="analysis-starting" detail="资料已上传，正在建立后台报告任务。请保持此页，任务建立后可离开，回来继续查看。"/>

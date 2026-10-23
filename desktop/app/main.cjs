@@ -88,6 +88,7 @@ async function runSmoke(routes){
   // Exercise the actual installed UI with synthetic API responses. No account,
   // production requests, real local collector or browser is touched.
   const wc=view.webContents;
+  wc.setBackgroundThrottling(false);win.webContents.setBackgroundThrottling(false);
   const errors=[];wc.on('console-message',(_event,details)=>{if(details.level==='error'||details.level===3)errors.push(details.message);});
   const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
   const readPage=()=>wc.executeJavaScript(`(()=>{const text=document.body?.innerText||'';return {textLength:text.length,failed:text.includes('这个页面暂时没有打开'),preview:text.slice(0,150)};})()`);
@@ -117,7 +118,23 @@ async function runSmoke(routes){
   checks.nativeReturn=await wc.executeJavaScript('location.pathname==="/workspace" && window.__desktopSmokeMarker==="retained"');
   const state=await wc.executeJavaScript('window.chengziDesktop.getRuntimeState()');checks.runtime=state.collectorStatus==='stopped';
   const fs=require('node:fs');const out=process.env.CHENGZI_SMOKE_OUTPUT;
-  if(out){fs.mkdirSync(out,{recursive:true});fs.writeFileSync(path.join(out,'receipt.json'),JSON.stringify({ok:Object.values(checks).every(Boolean),checks,visited,errors,userDataUsed:false,networkRequestsMocked:true},null,2));fs.writeFileSync(path.join(out,'window.png'),(await win.webContents.capturePage()).toPNG());fs.writeFileSync(path.join(out,'workspace.png'),(await wc.capturePage()).toPNG());}
+  if(out){
+    fs.mkdirSync(out,{recursive:true});
+    const screenshots=[];
+    const capture=async(contents,name)=>{
+      let timer;
+      try{
+        const picture=await Promise.race([contents.capturePage(undefined,{stayHidden:true,stayAwake:true}),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error('Synthetic screenshot timed out: '+name)),8000);})]);
+        if(picture.isEmpty())throw new Error('Synthetic screenshot was empty: '+name);
+        fs.writeFileSync(path.join(out,name),picture.toPNG());
+      }finally{clearTimeout(timer);}
+    };
+    for(const [contents,name] of [[win.webContents,'window.png'],[wc,'workspace.png']]){
+      try{await capture(contents,name);screenshots.push({file:name,saved:true});}
+      catch(error){screenshots.push({file:name,saved:false,error:error.message});}
+    }
+    fs.writeFileSync(path.join(out,'receipt.json'),JSON.stringify({ok:Object.values(checks).every(Boolean),checks,visited,errors,screenshots,userDataUsed:false,networkRequestsMocked:true},null,2));
+  }
   app.exit(Object.values(checks).every(Boolean)?0:1);
 }
 if(!app.requestSingleInstanceLock())app.quit();else{

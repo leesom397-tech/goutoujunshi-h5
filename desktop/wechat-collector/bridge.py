@@ -6,6 +6,7 @@ import math
 import multiprocessing as mp
 import re
 import secrets
+import socket
 import sys
 import threading
 import time
@@ -652,6 +653,14 @@ class CollectorState:
 def server_for(state, port=PORT):
     class LimitedServer(ThreadingHTTPServer):
         def server_bind(self):
+            if sys.platform == "win32":
+                # Windows SO_REUSEADDR permits two live listeners on one port.
+                # A second helper must never report ready while its handoff is
+                # being sent to the first process. Set exclusivity before bind;
+                # Unix retains HTTPServer's normal restart/reuse behaviour.
+                self.allow_reuse_address = False
+                self.allow_reuse_port = False
+                self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
             # This listener is always the literal loopback address. HTTPServer's
             # default getfqdn() performs an unnecessary reverse-DNS lookup which
             # can stall first startup on macOS for tens of seconds.

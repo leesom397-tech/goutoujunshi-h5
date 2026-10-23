@@ -1,5 +1,5 @@
 const api=window.desktopShell;
-const labels={home:'首页',reports:'我的报告',people:'人物档案',chat:'问成子',capture:'导入微信资料',account:'账户与积分'};
+const labels={home:'工作台',reports:'我的报告',people:'人物档案',chat:'问成子',capture:'导入微信资料',account:'账户与积分'};
 let working=false;
 document.addEventListener('click',async event=>{const button=event.target.closest('button');if(!button||button.disabled)return;try{if(button.dataset.route){if(working)return;working=true;button.disabled=true;await api.navigate(button.dataset.route);}else if(button.dataset.action)await api.action(button.dataset.action);}catch{document.getElementById('notice').hidden=false;document.getElementById('notice-text').textContent='操作未完成，请稍后重试。';}finally{working=false;button.disabled=false;}});
 function update(state){

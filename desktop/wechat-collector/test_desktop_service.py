@@ -5,13 +5,14 @@ import io
 import json
 import queue
 import socket
+import sys
 import threading
 import unittest
 from unittest.mock import Mock, patch
 from urllib.parse import parse_qs, urlsplit
 
 import desktop_service
-from bridge import CollectorState
+from bridge import CollectorState, server_for
 from pairing import CONNECTION_PAGE, WEB_ORIGIN
 
 
@@ -153,6 +154,47 @@ class DesktopServiceTest(unittest.TestCase):
             with socket.create_connection(("127.0.0.1", port), timeout=1):
                 pass
         self.clear_authorization.assert_called_once()
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows permits SO_REUSEADDR listener sharing")
+    def test_old_reusable_listener_cannot_be_shared_by_new_service(self):
+        # Reproduce an already-running older HTTPServer helper, whose inherited
+        # SO_REUSEADDR would otherwise let another Windows listener bind too.
+        with socket.socket() as owner:
+            owner.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            owner.bind(("127.0.0.1", 0))
+            owner.listen()
+            port = owner.getsockname()[1]
+            output = io.StringIO()
+            code = desktop_service.run_service(io.StringIO(""), output, port=port,
+                                               state_factory=lambda: self.state)
+            self.assertEqual(code, 2)
+            events = [json.loads(line) for line in output.getvalue().splitlines()]
+            self.assertEqual(len(events), 1)
+            self.assertEqual(events[0]["event"], "error")
+            self.assertEqual(events[0]["error"]["code"], "PORT_IN_USE")
+            self.assertFalse(any(event["event"] == "ready" for event in events))
+            with socket.create_connection(("127.0.0.1", port), timeout=1):
+                connection, _address = owner.accept()
+                connection.close()
+        self.capture.assert_not_called()
+        self.health.assert_not_called()
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows exclusive binding socket option")
+    def test_new_bridge_exclusively_owns_loopback_port(self):
+        server = server_for(self.state, port=0)
+        self.addCleanup(server.server_close)
+        self.assertEqual(server.socket.getsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE), 1)
+        self.assertEqual(server.socket.getsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR), 0)
+        self.assertFalse(server.allow_reuse_address)
+        self.assertFalse(server.allow_reuse_port)
+        with socket.socket() as contender:
+            contender.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            with self.assertRaises(OSError):
+                contender.bind(server.server_address)
+                contender.listen()
+        with socket.create_connection(server.server_address, timeout=1):
+            connection, _address = server.socket.accept()
+            connection.close()
 
     def test_other_bind_errors_are_not_misreported_as_occupied(self):
         output = io.StringIO()

@@ -17,6 +17,14 @@ const origin = "https://coach.lovetalk.love";
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 const invalid = () => new Error("桌面应用返回了无法识别的状态，请重新打开应用。");
 
+/** Replace browser-only transport guidance; pairing and service errors stay intact. */
+export function desktopConnectionMessage(value: string): string {
+  if (/^(?:浏览器已禁止本站连接本机助手|浏览器尚未允许连接本机助手|未能连接本机助手。请先启动助手)/.test(value)) return "未能连接内置采集工具，请打开本机采集设置检查状态后重试。";
+  if (value.startsWith("连接本机采集助手超时。")) return "连接内置采集工具超时，请打开本机采集设置检查状态后重试。";
+  if (value.startsWith("连接本机助手需要 HTTPS 网页")) return "本机采集连接环境异常，请重新打开成子桌面应用。";
+  return value;
+}
+
 /** No UA sniffing or Node access: ordinary browsers keep their existing flow. */
 export function getDesktopHost(): DesktopHost | null {
   if (typeof window === "undefined" || window.location.origin !== origin || window.top !== window) return null;
