@@ -17,6 +17,7 @@
 .study[data-motion=paused] .fallbackRibs i{animation-play-state:paused}
 .study[data-glass-variant=report][data-motion=paused] .fallback,.study[data-glass-variant=report][data-motion=paused]::after{animation-play-state:paused}
 .study[data-glass-ready=true] .fallbackRibs{display:none}
+.study:not([data-glass-visible=true]) .fallbackRibs i,.study[data-glass-variant=report]:not([data-glass-visible=true]) .fallback,.study[data-glass-variant=report]:not([data-glass-visible=true])::after{animation-play-state:paused}
 @keyframes glass-rib-rise{from{transform:translateY(-3%);filter:brightness(.93)}to{transform:translateY(3%);filter:brightness(1.07)}}
 @keyframes glass-report-drift{from{transform:scale(1.1) translate(-1.7%,1.8%);filter:brightness(.96)}to{transform:scale(1.1) translate(1.7%,-1.8%);filter:brightness(1.06)}}
 @keyframes glass-report-light{from{transform:translateX(-4%);opacity:.35}to{transform:translateX(4%);opacity:.8}}

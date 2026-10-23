@@ -30,5 +30,6 @@ export function personalConversationStarter(item: PersonalInsight, sources: Pers
   if (!selected.some(source => source.side === "other")) return "";
   if (item.id.startsWith("common-") && !selected.some(source => source.side === "self")) return "";
   if (!/^(common|entry|topic)-/.test(item.id)) return "";
+  if(typeof item.reply==="string"&&item.reply.trim())return item.reply.trim();
   return questions[item.id.replace(/^(common|entry|topic)-/, "")] || "";
 }

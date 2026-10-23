@@ -23,7 +23,7 @@ export function localPageReturn(value: unknown): string {
 export function pageBackLink(pathname: string, search = "", preferred?: string) {
   const provided=localPageReturn(preferred)||localPageReturn(new URLSearchParams(search).get("returnTo"));
   const source=provided&&new URL(provided,"https://navigation.invalid");
-  if(source&&source.pathname!==pathname){
+  if(source&&(source.pathname!==pathname||source.pathname==='/report'&&source.searchParams.get('id')!==new URLSearchParams(search).get('id'))){
     return {href:provided,label:source.pathname==="/report"?"返回报告":`返回${pageTitles[source.pathname]}`};
   }
   const parents:Record<string,string>={"/capture":"/relationship","/report":"/reports","/person-new":"/archive","/voice":"/chat"};

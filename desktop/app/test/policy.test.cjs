@@ -1,0 +1,5 @@
+const test=require('node:test'),assert=require('node:assert/strict');
+const {trusted,external,handoff,ORIGIN}=require('../policy.cjs');
+test('privileged origin is exact, never credentials or sibling hosts',()=>{for(const value of ['https://coach.lovetalk.love.evil.test/','http://coach.lovetalk.love/','file:///etc/passwd','javascript:alert(1)','https://user@coach.lovetalk.love/'])assert.equal(trusted(value),false);assert.equal(trusted(ORIGIN+'/capture'),true);});
+test('external links cannot invoke local protocols',()=>{for(const value of ['file:///x','javascript:alert(1)','chengzi://app/','http://example.com/',ORIGIN])assert.equal(external(value),false);assert.equal(external('https://example.com/'),true);});
+test('one-time handoff is validated before remote renderer receives it',()=>{const value='a'.repeat(43);assert.equal(handoff(ORIGIN+'/capture?method=desktop#connect='+value),value);for(const url of [ORIGIN+'/#connect='+value,ORIGIN+'/capture#connect=bad','https://example.com/capture#connect='+value])assert.throws(()=>handoff(url));});

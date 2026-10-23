@@ -17,7 +17,7 @@ export type CaptureRecord = {
   source: CaptureSource;
   images?: CaptureImage[];
 };
-export type CaptureCoverage = { scope: "all-visible" | "requested-count"; complete: boolean; stopReason: "scanning" | "visible-end" | "requested-count" | "focus-unavailable" | "unreadable-posts" | "navigation-stalled"; recordCount: number; momentCount?: number; profileMaterialCount?: number; imageOmittedCount: number; unreadableCount: number };
+export type CaptureCoverage = { scope: "all-visible" | "requested-count" | "local-cache"; complete: boolean; stopReason: "scanning" | "visible-end" | "requested-count" | "focus-unavailable" | "unreadable-posts" | "navigation-stalled" | "cache-only"; recordCount: number; momentCount?: number; profileMaterialCount?: number; imageOmittedCount: number; unreadableCount: number };
 export type CaptureBatch = { version: 1; kind: CaptureKind; friend: string; account: string; capturedAt: string; records: CaptureRecord[]; warnings: string[]; coverage?: CaptureCoverage };
 export type CaptureNamespace = { ownerId: string; account: string; friend: string; kind: CaptureKind };
 export type StoredCaptureRecord = CaptureRecord & { localId: string; namespace: string; firstCapturedAt: string; lastCapturedAt: string };
@@ -65,7 +65,9 @@ export function validateCaptureBatch(value: unknown): CaptureBatch {
     for (const item of images || []) imageBytes += captureImageBytes(item.data);
     if (imageBytes > CAPTURE_LIMITS.batchImageBytes) throw new Error("本批图片合计超过 20 MB，请分批采集。");
     const text = field(row.text, "原文", CAPTURE_LIMITS.textPerRecord);
-    if (!text.trim() && !images?.length) throw new Error("记录需要原文或图片，不能只保存空条目。");
+    const unreadCachedMedia = value.kind === "moments" && row.kind === "post" && source.method === "macos-local-cache"
+      && source.materialRole === "moment" && Number.isSafeInteger(source.cachedMediaCount) && Number(source.cachedMediaCount) > 0 && Number(source.cachedMediaCount) <= 100;
+    if (!text.trim() && !images?.length && !unreadCachedMedia) throw new Error("记录需要原文或图片，不能只保存空条目。");
     const id = row.id === undefined || row.id === "" ? undefined : field(row.id, "来源编号", 300, true);
     const senderRole = row.senderRole ?? "unknown";
     if (!["self", "other", "unknown"].includes(String(senderRole))) throw new Error("说话人身份应为 self、other 或 unknown。");
@@ -76,9 +78,11 @@ export function validateCaptureBatch(value: unknown): CaptureBatch {
   let coverage: CaptureCoverage | undefined;
   if (value.coverage !== undefined) {
     const c = value.coverage;
-    if (value.kind !== "moments" || !object(c) || !["all-visible", "requested-count"].includes(String(c.scope)) || typeof c.complete !== "boolean"
-      || !["scanning", "visible-end", "requested-count", "focus-unavailable", "unreadable-posts", "navigation-stalled"].includes(String(c.stopReason))
+    if (value.kind !== "moments" || !object(c) || !["all-visible", "requested-count", "local-cache"].includes(String(c.scope)) || typeof c.complete !== "boolean"
+      || !["scanning", "visible-end", "requested-count", "focus-unavailable", "unreadable-posts", "navigation-stalled", "cache-only"].includes(String(c.stopReason))
       || [c.recordCount, c.imageOmittedCount, c.unreadableCount].some(count => !Number.isSafeInteger(count) || Number(count) < 0)
+      || c.scope === "local-cache" && (c.complete !== false || c.stopReason !== "cache-only")
+      || c.stopReason === "cache-only" && c.scope !== "local-cache"
       || c.complete && c.stopReason !== "visible-end") throw Error("朋友圈采集范围信息不完整，请更新助手后重试。");
     coverage = { scope: c.scope as CaptureCoverage["scope"], complete: c.complete, stopReason: c.stopReason as CaptureCoverage["stopReason"], recordCount: Number(c.recordCount), imageOmittedCount: Number(c.imageOmittedCount), unreadableCount: Number(c.unreadableCount) };
     for (const key of ["momentCount", "profileMaterialCount"] as const) if (c[key] !== undefined) {
@@ -100,7 +104,7 @@ export function splitCaptureBatch(value: unknown): CaptureBatch[] {
   const batches: CaptureBatch[] = [];
   for (let offset = 0; offset < Math.max(1, value.records.length); offset += CAPTURE_LIMITS.recordsPerBatch) {
     const last = offset + CAPTURE_LIMITS.recordsPerBatch >= value.records.length;
-    const coverage = object(value.coverage) && !last ? { ...value.coverage, complete: false, stopReason: "scanning" } : value.coverage;
+    const coverage = object(value.coverage) && !last ? { ...value.coverage, complete: false, stopReason: value.coverage.scope === "local-cache" ? "cache-only" : "scanning" } : value.coverage;
     batches.push(validateCaptureBatch({ ...value, records: value.records.slice(offset, offset + CAPTURE_LIMITS.recordsPerBatch), ...(coverage ? { coverage } : {}) }));
   }
   return batches;

@@ -1,0 +1,105 @@
+name: Desktop app Mac preview
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/desktop-app-preview
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-app-mac-preview-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  mac-arm64:
+    runs-on: macos-26
+    timeout-minutes: 40
+    env:
+      PYTHONUTF8: '1'
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+          architecture: arm64
+      - name: Verify build host and install pinned dependencies
+        run: |
+          python -c "import sys,platform; assert sys.platform == 'darwin' and platform.machine() == 'arm64'; print(platform.platform())"
+          node -e "if(Number(process.versions.node.split('.')[0]) < 22) throw Error('Node 22+ required')"
+          python -m pip install --only-binary=:all: -r desktop/wechat-collector/requirements-macos.txt
+          npm ci
+          npm ci --prefix desktop/app
+      - name: Test private service and desktop package guards
+        run: |
+          cd desktop/wechat-collector
+          python -m unittest test_desktop_service test_platform_runtime
+          cd ../app
+          npm test
+      - name: Build native service and verify frozen runtime
+        run: python desktop/app/scripts/build-desktop-service.py
+      - name: Package complete desktop app
+        id: package
+        working-directory: desktop/app
+        run: npm run dist -- --mac --arm64 --publish never
+      - name: Exercise packaged local interface with synthetic data
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json, os, plistlib, subprocess
+          output = Path('outputs/desktop-app/0.1.0-preview.1').resolve()
+          bundles = list((output / 'mac-arm64').glob('*.app'))
+          assert len(bundles) == 1, 'Expected one outer desktop application'
+          bundle = bundles[0]
+          with (bundle / 'Contents/Info.plist').open('rb') as file:
+              info = plistlib.load(file)
+          name = info['CFBundleExecutable']
+          assert Path(name).name == name, 'Unexpected executable path'
+          executable = bundle / 'Contents/MacOS' / name
+          smoke = output / 'smoke-mac'
+          subprocess.run([str(executable), '--smoke-test'],
+                         env=dict(os.environ, CHENGZI_SMOKE_OUTPUT=str(smoke)),
+                         check=True, timeout=180)
+          receipt = json.loads((smoke / 'receipt.json').read_text())
+          assert receipt.get('ok') is True, 'Packaged local UI smoke failed'
+          assert receipt.get('userDataUsed') is False and receipt.get('networkRequestsMocked') is True
+          for name in ('window.png', 'workspace.png'):
+              assert (smoke / name).stat().st_size > 0, 'Expected synthetic desktop screenshot'
+          print(json.dumps(receipt))
+          PY
+      - name: Record preview checksums
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib, json
+          output = Path('outputs/desktop-app/0.1.0-preview.1')
+          files = sorted(p for p in output.iterdir() if p.suffix in ('.zip', '.dmg'))
+          assert len(files) == 2, 'Expected both DMG and ZIP'
+          receipt = {'version': '0.1.0-preview.1', 'platform': 'darwin', 'arch': 'arm64',
+                     'developerIdSigned': False, 'notarized': False, 'publicRelease': False,
+                     'realWechatAccountTested': False, 'files': []}
+          for p in files:
+              digest = hashlib.file_digest(p.open('rb'), 'sha256').hexdigest()
+              receipt['files'].append({'file': p.name, 'bytes': p.stat().st_size, 'sha256': digest})
+          (output / 'preview-build.json').write_text(json.dumps(receipt, indent=2) + '\n')
+          PY
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: ${{ !cancelled() && steps.package.outcome == 'success' }}
+        with:
+          name: chengzi-desktop-0.1.0-preview.1-mac-arm64-${{ github.run_number }}
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+          path: |
+            outputs/desktop-app/0.1.0-preview.1/*.dmg
+            outputs/desktop-app/0.1.0-preview.1/*.zip
+            outputs/desktop-app/0.1.0-preview.1/preview-build.json
+            desktop/wechat-collector/dist/desktop-service/runtime-self-test.json
+            outputs/desktop-app/0.1.0-preview.1/smoke-mac/receipt.json
+            outputs/desktop-app/0.1.0-preview.1/smoke-mac/window.png
+            outputs/desktop-app/0.1.0-preview.1/smoke-mac/workspace.png

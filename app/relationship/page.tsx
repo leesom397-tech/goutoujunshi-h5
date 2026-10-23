@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { ArrowRight, Check, Copy, Download, FileText, Images, MessageCircle, Monitor, Plus, RefreshCw, Search, UserRound } from "lucide-react";
+import { ArrowRight, Check, Copy, Download, FileText, Images, MessageCircle, Monitor, Plus, RefreshCw, Search, UserRound, Video } from "lucide-react";
 import { WebNav } from "@/components/WebNav";
 import { CaptureAnalysisStatus } from "@/components/CaptureAnalysisStatus";
 import { AccountNotice, useAccount } from "@/components/web-analysis/client";
@@ -9,6 +9,7 @@ import { capturePersonSearchHref, groupAnalysisPeople } from "@/lib/person-analy
 import { collectorInstallerHref, collectorVersion } from "@/lib/collector-download";
 import styles from "./relationship.module.css";
 import { RELATIONSHIP_ANALYSIS_LABEL } from "@/lib/product-labels";
+import { intakeHref } from "@/components/web-analysis/intake-navigation";
 
 export default function RelationshipPage() {
   const account = useAccount(), owner = account.account?.account?.userId || "";
@@ -35,22 +36,26 @@ export default function RelationshipPage() {
   const entries = query.trim() ? allEntries : allEntries.filter(row=>!subject || row.subjectId===subject);
   const rows = entries.filter(row => [row.label,row.identity,...row.materialKinds].join(" ").toLowerCase().includes(query.trim().toLowerCase()));
   const lastPage = Math.max(0, Math.ceil(rows.length / pageSize) - 1), currentPage = Math.min(page, lastPage);
+  const returnTo="/relationship"+(subject?"?subjectId="+encodeURIComponent(subject):"");
+  const importHref=capturePersonSearchHref("",{subjectId:subject,returnTo});
   async function copyHandoff() {
-    const href=new URL(capturePersonSearchHref(),location.origin).href;setHandoff(href);
+    const href=new URL(importHref,location.origin).href;setHandoff(href);
     try{await navigator.clipboard.writeText(href);setCopied(true);}catch{setCopied(false);}
   }
-  const uploadHref="/analyze?mode=chat"+(subject?"&subjectId="+encodeURIComponent(subject):"");
-  const returnTo="/relationship"+(subject?"?subjectId="+encodeURIComponent(subject):"");
+  const uploadHref=intakeHref("/analyze",{mode:"chat",subjectId:subject,returnTo});
+  const videoHref=intakeHref("/capture",{kind:"chat",method:"video",subjectId:subject,returnTo});
   const screenshotFirst=platformReady&&!canImport;
   function refreshPeople(){setRevision(value=>value+1);void account.refresh();}
   return <><WebNav/><main className={styles.page}>
     <header className={styles.heading}><span>聊天 · 语音 · 朋友圈</span><h1>{person ? `${RELATIONSHIP_ANALYSIS_LABEL} · ${person.label}` : RELATIONSHIP_ANALYSIS_LABEL}</h1><p>聊天、语音、朋友圈，一起看清这段关系。</p></header>
-    <ol className={styles.steps} aria-label="分析流程"><li><b>1</b>{screenshotFirst?"上传聊天截图":"选择微信好友"}</li><li><b>2</b>{screenshotFirst?"确认材料与费用":"导入全部资料"}</li><li><b>3</b>{screenshotFirst?"查看关系报告":"确认费用，生成报告"}</li></ol>
-    <AccountNotice state={account}/>
+    <ol className={styles.steps} aria-label="分析流程"><li><b>1</b>添加资料</li><li><b>2</b>确认费用</li><li><b>3</b>查看报告</li></ol>
+    {!account.unauthorized && <AccountNotice state={account}/>}
     <CaptureAnalysisStatus owner={owner} onSettled={()=>setRevision(value=>value+1)}/>
     <nav className={styles.startChoices} aria-label="开始分析">
-      {screenshotFirst ? <a className={styles.newPersonChoice} href={uploadHref}><Images size={23}/><span><strong>上传聊天截图，开始分析</strong><small>按材料的完整范围生成报告，也可补充到已有的人物</small></span><ArrowRight size={21}/></a> : <a className={styles.newPersonChoice} href={capturePersonSearchHref()}><Monitor size={23}/><span><strong>选择微信好友，开始导入</strong><small>一次导入聊天、语音和朋友圈</small></span><ArrowRight size={21}/></a>}
+      {screenshotFirst ? <a className={styles.newPersonChoice} href={uploadHref}><Images size={23}/><span><strong>上传聊天截图，开始分析</strong><small>按材料的完整范围生成报告，也可补充到已有的人物</small></span><ArrowRight size={21}/></a> : <a className={styles.newPersonChoice} href={importHref}><Monitor size={23}/><span><strong>选择微信好友，开始导入</strong><small>一次导入聊天、语音和朋友圈</small></span><ArrowRight size={21}/></a>}
+      <a className={styles.materialChoice} href={screenshotFirst?videoHref:uploadHref} data-material-alternative>{screenshotFirst?<Video size={23}/>:<Images size={23}/>}<span><strong>{screenshotFirst?"用聊天录屏分析":"先分析聊天截图"}</strong><small>{screenshotFirst?"对话较长时，上传一段连续录屏":"不用安装助手，先看懂这段对话和怎么回"}</small></span><ArrowRight size={21}/></a>
     </nav>
+    <p className={styles.costHint}>先选资料，费用会在分析前列出；确认后才扣积分。</p>
     <section className={styles.downloadBar} aria-label="微信助手下载"><div><Monitor size={22}/><span><strong>{screenshotFirst?"也可在电脑导入全部资料":"电脑微信助手"}</strong><small>{screenshotFirst?"电脑导入后，登录同一账号即可在这里查看报告":`Windows 10 / 11 · 当前版本 ${collectorVersion}`}</small></span></div>{screenshotFirst?<button type="button" onClick={()=>void copyHandoff()} aria-label="复制链接，到电脑导入">{copied?<Check size={18}/>:<Copy size={18}/>} {copied?"链接已复制":"复制电脑继续链接"}</button>:<a href={collectorInstallerHref} download><Download size={18}/>下载／更新助手</a>}<a href="/support">帮助与下载<ArrowRight size={16}/></a></section>
     {handoff && <div className={styles.handoff} role="status"><p>{copied?"已复制。在 Windows 电脑浏览器打开，并登录同一账号。":"复制这个链接，在 Windows 电脑打开并登录同一账号。"}</p><input aria-label="电脑继续导入链接" value={handoff} readOnly onFocus={event=>event.currentTarget.select()}/></div>}
     <section id="saved-people" className={styles.saved} aria-labelledby="saved-person-title">
@@ -74,6 +79,6 @@ export default function RelationshipPage() {
         {subject && <a className={styles.textLink} href="/relationship">查看全部人物<ArrowRight size={16}/></a>}
       </>}
     </section>
-    <nav className={styles.alternatives} aria-label="其他分析方式"><a href={uploadHref}>分析这次上传的聊天<ArrowRight size={16}/></a><a href={"/chat" + (subject ? "?subjectId=" + encodeURIComponent(subject) : "")}>先问成子<ArrowRight size={16}/></a></nav>
+    <nav className={styles.alternatives} aria-label="其他分析方式">{!screenshotFirst&&<a href={videoHref}><Video size={18}/>用聊天录屏分析<ArrowRight size={16}/></a>}<a href={"/chat" + (subject ? "?subjectId=" + encodeURIComponent(subject) : "")}>先问成子<ArrowRight size={16}/></a></nav>
   </main></>;
 }

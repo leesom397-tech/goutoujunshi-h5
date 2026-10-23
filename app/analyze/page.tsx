@@ -5,7 +5,7 @@ import { AnalysisIllustration } from "@/components/web-analysis/Visuals";
 import { WebNav } from "@/components/WebNav";
 import { FirstUseTour } from "@/components/FirstUseTour";
 import { AnalysisAuthGate } from "@/components/AnalysisAuthGate";
-import { AnalysisExample } from "@/components/web-analysis/AnalysisExample";
+import { DeferredAnalysisExample as AnalysisExample, DeferredChatReport as ChatReport, DeferredSocialReport as SocialReport } from "@/components/web-analysis/DeferredReports";
 import { getCaptureLibrary } from "@/lib/desktop-capture-vault";
 import { linkSyncedReportSources as linkReportSources } from "@/lib/capture-cloud-client";
 import ui from "@/components/AuroraUI.module.css";
@@ -14,7 +14,6 @@ import { AccountNotice, ErrorNotice, PersonSelect, InlinePerson, api, message, p
 import { runUpload, uploadStore, type UploadTask } from "@/components/web-analysis/uploads";
 import { ArchiveAvatar } from "@/components/ArchiveAvatar";
 import {PersonAvatarChoice} from "@/components/PersonAvatarChoice";
-import { ChatReport, SocialReport } from "@/components/web-analysis/ReportView";
 import { prepareSocialImage } from "@/components/web-analysis/image-normalize";
 import { mergeChatReports, socialPrevious } from "@/components/web-analysis/report-data";
 import "@/components/web-analysis/web-analysis.css";
@@ -41,6 +40,7 @@ export default function AnalyzePage() {
   const [purpose,setPurpose]=useState<AnalysisFocus | undefined>();
   const [purposeOptionsOpen,setPurposeOptionsOpen]=useState(false), [exampleOpen,setExampleOpen]=useState(false);
   const exampleDialog=useRef<HTMLDialogElement>(null);
+  useEffect(()=>{if(new URLSearchParams(window.location.search).get("example")==="1")setExampleOpen(true);},[]);
   useEffect(()=>setPurpose(analysisFocus(new URLSearchParams(window.location.search).get("focus"))),[]);
   useEffect(()=>{if(!exampleOpen)return;exampleDialog.current?.showModal();const before=document.body.style.overflow;document.body.style.overflow="hidden";return()=>{document.body.style.overflow=before;};},[exampleOpen]);
   const [confirmStage,setConfirmStage]=useState(false);

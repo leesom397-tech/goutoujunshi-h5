@@ -10,6 +10,37 @@
   font-family: "PingFang SC", "Microsoft YaHei", "Noto Sans SC", sans-serif;
 }
 .page *, .page *::before, .page *::after { box-sizing: border-box; }
+.reportPerson { border-bottom:1px solid var(--chat-line);margin:0; }
+.page .reportPerson>summary { display:flex;gap:9px;align-items:center;min-height:44px;color:#365a50;font-size:15px;list-style:none; }
+.reportPerson>summary>span { margin-left:auto;color:#8c6955;font-size:13px; }
+.reportPerson .personContext { margin:0 0 12px; }
+.page[data-report-question=true] :global(.chat-question-heading) { padding:0;margin:0; }
+.page[data-report-question=true] :global(.chat-question-heading h1) { margin:0 0 8px;font-size:28px; }
+.page[data-report-question=true] :global(.chat-experience-grid) { margin-top:12px; }
+.page[data-report-question=true] :global(.chat-session-bar) { flex-wrap:nowrap;padding-bottom:12px; }
+.page[data-report-question=true] :global(.chat-session-bar>div) { flex-basis:auto;margin-bottom:0; }
+.page[data-report-question=true] :global(.chat-composer) { margin-top:12px; }
+.page[data-report-question=true] :global(.wa-chat-history:has(>div:only-child)) { display:none; }
+.page details:global(.chat-report-context) { margin:16px 0;padding:4px 16px;background:#f4f7f2;border-color:#d5e0d7; }
+.page details:global(.chat-report-context)>summary { display:flex;align-items:center;gap:9px;min-height:48px;color:#365a50;font-size:15px;list-style:none; }
+.page details:global(.chat-report-context)>summary>svg:last-child { margin-left:auto; }
+.page details:global(.chat-report-context[open])>summary>svg:last-child { transform:rotate(90deg); }
+.page :global(.chat-context-details) { padding:10px 0 14px; }
+.page :global(.chat-context-details details) { border-top:1px solid #d8e1d9; }
+.page :global(.chat-context-details details>summary) { min-height:44px;display:flex;align-items:center;font-size:15px;color:#365a50; }
+.page :global(.chat-context-details .chat-context-dates) { font-size:13px; }
+.page :global(.chat-context-details blockquote) { margin:8px 0;padding:10px 14px;border-left:3px solid #759b87;background:#fffdfa; }
+.page :global(.chat-context-details blockquote small) { color:#5d7065;font-size:12px; }
+.page :global(.chat-context-details blockquote p) { font-size:15px;margin:6px 0;color:#302d28; }
+@media(max-width:600px){
+  .page[data-report-question=true] { margin-top:12px; }
+  .page[data-report-question=true] :global(.chat-session-bar strong) { font-size:14px; }
+  .page[data-report-question=true] :global(.chat-session-bar button) { padding:8px;min-height:44px; }
+  .page[data-report-question=true] :global(.chat-session-bar button:last-child span) { display:none; }
+  .page[data-report-question=true] :global(.chat-composer) { padding:16px; }
+  .page[data-report-question=true] .composerTools { gap:8px;margin-bottom:12px;padding-bottom:12px; }
+  .page[data-report-question=true] .composerTools>span { display:none; }
+}
 .returnReport { display: inline-flex; align-items: center; gap: 9px; min-height: 44px; margin: 0 0 18px; padding: 10px 16px; border: 1px solid #d5bba7; border-radius: 11px; background: #fffaf5; color: #754c39; font-size: 16px; font-weight: 600; text-decoration: none; }
 .returnReport:hover { background: #f6e9dd; border-color: #a9644e; }
 .page :global(.chat-experience-grid) { display: grid; grid-template-columns: minmax(0, 1fr); gap: 28px; align-items: start; margin-top: 26px; }
@@ -35,6 +66,8 @@
 .page :global(.chat-composer-caption) { display: flex; justify-content: space-between; gap: 12px; color: #98897f; font-size: 11px; font-variant-numeric: tabular-nums; }
 .page :global(.wa-check) { display: flex; gap: 9px; align-items: flex-start; margin: 18px 0; font-size: 12px; line-height: 1.8; color: var(--chat-muted); }
 .page :global(.wa-check input) { flex: none; margin-top: 4px; accent-color: var(--chat-accent); }
+.page :global(.wa-composer .wa-check>span) { flex:1;min-width:0; }
+.page :global(.wa-composer .wa-check>span a) { display:inline;white-space:normal; }
 .page :global(.chat-compose-bottom) { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding-top: 2px; }
 .page :global(.wa-actions) { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin: 0; }
 .page :global(.wa-actions button) { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 42px; padding: 11px 15px; border: 1px solid #e8d6cc; border-radius: 11px; color: #805447; background: #fff9f3; box-shadow: none; font-size: 13px; font-weight: 500; }

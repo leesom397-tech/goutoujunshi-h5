@@ -1,6 +1,6 @@
 /** Reading progress stores positions and opaque IDs, never conversation text. */
 export type ReportPanelPosition={offset:number;anchor?:string;anchorTop?:number};
-export type ReportReadingPosition={version:1;active:string;seen:string[];panels:Record<string,ReportPanelPosition>;line?:{key:string;listTop:number};updatedAt:number};
+export type ReportReadingPosition={version:1;active:string;seen:string[];panels:Record<string,ReportPanelPosition>;layout?:'continuous';openDetails?:string[];line?:{key:string;listTop:number};updatedAt:number};
 type StorageLike=Pick<Storage,"getItem"|"setItem">;
 const prefix="chengzi-report-reading-v2:";
 export function reportReadingScope(owner:unknown,reportId:unknown,subjectId:unknown,kind:"chat"|"social"|"moments",example=false):string|undefined{
@@ -21,7 +21,7 @@ export function readReportPosition(storage:StorageLike|undefined,scope:string|un
    const row=p as Record<string,unknown>;if(!row||typeof row.offset!=="number"||!Number.isFinite(row.offset))continue;
    panels[id]={offset:Math.max(-10000,Math.min(100000,row.offset)),...(typeof row.anchor==="string"&&/^line-[a-z0-9]+$/.test(row.anchor)?{anchor:row.anchor}:{}),...(typeof row.anchorTop==="number"&&Number.isFinite(row.anchorTop)?{anchorTop:Math.max(-5000,Math.min(10000,row.anchorTop))}:{})};
   }
-  return {version:1,active:raw.active,seen:Array.isArray(raw.seen)?raw.seen.filter((v:unknown)=>typeof v==="string").slice(0,8):[],panels,...(raw.line&&typeof raw.line.key==="string"&&/^line-[a-z0-9]+$/.test(raw.line.key)?{line:{key:raw.line.key,listTop:typeof raw.line.listTop==="number"&&Number.isFinite(raw.line.listTop)?Math.max(0,Math.min(100000,raw.line.listTop)):0}}:{}),updatedAt:typeof raw.updatedAt==="number"?raw.updatedAt:0};
+  return {version:1,active:raw.active,seen:Array.isArray(raw.seen)?raw.seen.filter((v:unknown)=>typeof v==="string").slice(0,8):[],panels,...(raw.layout==='continuous'?{layout:'continuous' as const,openDetails:Array.isArray(raw.openDetails)?raw.openDetails.filter((key:unknown)=>typeof key==='string'&&/^[a-z]+:\d{1,3}$/.test(key)).slice(0,60):[]}:{}),...(raw.line&&typeof raw.line.key==="string"&&/^line-[a-z0-9]+$/.test(raw.line.key)?{line:{key:raw.line.key,listTop:typeof raw.line.listTop==="number"&&Number.isFinite(raw.line.listTop)?Math.max(0,Math.min(100000,raw.line.listTop)):0}}:{}),updatedAt:typeof raw.updatedAt==="number"?raw.updatedAt:0};
  }catch{return null;}
 }
 export function saveReportPosition(storage:StorageLike|undefined,scope:string|undefined,patch:Partial<Omit<ReportReadingPosition,"version"|"updatedAt">>):void{

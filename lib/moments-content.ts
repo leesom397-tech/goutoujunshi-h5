@@ -33,7 +33,7 @@ function momentsContent(report) {
     if(!unique.has(key))unique.set(key,item);
   }
   const evidence=[...unique.values()].map(item=>({...item,
-    categories:rows(item.contentTags).length?rows(item.contentTags).filter(t=>categories.some(([label])=>label===t)):classify(item.observation),
+    categories:[...new Set([...(rows(item.contentTags).length?rows(item.contentTags).filter(t=>categories.some(([label])=>label===t)):classify(item.observation)),...(Number.isSafeInteger(item.selfieCount)&&item.selfieCount>0?['自拍']:[])])],
     selfieCount:Number.isSafeInteger(item.selfieCount)&&item.selfieCount>=0?item.selfieCount:null,
   }));
   const posts=new Map();
@@ -52,12 +52,23 @@ function momentsContent(report) {
   });
   const matched=groups.filter(g=>g.count>0).sort((a,b)=>b.count-a.count);
   const hypotheses=matched.filter(g=>g.count>=2&&notes[g.label]).map(g=>({
-    title:notes[g.label][0],support:g.count+' 条已保存动态出现相关线索',reading:notes[g.label][1],alternative:notes[g.label][2],evidence:g.evidence,
+    title:notes[g.label][0],support:g.count+' / '+all.length+' 条已读动态 · '+g.percent+'%',
+    reading:'已读动态中有 '+g.count+' 条含'+g.label+'线索（'+g.percent+'%）。'+(g.evidence[0]?'例如：'+String(g.evidence[0].observation).slice(0,130):''),
+    alternative:notes[g.label][2],evidence:g.evidence,
   }));
+  const overlaps=[];
+  for(let i=0;i<matched.length;i++)for(let j=i+1;j<matched.length;j++){
+    const left=matched[i].label,right=matched[j].label,shared=all.filter(p=>p.tags.has(left)&&p.tags.has(right));
+    if(shared.length>=2)overlaps.push({labels:[left,right],count:shared.length,total:all.length,percent:Math.round(shared.length/all.length*100),evidence:shared.flatMap(p=>p.evidence).slice(0,3)});
+  }
+  overlaps.sort((a,b)=>b.count-a.count);
   return {posts:all.length,classified,unclassified:all.length-classified,evidence,groups:matched,
+    overlaps:overlaps.slice(0,3),
+    headline:matched.length?matched.slice(0,3).map(g=>g.label+' '+g.percent+'%').join(' · '):'已读图片暂未形成明确的内容分类',
+    classificationCoverage:all.length?Math.round(classified/all.length*100):0,
     selfiePosts:all.filter(p=>p.selfieMinimum>0).length,selfieMinimum:all.reduce((sum,p)=>sum+p.selfieMinimum,0),
     selfieUnknown:all.filter(p=>!p.selfieMinimum).length,hypotheses,
-    scope:'基于已保存的逐图解读统计涉及该主题的动态，同一动态可属于多个主题。不是原照片总数；未识别到不等于没有。',
+    scope:'占比以 '+all.length+' 条已有图片解读的动态记录为分母。同一条可含多个主题，百分比无需相加为 100%；'+(all.length-classified)+' 条未归类。',
   };
 }
 export {momentsContent};

@@ -1,0 +1,21 @@
+.desktop-route-message{max-width:720px;margin:70px auto;padding:32px;line-height:1.7;color:#35312d}.desktop-route-message a,.desktop-route-message button{display:inline-block;margin:12px 16px 0 0;padding:12px 20px;border:1px solid #d7b8a5;border-radius:12px;background:#fffaf5;color:#8a4f36;font:inherit;text-decoration:none}
+/* Native sidebar already provides branding, navigation and account access.
+   Keep the search instance mounted, including its keyboard shortcut and portal. */
+.cz-product .web-nav{min-height:54px!important;height:54px!important;padding:6px 6%!important;justify-content:flex-end!important;border-bottom:0!important;background:#fffaf5!important;box-shadow:none!important}
+.cz-product .web-nav>.web-brand,.cz-product .web-nav>nav,.cz-product .web-nav>.web-nav-tools>a{display:none!important}
+.cz-product .web-nav>.web-nav-tools{display:flex!important;margin-left:auto!important}
+.cz-product section:has([data-home-start]){min-height:340px!important}
+.cz-product section:has([data-home-start])>div:first-child{padding-top:24px!important;padding-bottom:24px!important}
+.cz-product section:has([data-home-start]) h1{font-size:clamp(32px,3.2vw,45px)!important;margin-top:14px!important;margin-bottom:12px!important;line-height:1.35!important}
+.desktop-support{max-width:1100px;margin:22px auto 60px;padding:0 6%;color:#332c27;line-height:1.65}
+.desktop-support h1{font-size:clamp(27px,3vw,36px);line-height:1.45;margin:12px 0}
+.desktop-support p{color:#6c5c51;margin:8px 0 16px}.desktop-support h2{font-size:20px;margin:0 0 8px}
+.desktop-support-kicker{display:flex;align-items:center;gap:9px;color:#a1644b;font-size:15px}
+.desktop-support-start{display:flex;gap:18px;padding:28px;background:#f0f5ef;border:1px solid #d4e1d5;border-radius:18px;margin:26px 0;color:#385f52}
+.desktop-support-start>svg{flex:none;margin-top:2px}.desktop-support-start p{color:#4d665c}
+.desktop-support a,.desktop-support button{display:inline-flex;align-items:center;justify-content:center;gap:9px;min-height:44px;padding:10px 16px;border:1px solid #dbc5b6;border-radius:10px;color:#8d563e;text-decoration:none;background:#fffaf5;font:inherit;cursor:pointer}
+.desktop-support a.desktop-support-primary{background:#ab684f;color:white;border-color:#ab684f}
+.desktop-support-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}.desktop-support-grid article{padding:26px;background:#fff;border:1px solid #e8ddd4;border-radius:16px}.desktop-support-grid article>svg{color:#a56950;margin-bottom:12px}
+.desktop-support-grid small{display:block;margin-top:16px;color:#7c7068}.desktop-support button:disabled{opacity:.55;cursor:default}.desktop-support .desktop-support-note{font-size:14px;margin-top:22px}.desktop-support a:focus-visible,.desktop-support button:focus-visible{outline:2px solid #a56950;outline-offset:4px}
+.desktop-support-trail{display:flex;align-items:center;gap:22px;margin:12px 6%;font-size:15px}.desktop-support-trail a{display:inline-flex;align-items:center;gap:8px;min-height:44px;padding:8px 12px;border:1px solid #e3cfc0;border-radius:10px;color:#865740;text-decoration:none}.desktop-support-trail span{color:#81746a}
+@media(max-width:760px){.desktop-support-grid{grid-template-columns:1fr}.desktop-support-start{padding:20px}.cz-product section:has([data-home-start]){min-height:320px!important}}

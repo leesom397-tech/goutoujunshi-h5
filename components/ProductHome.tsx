@@ -12,7 +12,7 @@ const features = [
   { href: "/analyze?mode=moments", icon: Images, title: "朋友圈与主页", text: "看生活线索，找共同话题", choices: [{label:"朋友圈",href:"/analyze?mode=moments"},{label:"社交主页",href:"/analyze?mode=social"}] },
   { href: "/chat", icon: MessageCircle, title: "问成子", text: "有困惑，直接聊", choices: [{label:"文字提问",href:"/chat"},{label:"语音交流",href:"/voice"}] },
 ];
-export function ProductHome({ onStart, signedIn = false, afterHero }: { onStart: (href: string) => void; signedIn?: boolean; afterHero?: ReactNode }) {
+export function ProductHome({ signedIn = false, afterHero }: { signedIn?: boolean; afterHero?: ReactNode }) {
   return <div className={styles.page}>
     <section className={styles.hero}>
       <div className={styles.heroCopy}>
@@ -20,21 +20,18 @@ export function ProductHome({ onStart, signedIn = false, afterHero }: { onStart:
         <h1>看懂关系。<br/><span>也照顾你的感受。</span></h1>
         <p className={styles.heroDescription}>从一句聊天，到一段关系。</p>
         <div className={styles.actions}>
-          <button type="button" data-home-start className={styles.startButton} onClick={() => onStart("/relationship")}>{RELATIONSHIP_ANALYSIS_LABEL}<ArrowRight size={20}/></button>
-          <details className={styles.moreMenu} data-home-more>
-            <summary className={styles.moreButton}>更多方式<ChevronDown size={18}/></summary>
-            <nav className={styles.quickChoices} aria-label="更多方式快捷入口">{features.map(({href,icon:Icon,title,text})=><a href={href} key={href}><Icon size={22}/><span><strong>{title}</strong><small>{text}</small></span><ArrowRight size={17}/></a>)}</nav>
-          </details>
+          <a href="/relationship" data-home-start className={styles.startButton}>{RELATIONSHIP_ANALYSIS_LABEL}<ArrowRight size={20}/></a>
+          <a href="#home-more-ways" data-home-more className={styles.moreButton}>更多方式<ChevronDown size={18}/></a>
         </div>
       </div>
       <div className={styles.art}><GlassStudy/></div>
     </section>
     {afterHero}
-    <KnowledgeEvidence/>
-    <section id="home-more-ways" className={styles.tools} aria-labelledby="home-more-title">
-      <header><h2 id="home-more-title">更多方式</h2></header>
+    <section id="home-more-ways" className={styles.tools} aria-labelledby="home-more-title" tabIndex={-1}>
+      <header><h2 id="home-more-title">这次想解决什么？</h2><p>选一个最贴近你的问题，直接开始。</p></header>
       <div className={styles.grid} aria-label="选择分析或交流方式">{features.map(({href,icon:Icon,title,text,choices})=><article className={styles.tool} key={href}><a className={styles.toolMain} data-feature-entry href={href}><span className={styles.icon}><Icon size={23} strokeWidth={1.6}/></span><span className={styles.toolCopy}><strong>{title}</strong><span>{text}</span></span><ArrowUpRight className={styles.toolArrow} size={18}/></a><nav className={styles.toolChoices} aria-label={`${title}的使用方式`}>{choices.map(choice=><a key={choice.href} href={choice.href}>{choice.label}<ArrowUpRight size={14}/></a>)}</nav></article>)}</div>
     </section>
+    <section className={styles.proofSummary} data-home-proof aria-label="分析依据"><BookOpen size={22}/><div><strong>结论旁边，就能核对原话</strong><p>报告保留来源、另一种解释和下一步建议。</p></div><a href="/library#references">了解分析依据<ArrowRight size={16}/></a></section>
     <nav className={styles.utilities} aria-label="更多信息"><a href="/archive?tab=self">我的资料<ArrowUpRight size={14}/></a><a href="/library">资料与依据<ArrowUpRight size={14}/></a>{!signedIn && <a href="/login?return_to=%2Fworkspace">登录</a>}</nav>
   </div>;
 }

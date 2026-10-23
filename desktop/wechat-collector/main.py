@@ -78,6 +78,7 @@ def connection_code_controls(tk, root, state):
 def main():
     parser = argparse.ArgumentParser(description="成子电脑微信采集助手")
     modes = parser.add_mutually_exclusive_group()
+    modes.add_argument("--desktop-service", action="store_true", help="仅供成子桌面应用使用的本机服务")
     modes.add_argument("--probe", action="store_true", help="仅检查依赖、版本及窗口类，不读取正文")
     modes.add_argument("--voice-self-test", action="store_true", help="仅用本机合成音频检查语音运行库及已有模型，不联网或采集")
     modes.add_argument("--database-self-test", action="store_true", help="仅用自建临时数据库检查加密与只读组件，不读取微信")
@@ -91,6 +92,9 @@ def main():
         parser.error("--probe-output requires --probe, --voice-self-test or --database-self-test")
     if args.gui_self_test and (sys.platform != "darwin" or args.probe_output is None):
         parser.error("--gui-self-test requires macOS and --probe-output")
+    if args.desktop_service:
+        from desktop_service import main as desktop_service_main
+        raise SystemExit(desktop_service_main())
     if args.prepare_voice_model:
         from local_voice_transcriber import prepare_model
         prepare_model()

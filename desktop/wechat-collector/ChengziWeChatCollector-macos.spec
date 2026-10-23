@@ -5,6 +5,10 @@ from pathlib import Path
 from PyInstaller.utils.hooks import collect_all, copy_metadata
 from build_macos import BASE_VERSION, PREVIEW_VERSION, APP_NAME, verify_vendor
 
+desktop_service_build = bool(globals().get('CHENGZI_DESKTOP_SERVICE_BUILD', False))
+if desktop_service_build:
+    APP_NAME = 'ChengziDesktopService'
+
 root = Path(SPECPATH)
 native_root = Path(os.environ["CHENGZI_MACOS_NATIVE_DIR"])
 asset_root = Path(os.environ["CHENGZI_MACOS_ASSET_DIR"])
@@ -27,6 +31,7 @@ for path in vendor_root.rglob("*"):
 binaries = [(str(native_root / "macos_memory_scan"), "vendor/chatlog_keeper/scripts"),
             (str(native_root / "macos_wechat_key_capture.dylib"), "vendor/chatlog_keeper/scripts")]
 hiddenimports = [
+    "desktop_service",
     "background_reader", "capture_transport", "local_voice_transcriber", "voice_media_cache",
     "voice_runtime_self_test", "database_runtime_self_test", "macos_runtime_self_test",
     "macos_key_provider", "macos_database_source", "macos_moments", "macos_accessibility",
@@ -57,7 +62,7 @@ a = Analysis([str(root / "main.py")], pathex=[str(root), str(root / "vendor")],
 pyz = PYZ(a.pure)
 exe = EXE(pyz, a.scripts, [], exclude_binaries=True, name=APP_NAME,
           debug=False, bootloader_ignore_signals=False, strip=False, upx=False,
-          console=False, disable_windowed_traceback=False, argv_emulation=False,
+          console=desktop_service_build, disable_windowed_traceback=False, argv_emulation=False,
           target_arch="arm64", codesign_identity=None, entitlements_file=None)
 coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=False, name=APP_NAME)
 app = BUNDLE(coll, name=APP_NAME + ".app", icon=str(asset_root / "chengzi-fluted-chat-v1.icns"),

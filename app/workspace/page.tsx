@@ -29,7 +29,7 @@ export default function Workspace() {
     {pendingTask && <a className="workspace-resume" href={`/analyze?mode=${pendingTask.mode}`}><span><b>接着上次</b><small>{pendingTask.mode === "chat" ? "聊天截图" : pendingTask.mode === "moments" ? "朋友圈" : "社交资料"} · {pendingTask.count} 张图片的任务已保留</small></span><span>继续查看 <ArrowUpRight size={16}/></span></a>}
   </>;
   return <main className={styles.shell}><WebNav/><div className={styles.wrap}>
-    <ProductHome afterHero={continuation} signedIn={!!owner} onStart={href => window.location.assign(href)}/>
+    <ProductHome afterHero={continuation} signedIn={!!owner}/>
   </div><footer className="web-footer"><span>成子 · 陪你看懂关系</span><div><a href="/privacy">数据与隐私</a><a href="/account#contact">联系客服</a><a href="/sales">服务介绍</a></div></footer></main>;
 }
 

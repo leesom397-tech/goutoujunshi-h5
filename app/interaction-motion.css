@@ -1,22 +1,49 @@
-/* Shared interaction feedback. Decorative icons remain still. */
+/* Short interaction feedback only: no reveal gates, stagger or ambient loops. */
+body.cz-product {
+  --cz-motion-press: 150ms;
+  --cz-motion-control: 180ms;
+  --cz-motion-surface: 220ms;
+  --cz-motion-ease: cubic-bezier(.2, .65, .3, 1);
+}
 body.cz-product :where(button, a[href], summary, [role="button"], [role="tab"], input[type="submit"], input[type="button"]):not(:disabled):not([aria-disabled="true"]) {
   cursor: pointer;
-  -webkit-tap-highlight-color: #b9785424;
-  transition: translate 180ms ease, scale 140ms ease, transform 180ms ease, background-color 180ms ease, border-color 180ms ease, box-shadow 180ms ease, color 180ms ease;
+  -webkit-tap-highlight-color: #b66c5324;
+  transition: translate var(--cz-motion-control) var(--cz-motion-ease), scale var(--cz-motion-press) var(--cz-motion-ease), transform var(--cz-motion-control) var(--cz-motion-ease), background-color var(--cz-motion-control) ease, border-color var(--cz-motion-control) ease, color var(--cz-motion-control) ease;
 }
-body.cz-product :where(button, a[href], summary, [role="button"], [role="tab"]):not(:disabled):not([aria-disabled="true"]) svg:not(.animate-spin) {
-  transition: translate 180ms ease, scale 180ms ease;
-  transform-origin: center;
+/* Let a component rotate its disclosure arrow; never scale every icon at once. */
+body.cz-product :where(button, a[href], summary, [role="button"], [role="tab"]) > svg:not(.animate-spin) {
+  transition: transform var(--cz-motion-control) var(--cz-motion-ease), opacity var(--cz-motion-control) ease;
 }
 @media (hover: hover) and (pointer: fine) {
   body.cz-product :where(button, summary, [role="button"], [role="tab"], input[type="submit"]):not(:disabled):not([aria-disabled="true"]):hover { translate: 0 -1px; }
   body.cz-product a[href]:not([aria-disabled="true"]):hover { text-decoration: underline; text-underline-offset: 4px; text-decoration-thickness: 1px; }
-  body.cz-product :where(button, a[href], summary, [role="button"], [role="tab"]):not(:disabled):not([aria-disabled="true"]):hover svg:not(.animate-spin) { translate: 1px -1px; scale: 1.06; }
 }
-body.cz-product :where(button, a[href], summary, [role="button"], [role="tab"], input[type="submit"], input[type="button"]):not(:disabled):not([aria-disabled="true"]):active { translate: 0 1px; scale: .985; }
-body.cz-product :where(button, a[href], summary, [role="button"], [role="tab"]):not(:disabled):not([aria-disabled="true"]):active svg:not(.animate-spin) { translate: 0 0; scale: .94; }
-body.cz-product :where(button, a[href], summary, [role="button"], [role="tab"], input[type="submit"]):focus-visible { outline: 2px solid #a26043; outline-offset: 4px; }
+body.cz-product :where(button, a[href], summary, [role="button"], [role="tab"], input[type="submit"], input[type="button"]):not(:disabled):not([aria-disabled="true"]):active { translate: 0 1px; scale: .99; }
+body.cz-product :where(button, a[href], summary, [role="button"], [role="tab"], input[type="submit"]):focus-visible { outline: 2px solid #b66c53; outline-offset: 4px; }
+
+/* Opacity only: neither sticky headers nor fixed dialogs acquire a transformed
+   ancestor. Default opacity stays 1, including SSR and browsers without JS. */
+@keyframes cz-surface-arrive { from { opacity: .88; } to { opacity: 1; } }
+body.cz-product :where(dialog[open], [popover]:popover-open, [role="menu"]:not([hidden]), [role="tabpanel"]:not([hidden]), [data-motion="enter"]:not([hidden])) {
+  animation: cz-surface-arrive var(--cz-motion-surface) var(--cz-motion-ease) 1;
+}
+body.cz-product details[open] > :not(summary):not(script):not(style) {
+  animation: cz-surface-arrive var(--cz-motion-control) var(--cz-motion-ease) 1;
+}
+body.cz-product dialog[open]::backdrop { animation: cz-surface-arrive var(--cz-motion-control) ease 1; }
+
+/* Visibility is a single document event, with no per-element work or observers.
+   The glass artwork owns its separate on-screen visibility budget. */
+html[data-page-hidden="true"] body.cz-product *,
+html[data-page-hidden="true"] body.cz-product *::before,
+html[data-page-hidden="true"] body.cz-product *::after,
+html[data-page-hidden="true"] body.cz-product dialog::backdrop { animation-play-state: paused !important; }
 @media (prefers-reduced-motion: reduce) {
-  body.cz-product :where(button, a[href], summary, [role="button"], [role="tab"], input[type="submit"], input[type="button"]),
-  body.cz-product :where(button, a[href], summary, [role="button"], [role="tab"]) svg:not(.animate-spin) { transition: none !important; translate: none !important; scale: none !important; }
+  html:has(body.cz-product), body.cz-product *, body.cz-product *::before, body.cz-product *::after, body.cz-product dialog::backdrop {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+  /* Static transforms used to position menus or center dialogs stay intact. */
+  body.cz-product :where(button, a[href], summary, [role="button"], [role="tab"], input[type="submit"], input[type="button"]) { translate: none !important; scale: none !important; }
 }

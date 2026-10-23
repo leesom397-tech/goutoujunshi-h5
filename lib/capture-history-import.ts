@@ -66,6 +66,7 @@ export function writeHistoryProgress(progress: HistoryProgress): void {
 }
 export function clearHistoryProgress(owner: string, friend: string): void {
   globalThis.localStorage?.removeItem(key(owner,friend));
+  globalThis.localStorage?.removeItem(key(owner,friend) + ":accepted-page");
   globalThis.localStorage?.removeItem(key(owner,friend) + ":voice-plan");
   globalThis.localStorage?.removeItem(key(owner,friend) + ":image-plan");
 }
@@ -120,10 +121,14 @@ function pageIdentity(value: HistoryBatch) {
 function missingJob(error: unknown) {
   return object(error) && (error.status === 404 || error.code === "JOB_NOT_FOUND");
 }
+export function isHistorySourceUpdating(error: unknown): boolean {
+  return object(error) && error.code === "SOURCE_CHANGED";
+}
 function failure(job: Record<string, unknown>) {
   const error = job.error;
-  return new Error(typeof error === "string" ? error.slice(0, 1000) : object(error) && typeof error.message === "string" ? error.message.slice(0, 1000) :
-    job.status === "cancelled" ? "导入已停止，点击继续可从本页恢复。" : "本页导入未完成，已保存的内容会保留，可重试本页。");
+  const message = typeof error === "string" ? error.slice(0, 1000) : object(error) && typeof error.message === "string" ? error.message.slice(0, 1000) :
+    job.status === "cancelled" ? "导入已停止，点击继续可从本页恢复。" : "本页导入未完成，已保存的内容会保留，可继续本页。";
+  return Object.assign(new Error(message), {code: object(error) && typeof error.code === "string" ? error.code.slice(0,100) : ""});
 }
 
 /** Media references form separate bounded jobs, never a second history scan. */
@@ -227,6 +232,19 @@ async function runHistoryPages(options: HistoryImportOptions): Promise<HistoryAc
   const notify = (message: string) => options.onProgress?.({ message, pageCount: progress.pages, readCount: progress.count,
     added: totals.added, updatedVoice: totals.updatedVoice, complete: progress.complete });
   const persist = () => writeHistoryProgress(progress);
+  // A partial page may already be in IndexedDB when the helper stops or the
+  // browser reloads. A digest proves this exact position/page was accepted;
+  // no original messages, IDs or bridge credentials enter localStorage.
+  const receiptKey = scope + ":accepted-page";
+  const pageReceipt = async (value: HistoryBatch) => {
+    const raw = JSON.stringify([value.account,progress.direction,progress.cursor,progress.since,progress.snapshot,pageIdentity(value)]);
+    const digest = await globalThis.crypto.subtle.digest("SHA-256", new TextEncoder().encode(raw));
+    return Array.from(new Uint8Array(digest), value => value.toString(16).padStart(2,"0")).join("");
+  };
+  const receiptMatches = async (value: HistoryBatch) => {
+    const saved = globalThis.localStorage?.getItem(receiptKey);
+    return !!saved && saved === await pageReceipt(value);
+  };
   const save = async (value: HistoryBatch, interim: boolean, afterCancel = false): Promise<HistoryAcceptResult> => {
     if (!afterCancel) checkAbort(options.signal);
     // Account binding is checkpoint metadata and is persisted before accepting
@@ -235,6 +253,10 @@ async function runHistoryPages(options: HistoryImportOptions): Promise<HistoryAc
     const accepted = await options.accept(value, interim);
     if (!accepted || !integer(accepted.added) || !integer(accepted.updatedVoice) || !integer(accepted.total) ||
         !label(accepted.libraryId, 2000) || totals.libraryId && totals.libraryId !== accepted.libraryId) throw invalid("本机资料库没有确认本页已保存，读取位置未前进。");
+    if (accepted.added > 0) {
+      try { globalThis.localStorage.setItem(receiptKey, await pageReceipt(value)); }
+      catch { throw invalid("本页原文已保存，但读取进度暂未保存。请检查浏览器存储后继续，已保存原文不会删除。"); }
+    }
     totals.added += accepted.added; totals.updatedVoice += accepted.updatedVoice;
     totals.total = accepted.total; totals.libraryId = accepted.libraryId;
     if (!afterCancel) checkAbort(options.signal);
@@ -244,22 +266,38 @@ async function runHistoryPages(options: HistoryImportOptions): Promise<HistoryAc
   try {
     checkAbort(options.signal); persist();
     while (!progress.complete) {
-      let missingRetried = false, revision = 0, identity: string | null = null;
+      let missingRetried = false, revision = 0, identity: string | null = null, sourceRetries = 0;
       pendingIdentity = null;
       const began = Date.now();
+      const retrySourceChange = async (error: unknown) => {
+        if (!isHistorySourceUpdating(error) || sourceRetries >= 2) return false;
+        sourceRetries++;
+        notify(`微信正在更新聊天，已保存 ${Math.max(totals.total,progress.count)} 条；正在从原位置自动继续（${sourceRetries}/2）…`);
+        await wait(Math.min(pollMs,1000) * sourceRetries, options.signal);
+        // The cursor still addresses the same page. Keep its observed identity
+        // across retries; only a newly created worker resets partialRevision.
+        return true;
+      };
       for (;;) {
         checkAbort(options.signal);
         if (Date.now() - began > 25 * 60_000) throw invalid("本页任务仍未结束，读取位置已保留，稍后可继续查看。");
         if (!progress.pendingJob) {
-          const started = await options.request("/capture", { signal: options.signal, body: {
+          let started: unknown;
+          try { started = await options.request("/capture", { signal: options.signal, body: {
             kind: "chat", mode: "background", friend: progress.friend, includeVoice: options.includeVoice === true,
             ...(options.contact ? {contactId:options.contact.contactId,accountKey:options.contact.accountKey} : {}),
             ...(options.voiceIds?.length ? {voiceOnly:true,voiceIds:options.voiceIds} : {}),
             ...(options.imageIds?.length ? {imageOnly:true,imageIds:options.imageIds,limit:16} : {}),
             pageSize: options.imageIds ? 16 : options.includeVoice ? 100 : PAGE_SIZE, direction: progress.direction,
             ...(!options.voiceIds && !options.imageIds && progress.cursor ? { cursor: progress.cursor } : !options.voiceIds && !options.imageIds && progress.since ? { since: progress.since } : {}),
-          } });
+          } }); } catch(error) {
+            checkAbort(options.signal);
+            if (await retrySourceChange(error)) continue;
+            if (isHistorySourceUpdating(error)) throw Object.assign(new Error(`微信仍在更新聊天，已保存 ${Math.max(totals.total,progress.count)} 条。读取位置已保留，点击“继续导入”可从这里接着读取。`),{code:"SOURCE_CHANGED"});
+            throw error;
+          }
           if (!object(started) || !jobId(started.jobId)) throw invalid("本机助手未返回可核对的任务编号。");
+          revision = 0;
           progress.pendingJob = started.jobId; persist();
         }
         options.onJob?.(progress.pendingJob);
@@ -267,6 +305,9 @@ async function runHistoryPages(options: HistoryImportOptions): Promise<HistoryAc
         try { job = await options.request(`/jobs/${progress.pendingJob}`, { signal: options.signal }); }
         catch (error) {
           checkAbort(options.signal);
+          // A polling error does not establish that the worker ended: retry
+          // the same job, never spawn a parallel capture from uncertain state.
+          if (await retrySourceChange(error)) continue;
           if (!missingJob(error) || missingRetried) throw error;
           missingRetried = true; progress.pendingJob = null; persist(); options.onJob?.(null);
           revision = 0; identity = null; pendingIdentity = null;
@@ -317,13 +358,12 @@ async function runHistoryPages(options: HistoryImportOptions): Promise<HistoryAc
             options.onJob?.(null);
             throw invalid("本机助手重复返回了已经读取的聊天，已停止继续循环；已保存的内容可以继续使用，请重新连接助手后重试。");
           }
+          const replayingAcceptedPage = await receiptMatches(result);
           const accepted = await save(result, false);
-          // A normal history pass must advance by adding at least one new
-          // record. If an entire non-voice page is already present, the
-          // helper has ignored its cursor and would otherwise keep replaying
-          // old history. Voice enrichment intentionally revisits old rows to
-          // upgrade transcripts, so it is exempt from this guard.
-          if (options.includeVoice !== true && !options.imageIds && result.records.length > 0 && accepted.added === 0) {
+          // A new history page must add records; only a receipt for this exact
+          // saved partial/replayed page permits zero additions. A new cursor
+          // or changed page cannot borrow that receipt to disguise a loop.
+          if (options.includeVoice !== true && !options.imageIds && result.records.length > 0 && accepted.added === 0 && !replayingAcceptedPage) {
             progress.pendingJob = null;
             persist();
             options.onJob?.(null);
@@ -334,14 +374,17 @@ async function runHistoryPages(options: HistoryImportOptions): Promise<HistoryAc
           progress = { ...progress, account: result.account, cursor: next, since: null, snapshot: result.history.snapshot,
             count: progress.count + result.history.count, pages: progress.pages + 1,
             complete: !result.history.hasMore, pendingJob: null };
-          persist(); options.onJob?.(null);
+          persist(); globalThis.localStorage?.removeItem(receiptKey); options.onJob?.(null);
           if (next) seenCursors.add(next);
           notify(options.imageIds ? `已检查 ${progress.count} 条聊天图片。` : options.voiceIds ? `已处理 ${progress.count} 条语音。` : progress.complete ? `历史导入完成，已核对 ${progress.count} 条消息。` : `已核对 ${progress.count} 条消息，正在继续读取历史。`);
           break;
         }
         if (job.status === "failed" || job.status === "error" || job.status === "cancelled") {
           progress.pendingJob = null; persist(); options.onJob?.(null);
-          throw failure(job);
+          const error = failure(job);
+          if (job.status !== "cancelled" && await retrySourceChange(error)) continue;
+          if (isHistorySourceUpdating(error)) error.message=`微信仍在更新聊天，已保存 ${Math.max(totals.total,progress.count)} 条。读取位置已保留，点击“继续导入”可从这里接着读取。`;
+          throw error;
         }
         await wait(pollMs, options.signal);
       }

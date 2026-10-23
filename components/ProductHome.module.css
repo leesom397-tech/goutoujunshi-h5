@@ -21,20 +21,9 @@
 .startButton, .moreButton { display: inline-flex; align-items: center; justify-content: center; gap: 14px; min-height: 54px; border-radius: 12px; font: inherit; font-size: 18px; font-weight: 600; cursor: pointer; transition: background .2s, border-color .2s; }
 .startButton { min-width: 204px; padding: 15px 26px; border: 1px solid #a9644e; background: #a9644e; color: #fffaf5; box-shadow: inset 0 1px #ffffff40, 0 5px 18px #79563814; }
 .startButton:hover { background: #96553f; border-color: #96553f; }
+.page a.startButton { color: #fffaf5; }
 .moreButton { padding: 14px 18px; border: 1px solid #d9bca7; background: #fffaf5eb; color: #754c39; font-size: 16px; font-weight: 500; }
 .moreButton:hover { background: #fff; border-color: #a9644e; }
-.moreMenu { max-width: 100%; }
-.moreMenu summary { list-style: none; width: fit-content; }
-.moreMenu summary::-webkit-details-marker { display: none; }
-.moreMenu[open] > summary svg { transform: rotate(180deg); }
-.quickChoices { display: grid; gap: 6px; margin-top: 12px; padding: 10px; border: 1px solid #e5cfbd; border-radius: 14px; background: #fffdf9; box-shadow: 0 8px 24px #6c463012; }
-.quickChoices a { display: flex; align-items: center; gap: 12px; min-height: 64px; padding: 10px 12px; border-radius: 8px; }
-.quickChoices a:hover { background: #f8ede4; }
-.quickChoices a > svg { flex-shrink: 0; color: #a9644e; }
-.quickChoices a > svg:last-child { margin-left: auto; }
-.quickChoices span { display: grid; gap: 4px; }
-.quickChoices strong { font-size: 17px; color: #302a25; }
-.quickChoices small { font-size: 14px; line-height: 1.5; color: #65574d; }
 .art { position: absolute; inset: 0; z-index: 0; }
 .hero::after { content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none; background: linear-gradient(180deg, #fffaf5, transparent 15%), linear-gradient(90deg, #fffaf5ed 0%, #fffaf5b8 31%, #fffaf540 49%, transparent 68%); }
 
@@ -83,6 +72,14 @@
 
 .tools { padding: 10px 6% 28px; scroll-margin-top: 96px; }
 .tools header { margin-bottom: 17px; }
+.tools header p { margin: 8px 0 0; color: var(--sub); font-size: 16px; line-height: 1.7; }
+.tools:focus-visible { outline: 2px solid #a26043; outline-offset: -3px; border-radius: 14px; }
+.proofSummary { display: flex; align-items: center; gap: 16px; margin: 0 6% 24px; padding: 20px 24px; border: 1px solid #e9dcd0; border-radius: 14px; background: #f4f5ec; color: #244c46; }
+.proofSummary > svg { flex: none; }
+.proofSummary > div { flex: 1; min-width: 0; }
+.proofSummary strong { font-size: 17px; line-height: 1.7; }
+.proofSummary p { color: #52655b; font-size: 16px; line-height: 1.7; margin: 4px 0 0; }
+.proofSummary a { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; font-size: 16px; }
 .page .tools h2 { margin: 0; color: #302a25; font-size: 26px; font-weight: 600; line-height: 1.5; letter-spacing: -.035em; }
 .grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .tool { position: relative; display: grid; grid-template-rows: 1fr auto; min-width: 0; border: 1px solid #e9dfd5; border-radius: 14px; background: linear-gradient(150deg, #fff, #fffcf8); color: var(--text); box-shadow: inset 0 1px #fff, 0 3px 12px #4b372605; transition: border-color .2s; }
@@ -118,7 +115,6 @@
   .actions { gap: 10px; margin-top: 25px; }
   .startButton { min-width: 0; padding: 15px 23px; }
   .moreButton { gap: 8px; padding: 14px; }
-  .moreMenu[open] { flex-basis: 100%; }
   .hero::after { background: linear-gradient(180deg, #fffaf5f5 0%, #fffaf5eb 44%, #fffaf598 65%, transparent 87%); }
   .evidence { grid-template-columns: minmax(0, 1fr); margin: 0 24px 25px; padding: 22px 18px 18px; gap: 20px; border-radius: 19px; }
   .evidenceKicker { font-size: 16px; }
@@ -132,6 +128,10 @@
   .author { font-size: 16px; }
   .evidenceFooter a { min-height: 44px; }
   .tools { padding: 10px 24px 24px; }
+  .proofSummary { margin: 0 24px 24px; padding: 18px; flex-wrap: wrap; align-items: flex-start; gap: 8px 12px; }
+  .proofSummary > svg { margin-top: 4px; }
+  .proofSummary > div { flex-basis: calc(100% - 34px); }
+  .proofSummary > a { margin-left: 34px; }
   .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
   .toolMain { min-height: 160px; padding: 16px 14px 12px; gap: 12px; }
   .toolChoices { margin: 0 12px; gap: 0; justify-content: space-between; }

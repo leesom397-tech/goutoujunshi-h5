@@ -28,10 +28,13 @@ export function captureMomentsSupplementHref(subjectId = "", chatLibraryId = "",
 }
 export const capturePersonLabel = (name: string) => name.replace(/ · #[a-fA-F0-9]{16}$/, "");
 /** A search term is a hint for the contact picker, never an archive identity. */
-export function capturePersonSearchHref(value = "") {
+export function capturePersonSearchHref(value = "", context: {subjectId?:string;returnTo?:string} = {}) {
   const query = new URLSearchParams({ method: "desktop", kind: "chat", intent: "person" });
   const search = value.replace(/[\u0000-\u001f]/g, "").trim().slice(0, 80);
   if (search) query.set("contactSearch", search);
+  // An explicit archive context is independent of the display-name search hint.
+  if (context.subjectId && /^[a-f0-9-]{36}$/i.test(context.subjectId)) query.set("subjectId",context.subjectId);
+  const back=intakeReturnTo(context.returnTo);if(back)query.set("returnTo",back);
   return "/capture?" + query.toString();
 }
 

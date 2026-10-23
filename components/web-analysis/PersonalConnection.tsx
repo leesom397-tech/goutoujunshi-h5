@@ -5,10 +5,13 @@ import { ArrowRight, Check, Copy, GitCompareArrows, HeartHandshake, Lightbulb, M
 import { personalConnection, type PersonalEvidence, type PersonalInsight } from "@/lib/personal-context";
 import { personalConversationStarter } from "@/lib/personal-starters";
 import { riskAwarePresentation } from "@/lib/risk-aware-presentation";
+import { reportGuidanceProvenance } from "@/lib/report-guidance-provenance";
 import { CaptureEvidence } from "./CaptureEvidence";
 import type { Json } from "./client";
 import { reportPersonLabel } from "@/components/report-person-label";
 import styles from "./PersonalConnection.module.css";
+import { ReportExcerpt } from "./ReportExcerpt";
+import { ReportReturnLink } from "./ReportReturnLink";
 
 const sourceName: Record<PersonalEvidence["source"], string> = {
   "self-profile": "你的资料", "subject-profile": "人物档案", chat: "聊天原话", moments: "朋友圈动态", "social-profile": "主页自述",
@@ -54,8 +57,9 @@ function ConversationStarter({ text, title }: { text: string; title: string }) {
 }
 
 /** Common-point counts require two visible sources; one-sided material stays a conversation lead. */
-export function PersonalConnection({ report, publicExample = false, compact = false }: { report: Json; publicExample?: boolean; compact?: boolean }) {
+export function PersonalConnection({ report, publicExample = false, compact = false, embedded = false }: { report: Json; publicExample?: boolean; compact?: boolean; embedded?: boolean }) {
   const id = useId(), result = personalConnection(report), risk = riskAwarePresentation(report);
+  const updatedGuidance=reportGuidanceProvenance(report).hasGuidanceUpdate;
   if (result.status === "self") return null;
   const evidenceFor = (item: PersonalInsight) => result.sources.filter(source => item.evidenceIds.includes(source.id) && source.quote.trim());
   const bothSides = (item: PersonalInsight) => {
@@ -70,21 +74,21 @@ export function PersonalConnection({ report, publicExample = false, compact = fa
   const reportId = report.reportId || report.id;
   const quickHref = "/archive?tab=self&quick=1" + (reportId ? "&returnTo=" + encodeURIComponent(`/report?id=${encodeURIComponent(reportId)}`) : "");
   const showRows = (items: PersonalInsight[], category: "common" | "topic" | "difference") => items.map(item => {
-    const starter = category !== "difference" && risk.mode === "normal" ? personalConversationStarter(item, result.sources) : "";
+    const starter = category !== "difference" && risk.mode === "normal" && !updatedGuidance ? personalConversationStarter(item, result.sources) : "";
     return <article className={styles.insight} data-personal-kind={category} key={item.id}>
-    <header><h3>{category === "common" ? <Check size={18}/> : category === "difference" ? <GitCompareArrows size={18}/> : <MessageCircle size={18}/>}<span>{item.title}</span></h3><span className={styles.badge}>{category === "common" ? "双方有依据" : "相处推测"}</span></header>
+    <header><h3>{category === "common" ? <Check size={18}/> : category === "difference" ? <GitCompareArrows size={18}/> : <MessageCircle size={18}/>}<span>{item.title}</span></h3><span className={styles.badge}>{category === "common" ? "双方都提过" : "相处推测"}</span></header>
     <p>{item.reading}</p>
-    <Sources rows={evidenceFor(item)} insightId={item.id}/>
-    {category !== "common" && item.alternative && <p className={styles.alternative}><Lightbulb size={16}/><span>也可能：{item.alternative}</span></p>}
-    {item.action && !starter && (risk.mode === "normal" || risk.mode === "expectation" && category === "difference") && <div className={styles.action}><ArrowRight size={17}/><div><strong>{category === "difference" ? "相处时留意" : "可以这样接近"}</strong><p>{item.action}</p></div></div>}
+    <details className={styles.evidenceDetails}><summary>{category==="common"?"对照双方原话":"核对原话依据"}</summary><Sources rows={evidenceFor(item)} insightId={item.id}/>{category !== "common" && item.alternative && <p className={styles.alternative}><Lightbulb size={16}/><span>原判断的限定说明：{item.alternative}</span></p>}</details>
+    {item.action && !starter && !updatedGuidance && (risk.mode === "normal" || risk.mode === "expectation" && category === "difference") && <div className={styles.action}><ArrowRight size={17}/><div><strong>{category === "difference" ? "相处时留意" : "可以这样接近"}</strong><p>{item.action}</p></div></div>}
     {starter && <ConversationStarter key={`${reportId || "current"}:${item.id}:${evidenceFor(item).map(row => row.quote).join("|")}`} title={item.title} text={starter}/>}
   </article>; });
 
-  return <section className={styles.connection} data-personal-connection data-personal-status={result.status} aria-labelledby={`${id}-heading`}>
-    <header className={styles.heading}><div><span className={styles.eyebrow}><HeartHandshake size={19}/>与你有关{publicExample && <small>虚构案例</small>}</span><h2 id={`${id}-heading`}>{common.length ? <>你们的共同点 <span>· {common.length}</span></> : hasSelf ? "从你们各自的表达，找到切入点" : "先从这份材料，找到可聊的话题"}</h2><p>{result.summary || (hasSelf ? "对照已有资料和当前原话，看你们哪里相近、怎样自然接话。" : "目前还没有足够的本人信息，不把对方的兴趣当成你们的共同点。")}</p></div>{!publicExample && (!hasSelf || result.status === "limited") && <a className={styles.quickLink} href={quickHref}><UserRound size={17}/>快速补充我<ArrowRight size={16}/></a>}</header>
+  return <section className={styles.connection} data-personal-connection data-personal-status={result.status} data-embedded={embedded||undefined} aria-labelledby={`${id}-heading`}>
+    <header className={styles.heading}><div>{!embedded&&<span className={styles.eyebrow}><HeartHandshake size={19}/>与你有关{publicExample && <small>虚构案例</small>}</span>}{embedded?<h3 id={`${id}-heading`}>{common.length?"有依据的话题交集":"从哪些话题开始"}</h3>:<h2 id={`${id}-heading`}>{common.length ? "有依据的话题交集" : hasSelf ? "从你们各自的表达，找到切入点" : "先从这份材料，找到可聊的话题"}</h2>}<ReportExcerpt value={common.length?"这些话题在双方材料中都出现过，可以从具体经历聊起；不等于已经确认共同的长期爱好。":result.summary || (hasSelf ? "对照已有资料和当前原话，看你们哪里相近、怎样自然接话。" : "目前还没有足够的本人信息，不把对方的兴趣当成你们的共同点。")} limit={120}/></div>{!publicExample && (!hasSelf || result.status === "limited") && <ReportReturnLink reportId={reportId||""} className={styles.quickLink} href={quickHref}><UserRound size={17}/>快速补充我<ArrowRight size={16}/></ReportReturnLink>}</header>
+    {updatedGuidance&&!compact&&<p className={styles.priority} data-personal-guidance-scope>以下保留原分析的话题交集；这一轮怎么回复，以上方更新后的方案为准。</p>}
     {risk.mode !== "normal" && !compact && <p className={styles.priority} data-personal-priority><ShieldCheck size={18}/>{risk.mode === "safety" ? "共同点仍可核对；当前先处理上方的安全与边界提醒，再决定是否继续接近。" : "共同点可以帮助了解，但请先确认双方的关系期待是否一致。上方已准备了确认期待的回复。"}</p>}
-    {common.length > 0 && <><div className={styles.chips} aria-label="有双侧依据的共同点">{common.map(item => <span key={item.id}><Check size={16}/>{item.title}</span>)}</div>{!compact && <div className={styles.grid}>{showRows(common, "common")}</div>}{compact && <p className={styles.compactNote}><UsersRound size={17}/>案例中的本人资料与对方材料都已对照；展开完整案例，可查看每条双侧来源。</p>}</>}
-    {!compact && topics.length > 0 && <div className={styles.group}><h3 className={styles.groupTitle}><MessageCircle size={20}/>可以聊的话题 <small>有材料可接，不假装已经相同</small></h3><div className={styles.grid}>{showRows(topics, "topic")}</div></div>}
+    {common.length > 0 && <>{compact&&<div className={styles.chips} aria-label="有双侧依据的共同点">{common.map(item => <span key={item.id}><Check size={16}/>{item.title}</span>)}</div>}{!compact && <div className={styles.grid}>{showRows(common, "common")}</div>}{compact && <p className={styles.compactNote}><UsersRound size={17}/>案例中的本人资料与对方材料都已对照；展开完整案例，可查看每条双侧来源。</p>}</>}
+    {!compact && topics.length > 0 && <div className={styles.group}><h3 className={styles.groupTitle}><MessageCircle size={20}/>可以聊的话题 <small>来自已保存的材料</small></h3><div className={styles.grid}>{showRows(topics, "topic")}</div></div>}
     {!compact && differences.length > 0 && <div className={styles.group} data-personal-differences><h3 className={styles.groupTitle}><GitCompareArrows size={20}/>相处时，留意这些不同</h3><div className={styles.grid}>{showRows(differences, "difference")}</div></div>}
     {!common.length && !topics.length && !differences.length && <p className={styles.empty}><Quote size={18}/>{hasSelf ? "当前材料还不足以找到可核对的交集。先按上方建议回应，后续明确表达会继续补充对照。" : "先看当前材料中的判断与建议；你之后补充的偏好和明确原话，可以让建议更贴近你。"}</p>}
     {!compact && !hasSelf && result.missing.length > 0 && <p className={styles.missing}>{result.missing.slice(0, 2).join(" ")} 不影响继续看本次报告。</p>}

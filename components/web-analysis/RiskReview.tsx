@@ -11,6 +11,7 @@ import { CaptureEvidence } from "./CaptureEvidence";
 import type { RiskAwarePresentation } from "@/lib/risk-aware-presentation";
 import { reportIdentity } from "./report-context";
 import { ReportExcerpt } from "./ReportExcerpt";
+import {reportGuidanceProvenance} from "@/lib/report-guidance-provenance";
 
 const kinds = {
   safety: { label: "安全与边界", Icon: Shield },
@@ -27,6 +28,7 @@ export function RiskReview({ report,summaryOnly=false,onInspect }: { report: Jso
   const [selected, setSelected] = useState<keyof typeof kinds | null>(null);
   if (report.targetSelf || report.target === "self") return null;
   const review = relationshipRiskReview(report);
+  const provenance=reportGuidanceProvenance(report),historical=provenance.hasGuidanceUpdate;
   const identity=reportIdentity(report);
   const signals = review.signals;
   const fullHistory = review.scope === "full-history";
@@ -37,15 +39,16 @@ export function RiskReview({ report,summaryOnly=false,onInspect }: { report: Jso
   const count = (signal: typeof signals[number]) => fullHistory ? signal.occurrences || signal.sources?.length || 0 : riskEvidenceOccurrences(report, signal.evidence).count;
   return <section className={visual.review} data-risk-review data-risk-state={state} aria-label={fullHistory ? "全历史风险核实" : "风险与关系预期"}>
     <header className={visual.heading}>
-      <div><span className={visual.eyebrow}><Shield size={15}/>值得多看一眼</span><h2>{identity.other}与你：风险与期待</h2></div>
+      <div><span className={visual.eyebrow}><Shield size={15}/>{historical?'原分析记录':'值得多看一眼'}</span><h2>{identity.other}与你：风险与期待</h2></div>
       <span className={visual.coverage}>{fullHistory ? `${review.coverage?.readable || 0} 条可读聊天` : "本次上传材料"}</span>
     </header>
+    {historical&&<p className={visual.caption} data-risk-provenance>以下计数来自{provenance.analysisAt?` ${provenance.analysisAt} 的`:'原'}分析；本次只更新了建议，没有重新核验这些计数。当前明确要求以上方最新建议为准。</p>}
     <div className={visual.categories} role="group" aria-label="按类型查看待核实的表达">{(Object.keys(kinds) as Array<keyof typeof kinds>).map(key => {
       const { Icon, label } = kinds[key], matches = signals.filter(signal => signal.kind === key), total = matches.reduce((sum, signal) => sum + count(signal), 0);
       const card=<><span className={visual.categoryIcon}><Icon size={22}/></span><span className={visual.categoryLabel}>{label}</span><span className={visual.categoryCount}><b>{total || (matches.length || !review.assessed ? "—" : "0")}</b><small>{total ? "条表达" : matches.length ? "待核对处数" : review.assessed ? "条明确表达" : "尚未评估"}</small></span></>;
       return <button type="button" key={key} data-risk-category={key} aria-pressed={active === key} onClick={()=>setSelected(key)}>{card}</button>;
     })}</div>
-    {!signals.length && <p className={visual.clear}>{review.summary || "资料还不足以排除风险，继续结合实际相处核实。"}</p>}
+    {!signals.length && <p className={visual.clear}>{historical?'原分析没有保留这几类风险记录；不能据此排除当前已表达的边界要求。':review.summary || "资料还不足以排除风险，继续结合实际相处核实。"}</p>}
     {summaryOnly&&signals.length>0&&<div className={visual.summaryDetail} data-risk-summary-detail>{preview?<><h3>{preview.title}</h3><ReportExcerpt value={preview.reading}/><div className={visual.summaryQuote}><small>{identity.other}的原话依据</small><ReportExcerpt value={preview.sources?.[0]?.quote||preview.evidence} limit={130} quote/></div>{preview.alternative&&<div className={visual.summaryAlternative}><strong>另一种解释</strong><ReportExcerpt value={preview.alternative} limit={140}/></div>}{onInspect&&<button type="button" onClick={()=>onInspect(active)}>逐项核实原话与后续<ArrowRight size={17}/></button>}</>:<p className={visual.clear}>本报告未检出这类明确表达，不能据此认定已经排除风险。{onInspect&&<button type="button" onClick={()=>onInspect(active)}>查看已保留的核实项<ArrowRight size={17}/></button>}</p>}</div>}
     {!summaryOnly&&signals.length > 0 && <>
       <div className={visual.signals}>{signals.filter(signal => signal.kind === active).map((signal, index) => {

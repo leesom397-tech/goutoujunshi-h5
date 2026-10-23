@@ -11,6 +11,11 @@ import { ReportVisualMetrics } from "./ReportVisualMetrics";
 import visual from "./RelationshipBriefVisual.module.css";
 import {KeyEvidenceList} from "./ReportReadingTools";
 import {reportIdentity,reportGoal} from "./report-context";
+import { reportGuidanceProvenance } from "@/lib/report-guidance-provenance";
+import { projectReportDecisionInsights } from "@/lib/report-decision-insights";
+import { ReportDecisionInsights } from "./ReportDecisionInsights";
+import { ReportSectionLink } from "./ReportReader";
+import { reportAffinity, validScore } from "./report-data";
 
 /** A usable reply in the first reading surface, without another navigation step. */
 export function ReportReplyPreview({ text, reason, label = "现在可以这样回" }: { text?: string; reason?: string; label?: string }) {
@@ -40,29 +45,35 @@ export function ChatReportBrief({ report, diagnosis, showMetrics=true }: { repor
   const source = diagnosis || report.relationshipDiagnosis || {};
   const semantic = report.semanticHistory || source.semanticHistory;
   const coverage = source.coverage || {};
-  const fullHistory = report.analysisScope === "fullHistory" || report.captureFormat === "full-history";
+  const fullHistory = report.analysisScope === "fullHistory" || report.analysisScope === "uploadedHistory" || report.captureFormat === "full-history";
   const momentOnly = fullHistory && report.captureKind === "moments";
-  const judgment = presentation.judgment || source.relationship?.currentState || "材料还不足以形成稳定判断。";
+  const affinity=reportAffinity(report),score=validScore(affinity?.value)?Math.round(affinity!.value):null;
+  const judgment = presentation.judgment || semantic?.summary || source.relationship?.currentState || "材料还不足以形成稳定判断。";
   const trend = semantic?.status === "complete" ? semantic.trend : source.relationship?.trend;
-  const action = presentation.nextStep || source.decision?.recommendation || "结合下一次真实回应，再更新判断。";
-  function nextSection(button: HTMLButtonElement) {
-    button.closest('[data-report-reader]')?.querySelector<HTMLButtonElement>('[role="tab"][aria-controls$="-panel-next"]')?.click();
-  }
+  const action = presentation.nextStep || semantic?.action || source.decision?.recommendation || "结合下一次真实回应，再更新判断。";
+  const provenance=reportGuidanceProvenance(report),updated=fullHistory&&provenance.hasGuidanceUpdate;
+  const replyCount=Array.isArray(presentation.replyOptions)?presentation.replyOptions.length:0;
+  const currentStep=Array.isArray(semantic?.actionPlan?.steps)?semantic.actionPlan.steps[0]:null;
+  const headline=updated?(currentStep?.title||firstSentence(action)):firstSentence(judgment);
+  const observation=typeof currentStep?.observeFor==='string'?currentStep.observeFor:semantic?.observeWindow;
+  const hasDecisionInsights=projectReportDecisionInsights(report).length>0;
+  const savedContext=<>{fullHistory&&goal!=='risk'&&trend&&<div className={visual.trend}><ChartNoAxesCombined size={17}/><span>{updated?'原分析趋势':momentOnly?'动态变化':'关系趋势'}</span><strong>{trend}</strong></div>}{fullHistory&&coverage.startDate&&coverage.endDate&&<p className={visual.scope}>{coverage.startDate} — {coverage.endDate}</p>}</>;
   return <section className={visual.brief} aria-label="报告速读" data-report-brief data-risk-priority={presentation.mode}>
-    <div className={visual.hero}>
+    <div className={visual.hero} data-report-decision-summary>
       <div className={visual.verdict}>
-        <div className={visual.kicker}><span className={visual.liveDot}/>{goal==='risk'?"先看风险判断":fullHistory?"先看整体判断":"先看这次对话"}</div>
+        <div className={visual.kicker}><span className={visual.liveDot}/>{updated?"当前先处理":goal==='risk'?"先看风险判断":momentOnly?"先看这个人":fullHistory?"现在是什么情况":"这次对话透露了什么"}</div>
         <span className={visual.verdictLabel}>{presentation.mode !== "normal" && presentation.title ? presentation.title : momentOnly?`${identity.other}的自我呈现`:goal==='risk'?`关于${identity.other}的风险判断`:`${identity.direction}`}</span>
-        <h2>{judgment}</h2>
-        {fullHistory&&goal!=='risk'&&trend&&<div className={visual.trend}><ChartNoAxesCombined size={17}/><span>{momentOnly?'动态变化':'关系趋势'}</span><strong>{trend}</strong></div>}
-        {fullHistory&&coverage.startDate&&coverage.endDate&&<p className={visual.scope}>{coverage.startDate} — {coverage.endDate}</p>}
+        {fullHistory&&!momentOnly&&<div className={visual.summaryScore} data-brief-affinity-score><span>好感信号{updated?' · 原评分':''}</span><strong>{score===null?'待判断':score}{score!==null&&<small>/100</small>}</strong><small>{score===null?'当前没有可用评分':updated?'建议已更新，分数未重算':'互动综合评分，非喜欢概率'}</small></div>}
+        <h2>{headline}</h2>
+        {updated&&<p className={visual.verdictBody}>{action}</p>}
+        {!updated&&judgment!==headline&&<p className={visual.verdictBody} data-complete-judgment>{judgment.startsWith(headline)?judgment.slice(headline.length):judgment}</p>}
+        {updated?<><p className={visual.scope} data-guidance-provenance>建议更新于 {provenance.guidanceAt}</p><details open className={visual.originalAnalysis} data-original-analysis><summary>原分析与本次更新说明</summary><p>{provenance.note}</p><p className={visual.scope}>原分析生成于 {provenance.analysisAt||"时间未记录"}</p><p>{judgment}</p>{savedContext}</details></>:<>{provenance.analysisAt&&<p className={visual.scope} data-analysis-generated>分析生成于 {provenance.analysisAt}</p>}{savedContext}</>}
       </div>
-      <div className={visual.art} data-report-art="overview"><GlassStudy imageSrc="/images/report-aurora-overview-v3.webp" variant="report"/></div>
+      <aside className={visual.action}><span className={visual.actionLabel}>{updated&&observation?"这一步之后":"接下来怎么做"}</span><h3>{updated&&observation?"留意对方的具体回应":updated?"选一句适合你的回复":"下一步"}</h3>{updated&&observation?<p>{observation}</p>:!updated?<p>{action}</p>:null}<ReportSectionLink section="next">{replyCount?`看 ${replyCount} 种回法与相处建议`:"看具体相处建议"}<ArrowRight size={17}/></ReportSectionLink><div className={visual.actionContour} aria-hidden="true"/></aside>
     </div>
-    <div className={visual.readingGrid}>
-      <div className={visual.evidence} data-brief-evidence><header><span className={visual.chapter}>01</span><h3>判断从这里来</h3><Quote size={23}/></header><KeyEvidenceList report={report} priorityEvidence={presentation.mode !== "normal" ? presentation.evidence : undefined} showReferences={false}/></div>
-      <aside className={visual.action}><span className={visual.actionSymbol}><ArrowRight size={25}/></span><span className={visual.actionLabel}>给现在的你</span><h3>下一步，先做这一件事。</h3><p>{action}</p><button type="button" onClick={event=>nextSection(event.currentTarget)}>看看具体怎么做<ArrowRight size={17}/></button><div className={visual.actionContour} aria-hidden="true"/></aside>
-    </div>
+    {hasDecisionInsights?<ReportDecisionInsights report={report}/>:<div className={visual.readingGrid}>
+      <div className={visual.evidence} data-brief-evidence><header><span className={visual.chapter}>01</span><h3>{updated?"原判断引用的依据":"判断从这里来"}</h3><Quote size={23}/></header>{updated?<details><summary>核对原话依据</summary><KeyEvidenceList report={report} priorityEvidence={presentation.mode !== "normal" ? presentation.evidence : undefined} showReferences={false}/></details>:<KeyEvidenceList report={report} priorityEvidence={presentation.mode !== "normal" ? presentation.evidence : undefined} showReferences={false}/>}</div>
+    </div>}
     {showMetrics&&<ReportVisualMetrics report={report}/>}
     {!report.sourceCoverage?.length && semantic?.coverage && <p className={visual.coverage}>已解读 {semantic.coverage.analyzedText} / {semantic.coverage.receivedText} 条可读文字{typeof coverage.voiceCount === "number" && coverage.voiceCount > 0 ? ` · 语音转写 ${coverage.voiceTranscribed || 0} / ${coverage.voiceCount} 条` : ""}{semantic.status !== "complete" ? " · 文字分析尚未全部完成" : ""}</p>}
   </section>;

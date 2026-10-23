@@ -4,6 +4,7 @@ import { ArrowRight, CheckCheck, CircleAlert, LoaderCircle, RefreshCw } from "lu
 import { api, type Json } from "./web-analysis/client";
 import {WaitingProgress} from "./WaitingProgress";
 import {waitingDuration} from "@/lib/waiting-time";
+import {captureJobStatusError} from "@/lib/capture-job-status.mjs";
 import styles from "./CaptureAnalysisStatus.module.css";
 
 export function CaptureAnalysisStatus({owner, onSettled, onStatus, onChecking, visible = true, enabled = true, libraryId, subjectId, taskId, initialJob, hideCompleted = false}:{
@@ -60,10 +61,10 @@ export function CaptureAnalysisStatus({owner, onSettled, onStatus, onChecking, v
   const heading=job.status==='error'?'这次分析未完成':job.status==='retrying'?'正在恢复当前步骤':phase[job.phase]||'正在后台生成报告';
   return <section className={styles.panel} data-capture-analysis={job.status} aria-live="polite">
     <div className={styles.heading}>{busy?<LoaderCircle size={21} className={styles.spin}/>:job.status==='error'?<CircleAlert size={21}/>:<CheckCheck size={21}/>}<strong>{heading}</strong></div>
-    <p>{job.friend ? `${job.friend} · ` : ''}{busy?`已核对 ${readCount} 条${moments?'动态文字':'聊天'}${!moments&&job.completedCaptions?`、${job.completedCaptions} 条动态文字`:''}${job.completedImages?`、${job.completedImages} 张图片`:''} · ${scopeText}` : job.status==='done'?`基于 ${scopeText}${finishedAt?' · '+new Date(finishedAt).toLocaleString('zh-CN',{hour12:false}):''}` : job.error}</p>
+    <p>{job.friend ? `${job.friend} · ` : ''}{busy?`已核对 ${readCount} ${moments?'项朋友圈文字':'条可读聊天文字'}${!moments&&job.completedCaptions?`、${job.completedCaptions} 项朋友圈文字`:''}${job.completedImages?`、${job.completedImages} 张图片预览`:''} · ${scopeText}` : job.status==='done'?`基于 ${scopeText}${finishedAt?' · '+new Date(finishedAt).toLocaleString('zh-CN',{hour12:false}):''}` : captureJobStatusError(job.status,job.error,job.phase)}</p>
     {busy && <><progress aria-label={knownSegments?'当前材料梳理进度':'正在处理当前阶段'} max={knownSegments?job.totalSegments:1} value={knownSegments?Math.min(job.completedSegments||0,job.totalSegments):undefined}/>{knownSegments&&<p className={styles.secondary}>已梳理 {job.completedSegments||0} / {job.totalSegments} 组材料</p>}<WaitingProgress startedAt={job.startedAt} phaseStartedAt={job.phaseStartedAt} phaseKey={`${job.taskId}:${job.phase}:${job.retryCount||0}`} steps={['核对资料','读取图片','梳理上下文','生成报告']} step={stageIndex[job.phase]??0} offline={offline||job.status==='retrying'} work={knownSegments?{completed:job.completedSegments||0,total:job.totalSegments,reuseKey:job.reusedSegments||0}:undefined} detail={offline?'暂时连不上进度，正在自动重连。原任务已保留。':job.status==='retrying'?'正在重试当前步骤，已完成的部分会保留，无需重新提交。':phaseDetail[job.phase]||'完成后会显示报告，无需重复提交。'}/><p className={styles.secondary}>{!offline&&job.error?job.error:'报告生成后会保存在这里，可以离开此页，从「分析记录」回来查看。无需重复提交。'}</p></>}
     {job.status==='done'&&job.startedAt&&finishedAt&&<p className={styles.secondary}>生成用时 {waitingDuration(finishedAt-job.startedAt)}{job.reusedSteps?' · 已复用此前完成的资料分析':''}</p>}
-    {job.status==='error' && <p className={styles.secondary}>{job.creditTaskStatus==='released'?'本次积分已退回。重新生成时会复用已完成且未变化的段落。':'正在核对结算，请稍后查看。'}</p>}
+    {job.status==='error' && <>{job.phase!=='stopped'&&<p className={styles.secondary}>资料已保留，无需重新导入。{readCount>0?`已核对 ${readCount} ${moments?'项朋友圈文字':'条可读聊天文字'}${!moments&&job.completedCaptions?`、${job.completedCaptions} 项朋友圈文字`:''}${job.completedImages?`、${job.completedImages} 张图片预览`:''}。`:job.completedImages?`已核对 ${job.completedImages} 张图片预览。`:''}</p>}<p className={styles.secondary}>{job.creditTaskStatus==='released'?'本次积分已退回。重试时会复用已完成且未变化的资料分析，确认费用后才会开始。':job.creditTaskStatus==='settled'?'本次积分已结算，请查看账户记录核对。':'积分退款正在核对，确认退回前请勿重复提交。'}</p></>}
     {job.status==='done' && <a href={`/report?id=${encodeURIComponent(job.taskId)}`}>打开完整报告<ArrowRight size={17}/></a>}
     {offline && <button onClick={()=>setRetry(value=>value+1)}><RefreshCw size={16}/>重新连接进度</button>}
   </section>;
