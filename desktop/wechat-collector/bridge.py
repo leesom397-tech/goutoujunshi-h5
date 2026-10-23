@@ -10,6 +10,7 @@ import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from socketserver import TCPServer
 from urllib.parse import urlsplit
 
 from normalize import VERSION
@@ -650,6 +651,14 @@ class CollectorState:
 
 def server_for(state, port=PORT):
     class LimitedServer(ThreadingHTTPServer):
+        def server_bind(self):
+            # This listener is always the literal loopback address. HTTPServer's
+            # default getfqdn() performs an unnecessary reverse-DNS lookup which
+            # can stall first startup on macOS for tens of seconds.
+            TCPServer.server_bind(self)
+            self.server_name = "localhost"
+            self.server_port = self.server_address[1]
+
         def __init__(self, *args, **kwargs):
             self.slots = threading.BoundedSemaphore(12)
             super().__init__(*args, **kwargs)

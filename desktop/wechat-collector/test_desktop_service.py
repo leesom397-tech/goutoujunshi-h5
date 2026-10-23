@@ -54,15 +54,26 @@ class DesktopServiceTest(unittest.TestCase):
         result = []
         thread = threading.Thread(target=lambda: result.append(desktop_service.run_service(
             incoming, outgoing, port=0, state_factory=lambda: self.state)), daemon=True)
-        thread.start()
-        ready = outgoing.receive()
-        self.assertEqual(ready["event"], "ready")
         def finish():
             incoming.lines.put("")
             thread.join(timeout=5)
             self.assertFalse(thread.is_alive(), "service did not stop")
         self.addCleanup(finish)
+        thread.start()
+        ready = outgoing.receive()
+        self.assertEqual(ready["event"], "ready")
         return incoming, outgoing, thread, result, ready["port"]
+
+    def test_loopback_startup_never_waits_for_reverse_dns(self):
+        with patch("socket.getfqdn", side_effect=AssertionError("No DNS needed for loopback")) as lookup:
+            incoming, outgoing, thread, result, _port = self.start_service()
+            incoming.send("status", "check")
+            self.assertTrue(outgoing.receive()["ok"])
+            incoming.send("shutdown", "done")
+            self.assertTrue(outgoing.receive()["ok"])
+            thread.join(timeout=3)
+            self.assertEqual(result, [0])
+            lookup.assert_not_called()
 
     def http(self, port, method, path, body=None, headers=None):
         conn = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
