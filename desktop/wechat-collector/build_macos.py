@@ -79,7 +79,7 @@ def compile_helpers(output_dir):
         subprocess.run(command, check=True, cwd=ROOT)
     for name in ("macos_memory_scan", "macos_wechat_key_capture.dylib"):
         binary = output_dir / name
-        subprocess.run(["lipo", "-verify_arch", "arm64", str(binary)], check=True)
+        subprocess.run(["lipo", str(binary), "-verify_arch", "arm64"], check=True)
     return output_dir
 
 
@@ -98,7 +98,7 @@ def verify_packaged_helpers(bundle):
         path = scripts / name
         if not path.is_file() or not path.resolve().is_relative_to(bundle):
             raise RuntimeError("A required bundled native helper is missing or escapes the app: " + name)
-        subprocess.run(["lipo", "-verify_arch", "arm64", str(path)], check=True)
+        subprocess.run(["lipo", str(path), "-verify_arch", "arm64"], check=True)
 
 
 def build(output_dir):
@@ -125,7 +125,7 @@ def build(output_dir):
     if not executable.is_file():
         raise RuntimeError("The build did not produce the expected app executable.")
     verify_packaged_helpers(bundle)
-    subprocess.run(["lipo", "-verify_arch", "arm64", str(executable)], check=True)
+    subprocess.run(["lipo", str(executable), "-verify_arch", "arm64"], check=True)
     # Ad-hoc integrity verification is not Developer ID signing/notarization.
     subprocess.run(["codesign", "--verify", "--deep", "--strict", str(bundle)], check=True)
     receipt = output_dir / "runtime-self-test.json"

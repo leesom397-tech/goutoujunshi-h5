@@ -80,7 +80,9 @@ class MacBuildTests(unittest.TestCase):
                 build.verify_packaged_helpers(bundle)
                 self.assertEqual(run.call_count, 2)
                 for call in run.call_args_list:
-                    self.assertEqual(call.args[0][:3], ["lipo", "-verify_arch", "arm64"])
+                    self.assertEqual(call.args[0][0], "lipo")
+                    self.assertTrue(Path(call.args[0][1]).is_file())
+                    self.assertEqual(call.args[0][2:], ["-verify_arch", "arm64"])
 
     def test_pinned_upstream_prefers_prebuilt_even_when_source_is_newer(self):
         import importlib
