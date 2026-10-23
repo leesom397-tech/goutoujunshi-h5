@@ -81,7 +81,7 @@ async function createWindow(){
   win.on('resize',bounds);bounds();bindNavigation(view.webContents);
   win.on('close',event=>{if(!quitting){event.preventDefault();void closeApp();}});
   win.on('closed',()=>{view.webContents.close();void collector.stop();win=null;});
-  await win.loadURL(shellURL);win.show();
+  await win.loadURL(shellURL);if(!smoke)win.show();
   if(smoke) {await runSmoke(localRoutes);} else navigate(ORIGIN+'/');
 }
 async function runSmoke(routes){
