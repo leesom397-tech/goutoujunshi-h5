@@ -1,6 +1,6 @@
 # 成子微信助手 · Mac 预览版
 
-版本：1.2.23-mac-preview.2。此包仅面向 Apple Silicon Mac；不替换 Windows 1.2.23 下载。
+版本：1.2.23-mac-preview.3，替代 preview.1 / preview.2 的验证包，修正 Mac 窗口尺寸与原生按钮显示。此包仅面向 Apple Silicon Mac；不替换 Windows 1.2.23 下载。
 
 应用保留原始资料，按你在网页选择的联系人导入。首次准备本机语音模型需要联网下载约 163 MB，之后语音在电脑上转写。
 

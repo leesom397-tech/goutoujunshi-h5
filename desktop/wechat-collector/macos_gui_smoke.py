@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import http.client
 import json
 import os
 from pathlib import Path
@@ -46,7 +47,38 @@ def _capture_own_window(output):
         return {"captured": False, "reason": "capture-unavailable"}
 
 
-def check_visible_app(root, state, code_variable, output):
+def _session_request(port, method, path, *, body=None, token=None, origin=None):
+    """Exercise only this app's loopback listener; no external request or logs."""
+    from pairing import WEB_ORIGIN
+    if type(port) is not int or not 0 < port < 65536:
+        raise ValueError("invalid-loopback-port")
+    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=4)
+    headers = {"Origin": WEB_ORIGIN if origin is None else origin}
+    if token:
+        headers["Authorization"] = "Bearer " + token
+    if body is not None:
+        headers["Content-Type"] = "application/json"
+    try:
+        connection.request(method, path, json.dumps(body) if body is not None else None, headers)
+        response = connection.getresponse()
+        return response.status, json.loads(response.read())
+    finally:
+        connection.close()
+
+
+def _check_local_pairing(port, code):
+    assert _session_request(port, "GET", "/session")[0] == 401, "unpaired-session-accepted"
+    status, session = _session_request(port, "POST", "/pair", body={"code": code})
+    assert status == 200 and isinstance(session.get("token"), str), "loopback-pairing-failed"
+    token = session["token"]
+    status, connected = _session_request(port, "GET", "/session", token=token)
+    assert status == 200 and connected.get("connected") is True, "paired-session-unavailable"
+    assert _session_request(port, "GET", "/session", token=token,
+                            origin="https://untrusted.invalid")[0] == 403, "unexpected-origin-accepted"
+    return token  # Held in memory only; never include this in a receipt or screenshot.
+
+
+def check_visible_app(root, state, code_variable, output, *, server_port):
     began = time.monotonic()
     output = Path(output)
     result = {"ok": False, "mode": "macos-gui-self-test", "frozen": bool(getattr(sys, "frozen", False)),
@@ -74,8 +106,13 @@ def check_visible_app(root, state, code_variable, output):
         buttons["复制连接码"].invoke()
         assert root.clipboard_get() == "00000000", "copy-failed"
         checks["copyCode"] = True
+        previous_token = _check_local_pairing(server_port, state.code)
+        checks["loopbackPairing"] = True
         buttons["断开并换连接码"].invoke()
         assert len(state.code) == 8 and state.code != "00000000" and not state.token and not state.jobs, "reset-failed"
+        assert _session_request(server_port, "GET", "/session", token=previous_token)[0] == 401, "old-session-still-valid"
+        previous_token = None
+        checks["oldSessionRevoked"] = True
         state.code = "00000000"
         code_variable.set(state.code)
         checks["resetConnection"] = True

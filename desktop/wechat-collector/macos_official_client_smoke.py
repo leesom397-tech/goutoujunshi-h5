@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib
 import json
 import os
 from pathlib import Path
@@ -17,6 +18,7 @@ import platform
 import plistlib
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -167,6 +169,139 @@ def _permission_metadata():
     return result
 
 
+def _arm64_text_digest(binary):
+    """Read-only __text fingerprint; comparison evidence, never authenticity.
+
+    Hash the actual arm64 instruction section without rewriting a signature or
+    normalizing load commands. A match alone does not establish compatibility.
+    """
+    with binary.open("rb") as handle:
+        total = binary.stat().st_size
+        header = handle.read(8)
+        base, length = 0, total
+        fat = {b"\xca\xfe\xba\xbe": (">", False), b"\xbe\xba\xfe\xca": ("<", False),
+               b"\xca\xfe\xba\xbf": (">", True), b"\xbf\xba\xfe\xca": ("<", True)}.get(header[:4])
+        if fat:
+            endian, wide = fat
+            count = struct.unpack(endian + "I", header[4:8])[0]
+            if not 0 < count <= 16:
+                return None
+            size, candidates = (32 if wide else 20), []
+            for _ in range(count):
+                record = handle.read(size)
+                if len(record) != size:
+                    return None
+                values = struct.unpack(endian + ("IIQQII" if wide else "IIIII"), record)
+                if values[0] == 0x0100000C and (values[1] & 0xFFFFFF) == 0:
+                    candidates.append((values[2], values[3]))
+            if len(candidates) != 1:
+                return None
+            base, length = candidates[0]
+        if length < 32 or base < 0 or base + length > total:
+            return None
+        handle.seek(base)
+        header = handle.read(32)
+        if len(header) != 32 or header[:4] != b"\xcf\xfa\xed\xfe":
+            return None
+        _, cpu, _, _, count, command_bytes, _, _ = struct.unpack("<8I", header)
+        if cpu != 0x0100000C or count > 4096 or command_bytes > min(length - 32, 4 * 1024 * 1024):
+            return None
+        commands, cursor = handle.read(command_bytes), 0
+        sections = []
+        for _ in range(count):
+            if cursor + 8 > len(commands):
+                return None
+            kind, size = struct.unpack_from("<II", commands, cursor)
+            if size < 8 or cursor + size > len(commands):
+                return None
+            if kind == 0x19:
+                if size < 72:
+                    return None
+                section_count = struct.unpack_from("<I", commands, cursor + 64)[0]
+                if 72 + section_count * 80 > size:
+                    return None
+                for index in range(section_count):
+                    section = cursor + 72 + index * 80
+                    name, segment = commands[section:section+16].rstrip(b"\0"), commands[section+16:section+32].rstrip(b"\0")
+                    if name == b"__text" and segment == b"__TEXT":
+                        section_size, offset = struct.unpack_from("<QI", commands, section + 40)
+                        if not section_size or offset < 32 or offset + section_size > length:
+                            return None
+                        sections.append((offset, section_size))
+            cursor += size
+        if len(sections) != 1:
+            return None
+        offset, remaining = sections[0]
+        handle.seek(base + offset)
+        digest = hashlib.sha256()
+        while remaining:
+            chunk = handle.read(min(1024 * 1024, remaining))
+            if not chunk:
+                return None
+            digest.update(chunk)
+            remaining -= len(chunk)
+        return digest.hexdigest()
+
+
+def _static_compatibility(app):
+    """Inspect signed public code only; never initialize the capture provider."""
+    result = {"captureInitialized": False, "allowlistChanged": False,
+              "baselineBuild": "4.1.15/270102", "baselineEntitlementPolicyMatches": False,
+              "kdfImportObserved": False, "binaryScanComplete": False, "xplayerCodeFingerprints": []}
+    stdout, stderr = _run(["/usr/bin/codesign", "-d", "--entitlements", ":-", str(app)], timeout=20)
+    entitlements = None
+    for stream in (stdout, stderr):
+        start, end = stream.find(b"<?xml"), stream.find(b"</plist>")
+        if start >= 0 and end >= start:
+            entitlements = plistlib.loads(stream[start:end + len(b"</plist>")])
+            break
+    if not isinstance(entitlements, dict):
+        raise SmokeError("official-entitlements-unavailable")
+    result["entitlementKeys"] = sorted(entitlements)
+    result["entitlementsSha256"] = hashlib.sha256(plistlib.dumps(entitlements, sort_keys=True)).hexdigest()
+    import macos_key_provider as provider
+    provider._load_upstream()  # Verifies exact bundled-source hashes; no native helper call.
+    policies = importlib.import_module("chatlog_keeper.macos_debug_app")
+    result["baselineEntitlementPolicyMatches"] = policies._debug_copy_entitlements(
+        "wechat", entitlements, client_version=("4.1.15", "270102")) is not None
+    architectures, _ = _run(["/usr/bin/lipo", "-archs", str(app / "Contents/MacOS/WeChat")], timeout=10)
+    result["architectures"] = sorted(set(architectures.decode("ascii", errors="ignore").split()) & {"arm64", "arm64e", "x86_64"})
+    binaries = []
+    for parent, directories, files in os.walk(app / "Contents", followlinks=False):
+        directories[:] = [name for name in directories if not (Path(parent) / name).is_symlink()]
+        for name in files:
+            path = Path(parent) / name
+            if path.is_symlink():
+                continue
+            with path.open("rb") as handle:
+                magic = handle.read(4)
+            if magic in {b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe", b"\xbe\xba\xfe\xca", b"\xca\xfe\xba\xbf", b"\xbf\xba\xfe\xca"}:
+                binaries.append(path)
+    binaries.sort(key=lambda path: ("wechat" not in path.name.lower(), "xplayer" not in path.name.lower(), str(path)))
+    result["nativeBinaryCount"] = len(binaries)
+    scanned, kdf_imports, deadline = 0, [], time.monotonic() + 45
+    for binary in binaries[:64]:
+        if time.monotonic() >= deadline:
+            break
+        if "xplayer" in binary.name.lower():
+            digest = _arm64_text_digest(binary)
+            if digest:
+                result["xplayerCodeFingerprints"].append({"binary": binary.name, "arm64TextSha256": digest})
+        try:
+            symbols, _ = _run(["/usr/bin/nm", "-arch", "arm64", "-u", "-j", str(binary)], timeout=5)
+            if re.search(rb"(?m)^_?CCKeyDerivationPBKDF\s*$", symbols):
+                kdf_imports.append(binary.relative_to(app).as_posix())
+        except (SmokeError, subprocess.TimeoutExpired):
+            # Some signed embedded executables have no arm64 slice/symbols.
+            pass
+        scanned += 1
+    result.update(kdfImportObserved=bool(kdf_imports), kdfImportBinaries=kdf_imports,
+                  binariesScanned=scanned, binaryScanComplete=scanned == len(binaries),
+                  staticEvidenceOnly=True, loginTimeKdfShapeValidated=False,
+                  xplayerBaselineComparisonAvailable=False)
+    return result
+
+
 def _window_metadata(pid, trusted):
     # Do not access kCGWindowName, AXTitle, AXValue, AXDescription or pixels.
     import Quartz
@@ -286,6 +421,11 @@ def run_smoke(*, install_for_ci=False, download_url=OFFICIAL_DMG):
             app = _install_new_client(app, INSTALL_PATH)
             result["installedNewOfficialClient"] = True
         result.update(_permission_metadata())
+        result["sipEnabledEnvironment"] = result["sip"] == "enabled"
+        result["sipOnCaptureValidated"] = False
+        result["sipAcceptance"] = ("sip-enabled-no-live-capture-test" if result["sip"] == "enabled"
+                                   else "runner-sip-not-enabled-cannot-validate-sip-on-capture")
+        result["staticCompatibility"] = _static_compatibility(app)
         import macos_key_provider as provider
         # probe_setup reads only bundle metadata and dependency/auth presence.
         original = provider.WECHAT_APP
@@ -296,13 +436,17 @@ def run_smoke(*, install_for_ci=False, download_url=OFFICIAL_DMG):
             provider.WECHAT_APP = original
         known = (result["wechatVersion"], result["wechatBuild"]) in provider.SUPPORTED_BUILDS
         result.update(collectorBuildSupported=known, providerStatus=status["status"],
-                      providerReady=status.get("ready") is True)
+                      providerReady=status.get("ready") is True, captureValidated=False,
+                      captureCompatible=None if known else False,
+                      captureCompatibilityStatus="policy-listed-live-capture-unverified" if known else "blocked-unsupported-build")
         proof, launched = _launch(app, result["accessibilityGranted"])
         result.update(launched)
-        if not known:
-            raise SmokeError("official-build-not-in-collector-allowlist")
-        if status["status"] != "authorization-required" or result["providerReady"]:
+        expected = "authorization-required" if known else "MAC_WECHAT_VERSION_UNSUPPORTED"
+        if status["status"] != expected or result["providerReady"]:
             raise SmokeError("unexpected-clean-profile-provider-state")
+        # This smoke passes when the actual build is correctly accepted for
+        # authorization or explicitly refused. It never proves live capture.
+        result["compatibilityProbeHandled"] = True
         result["ok"] = True
     except Exception as error:
         result["reason"] = str(error) if type(error) is SmokeError else "official-client-smoke-failed"

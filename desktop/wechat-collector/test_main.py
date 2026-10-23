@@ -2,7 +2,7 @@
 import sys
 from types import ModuleType, SimpleNamespace
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, call, patch
 from urllib.parse import parse_qs, urlsplit
 
 from bridge import CollectorState
@@ -50,6 +50,7 @@ class StartupConnectionTest(unittest.TestCase):
             return open_connection_page(state, opener=lambda url: urls.append(url) or browser_opens)
 
         with patch.dict(sys.modules, {"tkinter": tkinter}), \
+             patch.object(collector_main.sys, "platform", "win32"), \
              patch.object(sys, "argv", ["ChengziWeChatCollector.exe"]), \
              patch.object(collector_main, "CollectorState", side_effect=lambda: CollectorState(health_provider=health, capture_target=capture)), \
              patch.object(collector_main, "server_for", side_effect=make_server), \
@@ -70,6 +71,9 @@ class StartupConnectionTest(unittest.TestCase):
         self.assertEqual(state.jobs, {})
         self.assertIsNone(state.active)
         root.iconify.assert_called_once_with()
+        root.geometry.assert_called_once_with("570x540")
+        root.withdraw.assert_not_called()
+        root.deiconify.assert_not_called()
         handoff = parse_qs(urlsplit(urls[0]).fragment)["connect"][0]
         self.assertIn("token", state.pair_handoff(WEB_ORIGIN, handoff))
 
@@ -153,6 +157,55 @@ class ConnectionCodeCopyTest(unittest.TestCase):
         self.button["command"]()
         self.assertEqual(self.button["textvariable"].get(), "已复制")
         self.assertEqual(self.state.jobs, {"synthetic-task": {"status": "running"}})
+
+
+class MacWindowRenderingTest(unittest.TestCase):
+    def test_default_tk_size_is_replaced_before_window_is_locked_and_shown(self):
+        root = Mock()
+        root.winfo_reqwidth.return_value = 200
+        root.winfo_reqheight.return_value = 200
+        collector_main._show_macos_window(root)
+        root.assert_has_calls([
+            call.update_idletasks(), call.winfo_reqwidth(), call.winfo_reqheight(),
+            call.minsize(590, 680), call.geometry("590x680"),
+            call.resizable(False, False), call.deiconify(),
+            call.update_idletasks(), call.lift(),
+        ])
+
+    def test_larger_native_font_layout_is_not_clipped_to_a_fixed_small_window(self):
+        root = Mock()
+        root.winfo_reqwidth.return_value = 630
+        root.winfo_reqheight.return_value = 730
+        collector_main._show_macos_window(root)
+        root.minsize.assert_called_once_with(630, 730)
+        root.geometry.assert_called_once_with("630x730")
+
+    def test_mac_uses_native_button_colors_and_preserves_command_and_keyboard_widget(self):
+        tk, parent, command = SimpleNamespace(Button=Mock()), Mock(), Mock()
+        with patch.object(collector_main.sys, "platform", "darwin"):
+            collector_main._button(tk, parent, text="打开网页并连接", command=command,
+                                   bg="#ad6148", fg="white", activeforeground="white",
+                                   activebackground="#94513c", padx=30, pady=10)
+        tk.Button.assert_called_once_with(parent, text="打开网页并连接", command=command,
+                                          padx=30, pady=10)
+        with patch.object(collector_main.sys, "platform", "win32"):
+            collector_main._button(tk, parent, text="打开网页并连接", bg="#ad6148", fg="white")
+        tk.Button.assert_called_with(parent, text="打开网页并连接", bg="#ad6148", fg="white")
+
+    def test_setup_status_and_native_actions_have_separate_layout_rows(self):
+        from macos_setup_ui import install_setup_controls
+        frame, actions, status = Mock(), Mock(), Mock()
+        tk = SimpleNamespace(Frame=Mock(side_effect=[frame, actions]), Label=Mock(return_value=status),
+                             StringVar=Mock(), Button=Mock(side_effect=[Mock(), Mock()]))
+        fake_tk = ModuleType("tkinter")
+        fake_tk.messagebox = Mock()
+        with patch.dict(sys.modules, {"tkinter": fake_tk}):
+            install_setup_controls(tk, Mock(), Mock())
+        self.assertIs(tk.Label.call_args.args[0], frame)
+        status.pack.assert_called_once_with(fill="x", pady=(0, 8))
+        self.assertTrue(all(item.args[0] is actions for item in tk.Button.call_args_list))
+        self.assertTrue(all("fg" not in item.kwargs and "bg" not in item.kwargs
+                            for item in tk.Button.call_args_list))
 
 
 if __name__ == "__main__":

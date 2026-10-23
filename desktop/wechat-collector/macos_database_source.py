@@ -73,6 +73,8 @@ class MacOSDatabaseSource(LocalDatabaseSource):
                 snapshot.close()
                 raise
             self.snapshots[relative], self.connections[relative], self.vfs[relative] = snapshot, connection, vfs
+            # A prior contact-only check cannot seal a database opened later.
+            self.sealed = False
         return self.connections[relative]
 
     def open_database(self, relative):
@@ -100,6 +102,13 @@ class MacOSDatabaseSource(LocalDatabaseSource):
             for snapshot in self.snapshots.values():
                 snapshot.assert_unchanged()
             self.sealed = True
+        else:
+            # Moments performs identity checks before/during its scan. Unlike
+            # chat's post-read seal before slow ASR, those checks do not mean all
+            # SNS rows have been copied. Revalidate SNS through publication.
+            for relative, snapshot in self.snapshots.items():
+                if relative == "sns/sns.db":
+                    snapshot.assert_unchanged()
         with self._path("contact/contact.db").open("rb") as handle:
             page1 = handle.read(4096)
         if not primitive._verify_enc_key(self.keys["contact/contact.db"], page1):

@@ -1,9 +1,11 @@
 """Synthetic smoke guard tests; no downloads, native commands or WeChat launch."""
 import contextlib
+import hashlib
 import json
 import os
 from pathlib import Path
 import plistlib
+import struct
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
@@ -114,7 +116,8 @@ class OfficialClientSmokeTests(unittest.TestCase):
             stack.enter_context(patch.object(smoke, "_verified_bundle", return_value={
                 "wechatVersion": "4.1.15" if known else "9.9.99", "wechatBuild": "270102",
                 "signatureVerified": True, "teamIdentifier": smoke.OFFICIAL_TEAM}))
-            stack.enter_context(patch.object(smoke, "_permission_metadata", return_value={"accessibilityGranted": False}))
+            stack.enter_context(patch.object(smoke, "_permission_metadata", return_value={"accessibilityGranted": False, "sip": "disabled"}))
+            stack.enter_context(patch.object(smoke, "_static_compatibility", return_value={"staticEvidenceOnly": True}))
             stack.enter_context(patch.object(smoke, "_launch", return_value=(
                 (123, 456, "synthetic"), {"launchObserved": True, "visibleWindowCount": 1, "windowRoles": []})))
             stop = stack.enter_context(patch.object(smoke, "_stop_launched"))
@@ -145,9 +148,68 @@ class OfficialClientSmokeTests(unittest.TestCase):
     def test_unknown_build_is_reported_and_never_added_to_allowlist(self):
         with tempfile.TemporaryDirectory() as temporary:
             result = self._synthetic_flow(Path(temporary).resolve(), True, known=False)
-        self.assertFalse(result["ok"])
+        self.assertTrue(result["ok"])  # Correctly refusing a new build is a successful probe.
         self.assertFalse(result["collectorBuildSupported"])
-        self.assertEqual(result["reason"], "official-build-not-in-collector-allowlist")
+        self.assertFalse(result["captureCompatible"])
+        self.assertFalse(result["captureValidated"])
+        self.assertEqual(result["captureCompatibilityStatus"], "blocked-unsupported-build")
+        self.assertEqual(result["providerStatus"], "MAC_WECHAT_VERSION_UNSUPPORTED")
+        self.assertFalse(result["sipOnCaptureValidated"])
+        self.assertIn("cannot-validate-sip-on", result["sipAcceptance"])
+
+    @staticmethod
+    def _thin_arm64():
+        code = b"\x1f\x20\x03\xd5"  # Synthetic arm64 NOP, never executed.
+        header = struct.pack("<8I", 0xFEEDFACF, 0x0100000C, 0, 2, 1, 152, 0, 0)
+        segment = struct.pack("<II16sQQQQIIII", 0x19, 152, b"__TEXT", 0, 188, 0, 188, 5, 5, 1, 0)
+        section = struct.pack("<16s16sQQIIIIIIII", b"__text", b"__TEXT", 184, len(code), 184, 2, 0, 0, 0, 0, 0, 0)
+        return header + segment + section + code, code
+
+    def test_instruction_fingerprint_reads_thin_and_fat_without_changing_code(self):
+        thin, code = self._thin_arm64()
+        fat = struct.pack(">II", 0xCAFEBABE, 1) + struct.pack(">IIIII", 0x0100000C, 0, 32, len(thin), 0) + b"\0" * 4 + thin
+        with tempfile.TemporaryDirectory() as temporary:
+            binary = Path(temporary) / "public-synthetic.dylib"
+            for data in (thin, fat):
+                binary.write_bytes(data)
+                self.assertEqual(smoke._arm64_text_digest(binary), hashlib.sha256(code).hexdigest())
+                self.assertEqual(binary.read_bytes(), data)
+            binary.write_bytes(thin[:40])
+            self.assertIsNone(smoke._arm64_text_digest(binary))
+
+    def test_static_probe_checks_actual_entitlements_and_imports_without_capture(self):
+        import macos_key_provider as provider
+        entitlements = {"com.apple.application-identifier": "5A4RE8SF68.com.tencent.xinWeChat",
+                        "com.apple.security.app-sandbox": True,
+                        "com.apple.security.application-groups": ["5A4RE8SF68.com.tencent.xinWeChat"],
+                        "com.apple.security.cs.allow-jit": True}
+        with tempfile.TemporaryDirectory() as temporary:
+            app = Path(temporary) / "WeChat.app"
+            binary = app / "Contents/MacOS/WeChat"
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(self._thin_arm64()[0])
+            def command(arguments, **kwargs):
+                if arguments[0] == "/usr/bin/codesign":
+                    return plistlib.dumps(entitlements), b""
+                if arguments[0] == "/usr/bin/lipo":
+                    return b"arm64 x86_64\n", b""
+                if arguments[0] == "/usr/bin/nm":
+                    return b"_CCKeyDerivationPBKDF\n", b""
+                raise AssertionError("unexpected native command")
+            before = provider.SUPPORTED_BUILDS.copy()
+            with patch.object(smoke, "_run", side_effect=command) as run, \
+                    patch.object(provider, "initialize_authorized_access") as capture:
+                result = smoke._static_compatibility(app)
+                self.assertTrue(result["baselineEntitlementPolicyMatches"])
+                self.assertTrue(result["kdfImportObserved"])
+                self.assertFalse(result["loginTimeKdfShapeValidated"])
+                self.assertFalse(result["allowlistChanged"])
+                self.assertEqual(result["kdfImportBinaries"], ["Contents/MacOS/WeChat"])
+                entitlements["com.apple.developer.unreviewed-identity"] = True
+                self.assertFalse(smoke._static_compatibility(app)["baselineEntitlementPolicyMatches"])
+                capture.assert_not_called()
+                self.assertTrue(all("--sign" not in call.args[0] for call in run.call_args_list))
+            self.assertEqual(provider.SUPPORTED_BUILDS, before)
 
 
 if __name__ == "__main__":

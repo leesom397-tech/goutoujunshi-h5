@@ -5,6 +5,20 @@ import time
 import math
 
 
+def native_button(tk, parent, **options):
+    """Let Aqua choose paired light/dark foreground and button background.
+
+    Aqua can ignore a Tk button's custom background while still applying its
+    white foreground, producing unreadable white text on a native white button.
+    Keep native buttons (including keyboard behavior), without overriding colors.
+    """
+    for name in ("bg", "background", "fg", "foreground", "activebackground",
+                 "activeforeground", "disabledforeground", "highlightcolor",
+                 "highlightbackground"):
+        options.pop(name, None)
+    return tk.Button(parent, **options)
+
+
 _AUTHORIZATION_PROGRESS = frozenset({
     "正在准备本机授权组件，原微信应用保持不变。",
     "请在临时微信窗口完成登录或系统授权，完成后会自动关闭临时窗口。",
@@ -63,6 +77,34 @@ def _authorize_local_reader(stop, publish, progress):
         stop.wait(1)
     if not stop.is_set():
         provider.initialize_authorized_access(consent=True, cancel=stop.is_set, progress=progress)
+        return proof
+
+
+def _reader_authorization_is_current(proof):
+    """Reuse only a verified in-process authorization for the same account/build.
+
+    The original client may still be closed after initialization. Its saved
+    account must pass the provider's live DB HMAC check; any reopened client must
+    additionally prove it is using that same account. Never store a key in UI state.
+    """
+    if proof is None:
+        return False
+    from background_reader import BackgroundCaptureError
+    import macos_key_provider as provider
+    if provider._require_supported_bundle() != proof["build"]:
+        return False
+    try:
+        provider.get_authorized_key(proof["account"])
+    except BackgroundCaptureError as error:
+        if error.code in {"MAC_AUTHORIZATION_REQUIRED", "ACCOUNT_CHANGED"}:
+            return False
+        raise
+    if provider._processes():
+        current = provider.current_account_proof()
+        if any(current[field] != proof[field] for field in ("account", "build")):
+            return False
+        provider.verify_account_proof(current)
+    return True
 
 
 def install_setup_controls(tk, root, state):
@@ -70,13 +112,16 @@ def install_setup_controls(tk, root, state):
     stop = threading.Event()
     alive = True
     running = False
+    reader_proof = None
     events = queue.SimpleQueue()
     frame = tk.Frame(root, bg="#fff8f1")
-    frame.pack(pady=(8, 4))
-    label = tk.StringVar(value="首次使用：授权本机读取并准备语音模型")
+    frame.pack(fill="x", padx=28, pady=(12, 12))
+    label = tk.StringVar(value="首次使用，先完成本机读取与语音设置")
     status = tk.Label(frame, textvariable=label, wraplength=520,
-                      bg="#fff8f1", fg="#756151")
-    status.pack(pady=4)
+                      font=("PingFang SC", 11), bg="#fff8f1", fg="#756151")
+    status.pack(fill="x", pady=(0, 8))
+    actions = tk.Frame(frame, bg="#fff8f1")
+    actions.pack()
 
     def publish(message):
         if alive and not stop.is_set():
@@ -90,9 +135,17 @@ def install_setup_controls(tk, root, state):
         running = False
         if not alive:
             return
-        button.configure(state="normal")
+        model_pending = reader_proof is not None and (bool(error) or stop.is_set())
+        button.configure(state="normal", text="继续下载语音模型" if model_pending else "首次设置 · 本机读取与语音")
         cancel_button.configure(state="disabled")
-        if stop.is_set():
+        if model_pending:
+            message = "读取已设置，语音模型未完成，可继续下载。"
+            if error:
+                message += "\n" + error
+            label.set(message)
+            with state.lock:
+                state.local_message = message
+        elif stop.is_set():
             label.set("已停止设置，可稍后继续。")
         elif error:
             label.set(error)
@@ -109,12 +162,18 @@ def install_setup_controls(tk, root, state):
             if state.active:
                 label.set("请先完成或停止正在进行的导入。")
                 return
-        accepted = messagebox.askokcancel("Mac 首次设置",
+        consent_text = (
+            "会先核验刚才的本机读取授权。授权仍对应同一账号时，只继续准备语音模型，"
+            "已下载的部分会接着使用，不需要再次退出微信。\n\n"
+            "如果账号或授权已变化，会重新核对当前账号，并提示你正常退出微信后授权。"
+            if reader_proof is not None else
             "请先保持微信登录，以便核对当前账号；助手提示后再正常退出微信。\n\n"
             "助手会在你的用户目录创建隔离的微信副本，用于你授权的本机聊天读取；"
             "不会修改原微信程序或关闭 SIP。副本可能要求扫码登录。\n\n"
             "同时下载约 163 MB 的本机语音模型，之后转写在电脑上完成。"
-            "设置完成后请重新打开日常使用的微信。", parent=root)
+            "设置完成后请重新打开日常使用的微信。")
+        accepted = messagebox.askokcancel("继续本机设置" if reader_proof is not None else "Mac 首次设置",
+                                         consent_text, parent=root)
         if not accepted:
             return
         stop.clear()
@@ -124,10 +183,16 @@ def install_setup_controls(tk, root, state):
         label.set("正在检查微信版本并准备本机读取授权…")
 
         def worker():
+            nonlocal reader_proof
             error = None
             try:
-                _authorize_local_reader(stop, publish, progress)
-                if not stop.is_set():
+                previous_proof, reader_proof = reader_proof, None
+                if _reader_authorization_is_current(previous_proof):
+                    reader_proof = previous_proof
+                    publish("本机读取授权仍有效，正在继续准备语音模型…")
+                else:
+                    reader_proof = _authorize_local_reader(stop, publish, progress)
+                if not stop.is_set() and reader_proof is not None:
                     from local_voice_transcriber import prepare_model
                     prepare_model(progress=progress, cancelled=stop.is_set)
             except Exception as exc:
@@ -136,19 +201,21 @@ def install_setup_controls(tk, root, state):
                 # Only our typed user-facing errors are safe to display.
                 error = (str(getattr(exc, "message", "") or str(exc))[:500]
                          if isinstance(exc, (BackgroundCaptureError, TranscriptionError))
-                         else "本机设置未完成。请检查微信版本与助手组件后重试。")
+                         else ("语音模型准备暂未完成，请检查网络后继续下载。" if reader_proof is not None
+                               else "本机设置未完成。请检查微信版本与助手组件后重试。"))
             if alive:
                 events.put(("finish", error))
         threading.Thread(target=worker, daemon=True, name="chengzi-mac-setup").start()
 
-    button = tk.Button(frame, text="首次设置 · 本机读取与语音", command=prepare,
-                       bg="#ad6148", fg="white", padx=14, pady=7)
+    button = native_button(tk, actions, text="首次设置 · 本机读取与语音", command=prepare,
+                           font=("PingFang SC", 12, "bold"), padx=14, pady=7)
     button.pack(side="left", padx=5)
     def cancel_setup():
         stop.set()
-        label.set("正在取消并清理本次授权组件，请稍候…")
+        label.set("正在停止本次设置，请稍候…")
         cancel_button.configure(state="disabled")
-    cancel_button = tk.Button(frame, text="取消设置", state="disabled", command=cancel_setup)
+    cancel_button = native_button(tk, actions, text="取消设置", state="disabled",
+                                  command=cancel_setup, font=("PingFang SC", 11), padx=8, pady=7)
     cancel_button.pack(side="left", padx=5)
 
     def poll_events():

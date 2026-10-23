@@ -7,12 +7,7 @@ on:
       - codex/macos-collector-preview
     paths:
       - .github/workflows/collector-macos-gui.yml
-      - desktop/wechat-collector/main.py
-      - desktop/wechat-collector/macos_gui_smoke.py
-      - desktop/wechat-collector/macos_official_client_smoke.py
-      - desktop/wechat-collector/test_macos_gui_smoke.py
-      - desktop/wechat-collector/test_macos_official_client_smoke.py
-      - desktop/wechat-collector/build_macos.py
+      - desktop/wechat-collector/**/*.py
       - desktop/wechat-collector/ChengziWeChatCollector-macos.spec
       - desktop/wechat-collector/requirements-macos*.txt
 
@@ -62,7 +57,7 @@ jobs:
         run: |
           python build_macos.py --check-sources
           python -m unittest discover -s . -p 'test_macos*.py'
-          python -m unittest test_local_voice_transcriber test_platform_runtime
+          python -m unittest test_local_voice_transcriber test_platform_runtime test_main
           python main.py --runtime-self-test --probe-output "$CHENGZI_CI_GUI_OUTPUT/source-runtime-self-test.json"
       - name: Build current source and verify frozen runtime
         id: build

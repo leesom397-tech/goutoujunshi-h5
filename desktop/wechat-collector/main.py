@@ -9,6 +9,26 @@ from bridge import BridgeError, CollectorState, server_for
 from pairing import open_connection_page
 
 
+def _button(tk, parent, **options):
+    if sys.platform == "darwin":
+        from macos_setup_ui import native_button
+        return native_button(tk, parent, **options)
+    return tk.Button(parent, **options)
+
+
+def _show_macos_window(root):
+    """Lock the final laid-out size, never Aqua's initial 200x200 placeholder."""
+    root.update_idletasks()
+    width = max(590, root.winfo_reqwidth())
+    height = max(680, root.winfo_reqheight())
+    root.minsize(width, height)
+    root.geometry(f"{width}x{height}")
+    root.resizable(False, False)
+    root.deiconify()
+    root.update_idletasks()
+    root.lift()
+
+
 def connection_code_controls(tk, root, state):
     """A local copy action must never rotate pairing or touch an active capture."""
     row = tk.Frame(root, bg="#fff8f1")
@@ -41,15 +61,15 @@ def connection_code_controls(tk, root, state):
         reset_timer = root.after(1800, reset_feedback)
         return "break"
 
-    value = tk.Label(row, textvariable=code, font=("Consolas", 24, "bold"),
+    value = tk.Label(row, textvariable=code, font=("Menlo" if sys.platform == "darwin" else "Consolas", 24, "bold"),
                      bg="#fff8f1", fg="#ad6148", cursor="hand2", takefocus=True,
                      highlightthickness=1, highlightbackground="#fff8f1", highlightcolor="#ad6148")
     value.pack(side="left", padx=(0, 14))
     value.bind("<Button-1>", copy_code)
     value.bind("<Return>", copy_code)
     value.bind("<space>", copy_code)
-    tk.Button(row, textvariable=copy_text, command=copy_code,
-              font=("Microsoft YaHei UI", 11), bg="#fff8f1", fg="#944b34",
+    _button(tk, row, textvariable=copy_text, command=copy_code,
+              font=("PingFang SC" if sys.platform == "darwin" else "Microsoft YaHei UI", 11), bg="#fff8f1", fg="#944b34",
               activebackground="#fae4d8", activeforeground="#703822",
               padx=12, pady=6, width=14).pack(side="left")
     return code, reset_feedback
@@ -114,6 +134,10 @@ def main():
     import tkinter as tk
     from tkinter import messagebox
     root = tk.Tk()
+    is_macos = sys.platform == "darwin"
+    font_family = "PingFang SC" if is_macos else "Microsoft YaHei UI"
+    if is_macos:
+        root.withdraw()
     try:
         if sys.platform == "darwin":
             root._brand_icon = tk.PhotoImage(file=str(Path(__file__).resolve().with_name('chengzi-fluted-chat-v1.png')))
@@ -123,8 +147,9 @@ def main():
     except tk.TclError:
         pass
     root.title("成子 · 电脑微信采集助手")
-    root.geometry("590x680" if sys.platform == "darwin" else "570x540")
-    root.resizable(False, False)
+    if not is_macos:
+        root.geometry("570x540")
+        root.resizable(False, False)
     root.configure(bg="#fff8f1")
     try:
         server = server_for(state, port=0) if args.gui_self_test else server_for(state)
@@ -133,12 +158,12 @@ def main():
         root.destroy()
         return
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    tk.Label(root, text="连接你的网页", font=("Microsoft YaHei UI", 21, "bold"), bg="#fff8f1", fg="#322921").pack(pady=(26, 6))
+    tk.Label(root, text="连接你的网页", font=(font_family, 21, "bold"), bg="#fff8f1", fg="#322921").pack(pady=(26, 6))
     setup_close = None
     if sys.platform == "darwin":
         from macos_setup_ui import install_setup_controls
         setup_close = install_setup_controls(tk, root, state)
-    tk.Label(root, text="正在打开网页并连接；若未打开，可点击下方按钮", font=("Microsoft YaHei UI", 12), bg="#fff8f1", fg="#756151").pack()
+    tk.Label(root, text="正在打开网页并连接；若未打开，可点击下方按钮", font=(font_family, 12), bg="#fff8f1", fg="#756151").pack()
     def connect():
         if args.gui_self_test:
             return False
@@ -148,18 +173,18 @@ def main():
             with state.lock:
                 state.local_message = error.message
             return False
-    connect_button = tk.Button(root, text="打开网页并连接", command=connect,
-                               font=("Microsoft YaHei UI", 13, "bold"), bg="#ad6148", fg="white",
+    connect_button = _button(tk, root, text="打开网页并连接", command=connect,
+                               font=(font_family, 13, "bold"), bg="#ad6148", fg="white",
                                activebackground="#94513c", activeforeground="white", padx=30, pady=10)
     connect_button.pack(pady=(18, 6))
-    tk.Label(root, text="备用连接码 · 网页未自动连接时使用", font=("Microsoft YaHei UI", 10), bg="#fff8f1", fg="#756151").pack(pady=(8, 0))
+    tk.Label(root, text="备用连接码 · 网页未自动连接时使用", font=(font_family, 10), bg="#fff8f1", fg="#756151").pack(pady=(8, 0))
     code, reset_copy_feedback = connection_code_controls(tk, root, state)
     status = tk.StringVar(value=state.local_message)
-    tk.Label(root, textvariable=status, wraplength=500, font=("Microsoft YaHei UI", 11), bg="#fff8f1", fg="#322921").pack(pady=8)
+    tk.Label(root, textvariable=status, wraplength=500, font=(font_family, 11), bg="#fff8f1", fg="#322921").pack(pady=8)
     instructions = ("首次设置后重新打开微信，在网页选择联系人。\n聊天与语音在本机读取和转写。\n当前 Mac 预览版朋友圈只读取已加载缓存，未自动扫描全量。\n分析前会请你确认导入的材料。"
                     if sys.platform == "darwin" else
                     "手机记录可先通过微信「导出到电脑」同步指定聊天。\n连接成功后，在网页选择联系人并点击导入。\n后台聊天与语音不占用微信窗口；朋友圈仍需微信前台。\n分析前会请你确认导入的材料。")
-    tk.Label(root, text=instructions, justify="left", font=("Microsoft YaHei UI", 10), bg="#fff8f1", fg="#756151").pack(pady=12)
+    tk.Label(root, text=instructions, justify="left", font=(font_family, 10), bg="#fff8f1", fg="#756151").pack(pady=12)
     buttons = tk.Frame(root, bg="#fff8f1")
     buttons.pack(pady=10)
     def rotate():
@@ -181,9 +206,9 @@ def main():
         server.shutdown()
         server.server_close()
         root.destroy()
-    tk.Button(buttons, text="停止本次采集", command=cancel, padx=12, pady=6).pack(side="left", padx=5)
-    tk.Button(buttons, text="断开并换连接码", command=rotate, padx=12, pady=6).pack(side="left", padx=5)
-    tk.Button(buttons, text="退出助手", command=close, padx=12, pady=6).pack(side="left", padx=5)
+    _button(tk, buttons, text="停止本次采集", command=cancel, padx=12, pady=6).pack(side="left", padx=5)
+    _button(tk, buttons, text="断开并换连接码", command=rotate, padx=12, pady=6).pack(side="left", padx=5)
+    _button(tk, buttons, text="退出助手", command=close, padx=12, pady=6).pack(side="left", padx=5)
     def tick():
         with state.lock:
             state._prune()
@@ -196,6 +221,8 @@ def main():
         root.after(500, tick)
     root.protocol("WM_DELETE_WINDOW", close)
     tick()
+    if is_macos:
+        _show_macos_window(root)
     def connect_at_startup():
         if connect() and sys.platform != "darwin":
             root.iconify()
@@ -206,7 +233,8 @@ def main():
         gui_result = {}
         def check_gui():
             try:
-                gui_result.update(check_visible_app(root, state, code, args.probe_output))
+                gui_result.update(check_visible_app(root, state, code, args.probe_output,
+                                                    server_port=server.server_port))
             finally:
                 close()
         root.after(650, check_gui)
