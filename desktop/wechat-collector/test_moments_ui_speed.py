@@ -111,6 +111,36 @@ class MomentsActionTests(unittest.TestCase):
                 self.assertFalse(_fast_moment_click(target, "back", 123, state))
             self.assertEqual(mouse.events, [])
 
+    def test_real_fast_click_then_nearby_or_unknown_fallback_waits_full_double_click_window(self):
+        for location in ("nearby", "unknown"):
+            with self.subTest(location=location):
+                clock = Clock()
+                clock.now = .1
+                mouse = MouseSystem(clock)
+                state = {"point":(500,500), "inputTick":0, "pid":123}
+                first = physical_target(lambda: None)
+                clicked_at = []
+                second = physical_target(lambda: clicked_at.append(clock.now), point=(102,102))
+                if location == "unknown":
+                    second.rectangle = Mock(side_effect=RuntimeError("provider geometry unavailable"))
+                with patch.dict(sys.modules, mouse.modules), patch("adapter._ensure_foreground"), \
+                     patch("adapter.time.monotonic", side_effect=clock.read), \
+                     patch("adapter.time.perf_counter", side_effect=clock.read), \
+                     patch("adapter.time.sleep", side_effect=clock.sleep):
+                    self.assertTrue(_fast_moment_click(first, "back", 123, state))
+                    raw_at = clock.now
+                    # Exactly the same OS tick: pywinauto's 0 < elapsed guard
+                    # would perform no wait, so the fallback itself is instant.
+                    self.assertEqual(mouse.tick, int(clock.now * 1000))
+                    metrics = _MomentsTimings()
+                    self.assertTrue(_moment_transition(second, "back", 123, lambda timeout: bool(clicked_at),
+                        3, {"back":False}, metrics, state))
+                self.assertEqual(mouse.events, [2,4], "second action must be the guarded fallback")
+                self.assertEqual(len(clicked_at), 1)
+                self.assertGreaterEqual(clicked_at[0] - raw_at, .5)
+                self.assertLess(clicked_at[0] - raw_at, .501)
+                self.assertEqual(metrics.snapshot()["actions"]["backNearbyClickGuard"], 1)
+
     def test_occluded_or_moving_target_receives_no_fast_click(self):
         for reason in ("occlusion", "same-process-popup", "same-process-foreground", "moved"):
             clock = Clock()

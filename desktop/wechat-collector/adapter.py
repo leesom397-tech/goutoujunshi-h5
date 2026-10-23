@@ -316,6 +316,37 @@ def _remember_moment_click(point, expected_pid, state):
         state.clear()
 
 
+def _wait_after_fast_moment_click(point, previous):
+    """Protect fallback input from our raw click, including the same OS tick.
+
+    The bundled pywinauto uses GetLastInputInfo (not a private click cache),
+    but its guard skips elapsed=0. Keep our own clock for the nearby/unknown
+    fallback case; never mutate its globals or Windows double-click settings.
+    """
+    if not previous:
+        return False
+    interval_ms = previous["intervalMs"]
+    dx, dy = previous["tolerance"]
+    try:
+        import win32api
+        import win32gui
+        interval_ms = max(interval_ms, win32gui.GetDoubleClickTime())
+        dx, dy = max(dx, win32api.GetSystemMetrics(36)), max(dy, win32api.GetSystemMetrics(37))
+    except Exception:
+        pass  # The values captured before dispatch still give a safe window.
+    if point is not None and (abs(point[0] - previous["point"][0]) > dx
+                              or abs(point[1] - previous["point"][1]) > dy):
+        return False
+    deadline = previous["at"] + interval_ms / 1000
+    waited = False
+    while True:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return waited
+        waited = True
+        time.sleep(min(.05, remaining))
+
+
 def _fast_moment_click(control, role, expected_pid, state):
     """Skip only a demonstrably irrelevant double-click guard.
 
@@ -356,9 +387,11 @@ def _fast_moment_click(control, role, expected_pid, state):
         elapsed_ms = (int(win32api.GetTickCount()) - state["inputTick"]) & 0xffffffff
         # Full rectangle extents are intentionally conservative (Windows uses
         # half-extents). Close/repeated points keep the normal guard until expiry.
-        close = (abs(point[0] - previous[0]) <= win32api.GetSystemMetrics(36)
-                 and abs(point[1] - previous[1]) <= win32api.GetSystemMetrics(37))
-        if close and elapsed_ms < win32gui.GetDoubleClickTime():
+        tolerance = (win32api.GetSystemMetrics(36), win32api.GetSystemMetrics(37))
+        interval_ms = win32gui.GetDoubleClickTime()
+        close = (abs(point[0] - previous[0]) <= tolerance[0]
+                 and abs(point[1] - previous[1]) <= tolerance[1])
+        if close and elapsed_ms < interval_ms:
             return False
         # A profile/dialog in the same WeChat PID is still the wrong surface.
         # Resolve the expected native root while the target provider is alive.
@@ -394,6 +427,8 @@ def _fast_moment_click(control, role, expected_pid, state):
         win32api.mouse_event(up, 0, 0, 0, 0)
     _ensure_foreground(target)
     _remember_moment_click(point, expected_pid, state)
+    state["fastClick"] = {"at": time.monotonic(), "point": point,
+                          "intervalMs": interval_ms, "tolerance": tolerance}
     return True
 
 
@@ -416,12 +451,17 @@ def _moment_transition(control, role, expected_pid, wait_for_state, timeout, nat
             timings.action(role + "InvokeUnsupported")
             native_modes[role] = False
     try:
+        # A geometry check can invalidate the ordinary tracking state. Retain
+        # the prior raw event until a guarded fallback has actually completed.
+        previous_fast = click_state.get("fastClick") if click_state is not None else None
         fast = click_state is not None and timings.measure(role + "Click", _fast_moment_click,
                                                           control, role, expected_pid, click_state)
         if fast:
             timings.action(role + "PhysicalFast")
         else:
             target, point = _moment_click_anchor(control) if click_state is not None else (control, None)
+            if timings.measure(role + "ClickGuard", _wait_after_fast_moment_click, point, previous_fast):
+                timings.action(role + "NearbyClickGuard")
             timings.measure(role + "Click", _click_control, target)
             if click_state is not None:
                 _remember_moment_click(point, expected_pid, click_state)
