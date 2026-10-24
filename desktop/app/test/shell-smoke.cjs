@@ -77,7 +77,7 @@ app.whenReady().then(async () => {
   emit({ path: '/report', canGoBack: true, canGoForward: true, collectorStatus: 'ready', online: false });
   await until(`document.querySelector('#network').textContent.includes('未连接')`, 'offline state');
   assert('saved report route selects report navigation', await js(`document.querySelector('[data-route="reports"]').getAttribute('aria-current')==='page'`));
-  assert('local collector state stays independent from network', await js(`document.querySelector('#collector').textContent.includes('就绪')`));
+  assert('local service state stays independent from network without claiming source readiness', await js(`document.querySelector('#collector').textContent.includes('服务已启动')`));
   await click('[data-action="setup"]');
   assert('collector setup is an explicit fixed action', calls.filter(call => call.action === 'setup').length === 1);
   await click('#back'); await click('#forward');

@@ -40,6 +40,16 @@
     <p class="note">已保存的资料和报告仍保留在你的账号中。</p>
   </div></main>
   <div id="notice" role="status" aria-live="polite" hidden><span id="notice-text"></span><button data-action="dismiss" aria-label="关闭提示"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18"/></svg></button></div>
+  <section id="setup-panel" role="dialog" aria-modal="true" aria-labelledby="setup-title" hidden>
+    <div class="setup-card">
+      <div class="setup-heading"><span class="setup-mark" aria-hidden="true">↗</span><button data-action="setup-close" aria-label="收起设置">×</button></div>
+      <h1 id="setup-title">Mac 本机读取设置</h1>
+      <p class="setup-label">本机验证模式</p>
+      <p id="setup-message" role="status" aria-live="polite">正在读取本机设置状态…</p>
+      <p class="setup-help">请自行完成微信或系统提示。等待不会延长授权时间；取消后会先清理并恢复原微信。</p>
+      <div class="setup-actions"><button data-setup-action="continue" id="setup-continue" hidden>继续</button><button data-setup-action="cancel" id="setup-cancel" hidden>取消并恢复微信</button><button data-action="setup-close" id="setup-done">收起</button></div>
+    </div>
+  </section>
   <script src="shell.js"></script>
 </body>
 </html>

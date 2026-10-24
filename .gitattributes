@@ -1,0 +1,5 @@
+
+desktop/wechat-collector/vendor/chatlog_keeper/** -text
+desktop/wechat-collector/local_voice_transcriber.py -text
+desktop/wechat-collector/macos_candidate_voice_worker.py -text
+desktop/wechat-collector/macos_candidate_voice_probe.py -text

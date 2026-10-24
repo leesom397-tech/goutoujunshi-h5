@@ -41,6 +41,11 @@ hiddenimports = [
     "voice_runtime_self_test", "database_runtime_self_test", "macos_runtime_self_test",
     "macos_key_provider", "macos_database_source", "macos_moments", "macos_accessibility",
     "macos_setup_ui", "macos_gui_smoke", "platform_runtime",
+    "macos_candidate_components", "macos_candidate_setup_controller", "macos_candidate_handoff",
+    "macos_candidate_prepare", "macos_candidate_probe", "macos_candidate_runtime",
+    "macos_candidate_device_runtime", "macos_candidate_database_probe", "macos_candidate_source",
+    "macos_candidate_source_preflight", "macos_candidate_contact_selection", "macos_official_client_smoke",
+    "macos_setup_progress", "macos_album_snapshot",
     "sqlcipher_primitives", "local_chat_images", "local_image_codec", "_cffi_backend",
     "apsw", "zstandard", "psutil", "cryptography.hazmat.bindings._rust",
 ]

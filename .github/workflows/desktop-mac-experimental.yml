@@ -1,0 +1,177 @@
+name: Desktop Mac experimental integration
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/desktop-mac-preview16
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-mac-experimental-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  mac-arm64:
+    runs-on: macos-26
+    timeout-minutes: 50
+    env:
+      PYTHONUTF8: '1'
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      CHENGZI_EXPECT_EXPERIMENTAL_PACKAGE: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: '3.12'
+          architecture: arm64
+      - name: Verify build host and install pinned dependencies
+        run: |
+          python -c "import sys,platform; assert sys.platform == 'darwin' and platform.machine() == 'arm64'; print(platform.platform())"
+          node -e "if(Number(process.versions.node.split('.')[0]) < 22) throw Error('Node 22+ required')"
+          python -m pip install --only-binary=:all: -r desktop/wechat-collector/requirements-macos.txt
+          npm ci
+          npm ci --prefix desktop/app
+      - name: Test private service and desktop package guards
+        run: |
+          node scripts/test-login-request.mjs
+          cd desktop/wechat-collector
+          python -m unittest test_desktop_service test_desktop_service_setup test_platform_runtime test_macos_experimental_provider
+          python -m unittest discover -p 'test_macos_candidate*.py'
+          cd ../app
+          npm test
+      - name: Build native service and verify frozen runtime
+        run: python desktop/app/scripts/build-desktop-service.py
+      - name: Fetch and verify pinned offline voice weights
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib, json, tempfile, urllib.request
+          root = Path('desktop/wechat-collector')
+          pin = json.loads((root / 'voice-model-manifest.json').read_text())
+          source = 'https://huggingface.co/csukuangfj/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/2365baeacb507f821a0c8120fcee3d484dba7a07/'
+          target = root / 'build-inputs' / pin['id']
+          target.mkdir(parents=True, exist_ok=True)
+          assert not target.is_symlink()
+          for name, expected in pin['files'].items():
+              assert name in ('model.int8.onnx', 'tokens.txt')
+              destination = target / name
+              if destination.exists():
+                  assert destination.is_file() and not destination.is_symlink()
+                  assert destination.stat().st_size == expected['bytes']
+                  assert hashlib.sha256(destination.read_bytes()).hexdigest() == expected['sha256']
+                  continue
+              with tempfile.TemporaryDirectory(dir=target) as temporary:
+                  part = Path(temporary) / name
+                  digest, size = hashlib.sha256(), 0
+                  with urllib.request.urlopen(source + name, timeout=120) as response, part.open('wb') as output:
+                      while chunk := response.read(1024 * 1024):
+                          size += len(chunk)
+                          assert size <= expected['bytes'], 'Model exceeds pinned size'
+                          digest.update(chunk); output.write(chunk)
+                  assert size == expected['bytes'] and digest.hexdigest() == expected['sha256'], 'Model verification failed'
+                  part.rename(destination)
+          print('Verified fixed offline voice weights; no user data used.')
+          PY
+      - name: Package complete desktop app
+        id: package
+        working-directory: desktop/app
+        run: npm run dist -- --mac --arm64 --publish never
+      - name: Exercise packaged local interface with synthetic data
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import json, os, plistlib, subprocess
+          output = Path('outputs/desktop-app/0.1.0-preview.16').resolve()
+          bundles = list((output / 'mac-arm64').glob('*.app'))
+          assert len(bundles) == 1, 'Expected one outer desktop application'
+          bundle = bundles[0]
+          with (bundle / 'Contents/Info.plist').open('rb') as file:
+              info = plistlib.load(file)
+          name = info['CFBundleExecutable']
+          assert Path(name).name == name, 'Unexpected executable path'
+          executable = bundle / 'Contents/MacOS' / name
+          smoke = output / 'smoke-mac'
+          smoke.mkdir(parents=True, exist_ok=True)
+          service = bundle / 'Contents/Resources/collector/ChengziDesktopService.app/Contents/MacOS/ChengziDesktopService'
+          database_receipt = smoke / 'service-database.json'
+          subprocess.run([str(service), '--database-self-test', '--probe-output', str(database_receipt)], check=True, timeout=120)
+          database = json.loads(database_receipt.read_text())
+          assert database.get('ok') is True and database.get('userDataUsed') is False
+          voice_receipt = smoke / 'service-voice.json'
+          subprocess.run([str(service), '--voice-self-test', '--probe-output', str(voice_receipt)], check=True, timeout=180)
+          voice = json.loads(voice_receipt.read_text())
+          assert voice.get('ok') is True and voice.get('networkUsed') is False and voice.get('userAudioUsed') is False
+          assert voice.get('warmWorker', {}).get('sameProcess') is True
+          service_run = subprocess.run([str(service), '--desktop-service'],
+              input='{"id":1,"command":"status"}\n{"id":2,"command":"shutdown"}\n',
+              capture_output=True, text=True, timeout=45, check=True)
+          rows = [json.loads(line) for line in service_run.stdout.splitlines() if line.strip()]
+          assert any(row.get('event') == 'ready' for row in rows), 'Final nested service did not become ready'
+          assert all(any(row.get('id') == request_id and row.get('ok') is True for row in rows) for request_id in (1, 2))
+          (smoke / 'service-stdio.json').write_text(json.dumps({'ok': True, 'ready': True, 'status': True, 'shutdown': True, 'userDataUsed': False}) + '\n')
+          experimental_run = subprocess.run([str(service), '--desktop-service'],
+              env=dict(os.environ, CHENGZI_MAC_EXPERIMENTAL_SETUP='1'),
+              input='{"id":1,"command":"setup-status"}\n{"id":2,"command":"shutdown"}\n',
+              capture_output=True, text=True, timeout=45, check=True)
+          experimental_rows = [json.loads(line) for line in experimental_run.stdout.splitlines() if line.strip()]
+          status = next(row for row in experimental_rows if row.get('id') == 1)
+          assert status.get('ok') is True and status.get('setupAvailable') is True
+          assert status['setup']['phase'] == 'idle' and status['setup']['ready'] is False
+          assert status['setup']['active'] is False
+          assert any(row.get('id') == 2 and row.get('ok') is True for row in experimental_rows)
+          (smoke / 'service-setup.json').write_text(json.dumps({'ok': True, 'idle': True, 'ready': False,
+              'authorizationStarted': False, 'userDataUsed': False, 'shutdown': True}) + '\n')
+          interface_run = subprocess.run([str(executable), '--smoke-test'],
+                         env=dict(os.environ, CHENGZI_SMOKE_OUTPUT=str(smoke)),
+                         timeout=180)
+          receipt = json.loads((smoke / 'receipt.json').read_text())
+          print(json.dumps(receipt), flush=True)
+          assert interface_run.returncode == 0, 'Packaged local UI smoke exited with an error'
+          assert receipt.get('ok') is True, 'Packaged local UI smoke failed'
+          assert receipt.get('userDataUsed') is False and receipt.get('networkRequestsMocked') is True
+          subprocess.run(['node', 'desktop/app/scripts/verify-smoke.cjs',
+                          str(bundle / 'Contents/Resources'), str(smoke / 'receipt.json'),
+                          str(Path.cwd())], check=True, timeout=120)
+          # Desktop compositors can decline a background screenshot. The receipt
+          # records each capture result; functional and isolation checks stay hard gates.
+          PY
+      - name: Record preview checksums
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib, json
+          output = Path('outputs/desktop-app/0.1.0-preview.16')
+          files = sorted(p for p in output.iterdir() if p.suffix in ('.zip', '.dmg'))
+          assert len(files) == 2, 'Expected both DMG and ZIP'
+          receipt = {'version': '0.1.0-preview.16', 'platform': 'darwin', 'arch': 'arm64',
+                     'developerIdSigned': False, 'notarized': False, 'publicRelease': False,
+                     'realWechatAccountTested': False, 'experimentalSetup': True, 'files': []}
+          for p in files:
+              digest = hashlib.file_digest(p.open('rb'), 'sha256').hexdigest()
+              receipt['files'].append({'file': p.name, 'bytes': p.stat().st_size, 'sha256': digest})
+          (output / 'preview-build.json').write_text(json.dumps(receipt, indent=2) + '\n')
+          PY
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        if: ${{ success() && steps.package.outcome == 'success' }}
+        with:
+          name: chengzi-desktop-0.1.0-preview.16-mac-arm64-${{ github.run_number }}
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+          path: |
+            outputs/desktop-app/0.1.0-preview.16/*.dmg
+            outputs/desktop-app/0.1.0-preview.16/*.zip
+            outputs/desktop-app/0.1.0-preview.16/preview-build.json
+            desktop/wechat-collector/dist/desktop-service/runtime-self-test.json
+            outputs/desktop-app/0.1.0-preview.16/smoke-mac/receipt.json
+            outputs/desktop-app/0.1.0-preview.16/smoke-mac/window.png
+            outputs/desktop-app/0.1.0-preview.16/smoke-mac/workspace.png
+            outputs/desktop-app/0.1.0-preview.16/smoke-mac/service-database.json
+            outputs/desktop-app/0.1.0-preview.16/smoke-mac/service-stdio.json
+            outputs/desktop-app/0.1.0-preview.16/smoke-mac/service-voice.json
+            outputs/desktop-app/0.1.0-preview.16/smoke-mac/service-setup.json

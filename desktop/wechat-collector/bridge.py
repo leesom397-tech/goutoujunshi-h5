@@ -362,6 +362,15 @@ class CollectorState:
             self.local_message = "正在后台导入，可以继续使用电脑；可随时停止"
 
     def search_contacts(self, query, offset=0, account_key=None, refresh=False):
+        # Setup changes the owned source lifecycle. Finish an in-flight search
+        # before setup starts, and reject later searches while setup is active.
+        with self.lock:
+            return self._search_contacts(query, offset, account_key, refresh)
+
+    def _search_contacts(self, query, offset=0, account_key=None, refresh=False):
+        setup_guard = getattr(self, "setup_in_progress", None)
+        if callable(setup_guard) and setup_guard():
+            raise BridgeError(409, "SETUP_IN_PROGRESS", "本机设置正在进行，请完成或停止设置后再选择联系人。")
         from background_reader import validate_contact_search
         try:
             validate_contact_search(query, offset, account_key, refresh)
@@ -414,6 +423,9 @@ class CollectorState:
             except BackgroundCaptureError as error:
                 raise BridgeError(400, error.code, error.message) from None
         with self.lock:
+            setup_guard = getattr(self, "setup_in_progress", None)
+            if callable(setup_guard) and setup_guard():
+                raise BridgeError(409, "SETUP_IN_PROGRESS", "本机设置正在进行，请完成或停止设置后再采集。")
             self._prune()
             lane = "background" if mode == "background" else "moments" if kind == "moments" else "ui"
             identity = (self.token, self.origin, request.get("accountKey"), request.get("contactId"))

@@ -16,9 +16,9 @@ module.exports = {
   directories: {
     app: __dirname,
     buildResources: path.join(stage, 'brand'),
-    output: path.resolve(__dirname, '../../outputs/desktop-app/0.1.0-preview.15'),
+    output: path.resolve(__dirname, '../../outputs/desktop-app/0.1.0-preview.16'),
   },
-  files: ['main.cjs', 'preload.cjs', 'shell-preload.cjs', 'collector.cjs', 'policy.cjs', 'local-app.cjs', 'renderer/**', 'assets/**', 'frontend-dist/**', 'package.json', '!**/.env', '!**/.env.*', '!**/*.pem', '!**/*.key', '!**/*.p12', '!**/*.pfx', '!**/*.map'],
+  files: ['main.cjs', 'preload.cjs', 'shell-preload.cjs', 'collector.cjs', 'setup.cjs', 'policy.cjs', 'local-app.cjs', 'renderer/**', 'assets/**', 'frontend-dist/**', 'package.json', '!**/.env', '!**/.env.*', '!**/*.pem', '!**/*.key', '!**/*.p12', '!**/*.pfx', '!**/*.map'],
   extraResources: [
     { from: path.join(stage, 'collector'), to: 'collector', filter: ['**/*'] },
     { from: path.join(stage, 'service-manifest.json'), to: 'service-manifest.json' },

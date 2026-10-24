@@ -7,6 +7,29 @@ const path = require('node:path');
 const { validateSidecar, verifyPackagedResources, tree } = require('../scripts/stage-resources.cjs');
 const { validateFrontend, verifyPackagedFrontend } = require('../scripts/verify-frontend.cjs');
 
+test('explicit builder files preserve setup helper in actual asar and shared package stays production disabled', async t => {
+  const appRoot = path.resolve(__dirname, '..');
+  const config = require('../electron-builder.cjs');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'chengzi-setup-asar-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const source = path.join(root, 'source');
+  fs.mkdirSync(source);
+  assert.ok(config.files.includes('setup.cjs'), 'setup.cjs must be in the explicit production file list');
+  for (const file of config.files.filter(file => /^[a-z-]+\.cjs$/.test(file))) fs.copyFileSync(path.join(appRoot, file), path.join(source, file));
+  const asar = require('@electron/asar');
+  const target = path.join(root, 'app.asar');
+  await asar.createPackage(source, target);
+  assert.deepEqual(asar.extractFile(target, 'setup.cjs'), fs.readFileSync(path.join(appRoot, 'setup.cjs')));
+  assert.match(asar.extractFile(target, 'main.cjs').toString(), /require\('\.\/setup\.cjs'\)/);
+  assert.match(asar.extractFile(target, 'collector.cjs').toString(), /require\('\.\/setup\.cjs'\)/);
+  const metadata = require('../package.json');
+  if (process.env.CHENGZI_EXPECT_EXPERIMENTAL_PACKAGE === '1') {
+    assert.equal(metadata.chengziExperimentalMacSetup, true, 'experimental CI package must explicitly enable setup');
+  } else {
+    assert.equal(Object.hasOwn(metadata, 'chengziExperimentalMacSetup'), false, 'shared production package must keep setup disabled');
+  }
+});
+
 test('actual asar contains the complete local frontend on Windows and Mac path formats', async t => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'chengzi-asar-test-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

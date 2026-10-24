@@ -3,15 +3,16 @@ const {app,BrowserWindow,WebContentsView,ipcMain,session,dialog,shell,Menu,proto
 const path=require('node:path');
 const {pathToFileURL}=require('node:url');
 const {Collector}=require('./collector.cjs');
+const {createSetupFlow,experimentalSetupEnabled}=require('./setup.cjs');
 const {createLocalApp}=require('./local-app.cjs');
 const {ORIGIN,ROUTES,trusted,external,handoff}=require('./policy.cjs');
 protocol.registerSchemesAsPrivileged([{scheme:'chengzi',privileges:{standard:true,secure:true,supportFetchAPI:true}}]);
-let win,view,collector,quitting=false,closing=false,loading=true,failed=false,lastRoute=ORIGIN+'/',message='';
+let win,view,collector,setupFlow,setupOpen=false,stopApproved=false,quitting=false,closing=false,loading=true,failed=false,lastRoute=ORIGIN+'/',message='';
 const shellURL='chengzi://app/shell.html';
 const smoke=process.argv.includes('--smoke-test');
 nativeTheme.themeSource='light';
 if(smoke){const fs=require('node:fs');const location=path.join(require('node:os').tmpdir(),'chengzi-desktop-smoke-'+process.pid);fs.mkdirSync(location,{recursive:true});app.setPath('userData',location);}
-function snapshot(){const wc=view?.webContents;return {platform:process.platform,version:app.getVersion(),...collector?.state(),loading,failed,message,canGoBack:wc?.navigationHistory.canGoBack()||false,canGoForward:wc?.navigationHistory.canGoForward()||false,path:wc&&!wc.isDestroyed()?new URL(wc.getURL()||ORIGIN).pathname:'/',online:net.isOnline()};}
+function snapshot(){const wc=view?.webContents;return {platform:process.platform,version:app.getVersion(),...collector?.state(),setupOpen,loading,failed,message,canGoBack:wc?.navigationHistory.canGoBack()||false,canGoForward:wc?.navigationHistory.canGoForward()||false,path:wc&&!wc.isDestroyed()?new URL(wc.getURL()||ORIGIN).pathname:'/',online:net.isOnline()};}
 function publish(){if(win&&!win.isDestroyed())win.webContents.send('shell:state',snapshot());}
 function localSender(e){return win&&!win.isDestroyed()&&e.sender===win.webContents&&e.senderFrame===win.webContents.mainFrame&&e.senderFrame.url===shellURL;}
 function remoteSender(e){return view&&!view.webContents.isDestroyed()&&e.sender===view.webContents&&e.senderFrame===view.webContents.mainFrame&&trusted(e.senderFrame.url);}
@@ -19,25 +20,36 @@ function guard(e,local=false){if(!(local?localSender(e):remoteSender(e)))throw n
 async function connect(){try {const result=await collector.request('connect');return {handoff:handoff(result.handoffUrl)};}catch(error){message=collector.state().message||'本机采集连接未完成，请重试。';publish();throw new Error(message);}}
 async function setup(){
   const mac=process.platform==='darwin';
+  if(mac){
+    if(!setupFlow)setupFlow=createSetupFlow({collector,platform:process.platform,
+      confirm:async()=>{const answer=await dialog.showMessageBox(win,{type:'question',message:'开始 Mac 本机读取设置？',detail:'会核对当前微信账号，并请求原微信正常退出；如有未完成事项，请先在微信处理。随后使用隔离副本完成本机授权，结束或取消后恢复原微信。\n\n请自行处理微信或系统提示，可随时取消。此路径仍在本机验证，尚未开放正式 Mac 采集。',buttons:['取消','开始设置'],defaultId:0,cancelId:0});if(answer.response===1)stopApproved=false;return answer.response===1;},
+      openPanel:open=>{setupOpen=open;if(view)view.setVisible(!open&&!failed);publish();},
+      onError:text=>{message=text;publish();}});
+    const opened=await setupFlow.open();if(opened.available)return opened;
+  }
   const answer=await dialog.showMessageBox(win,{type:'info',message:'本机采集与连接',detail:mac?'当前 Mac 预览版可上传截图、录屏和查看报告。最新微信的本机读取授权与完整朋友圈采集仍在适配，请先使用文件导入。':'打开电脑微信并登录，在应用的「导入微信资料」中启动采集。\n\n若仍开着独立助手，请先退出它，避免本机连接端口冲突。语音本地识别模型会在首次使用时准备。',buttons:mac?['知道了','上传文件']:['知道了','导入微信资料'],defaultId:0});
   if(answer.response===1)navigate(ORIGIN+(mac?'/import':ROUTES.capture));
   return {opened:true};
 }
-function navigate(url,reload=false){if(!trusted(url))throw new Error('UNTRUSTED_NAVIGATION');const inApp=!reload&&!failed&&!loading&&trusted(view.webContents.getURL());lastRoute=url;failed=false;message='';view.setVisible(true);if(inApp){const u=new URL(url);view.webContents.send('desktop:navigate',u.pathname+u.search+u.hash);}else void view.webContents.loadURL(url).catch(()=>{});}
+function navigate(url,reload=false){if(!trusted(url))throw new Error('UNTRUSTED_NAVIGATION');setupFlow?.closePanel();const inApp=!reload&&!failed&&!loading&&trusted(view.webContents.getURL());lastRoute=url;failed=false;message='';view.setVisible(true);if(inApp){const u=new URL(url);view.webContents.send('desktop:navigate',u.pathname+u.search+u.hash);}else void view.webContents.loadURL(url).catch(()=>{});}
 async function openExternal(url){if(!external(url))return;const result=await dialog.showMessageBox(win,{type:'question',message:'在浏览器中打开外部网站？',detail:new URL(url).hostname,buttons:['取消','打开'],defaultId:0,cancelId:0});if(result.response===1)await shell.openExternal(url);}
 async function closeApp(){
   if(closing||quitting)return;closing=true;
   try{
     if(collector?.child){
       let busy=true;if(collector.status==='ready'){try{busy=(await collector.request('status')).busy===true;}catch{}}
-      if(busy&&win&&!win.isDestroyed()){
-        const answer=await dialog.showMessageBox(win,{type:'question',message:'正在导入资料，确认退出？',detail:'退出会停止本次采集，已保存的资料会保留。',buttons:['继续导入','退出应用'],defaultId:0,cancelId:0});
+      if(busy&&!stopApproved&&win&&!win.isDestroyed()){
+        const setting=collector.setup?.active||collector.setup?.cleanupPending;
+        const answer=await dialog.showMessageBox(win,{type:'question',message:setting?'正在完成本机设置，确认取消并退出？':'正在导入资料，确认退出？',detail:setting?'会先取消设置、清理隔离副本并恢复原微信，完成后再退出。':'退出会停止本次采集，已保存的资料会保留。',buttons:[setting?'继续设置':'继续导入','退出应用'],defaultId:0,cancelId:0});
         if(answer.response!==1)return;
+        stopApproved=true;
       }
+      if(collector.setup?.active||collector.setup?.cleanupPending){message='正在取消设置并恢复微信，请稍候。';publish();}
       await collector.stop();
     }
+    setupFlow?.dispose();
     quitting=true;app.quit();
-  }finally{closing=false;}
+  }catch{message='本机设置清理或微信恢复尚未完成，窗口会继续保留。请检查微信后重试退出。';publish();}finally{closing=false;}
 }
 function bindNavigation(wc){
   wc.setWindowOpenHandler(({url})=>{if(trusted(url))navigate(url);else void openExternal(url);return {action:'deny'};});
@@ -46,14 +58,15 @@ function bindNavigation(wc){
   wc.on('will-attach-webview',event=>event.preventDefault());
   wc.on('did-start-loading',()=>{loading=true;publish();});
   wc.on('did-stop-loading',()=>{loading=false;publish();});
-  wc.on('did-finish-load',()=>{failed=false;view.setVisible(true);publish();});
+  wc.on('did-finish-load',()=>{failed=false;view.setVisible(!setupOpen);publish();});
   wc.on('did-navigate',(_event,url)=>{if(trusted(url))lastRoute=url;publish();});
   wc.on('did-navigate-in-page',()=>publish());
   wc.on('did-fail-load',(_event,code,_description,_url,main)=>{if(main&&code!==-3){failed=true;loading=false;view.setVisible(false);message='本地工作区未能打开，请重新打开应用。';publish();}});
   wc.on('render-process-gone',()=>{failed=true;loading=false;view.setVisible(false);message='工作区暂时中断，点击重新打开。';publish();});
 }
 async function createWindow(){
-  collector=new Collector({resources:app.isPackaged?process.resourcesPath:path.join(__dirname,'.stage',process.platform),development:!app.isPackaged});collector.on('state',publish);
+  const experimentalMacSetup=experimentalSetupEnabled({platform:process.platform,isPackaged:app.isPackaged,packageMetadata:app.isPackaged?require('./package.json'):{},environment:process.env});
+  collector=new Collector({resources:app.isPackaged?process.resourcesPath:path.join(__dirname,'.stage',process.platform),development:!app.isPackaged,experimentalMacSetup});collector.on('state',publish);
   const persistent=session.fromPartition(smoke?'chengzi-smoke':'persist:chengzi-workspace');
   // Never serve the hosted site's HTML. The installed SPA owns every UI route.
   const frontend=path.join(__dirname,'frontend-dist');
@@ -151,7 +164,8 @@ if(!app.requestSingleInstanceLock())app.quit();else{
     ipcMain.handle('desktop:connect',e=>{guard(e);return connect();});ipcMain.handle('desktop:setup',e=>{guard(e);return setup();});
     ipcMain.handle('shell:state',e=>{guard(e,true);return snapshot();});
     ipcMain.handle('shell:navigate',async(e,target)=>{guard(e,true);if(!Object.hasOwn(ROUTES,target))throw new Error('INVALID_ROUTE');navigate(ORIGIN+ROUTES[target]);});
-    ipcMain.handle('shell:action',async(e,action)=>{guard(e,true);const history=view.webContents.navigationHistory;if(action==='back'&&history.canGoBack())view.webContents.send('desktop:history','back');else if(action==='forward'&&history.canGoForward())view.webContents.send('desktop:history','forward');else if(action==='reload')navigate(lastRoute,true);else if(action==='setup')await setup();else if(action==='dismiss'){message='';publish();}});
+    ipcMain.handle('shell:setup-action',async(e,action,jobId)=>{guard(e,true);if(!setupFlow)throw Error('SETUP_ACTION_UNAVAILABLE');return setupFlow.action(action,jobId);});
+    ipcMain.handle('shell:action',async(e,action)=>{guard(e,true);const history=view.webContents.navigationHistory;if(action==='back'&&history.canGoBack())view.webContents.send('desktop:history','back');else if(action==='forward'&&history.canGoForward())view.webContents.send('desktop:history','forward');else if(action==='reload')navigate(lastRoute,true);else if(action==='setup')await setup();else if(action==='setup-close')setupFlow?.closePanel();else if(action==='dismiss'){message='';publish();}});
     Menu.setApplicationMenu(Menu.buildFromTemplate([{label:'成子',submenu:[{label:'返回',accelerator:'Alt+Left',click:()=>{if(view?.webContents.navigationHistory.canGoBack())view.webContents.send('desktop:history','back');}},{role:'quit'}]},{label:'编辑',submenu:[{role:'undo'},{role:'redo'},{type:'separator'},{role:'cut'},{role:'copy'},{role:'paste'},{role:'selectAll'}]},{label:'视图',submenu:[{role:'resetZoom'},{role:'zoomIn'},{role:'zoomOut'},{role:'togglefullscreen'}]}]));
     await createWindow();
   });

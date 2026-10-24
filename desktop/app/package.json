@@ -1,7 +1,7 @@
 {
   "name": "chengzi-desktop",
   "productName": "成子",
-  "version": "0.1.0-preview.15",
+  "version": "0.1.0-preview.16",
   "description": "成子桌面工作区",
   "author": "Chengzi",
   "private": true,
@@ -14,5 +14,9 @@
     "pack": "npm run frontend:build && npm run stage && electron-builder --config electron-builder.cjs --dir",
     "dist": "npm run frontend:build && npm run stage && electron-builder --config electron-builder.cjs"
   },
-  "devDependencies": { "electron": "45.0.0", "electron-builder": "26.15.3" }
+  "devDependencies": {
+    "electron": "45.0.0",
+    "electron-builder": "26.15.3"
+  },
+  "chengziExperimentalMacSetup": true
 }

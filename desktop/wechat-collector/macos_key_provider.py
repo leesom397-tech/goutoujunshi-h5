@@ -38,6 +38,9 @@ _lock = threading.RLock()
 _initializing = threading.Lock()
 _prepared = None
 _authorization = None
+EXPERIMENTAL_BUILD = ("4.1.15", "270135")
+EXPERIMENTAL_WORKER_CAPABILITY = "macos-270135-local-experiment-v1"
+_experimental_authorization = None
 
 
 def _fail(code, message):
@@ -76,6 +79,53 @@ class WorkerAuthorization:
     def close(self):
         self.key[:] = b"\0" * len(self.key)
         self.key.clear()
+
+
+@dataclass(repr=False)
+class ExperimentalWorkerAuthorization:
+    """Private spawned-worker capability; never accepted as normal version 1."""
+    account: str
+    key: bytearray = field(repr=False)
+    salt: bytes = field(repr=False)
+    build: tuple[str, str]
+    expires: float
+    pid: int
+    uid: int
+    start_seconds: int
+    start_microseconds: int
+    code_stamp: tuple
+    version: int = 2
+    capability: str = EXPERIMENTAL_WORKER_CAPABILITY
+
+    def __repr__(self):
+        return "<ExperimentalMacWorkerAuthorization redacted>"
+
+    def close(self):
+        if isinstance(self.key, bytearray):
+            self.key[:] = b"\0" * len(self.key)
+            self.key.clear()
+        else:
+            self.key = bytearray()
+
+
+@dataclass(repr=False)
+class _ExperimentalAuthorization:
+    account: Path
+    key: bytearray = field(repr=False)
+    contact_key: bytearray = field(repr=False)
+    salt: bytes = field(repr=False)
+    proof: dict = field(repr=False)
+    code_stamp: tuple
+    expires: float
+
+    def __repr__(self):
+        return "<ExperimentalMacAuthorization redacted>"
+
+    def close(self):
+        for value in (self.key, self.contact_key):
+            value[:] = b"\0" * len(value)
+            value.clear()
+        self.proof.clear()
 
 
 def _require_mac():
@@ -179,6 +229,9 @@ def _open_database_files(pid):
 
 def current_account_proof():
     """Bind only the current owned official process's open DBs, never old directories."""
+    with _lock:
+        if _experimental_authorization is not None:
+            return dict(_validate_experimental_authorization().proof)
     build = _require_supported_bundle()
     processes = _processes()
     if len(processes) != 1:
@@ -194,7 +247,10 @@ def current_account_proof():
 
 def verify_account_proof(proof):
     current = current_account_proof()
-    if any(current.get(field) != proof.get(field) for field in ("pid", "started", "account", "build")):
+    fields = ("pid", "started", "account", "build")
+    if proof.get("experimental") is True:
+        fields += ("uid", "startSeconds", "startMicroseconds", "experimental")
+    if any(current.get(field) != proof.get(field) for field in fields):
         raise _fail("ACCOUNT_CHANGED", "微信已重开或切换账号，本次读取已停止，请重新选择联系人。")
 
 
@@ -218,6 +274,12 @@ def _read_contact_header(account):
 def probe_setup():
     """Metadata/dependency readiness only. Does not open chat DBs or process memory."""
     try:
+        if _experimental_authorization is not None:
+            state = experimental_status(validate=True)
+            dependencies = all(importlib.util.find_spec(name) is not None for name in ("apsw", "cryptography", "psutil"))
+            return {**state, "ready": state["ready"] and dependencies, "dependenciesReady": dependencies,
+                    "platform": "macos-arm64", "initializationRequired": not state["ready"],
+                    "message": "本机实验读取已就绪。" if state["ready"] else "本机实验授权已失效，请重新设置。"}
         build = _require_supported_bundle()
         dependencies = all(importlib.util.find_spec(name) is not None for name in ("apsw", "cryptography", "psutil"))
         with _lock:
@@ -335,6 +397,7 @@ def _load_upstream():
 
 def clear_authorization():
     global _authorization, _prepared
+    clear_experimental_authorization()
     with _lock:
         if _authorization is not None:
             _authorization.close()
@@ -431,6 +494,13 @@ def get_authorized_key(account_dir):
     """Internal only. Always authenticate the current contact DB before returning."""
     account = Path(account_dir).resolve()
     with _lock:
+        if _experimental_authorization is not None:
+            authorization = _validate_experimental_authorization()
+            if authorization.account != account:
+                clear_experimental_authorization()
+                raise _fail("ACCOUNT_CHANGED", "微信账号已变化，请重新设置。")
+            return bytes(authorization.key)
+    with _lock:
         authorization = _authorization
         if (authorization is None or not authorization.key or authorization.account != account or
                 (authorization.expires is not None and authorization.expires <= time.monotonic())):
@@ -443,6 +513,13 @@ def get_authorized_key(account_dir):
 
 
 def export_worker_authorization():
+    with _lock:
+        if _experimental_authorization is not None:
+            authorization = _validate_experimental_authorization()
+            proof = authorization.proof
+            return ExperimentalWorkerAuthorization(str(authorization.account), bytearray(authorization.key), authorization.salt,
+                EXPERIMENTAL_BUILD, min(authorization.expires, time.monotonic() + WORKER_TTL), proof["pid"], proof["uid"],
+                proof["startSeconds"], proof["startMicroseconds"], authorization.code_stamp)
     proof = current_account_proof()
     key = get_authorized_key(proof["account"])
     _, header = _read_contact_header(proof["account"])
@@ -451,6 +528,8 @@ def export_worker_authorization():
 
 def import_worker_authorization(payload):
     global _authorization
+    if type(payload) is ExperimentalWorkerAuthorization:
+        return _import_experimental_worker(payload)
     clear_authorization()
     try:
         if (not isinstance(payload, WorkerAuthorization) or payload.version != 1 or len(payload.key) != 32 or
@@ -469,3 +548,169 @@ def import_worker_authorization(payload):
     finally:
         if isinstance(payload, WorkerAuthorization):
             payload.close()
+
+
+def clear_experimental_authorization():
+    global _experimental_authorization
+    with _lock:
+        if _experimental_authorization is not None:
+            _experimental_authorization.close()
+        _experimental_authorization = None
+
+
+def _native_generation(pid):
+    """Public libproc identity; no debugger, AX, key helper or app launch."""
+    import ctypes as C
+    class BSD(C.Structure):
+        _fields_ = [(name, C.c_uint32) for name in ("flags", "status", "xstatus", "pid", "ppid", "uid", "gid", "ruid", "rgid", "svuid", "svgid", "reserved")]
+        _fields_ += [("comm", C.c_char * 16), ("name", C.c_char * 32)]
+        _fields_ += [(name, C.c_uint32) for name in ("nfiles", "pgid", "pjobc", "tdev", "tpgid")]
+        _fields_ += [("nice", C.c_int32), ("seconds", C.c_uint64), ("microseconds", C.c_uint64)]
+    library = C.CDLL("/usr/lib/libproc.dylib")
+    library.proc_pidinfo.argtypes = [C.c_int, C.c_int, C.c_uint64, C.c_void_p, C.c_int]
+    library.proc_pidinfo.restype = C.c_int
+    library.proc_pidpath.argtypes = [C.c_int, C.c_void_p, C.c_uint32]
+    library.proc_pidpath.restype = C.c_int
+    info, path = BSD(), C.create_string_buffer(4096)
+    if (C.sizeof(info) != 136 or library.proc_pidinfo(pid, 3, 0, C.byref(info), C.sizeof(info)) != C.sizeof(info)
+            or library.proc_pidpath(pid, path, len(path)) <= 0 or path.value != os.fsencode((WECHAT_APP / "Contents/MacOS/WeChat").resolve())
+            or info.pid != pid or info.uid != os.getuid() or info.ruid != os.getuid()
+            or info.seconds <= 0 or not 0 <= info.microseconds < 1_000_000):
+        raise _fail("ACCOUNT_CHANGED", "微信进程已变化，请重新设置。")
+    return int(info.uid), int(info.seconds), int(info.microseconds)
+
+
+def _original_code_stamp():
+    result = []
+    for relative in ("Contents/MacOS/WeChat", "Contents/Info.plist", "Contents/_CodeSignature/CodeResources"):
+        path = WECHAT_APP / relative
+        info = path.lstat()
+        if path.is_symlink() or path.resolve() != path or not stat.S_ISREG(info.st_mode):
+            raise _fail("ACCOUNT_CHANGED", "微信程序已变化，请重新设置。")
+        result.append((info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns))
+    return tuple(result)
+
+
+def experimental_original_proof(*, consent=False, expected=None, verify_signature=False):
+    """Explicit local experiment proof. Does not modify SUPPORTED_BUILDS."""
+    if consent is not True:
+        raise _fail("MAC_LOCAL_CONSENT_REQUIRED", "请在本机确认实验设置。")
+    _require_mac()
+    if bundle_metadata() != EXPERIMENTAL_BUILD:
+        raise _fail("MAC_WECHAT_VERSION_UNSUPPORTED", "当前微信不属于本次本机实验版本。")
+    if verify_signature:
+        _verify_official_bundle()
+    processes = _processes()
+    if len(processes) != 1:
+        raise _fail("WECHAT_NOT_LOGGED_IN" if not processes else "MAC_ACCOUNT_AMBIGUOUS", "请在原微信完成同一账号登录。")
+    pid = processes[0][0]
+    before = _native_generation(pid)
+    accounts = {account for name in _open_database_files(pid) if (account := _account_from_file(name)) is not None}
+    if len(accounts) != 1:
+        raise _fail("MAC_ACCOUNT_UNVERIFIED", "正在等待原微信打开当前账号资料。")
+    if _processes() != processes or _native_generation(pid) != before:
+        raise _fail("ACCOUNT_CHANGED", "微信进程已变化，请重新设置。")
+    uid, seconds, microseconds = before
+    proof = {"pid": pid, "uid": uid, "startSeconds": seconds, "startMicroseconds": microseconds,
+             "started": seconds + microseconds / 1_000_000, "account": accounts.pop(), "build": EXPERIMENTAL_BUILD, "experimental": True}
+    if expected is not None and any(proof.get(name) != expected.get(name) for name in proof):
+        raise _fail("ACCOUNT_CHANGED", "微信账号或进程已变化，请重新设置。")
+    return proof
+
+
+def _validate_experimental_authorization():
+    with _lock:
+        authorization = _experimental_authorization
+        try:
+            if authorization is None or not authorization.key or not time.monotonic() < authorization.expires:
+                raise _fail("MAC_AUTHORIZATION_REQUIRED", "本机实验授权已过期，请重新设置。")
+            experimental_original_proof(consent=True, expected=authorization.proof)
+            if _original_code_stamp() != authorization.code_stamp:
+                raise _fail("ACCOUNT_CHANGED", "微信程序已变化，请重新设置。")
+            _, header = _read_contact_header(authorization.account)
+            import sqlcipher_primitives as primitive
+            if header[:16] != authorization.salt or not primitive._verify_enc_key(authorization.contact_key, header):
+                raise _fail("ACCOUNT_CHANGED", "微信账号资料已变化，请重新设置。")
+            if not time.monotonic() < authorization.expires:
+                raise _fail("MAC_AUTHORIZATION_REQUIRED", "本机实验授权已过期，请重新设置。")
+            return authorization
+        except BaseException:
+            clear_experimental_authorization()
+            raise
+
+
+def register_experimental_original(*, proof, key, salt, expires, consent=False):
+    """Only the explicit local handoff owner calls this private registration."""
+    global _experimental_authorization
+    from macos_candidate_handoff import OriginalProof
+    if consent is not True or type(proof) is not OriginalProof:
+        raise _fail("MAC_LOCAL_CONSENT_REQUIRED", "请在本机确认实验设置。")
+    generation = proof.generation
+    if not (all(type(value) is int for value in (generation.pid, generation.uid, generation.seconds, generation.microseconds))
+            and generation.pid > 0 and generation.uid >= 0 and generation.seconds > 0 and 0 <= generation.microseconds < 1_000_000):
+        raise _fail("MAC_AUTHORIZATION_REQUIRED", "实验账号进程证明无效。")
+    expected = {"pid": generation.pid, "uid": generation.uid, "startSeconds": generation.seconds,
+                "startMicroseconds": generation.microseconds, "started": generation.seconds + generation.microseconds / 1_000_000,
+                "account": proof.account, "build": proof.build, "experimental": True}
+    if proof.build != EXPERIMENTAL_BUILD or len(key) != 32 or len(salt) != 16 or not time.monotonic() < expires <= time.monotonic() + 600:
+        raise _fail("MAC_AUTHORIZATION_REQUIRED", "实验授权范围无效或已过期。")
+    observed = experimental_original_proof(consent=True, expected=expected, verify_signature=True)
+    stamp = _original_code_stamp()
+    _, header = _read_contact_header(observed["account"])
+    effective = effective_page_key(key, header)
+    if header[:16] != salt or effective is None:
+        raise _fail("ACCOUNT_CHANGED", "原微信账号资料未通过核对。")
+    authorization = _ExperimentalAuthorization(observed["account"], bytearray(key), bytearray(effective), salt, observed, stamp, expires)
+    with _lock:
+        clear_experimental_authorization()
+        _experimental_authorization = authorization
+    try:
+        _validate_experimental_authorization()
+    except BaseException:
+        clear_experimental_authorization()
+        raise
+    return experimental_status(validate=False)
+
+
+def _import_experimental_worker(payload):
+    global _experimental_authorization
+    clear_experimental_authorization()
+    try:
+        if (payload.version != 2 or payload.capability != EXPERIMENTAL_WORKER_CAPABILITY or payload.build != EXPERIMENTAL_BUILD
+                or type(payload.key) is not bytearray or len(payload.key) != 32 or type(payload.salt) is not bytes
+                or len(payload.salt) != 16 or not time.monotonic() < payload.expires <= time.monotonic() + 600
+                or not all(type(value) is int for value in (payload.pid, payload.uid, payload.start_seconds, payload.start_microseconds))
+                or payload.pid <= 0 or payload.uid < 0 or payload.start_seconds <= 0 or not 0 <= payload.start_microseconds < 1_000_000):
+            raise _fail("MAC_AUTHORIZATION_REQUIRED", "实验后台授权无效或已过期。")
+        expected = {"pid": payload.pid, "uid": payload.uid, "startSeconds": payload.start_seconds,
+            "startMicroseconds": payload.start_microseconds, "started": payload.start_seconds + payload.start_microseconds / 1_000_000,
+            "account": Path(payload.account), "build": payload.build, "experimental": True}
+        observed = experimental_original_proof(consent=True, expected=expected, verify_signature=True)
+        if _original_code_stamp() != payload.code_stamp:
+            raise _fail("ACCOUNT_CHANGED", "微信程序已变化，后台读取未启动。")
+        _, header = _read_contact_header(observed["account"])
+        effective = effective_page_key(payload.key, header)
+        if header[:16] != payload.salt or effective is None:
+            raise _fail("ACCOUNT_CHANGED", "后台账号资料未通过核对。")
+        with _lock:
+            _experimental_authorization = _ExperimentalAuthorization(observed["account"], bytearray(payload.key),
+                bytearray(effective), payload.salt, observed, payload.code_stamp, payload.expires)
+        _validate_experimental_authorization()
+    except BaseException:
+        clear_experimental_authorization()
+        raise
+    finally:
+        payload.close()
+
+
+def experimental_status(*, validate=True):
+    try:
+        authorization = _validate_experimental_authorization() if validate else _experimental_authorization
+        ready = authorization is not None and bool(authorization.key) and time.monotonic() < authorization.expires
+        if not ready:
+            clear_experimental_authorization()
+        return {"ready": ready, "experimental": True, "status": "experimental-authorized" if ready else "experimental-setup-required",
+                "productionReady": False, "realDeviceValidated": False}
+    except Exception:
+        return {"ready": False, "experimental": True, "status": "experimental-setup-required", "productionReady": False,
+                "realDeviceValidated": False}

@@ -12,6 +12,7 @@ REQUIRED_MODULES = (
     "apsw", "cryptography.hazmat.bindings._rust", "zstandard", "psutil", "PIL.Image",
     "objc", "Foundation", "AppKit", "ApplicationServices", "Quartz", "CoreText",
     "numpy", "pysilk", "sherpa_onnx", "_cffi_backend", "tkinter",
+    "macos_candidate_setup_controller", "macos_candidate_handoff", "macos_candidate_source",
 )
 
 
@@ -40,6 +41,7 @@ def run_runtime_self_test():
         "userDataUsed": False, "processMemoryRead": False, "networkUsed": False,
         "permissionPromptsUsed": False, "modelLoaded": False, "codecReady": False,
         "vendorRuntimeReady": False,
+        "candidateRuntimeReady": False,
     }
     try:
         if sys.platform != "darwin" or platform.machine() != "arm64":
@@ -58,6 +60,23 @@ def run_runtime_self_test():
         import macos_key_provider as provider
         provider._load_upstream()
         result["vendorRuntimeReady"] = True
+        # Verify the exact frozen loader used by the local experimental setup.
+        # Calling it twice catches prepare/start import collisions in a single
+        # service process. This checks only our installed code, never WeChat.
+        import macos_candidate_prepare as candidate_prepare
+        import macos_candidate_device_runtime as candidate_device
+        from macos_candidate_components import verified_package, verify_runtime_helpers
+        package, _ = verified_package(candidate_device.EXTRA_SOURCES)
+        first = candidate_prepare._debug_module()
+        if candidate_prepare._debug_module() is not first:
+            raise RuntimeError("candidate-runtime-import-changed")
+        verify_runtime_helpers(package)
+        from macos_candidate_source_preflight import check_dependencies
+        preflight = check_dependencies(profile="desktop")
+        if preflight.get("ok") is not True:
+            result["reason"] = "candidate-desktop-dependency-check-failed"
+            return result
+        result["candidateRuntimeReady"] = True
         _check_codec()
         result["codecReady"] = True
         from database_runtime_self_test import run_database_self_test
