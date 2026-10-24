@@ -5,7 +5,7 @@ import { RelationshipJourney } from "@/components/RelationshipJourney";
 import { ReportDetails } from "@/components/web-analysis/ReportDetails";
 import { SelfChatMemory } from "@/components/SelfChatMemory";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Plus, ArrowLeft, ArrowUpRight, Pause, Play, ShieldCheck, Trash2, UsersRound, TrendingUp, NotebookPen, HeartHandshake, Fingerprint, Search, Columns3 } from "lucide-react";
+import { Plus, ArrowLeft, ArrowUpRight, Pause, Play, ShieldCheck, Trash2, UsersRound, TrendingUp, NotebookPen, HeartHandshake, Fingerprint, Search, Columns3, LoaderCircle } from "lucide-react";
 import { WebNav } from "@/components/WebNav";
 import { AuroraPageHero } from "@/components/AuroraPageHero";
 import { QuickSelfProfile } from "@/components/QuickSelfProfile";
@@ -15,7 +15,6 @@ import { PersonAvatar } from "@/components/PersonAvatar";
 import {PersonAvatarChoice} from "@/components/PersonAvatarChoice";
 import { AddMaterials } from "@/components/AddMaterials";
 import { PersonOverview } from "@/components/PersonOverview";
-import { ArchiveImportedActivity } from "@/components/ArchiveImportedActivity";
 import { ArchiveComparison } from "@/components/ArchiveComparison";
 import { ArchiveFeedback, EventDateEditor } from "@/components/ArchiveFeedback";
 import { CommunicationReading, MomentsReportView } from "@/components/ArchiveInsights";
@@ -24,7 +23,7 @@ import { archiveRequest, personDisplayData, basicFields, preferenceFields, perso
 import styles from "./archive.module.css";
 import {api,useAccount} from "@/components/web-analysis/client";
 import {intakeReturnTo} from "@/components/web-analysis/intake-navigation";
-import { archiveSession, rememberArchive, clearArchive, archiveDetailFresh } from '@/lib/archive-session-cache';
+import { archiveSession, rememberArchive, rememberArchiveDetail, clearArchive, archiveDetailFresh, type ArchiveDetailResult } from '@/lib/archive-session-cache';
 
 const empty: ArchiveState = { enabled: false, paused: false, self: {}, subjects: [], facts: [], signals: [], trends: [] };
 type Action = (body: Record<string, unknown>, message?: string) => Promise<boolean>;
@@ -66,6 +65,8 @@ function OwnedArchive({ownerId}:{ownerId:string}) {
   const mutation = useRef(false);
   const ownerVerification=useRef<Promise<void>|null>(null);
   const detailAttempt=useRef('');
+  const [detailRetry,setDetailRetry]=useState(0);
+  const [detailRead,setDetailRead]=useState<{subjectId:string;generation:number;status:'loading'|'ready'|'empty'|'error';message?:string;refresh?:boolean}|null>(null);
   const mounted=useRef(true),loadGeneration=useRef(0);
   useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;loadGeneration.current++;};},[]);
   const verifyOwner=useCallback(async()=>{
@@ -83,7 +84,7 @@ function OwnedArchive({ownerId}:{ownerId:string}) {
     const version=++loadGeneration.current, lease=archiveSession(ownerId);
     detailAttempt.current='';
     setError("");setRefreshingList(true);
-    try { const [next] = await Promise.all([archiveRequest<ArchiveState>("profile"),verifyOwner()]); if(!mounted.current||version!==loadGeneration.current)return; const current=rememberArchive(ownerId,lease,next);if(!current)return;setState(current); setLoadFailed(false); setSignedOut(false); }
+    try { const [next] = await Promise.all([archiveRequest<ArchiveState>("profile?listOnly=1"),verifyOwner()]); if(!mounted.current||version!==loadGeneration.current)return; const current=rememberArchive(ownerId,lease,next);if(!current)return;setState(current); setLoadFailed(false); setSignedOut(false); }
     catch (cause) { if(!mounted.current||version!==loadGeneration.current)return; if ((cause as { status?: number }).status === 401) {clearArchive(ownerId);setState(empty);setSignedOut(true);} else { setLoadFailed(!archiveSession(ownerId).value); setError(cause instanceof Error ? cause.message : "档案暂时无法读取。"); } }
     finally { if(mounted.current&&version===loadGeneration.current){setLoading(false);setRefreshingList(false);} }
   }, [verifyOwner]);
@@ -122,21 +123,34 @@ function OwnedArchive({ownerId}:{ownerId:string}) {
   };
   const selected = state.subjects.find(item => item.id === selectedId);
   useEffect(() => {
-    if (!selected || loading || refreshingList || busy || !state.enabled || state.paused || (selected.relationshipContext&&archiveDetailFresh(ownerId,selectedId))) return;
+    if (tab!=="people" || section!=="trend" || !selected || loading || refreshingList || busy || !state.enabled || state.paused || (selected.relationshipContext&&archiveDetailFresh(ownerId,selectedId))) return;
     // A null result or a detail larger than the memory budget is still one
     // completed attempt. New object identity must not start a request loop.
-    const attempt=JSON.stringify([loadGeneration.current,selectedId,revision]);
+    const attempt=JSON.stringify([loadGeneration.current,selectedId,revision,detailRetry]);
     if(detailAttempt.current===attempt)return;
     detailAttempt.current=attempt;
-    let active=true;const version=loadGeneration.current,lease=archiveSession(ownerId);
-    void Promise.all([archiveRequest<ArchiveState>("profile?subjectId="+encodeURIComponent(selectedId)),verifyOwner()]).then(([next])=>{
+    let active=true,finished=false,timedOut=false;const version=loadGeneration.current,lease=archiveSession(ownerId),controller=new AbortController();
+    const timer=setTimeout(()=>{timedOut=true;controller.abort();},20000);
+    setDetailRead({subjectId:selectedId,generation:version,status:'loading'});
+    void Promise.all([api("/api/web/profile?subjectId="+encodeURIComponent(selectedId)+"&detailOnly=1",undefined,controller.signal),verifyOwner()]).then(([value])=>{
       if(!active||!mounted.current||version!==loadGeneration.current)return;
-      const person=next.subjects.find(item=>item.id===selectedId);
-      if(person){const current=rememberArchive(ownerId,lease,next,selectedId);if(current)setState(previous=>current.enabled&&!current.paused?{...previous,subjects:previous.subjects.map(item=>item.id===selectedId?current.subjects.find(row=>row.id===selectedId)||item:item)}:current);}
-      else void load(); // The requested person was removed while the read ran.
-    }).catch(cause=>{if(active&&mounted.current&&version===loadGeneration.current&&(cause as {status?:number}).status===401){clearArchive(ownerId);setState(empty);setSignedOut(true);}});
-    return()=>{active=false;};
-  },[selectedId,selected?.updatedAt,selected?.relationshipContext,loading,refreshingList,busy,state.enabled,state.paused,revision,verifyOwner,load]);
+      const next=value as ArchiveDetailResult;
+      if(next.subjectId!==selectedId || next.subjectUpdatedAt!==selected.updatedAt)throw Object.assign(new Error("人物资料已变化，请刷新后继续。"),{status:409});
+      const current=rememberArchiveDetail(ownerId,lease,state,next);
+      if(!current)throw Object.assign(new Error("资料正在更新，请刷新后继续。"),{status:409});
+      finished=true;
+      setState(current);
+      setDetailRead({subjectId:selectedId,generation:version,status:next.relationshipContext?'ready':'empty'});
+    }).catch(cause=>{
+      if(!active||!mounted.current||version!==loadGeneration.current)return;
+      finished=true;
+      const status=(cause as {status?:number}).status;
+      if(status===401){clearArchive(ownerId);setState(empty);setSignedOut(true);return;}
+      setDetailRead({subjectId:selectedId,generation:version,status:'error',refresh:status===404||status===409,message:timedOut?"历程读取时间较长，已保存的资料仍在。请重试。":cause instanceof Error?cause.message:"历程暂时未取回，请重试。"});
+    }).finally(()=>{finished=true;clearTimeout(timer);});
+    return()=>{active=false;clearTimeout(timer);controller.abort();if(!finished&&detailAttempt.current===attempt)detailAttempt.current='';};
+  },[tab,section,selectedId,selected?.updatedAt,selected?.relationshipContext,loading,refreshingList,busy,state.enabled,state.paused,revision,detailRetry,verifyOwner,load]);
+  const currentDetail=detailRead?.subjectId===selectedId&&detailRead.generation===loadGeneration.current?detailRead:null;
   const oldSignal = state.signals.find(item => item.subjectId === selectedId);
   const signal = selected?.savedChatAnalysis && (!oldSignal || selected.savedChatAnalysis.createdAt > oldSignal.updatedAt) ? undefined : oldSignal;
   const savedReport = selected?.savedAnalysis;
@@ -193,7 +207,10 @@ function OwnedArchive({ownerId}:{ownerId:string}) {
       {selected && tab === "people" && <><div className={`${styles.tabs} ${styles.detailTabs}`} role="tablist" aria-label="人物详情">{([["overview", "现状"], ["trend", "历程"], ["profile", "双方资料"]] as const).map(([value,label])=><button role="tab" key={value} aria-selected={section===value||value==="overview"&&section==="evidence"} onClick={()=>switchSection(value)}>{label}</button>)}</div>
         {section==="overview"&&<PersonOverview person={selected} signal={signal} recent={recent} onSection={switchSection}/>}
         {section==="trend"&&<>
-          {selected.relationshipContext ? <RelationshipJourney key={selected.id} context={selected.relationshipContext} friend={selected.label}/> : <ArchiveImportedActivity owner={ownerId} subjectId={selected.id} label={selected.label}/>}
+          {!state.enabled||state.paused?<section className={styles.card}><h2>相处历程</h2><p>恢复档案使用后，可以查看关联材料中的互动与经历。</p></section>:<>
+          {selected.relationshipContext&&<RelationshipJourney key={selected.id} context={selected.relationshipContext} friend={selected.label}/>}
+          {currentDetail?.status==='error'?<section className={styles.card} role="alert"><h2>历程暂时未取回</h2><p>{currentDetail.message}</p><button className={styles.button} onClick={()=>currentDetail.refresh?void load():setDetailRetry(value=>value+1)}>重新读取历程</button></section>:!selected.relationshipContext&&<section className={styles.card} aria-busy={currentDetail?.status!=='empty'}>{currentDetail?.status==='empty'?<><h2>还没有关联的相处历程</h2><p>补充聊天或线下经历后，可以按日期查看互动和依据。</p><a className={styles.link} href={`/capture?method=library&subjectId=${encodeURIComponent(selected.id)}`}>查看已导入材料<ArrowUpRight size={15}/></a><button className={styles.button} onClick={()=>setDetailRetry(value=>value+1)}>重新读取历程</button></>:<p role="status"><LoaderCircle className={styles.spin} size={16}/>正在读取这位人物的相处历程…</p>}</section>}
+          </>}
           <ReportDetails title="补充线下经历与行动反馈" description="把通话、见面和建议的实际结果接入这段历程"><ArchiveFeedback key={`actions-${selected.id}`} subjectId={selected.id} disabled={state.paused||!state.enabled} revision={revision} facts={scopedFacts} onFactAction={act}/><ArchiveFeedback key={`events-${selected.id}`} subjectId={selected.id} disabled={state.paused||!state.enabled} revision={revision} facts={scopedFacts} onFactAction={act} view="events"/></ReportDetails>
         </>}
         {section==="profile"&&<>

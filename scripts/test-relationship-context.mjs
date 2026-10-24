@@ -6,9 +6,9 @@ import {DatabaseSync} from 'node:sqlite';
 import ts from 'typescript';
 const require=createRequire(import.meta.url),sql=new DatabaseSync(':memory:');
 for(const file of readdirSync('drizzle').filter(file=>file.endsWith('.sql')).sort())sql.exec(readFileSync('drizzle/'+file,'utf8'));
-const profileQueries=[];
-const db={prepare(query){profileQueries.push(query);return{args:[],bind(...args){this.args=args;return this;},async first(){return sql.prepare(query).get(...this.args)||null;},async all(){return{results:sql.prepare(query).all(...this.args)};},async run(){return{meta:{changes:Number(sql.prepare(query).run(...this.args).changes)}};}};},async batch(statements){return Promise.all(statements.map(statement=>statement.run()));}};
-const cache=new Map();function load(file){const path=resolve(file);if(cache.has(path))return cache.get(path);const exports={};cache.set(path,exports);const code=ts.transpileModule(readFileSync(path,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;new Function('exports','require','fetch',code)(exports,name=>{if(name==='@/db')return{getD1:()=>db};if(name==='@/lib/miniapp-auth')return{miniappOwner:async()=>({ownerId:'owner'})};if(name==='@/lib/crush/service')return{deleteCrush:async()=>{}};if(name.startsWith('@/')||name.startsWith('.')){let next=name.startsWith('@/')?resolve(name.slice(2)):resolve(dirname(path),name);if(!/\.(?:ts|mjs)$/.test(next))next+='.ts';return load(next);}return require(name);},()=>assert.fail('No network/model calls'));return exports;}
+const profileQueries=[];let beforeQuery=null,requestOwner='owner';
+const db={prepare(query){profileQueries.push(query);return{args:[],bind(...args){this.args=args;return this;},async first(){beforeQuery?.(query,this.args);return sql.prepare(query).get(...this.args)||null;},async all(){beforeQuery?.(query,this.args);return{results:sql.prepare(query).all(...this.args)};},async run(){return{meta:{changes:Number(sql.prepare(query).run(...this.args).changes)}};}};},async batch(statements){return Promise.all(statements.map(statement=>statement.run()));}};
+const cache=new Map();function load(file){const path=resolve(file);if(cache.has(path))return cache.get(path);const exports={};cache.set(path,exports);const code=ts.transpileModule(readFileSync(path,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;new Function('exports','require','fetch',code)(exports,name=>{if(name==='@/db')return{getD1:()=>db};if(name==='@/lib/miniapp-auth')return{miniappOwner:async()=>requestOwner?({ownerId:requestOwner}):null};if(name==='@/lib/crush/service')return{deleteCrush:async()=>{}};if(name.startsWith('@/')||name.startsWith('.')){let next=name.startsWith('@/')?resolve(name.slice(2)):resolve(dirname(path),name);if(!/\.(?:ts|mjs)$/.test(next))next+='.ts';return load(next);}return require(name);},()=>assert.fail('No network/model calls'));return exports;}
 const {projectRelationshipContext,relationshipEventDate,relationshipContextExcerpt}=load('lib/relationship-context.ts'),{computeChatActivity}=load('lib/chat-activity.ts'),{loadSubjectRelationshipContext}=load('lib/relationship-context-server.ts');
 const owner='owner',A='aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',B='bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 for(const id of [owner,'foreign'])sql.prepare("INSERT INTO coach_profiles VALUES(?,1,0,'{}',1)").run(id);
@@ -31,7 +31,67 @@ for(const row of reports.filter(row=>row.subject_id===A))sql.prepare("INSERT INT
 sql.prepare("INSERT INTO coach_facts(id,owner_id,subject_id,field,value,source,evidence,event_meta,status,created_at) VALUES(?,?,?,?,?,'user',?,?,?,?)").run(fact.id,owner,A,fact.field,fact.value,fact.evidence,fact.event_meta,fact.status,fact.created_at);
 sql.prepare("UPDATE coach_subjects SET data=? WHERE id=?").run(JSON.stringify(feedback),A);
 const live=await loadSubjectRelationshipContext(owner,A,{includeActivity:true,db});assert.equal(live.activity.messages,675);assert.equal(live.activity.days.length,27);assert.equal(live.coverage.activityStatus,'current');assert.equal(live.coverage.archiveMessages,675);assert.ok(live.events.some(event=>event.kind==='chat'&&event.sources.some(source=>source.sourceId==='source-0')));assert.equal(await loadSubjectRelationshipContext('foreign',A,{db}),null);assert.equal((await loadSubjectRelationshipContext(owner,B,{db})).events.length,0);
-const profile=load('app/api/miniapp/profile/route.ts'),response=await profile.GET(new Request('https://test.invalid/api/web/profile?subjectId='+A));assert.equal(response.status,200);const state=await response.json();assert.equal(state.subjects.find(person=>person.id===A).relationshipContext.activity.messages,675);assert.ok(state.signals.some(signal=>signal.subjectId===A&&signal.messageCount===675&&signal.score===null));assert.ok(state.trends.find(trend=>trend.subjectId===A).points.some(point=>point.eventDayCount===27));
+const profile=load('app/api/miniapp/profile/route.ts');profileQueries.length=0;
+const response=await profile.GET(new Request('https://test.invalid/api/web/profile?subjectId='+A));assert.equal(response.status,200);const state=await response.json();assert.equal(state.subjects.find(person=>person.id===A).relationshipContext.activity.messages,675);assert.ok(state.signals.some(signal=>signal.subjectId===A&&signal.messageCount===675&&signal.score===null));assert.ok(state.trends.find(trend=>trend.subjectId===A).points.some(point=>point.eventDayCount===27));
+const legacyDetailQueries=profileQueries.length;
+const detailRequest=()=>new Request('https://test.invalid/api/web/profile?subjectId='+A+'&detailOnly=1');
+profileQueries.length=0;
+const detailResponse=await profile.GET(detailRequest()),detail=await detailResponse.json();
+assert.equal(detailResponse.status,200);
+assert.deepEqual(Object.keys(detail).sort(),['enabled','paused','relationshipContext','subjectId','subjectUpdatedAt']);
+assert.equal(detail.subjectId,A);assert.equal(detail.subjectUpdatedAt,1);assert.equal(detail.relationshipContext.activity.messages,675);
+assert.deepEqual(detail.relationshipContext,state.subjects.find(person=>person.id===A).relationshipContext,'narrow response retains the full verified context');
+assert.ok(!profileQueries.some(query=>query.includes('LIMIT 40')||query.includes('selfArchiveSummary')||query.includes('signal_source')),'selected detail never reads the full roster, self summaries or all-person signals');
+assert.equal(profileQueries.filter(query=>query==='SELECT consent_at,paused FROM coach_profiles WHERE owner_id=?').length,2,'request-local authorization seed avoids a redundant initial profile read; final authorization check remains');
+assert.equal(profileQueries.filter(query=>query.startsWith('SELECT data,updated_at FROM coach_subjects')).length,1);
+const narrowDetailQueries=profileQueries.length;
+assert.ok(narrowDetailQueries<legacyDetailQueries);
+const snapshot=state.subjects.find(person=>person.id===A).savedChatAnalysis.activitySnapshot;
+assert.deepEqual(Object.keys(snapshot).sort(),['activeDays','messages','other','self','starts','unknown']);
+assert.equal(snapshot.messages,675);assert.equal(snapshot.self+snapshot.other+snapshot.unknown,675);assert.deepEqual(snapshot.starts,activity.starts);
+assert.equal(snapshot.days,undefined);assert.equal(snapshot.sessions,undefined);
+const {projectPersonSavedAnalysis}=load('lib/person-saved-insights.ts');
+const projectActivity=payload=>projectPersonSavedAnalysis([{...report('snapshot-fixture','chat',payload),result:JSON.stringify(payload)}],A,['chat'])?.activitySnapshot;
+assert.equal(projectActivity({...full,analysisScope:'selected'}),null,'a partial interpretation cannot manufacture a full-history graph');
+assert.equal(projectActivity({...full,chatActivity:{...activity,messages:activity.messages+1}}),null,'inconsistent saved counters are omitted');
+assert.equal(projectActivity({...full,chatActivity:{...activity,starts:{...activity.starts,comparable:9999}}}),null,'inconsistent saved session counts are omitted');
+assert.equal(projectActivity({...full,targetSelf:true}),undefined,'self-targeted reports are not projected onto another person');
+assert.equal(projectActivity({...full,subjectId:B}),undefined,'payload and persisted subject must agree');
+console.log('PASS selected-only context: '+legacyDetailQueries+' legacy SQL calls -> '+narrowDetailQueries+' focused SQL calls on the same synthetic fixture; equivalent context, compact saved statistics, no account-wide reread.');
+
+assert.equal((await profile.GET(new Request('https://test.invalid/api/web/profile?detailOnly=1'))).status,400);
+requestOwner=null;assert.equal((await profile.GET(detailRequest())).status,401);requestOwner='foreign';assert.equal((await profile.GET(detailRequest())).status,404);requestOwner=owner;
+sql.prepare("UPDATE coach_profiles SET paused=1 WHERE owner_id=?").run(owner);
+const paused=await profile.GET(detailRequest()),pausedData=await paused.json();assert.equal(paused.status,200);assert.equal(pausedData.paused,true);assert.equal(pausedData.relationshipContext,null);
+sql.prepare("UPDATE coach_profiles SET paused=0 WHERE owner_id=?").run(owner);
+sql.prepare("UPDATE coach_profiles SET consent_at=NULL WHERE owner_id=?").run(owner);
+const revoked=await profile.GET(detailRequest());assert.equal(revoked.status,200);assert.equal((await revoked.json()).enabled,false);
+sql.prepare("UPDATE coach_profiles SET consent_at=1 WHERE owner_id=?").run(owner);
+beforeQuery=query=>{if(query.startsWith('SELECT id,updated_at FROM coach_subjects'))sql.prepare('UPDATE coach_subjects SET updated_at=2 WHERE id=?').run(A);};
+assert.equal((await profile.GET(detailRequest())).status,409,'a changed subject cannot be tagged with an older base timestamp');beforeQuery=null;sql.prepare('UPDATE coach_subjects SET updated_at=1 WHERE id=?').run(A);
+let libraryReads=0;beforeQuery=query=>{if(query.startsWith('SELECT id,epoch,revision,kind FROM coach_capture_libraries')&&++libraryReads===2)sql.prepare("UPDATE coach_capture_libraries SET revision=revision+1 WHERE id='cl_A'").run();};
+assert.equal((await profile.GET(detailRequest())).status,409,'source changes during capture statistics invalidate the full detail');beforeQuery=null;sql.prepare("UPDATE coach_capture_libraries SET revision=0 WHERE id='cl_A'").run();
+let authorizationReads=0;beforeQuery=query=>{if(query==='SELECT consent_at,paused FROM coach_profiles WHERE owner_id=?'&&++authorizationReads===2)sql.prepare('UPDATE coach_profiles SET paused=1 WHERE owner_id=?').run(owner);};
+assert.equal((await profile.GET(detailRequest())).status,409,'pausing while the detail is read cannot return old authorized content');beforeQuery=null;sql.prepare('UPDATE coach_profiles SET paused=0 WHERE owner_id=?').run(owner);
+const emptyDetail=await profile.GET(new Request('https://test.invalid/api/web/profile?subjectId='+B+'&detailOnly=1'));
+assert.equal(emptyDetail.status,200);const emptyContext=(await emptyDetail.json()).relationshipContext;assert.equal(emptyContext.activity,null);assert.equal(emptyContext.coverage.activityStatus,'missing');
+
+// Deleted/old-epoch/rebound related material cannot restore a saved graph or
+// relationship judgment through the compact overview projection.
+const linked={...full,summary:'linked synthetic report',relatedSnapshots:[{libraryId:'cl_related',epoch:1,revision:0}]};
+sql.prepare("INSERT INTO coach_capture_libraries(id,owner_id,account,friend,kind,subject_id,created_at,updated_at) VALUES('cl_related','owner','wx','A-moments','moments',?,'2026-01-01','2026-02-01')").run(A);
+sql.prepare("INSERT INTO coach_saved_reports(id,owner_id,subject_id,kind,status,result,created_at,updated_at) VALUES('linked','owner',?,'chat','done',?,9999,1)").run(A,JSON.stringify(linked));
+const savedId=async()=>{const result=await profile.GET(new Request('https://test.invalid/api/web/profile'));return(await result.json()).subjects.find(person=>person.id===A).savedChatAnalysis?.reportId;};
+assert.equal(await savedId(),'linked');
+for(const change of ["deleted_at=1","epoch=2","subject_id='foreign-person'"]){
+ sql.prepare('UPDATE coach_capture_libraries SET '+change+" WHERE id='cl_related'").run();assert.notEqual(await savedId(),'linked');
+ sql.prepare("UPDATE coach_capture_libraries SET deleted_at=NULL,epoch=1,subject_id=? WHERE id='cl_related'").run(A);
+}
+sql.prepare("UPDATE coach_capture_libraries SET epoch=2 WHERE id='cl_A'").run();
+assert.equal(await savedId(),undefined,'replaced primary epoch invalidates saved activity as well as report projection');
+sql.prepare("UPDATE coach_capture_libraries SET epoch=1 WHERE id='cl_A'").run();
+sql.prepare("DELETE FROM coach_saved_reports WHERE id='linked'").run();sql.prepare("DELETE FROM coach_capture_libraries WHERE id='cl_related'").run();
+console.log('PASS focused detail: owner isolation, malformed request, disabled/paused, same-request mutation, source revision changes, truthful empty context, related-source deletion/epoch/rebinding and primary-epoch rejection.');
 for(let i=0;i<38;i++)sql.prepare("INSERT INTO coach_subjects(id,owner_id,label,status,data,created_at,updated_at) VALUES(?,'owner',?,'active','{}',1,1)").run('scale-'+i,'scale-'+i);
 profileQueries.length=0;
 const listResponse=await profile.GET(new Request('https://test.invalid/api/web/profile'));
@@ -42,6 +102,34 @@ assert.ok(profileQueries.length<=20,'40-person list must stay within bounded dat
 assert.ok(!profileQueries.some(query=>query.includes('ORDER BY seq LIMIT 500 OFFSET')),'profile reads never scan all historical chat pages');
 assert.ok(listState.subjects.find(person=>person.id===A).savedChatAnalysis,'saved report remains available on the list');
 console.log('PASS 40-person archive list: '+profileQueries.length+' queries, no eager full contexts or historical backfill; focused detail still includes verified charts.');
+// List-only skips a real, source-validated self-memory chain without removing
+// facts, saved reports, signals, trends, or any other archive field.
+const memory={version:1,libraryId:'cl_A',epoch:1,removed:[],items:[{id:'memory-item',sourceId:'source-0',field:'values',label:'合成价值观',value:'合成保存内容',quote:rows[0].text,at:rows[0].at,basis:'statement'}]};
+sql.prepare("INSERT INTO coach_facts(id,owner_id,subject_id,field,value,source,evidence,status,created_at) VALUES('list-memory','owner',NULL,'selfArchiveSummary',?,'fixture','fixture','derived',1)").run(JSON.stringify(memory));
+const archiveRead=query=>profile.GET(new Request('https://test.invalid/api/web/profile'+query));
+profileQueries.length=0;const fullListResponse=await archiveRead(''),fullList=await fullListResponse.json(),fullListQueries=profileQueries.length;
+assert.equal(fullListResponse.status,200);assert.equal(fullList.selfMemory.summaries.length,1,'fixture exercises source-validated self-memory, not just an empty response');
+profileQueries.length=0;const fastListResponse=await archiveRead('?listOnly=1'),fastList=await fastListResponse.json(),fastListQueries=profileQueries.length;
+assert.equal(fastListResponse.status,200);const {selfMemory:omittedMemory,...expectedList}=fullList;
+assert.deepEqual(fastList,expectedList);assert.ok(!Object.hasOwn(fastList,'selfMemory'));
+assert.ok(!profileQueries.some(query=>query.includes('selfArchiveSummary')||query.includes('FROM json_each(?) requested CROSS JOIN')));
+assert.equal(profileQueries.filter(query=>query.includes('FROM coach_profiles WHERE owner_id=?')).length,1,'base authorization remains; the unused memory authorization/read chain is absent');
+assert.ok(fastListQueries<fullListQueries);
+console.log('PASS listOnly: '+fullListQueries+' legacy SQL calls -> '+fastListQueries+' list SQL calls with validated self-memory present; all other response fields deeply equal.');
+for(const query of ['?listOnly=0','?listOnly=','?detailOnly=0','?detailOnly=','?listOnly=1&detailOnly=1','?listOnly=1&listOnly=1','?detailOnly=1&detailOnly=1','?listOnly=1&subjectId='+A,'?detailOnly=1&subjectId='+A+'&subjectId='+B]){
+ profileQueries.length=0;assert.equal((await archiveRead(query)).status,400,query);assert.equal(profileQueries.length,0,'invalid modes cannot trigger fallback archive reads');
+}
+requestOwner=null;assert.equal((await archiveRead('?listOnly=1')).status,401);requestOwner='foreign';
+const foreignList=await(await archiveRead('?listOnly=1')).json();assert.ok(foreignList.subjects.every(person=>person.id!==A&&person.id!==B));assert.ok(!foreignList.facts.some(fact=>fact.id==='event1'));requestOwner=owner;
+sql.prepare('UPDATE coach_profiles SET paused=1 WHERE owner_id=?').run(owner);
+const pausedLegacy=await(await archiveRead('')).json(),pausedFast=await(await archiveRead('?listOnly=1')).json();
+const {selfMemory:pausedMemory,...pausedExpected}=pausedLegacy;assert.deepEqual(pausedFast,pausedExpected);assert.equal(pausedFast.paused,true);assert.equal(pausedMemory.status,'disabled');assert.ok(pausedFast.subjects.every(person=>person.savedChatAnalysis===null&&person.relationshipContext===null));
+sql.prepare('UPDATE coach_profiles SET paused=0,consent_at=NULL WHERE owner_id=?').run(owner);
+const revokedFast=await(await archiveRead('?listOnly=1')).json();assert.equal(revokedFast.enabled,false);assert.ok(revokedFast.subjects.every(person=>person.savedChatAnalysis===null&&person.relationshipContext===null));
+sql.prepare('UPDATE coach_profiles SET consent_at=1 WHERE owner_id=?').run(owner);
+const legacyPost=await profile.POST(new Request('https://test.invalid/api/web/profile',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'pause',paused:false})}));
+assert.equal(legacyPost.status,200);assert.equal((await legacyPost.json()).selfMemory.summaries.length,1,'legacy POST keeps the complete self-memory contract');
+sql.prepare("DELETE FROM coach_facts WHERE id='list-memory'").run();
 const question=await load('lib/profile-context.ts').loadProfileContext(owner,A,'朋友圈海边散步后，见面有什么新进展？',4200);assert.match(question,/当前人物统一事件与证据摘要/);assert.match(question,/散步|替代安排/);assert.ok(question.length<=4200);
 sql.prepare("DELETE FROM coach_capture_records WHERE local_id='source-0'").run();const deleted=await loadSubjectRelationshipContext(owner,A,{includeActivity:true,db});assert.ok(!deleted.events.some(event=>event.sources.some(source=>source.sourceId==='source-0')));assert.equal(deleted.activity.messages,674);
 sql.prepare("UPDATE coach_capture_libraries SET deleted_at=1 WHERE id='cl_A'").run();const removed=await loadSubjectRelationshipContext(owner,A,{includeActivity:true,db});assert.equal(removed.activity,null);assert.ok(!removed.events.some(event=>event.kind==='chat'));

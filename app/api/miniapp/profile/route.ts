@@ -12,7 +12,7 @@ import { cleanMomentsReport } from "@/lib/moments-report";
 import { cleanCommunicationReading } from "@/lib/communication-reading";
 import { interactionScore } from "@/lib/crush/interaction-score";
 import { conversationEventMetadata, correctConversationEventDate, FeedbackError } from "@/lib/relationship-feedback";
-import { projectPersonSavedAnalysis, savedFullHistorySignal } from "@/lib/person-saved-insights";
+import { projectPersonSavedAnalysis, savedFullHistorySignal, savedReportSourcesActive } from "@/lib/person-saved-insights";
 import { loadSubjectRelationshipContext } from "@/lib/relationship-context-server";
 import { loadSelfArchiveMemory, correctSelfArchiveMemory } from "@/lib/self-archive-memory";
 import { withCaptureHistoryPurge, CAPTURE_PURGE_UNAVAILABLE } from "@/lib/capture-history-purge";
@@ -57,7 +57,7 @@ const fallbackDimensions = (report: Record<string, unknown>, base = 50) => {
   ];
 };
 
-async function state(owner: string,focusSubject?:string) {
+async function state(owner: string,focusSubject?:string,options:{includeSelfMemory?:boolean}={}) {
   const db = getD1();
   const [profile, subjects, facts, savedReports] = await Promise.all([
     db.prepare("SELECT consent_at,paused,data FROM coach_profiles WHERE owner_id=?").bind(owner).first<{ consent_at: number | null; paused: number; data: string }>(),
@@ -65,8 +65,8 @@ async function state(owner: string,focusSubject?:string) {
     db.prepare("SELECT id,subject_id,field,value,source,evidence,status,event_meta FROM coach_facts WHERE owner_id=? AND (field IN ('recentEvent','profileClue','selfProfileClue') OR field LIKE 'selfBasic:%' OR field LIKE 'subjectBasic:%') AND status IN ('pending','accepted') ORDER BY created_at DESC LIMIT 200").bind(owner).all<{ id: string; subject_id: string | null; field: string; value: string; source: string; evidence: string; status: string; event_meta:string|null }>(),
     db.prepare("SELECT id,owner_id,subject_id,kind,status,result,summary,created_at FROM coach_saved_reports WHERE owner_id=? AND status='done' AND kind IN ('chat','moments','social') AND subject_id IS NOT NULL ORDER BY created_at DESC").bind(owner).all<{ id: string; owner_id: string; subject_id: string | null; kind: string; status: string; result: string | null; summary: string | null; created_at: number }>(),
   ]);
-  const activeSources=profile?.consent_at&&!profile.paused?await db.prepare("SELECT id,epoch,subject_id FROM coach_capture_libraries WHERE owner_id=? AND deleted_at IS NULL").bind(owner).all<{id:string;epoch:number;subject_id:string|null}>():{results:[]};
-  const visibleSavedReports=savedReports.results.filter(row=>{try{const value=JSON.parse(row.result||"{}"),snapshot=value.archiveSnapshot;return !snapshot||activeSources.results.some(source=>source.id===snapshot.libraryId&&source.epoch===snapshot.epoch&&source.subject_id===row.subject_id);}catch{return false;}});
+  const activeSources=profile?.consent_at&&!profile.paused?await db.prepare("SELECT id,epoch,revision,subject_id FROM coach_capture_libraries WHERE owner_id=? AND deleted_at IS NULL").bind(owner).all<{id:string;epoch:number;revision:number;subject_id:string|null}>():{results:[]};
+  const visibleSavedReports=savedReports.results.filter(row=>{try{return savedReportSourcesActive(JSON.parse(row.result||"{}"),row.subject_id,activeSources.results);}catch{return false;}});
   const signalRows = profile?.consent_at && !profile.paused ? await db.prepare(`
     SELECT subject_id, report_id, affinity, result, updated_at FROM (
       SELECT s.id AS subject_id, r.id AS report_id,
@@ -122,7 +122,7 @@ async function state(owner: string,focusSubject?:string) {
   const contexts=new Map<string,Awaited<ReturnType<typeof loadSubjectRelationshipContext>>>();
   if(focused&&profile?.consent_at&&!profile.paused)contexts.set(focused.id,await loadSubjectRelationshipContext(owner,focused.id,{includeActivity:true,db}));
   return {
-    selfMemory: await loadSelfArchiveMemory(owner, db),
+    ...(options.includeSelfMemory===false?{}:{selfMemory:await loadSelfArchiveMemory(owner, db)}),
     enabled: !!profile?.consent_at,
     paused: !!profile?.paused,
     self: profile?.consent_at && !profile.paused ? (() => { try { return recoverProfileFields(JSON.parse(profile.data), facts.results, null) as SelfData; } catch { return {}; } })() : {},
@@ -151,7 +151,33 @@ export async function GET(request: Request) {
   // New imports and synchronization update self summaries incrementally. A
   // profile read must not scan and rewrite all older chat libraries first.
   // Historical backfill remains a separate maintenance operation.
-  try { return json(await state(identity.ownerId,new URL(request.url).searchParams.get("subjectId")||undefined)); }
+  try {
+    const query=new URL(request.url).searchParams,subjectId=query.get("subjectId")||undefined;
+    const detailOnly=query.has("detailOnly"),listOnly=query.has("listOnly");
+    // Explicit modes must not silently fall back to a larger legacy response.
+    if((detailOnly&&(query.getAll("detailOnly").length!==1||query.get("detailOnly")!=="1"))
+      ||(listOnly&&(query.getAll("listOnly").length!==1||query.get("listOnly")!=="1"))
+      ||detailOnly&&listOnly||listOnly&&query.has("subjectId")
+      ||detailOnly&&query.getAll("subjectId").length!==1)
+      return json({error:"档案读取方式不正确，请刷新后重试。",code:"PROFILE_READ_MODE_INVALID"},400);
+    if(detailOnly){
+      if(!subjectId||!idPattern.test(subjectId))return json({error:"请选择有效的人物。",code:"PROFILE_SUBJECT_REQUIRED"},400);
+      const db=getD1(),owner=identity.ownerId;
+      // These are request-local, owner-scoped seeds, never data supplied by the
+      // client. Keep the legacy full-state response unchanged for other callers.
+      const [profile,subject]=await Promise.all([
+        db.prepare("SELECT consent_at,paused FROM coach_profiles WHERE owner_id=?").bind(owner).first<{consent_at:number|null;paused:number}>(),
+        db.prepare("SELECT data,updated_at FROM coach_subjects WHERE owner_id=? AND id=? AND status='active'").bind(owner,subjectId).first<{data:string;updated_at:number}>()
+      ]);
+      if(!subject)return json({error:"这位人物已被删除或不属于当前账号，请刷新人物列表。",code:"PROFILE_SUBJECT_UNAVAILABLE"},404);
+      const base={enabled:!!profile?.consent_at,paused:!!profile?.paused,subjectId,subjectUpdatedAt:subject.updated_at};
+      if(!profile?.consent_at||profile.paused)return json({...base,relationshipContext:null});
+      const context=await loadSubjectRelationshipContext(owner,subjectId,{includeActivity:true,db,preloaded:{ownerId:owner,subjectId,profile,subject}});
+      if(!context)return json({error:"人物资料或授权在读取时发生变化，请刷新后重试。",code:"PROFILE_DETAIL_CHANGED"},409);
+      return json({...base,relationshipContext:context});
+    }
+    return json(await state(identity.ownerId,subjectId,{includeSelfMemory:!listOnly}));
+  }
   catch(error) {
     console.error("profile_read_unavailable",error instanceof Error?error.name:"UnknownError");
     return json({error:"档案服务暂时繁忙，请稍后重新加载。",code:"PROFILE_READ_UNAVAILABLE"},503);

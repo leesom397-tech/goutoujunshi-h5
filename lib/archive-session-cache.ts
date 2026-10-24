@@ -1,6 +1,11 @@
 import { webAccountStore } from './web-account-session';
 import type { ArchiveState } from '@/app/archive/types';
 
+export type ArchiveDetailResult = {
+  enabled: boolean; paused: boolean; subjectId: string; subjectUpdatedAt: number;
+  relationshipContext: NonNullable<ArchiveState['subjects'][number]['relationshipContext']> | null;
+};
+
 /** Memory for the current authenticated document only; no Web Storage. */
 export function createArchiveSessionCache(maxCharacters = 6_000_000) {
   let binding = '', value: ArchiveState | null = null, epoch = 0;
@@ -62,6 +67,17 @@ export function archiveSession(owner: string) {
 export function rememberArchive(owner: string, lease: ReturnType<typeof archiveSession>, value: ArchiveState, subjectId?: string) {
   const current = session();
   return owner === current.owner && current.revision === lease.revision ? cache.put(owner, current.revision, lease.ticket, value, subjectId) : null;
+}
+/** A focused reply supplies context only; it cannot replace saved reports or other people. */
+export function rememberArchiveDetail(owner: string, lease: ReturnType<typeof archiveSession>, base: ArchiveState, detail: ArchiveDetailResult) {
+  const person = base.subjects.find(item => item.id === detail.subjectId);
+  if (!person || person.updatedAt !== detail.subjectUpdatedAt ||
+      typeof detail.enabled !== 'boolean' || typeof detail.paused !== 'boolean' ||
+      detail.relationshipContext !== null && (!detail.relationshipContext || detail.relationshipContext.subjectId !== person.id)) return null;
+  const allowed = detail.enabled && !detail.paused;
+  const next = { ...base, enabled: detail.enabled, paused: detail.paused, subjects: base.subjects.map(item =>
+    !allowed || item.id === person.id ? { ...item, relationshipContext: allowed ? detail.relationshipContext ?? null : null } : item) };
+  return rememberArchive(owner, lease, next, person.id);
 }
 export function clearArchive(owner: string) { if (session().owner === owner) cache.clear(); }
 export function archiveDetailFresh(owner: string, subjectId: string) { return session().owner === owner && cache.detailFresh(subjectId); }

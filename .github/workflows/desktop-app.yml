@@ -53,7 +53,7 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           import json, os, plistlib, subprocess
-          output = Path('outputs/desktop-app/0.1.0-preview.13').resolve()
+          output = Path('outputs/desktop-app/0.1.0-preview.14').resolve()
           bundles = list((output / 'mac-arm64').glob('*.app'))
           assert len(bundles) == 1, 'Expected one outer desktop application'
           bundle = bundles[0]
@@ -95,10 +95,10 @@ jobs:
           python - <<'PY'
           from pathlib import Path
           import hashlib, json
-          output = Path('outputs/desktop-app/0.1.0-preview.13')
+          output = Path('outputs/desktop-app/0.1.0-preview.14')
           files = sorted(p for p in output.iterdir() if p.suffix in ('.zip', '.dmg'))
           assert len(files) == 2, 'Expected both DMG and ZIP'
-          receipt = {'version': '0.1.0-preview.13', 'platform': 'darwin', 'arch': 'arm64',
+          receipt = {'version': '0.1.0-preview.14', 'platform': 'darwin', 'arch': 'arm64',
                      'developerIdSigned': False, 'notarized': False, 'publicRelease': False,
                      'realWechatAccountTested': False, 'files': []}
           for p in files:
@@ -109,17 +109,17 @@ jobs:
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         if: ${{ success() && steps.package.outcome == 'success' }}
         with:
-          name: chengzi-desktop-0.1.0-preview.13-mac-arm64-${{ github.run_number }}
+          name: chengzi-desktop-0.1.0-preview.14-mac-arm64-${{ github.run_number }}
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
           path: |
-            outputs/desktop-app/0.1.0-preview.13/*.dmg
-            outputs/desktop-app/0.1.0-preview.13/*.zip
-            outputs/desktop-app/0.1.0-preview.13/preview-build.json
+            outputs/desktop-app/0.1.0-preview.14/*.dmg
+            outputs/desktop-app/0.1.0-preview.14/*.zip
+            outputs/desktop-app/0.1.0-preview.14/preview-build.json
             desktop/wechat-collector/dist/desktop-service/runtime-self-test.json
-            outputs/desktop-app/0.1.0-preview.13/smoke-mac/receipt.json
-            outputs/desktop-app/0.1.0-preview.13/smoke-mac/window.png
-            outputs/desktop-app/0.1.0-preview.13/smoke-mac/workspace.png
-            outputs/desktop-app/0.1.0-preview.13/smoke-mac/service-database.json
-            outputs/desktop-app/0.1.0-preview.13/smoke-mac/service-stdio.json
+            outputs/desktop-app/0.1.0-preview.14/smoke-mac/receipt.json
+            outputs/desktop-app/0.1.0-preview.14/smoke-mac/window.png
+            outputs/desktop-app/0.1.0-preview.14/smoke-mac/workspace.png
+            outputs/desktop-app/0.1.0-preview.14/smoke-mac/service-database.json
+            outputs/desktop-app/0.1.0-preview.14/smoke-mac/service-stdio.json

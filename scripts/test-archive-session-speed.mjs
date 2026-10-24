@@ -9,16 +9,19 @@ import ArchivePage from './app/archive/page';
 import{installDesktopNavigation,useDesktopLocation,navigate}from'./desktop/app/frontend/navigation';
 import{webAccountStore,announceAccountChange}from'./lib/web-account-session';
 import{api}from'./components/web-analysis/client';
-import{createArchiveSessionCache}from'./lib/archive-session-cache';
-window.createArchiveSessionCache=createArchiveSessionCache;
-window.identity='owner-A';window.calls=[];window.hold=false;window.pending=[];window.fail=false;window.contextVersion='first-context';
-window.fixture={enabled:true,paused:false,self:{city:'Fixture city'},subjects:[{id:'11111111-1111-4111-8111-111111111111',label:'Synthetic Alice',updatedAt:100}],facts:[],signals:[],trends:[]};
+import{createArchiveSessionCache,archiveSession}from'./lib/archive-session-cache';
+window.createArchiveSessionCache=createArchiveSessionCache;window.archiveSession=archiveSession;
+window.identity='owner-A';window.calls=[];window.hold=false;window.pending=[];window.fail=false;window.contextVersion='first-context';window.aborted=0;
+window.fixture={enabled:true,paused:false,self:{city:'Fixture city'},subjects:[{id:'11111111-1111-4111-8111-111111111111',label:'Synthetic Alice',updatedAt:100,savedChatAnalysis:{reportId:'saved-report',createdAt:100,kind:'chat',summary:'Saved relationship judgment',activitySnapshot:{messages:441,self:250,other:191,unknown:0,activeDays:14,starts:{comparable:0,self:0,other:0}}}}],facts:[],signals:[],trends:[]};
 window.fetch=async(path,options={})=>{const u=new URL(String(path),location.href);window.calls.push(u.pathname+u.search);
 if(u.pathname==='/api/web/account-context')return Response.json({account:{userId:window.identity,balance:20},people:[],prices:{},user:{name:'Fixture'}});
 if(u.pathname==='/api/account/credits'||u.pathname==='/api/web/profile'){
- const data=u.pathname==='/api/account/credits'?{account:{userId:window.identity}}:structuredClone(window.fixture);
- if(u.pathname==='/api/web/profile')for(const person of data.subjects)person.relationshipContext=!window.noContext&&u.searchParams.get('subjectId')===person.id?{testMarker:window.contextVersion}:null;
- if(window.hold&&(!options.method||options.method==='GET'))return new Promise(resolve=>window.pending.push({url:u.pathname+u.search,finish:status=>resolve(Response.json(status===200?data:{error:'Synthetic unavailable'},{status}))}));
+ const focused=u.pathname==='/api/web/profile'&&u.searchParams.get('detailOnly')==='1',person=window.fixture.subjects.find(row=>row.id===u.searchParams.get('subjectId'));
+ const data=u.pathname==='/api/account/credits'?{account:{userId:window.identity}}:focused?{enabled:window.fixture.enabled,paused:!!window.detailPaused||window.fixture.paused,subjectId:person.id,subjectUpdatedAt:window.changedDetail?person.updatedAt+1:person.updatedAt,relationshipContext:window.noContext||window.detailPaused?null:{subjectId:window.wrongContext?'unrelated-person':person.id,testMarker:window.contextVersion,coverage:{activityStatus:'current'}}}:structuredClone(window.fixture);
+ if(u.pathname==='/api/web/profile'&&!focused)for(const person of data.subjects)person.relationshipContext=null;
+ if(focused&&window.detailFail)return Response.json({error:'Synthetic detail unavailable'},{status:503});
+ if(focused&&window.detailTimeout)throw new DOMException('Synthetic timeout','TimeoutError');
+ if((window.hold||focused&&window.holdDetail)&&(!options.method||options.method==='GET'))return new Promise((resolve,reject)=>{window.pending.push({url:u.pathname+u.search,finish:status=>resolve(Response.json(status===200?data:{error:'Synthetic unavailable'},{status}))});options.signal?.addEventListener('abort',()=>{window.aborted++;if(!window.ignoreAbort)reject(new DOMException('Synthetic abort','AbortError'));},{once:true});});
  if(window.fail)return Response.json({error:'Synthetic unavailable'},{status:503});if(window.holdAfterPost&&options.method==='POST'){window.hold=true;window.holdAfterPost=false;}return Response.json(data);}
 throw Error('Unexpected request '+u.pathname);};
 window.navigate=navigate;window.changeOwner=async owner=>{window.identity=owner;announceAccountChange();await webAccountStore.refresh();};window.profileMutation=()=>api('/api/web/profile',{action:'self',data:{city:'Synthetic new'}});
@@ -27,7 +30,7 @@ function App(){const p=new URL(useDesktopLocation(),location.origin).pathname;re
 createRoot(document.getElementById('root')).render(<App/>);`;
 const built = await build({stdin:{contents:entry,resolveDir:process.cwd(),loader:'tsx'},bundle:true,write:false,format:'iife',platform:'browser',jsx:'automatic',plugins:[{name:'synthetic-archive-heavy-panels',setup(b){
   b.onResolve({filter:/^next\/navigation$/},()=>({path:resolve('desktop/app/frontend/navigation.tsx')}));
-  b.onLoad({filter:/components[\\/](RelationshipJourney|ReportDetails|SelfChatMemory|QuickSelfProfile|ArchiveAvatar|PersonAvatarChoice|PersonOverview|ArchiveImportedActivity|ArchiveComparison|ArchiveFeedback|ArchiveInsights)\.tsx$/},()=>({loader:'tsx',contents:`import React from 'react';const Empty=()=>null;export const RelationshipJourney=Empty,SelfChatMemory=Empty,QuickSelfProfile=Empty,ArchiveAvatar=Empty,PersonAvatarChoice=Empty,ArchiveImportedActivity=Empty,ArchiveComparison=Empty,ArchiveFeedback=Empty,EventDateEditor=Empty,CommunicationReading=Empty,MomentsReportView=Empty;export const PersonOverview=({person})=><section data-person-overview data-context={person.relationshipContext?.testMarker||'none'} data-updated={person.updatedAt}>{person.label}</section>;export const ReportDetails=({children})=><div>{children}</div>;`}));
+  b.onLoad({filter:/components[\\/](RelationshipJourney|ReportDetails|SelfChatMemory|QuickSelfProfile|ArchiveAvatar|PersonAvatarChoice|ArchiveImportedActivity|ArchiveComparison|ArchiveFeedback|ArchiveInsights)\.tsx$/},()=>({loader:'tsx',contents:`import React from 'react';const Empty=()=>null;export const SelfChatMemory=Empty,QuickSelfProfile=Empty,ArchiveAvatar=Empty,PersonAvatarChoice=Empty,ArchiveComparison=Empty,ArchiveFeedback=Empty,EventDateEditor=Empty,CommunicationReading=Empty,MomentsReportView=Empty;export const ArchiveImportedActivity=()=>{throw Error('Duplicate archive activity reader mounted')};export const RelationshipJourney=({context})=><section data-relationship-journey data-context={context.testMarker}>Timeline {context.testMarker}</section>;export const RelationshipSnapshot=({activity})=><span data-activity-snapshot>{activity?.messages} 条</span>;export const ReportDetails=({children})=><div>{children}</div>;`}));
   b.onLoad({filter:/\.css$/},()=>({loader:'js',contents:'export default new Proxy({},{get:(_,key)=>String(key)});'}));
 }}]});
 const server=createServer((_req,res)=>{res.setHeader('content-type','text/html;charset=utf-8');res.end(`<!doctype html><div id="root"></div><script>${built.outputFiles[0].text}</script>`);});
@@ -37,20 +40,30 @@ const page=await browser.newPage(),errors=[];page.on('pageerror',e=>errors.push(
 const text=()=>page.$eval('body',e=>e.innerText);
 const navigate=async path=>{await page.evaluate(path=>window.navigate(path),path);await page.waitForFunction(path=>location.pathname===path.split('?')[0],{},path);};
 const settle=async status=>{await page.evaluate(status=>{window.pending.splice(0).forEach(item=>item.finish(status));window.hold=false;},status);};
-const selectedPath='/archive?subjectId=11111111-1111-4111-8111-111111111111';
-const context=async value=>page.waitForFunction(value=>document.querySelector('[data-person-overview]')?.getAttribute('data-context')===value,{},value);
+const overviewPath='/archive?subjectId=11111111-1111-4111-8111-111111111111',selectedPath=overviewPath+'&section=trend';
+const context=async value=>page.waitForFunction(value=>value==='none'?!document.querySelector('[data-relationship-journey]'):document.querySelector('[data-relationship-journey]')?.getAttribute('data-context')===value,{},value);
+const click=async label=>{await page.waitForFunction(label=>[...document.querySelectorAll('button')].some(item=>item.textContent.trim()===label),{},label);await page.evaluate(label=>[...document.querySelectorAll('button')].find(item=>item.textContent.trim()===label).click(),label);};
+const frames=async()=>page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+const detailCount=async()=>page.evaluate(()=>window.calls.filter(path=>path.includes('detailOnly=1')).length);
 try {
   await page.goto(`http://127.0.0.1:${server.address().port}/archive`);
   await page.waitForFunction(()=>document.body.innerText.includes('Synthetic Alice'));
-  assert.equal(await page.evaluate(()=>window.calls.filter(p=>p==='/api/web/profile').length),1);
+  assert.equal(await page.evaluate(()=>window.calls.filter(p=>p==='/api/web/profile?listOnly=1').length),1);
+  assert.equal(await page.evaluate(()=>window.calls.filter(p=>p==='/api/web/profile').length),0,'initial list skips the unused self-memory projection');
   assert.equal(await page.evaluate(()=>window.calls.filter(p=>p==='/api/account/credits').length),1);
   await navigate('/workspace');await page.evaluate(()=>window.hold=true);
-  await navigate('/archive?subjectId=11111111-1111-4111-8111-111111111111');
-  await page.waitForSelector('[data-person-overview]',{timeout:1200});
+  await navigate(overviewPath);
+  await page.waitForSelector('[aria-label="人物关系概览"]',{timeout:1200});
   assert.doesNotMatch(await text(),/正在读取你的档案/,'cached selected person appears before either API resolves');
   await page.waitForFunction(()=>window.pending.length===2); // Base+owner run together; detail waits for the authoritative base.
   await settle(200);
+  await frames();assert.equal(await detailCount(),0,'overview never reads full relationship context');
+  assert.match(await text(),/Saved relationship judgment/);assert.match(await text(),/上次报告统计/);assert.match(await text(),/441 条/);
+  await click('历程');
   await context('first-context');
+  assert.equal(await detailCount(),1,'first timeline visit reads only one focused detail');
+  await click('现状');await click('历程');await context('first-context');await frames();
+  assert.equal(await detailCount(),1,'returning to the same fresh timeline reuses its context');
 
   // The previous detail is still within its 60-second reuse window. A fresh
   // base must invalidate it and trigger a new selected-person detail anyway.
@@ -58,7 +71,7 @@ try {
   await navigate(selectedPath);await context('first-context');
   await page.waitForFunction(()=>window.pending.length===2);await settle(200);
   await context('new-details');
-  assert.equal(await page.$eval('[data-person-overview]',element=>element.getAttribute('data-updated')),'200');
+  assert.equal(await page.evaluate(()=>window.archiveSession('owner-A').value.subjects[0].updatedAt),200);
 
   // A linked source deletion need not update the subject timestamp. Hold the
   // new detail after the base arrives: the previous context must already be gone.
@@ -81,8 +94,8 @@ try {
   await page.waitForFunction(()=>window.pending.length===2);await settle(200);await context('after-mutation');
   await page.evaluate(()=>window.oldDetail.forEach(item=>item.finish(200)));
   await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
-  assert.equal(await page.$eval('[data-person-overview]',element=>element.getAttribute('data-context')),'after-mutation');
-  assert.equal(await page.$eval('[data-person-overview]',element=>element.getAttribute('data-updated')),'300');
+  await context('after-mutation');
+  assert.equal(await page.evaluate(()=>window.archiveSession('owner-A').value.subjects[0].updatedAt),300);
 
   const cacheChecks=await page.evaluate(()=>{
     const cache=window.createArchiveSessionCache(),base=structuredClone(window.fixture),id=base.subjects[0].id;
@@ -110,7 +123,7 @@ try {
   await page.waitForFunction(()=>window.pending.length===1&&window.pending[0].url==='/api/account/credits');
   await page.evaluate(()=>{window.fixture.subjects[0].updatedAt=400;window.contextVersion='after-owner-recheck';window.dispatchEvent(new Event('chengzi:profile-changed'));window.hold=false;window.pending.splice(0).forEach(item=>item.finish(200));});
   await context('after-owner-recheck');
-  assert.equal(await page.$eval('[data-person-overview]',element=>element.getAttribute('data-updated')),'400');
+  assert.equal(await page.evaluate(()=>window.archiveSession('owner-A').value.subjects[0].updatedAt),400);
 
   // A real >6M response is not memory-cached. Its new detail object must not
   // repeatedly retrigger the effect just because detailFresh remains false.
@@ -123,10 +136,45 @@ try {
   const beforeNull=await page.evaluate(()=>{delete window.fixture.self.large;window.noContext=true;return window.calls.filter(path=>path.includes('subjectId=')).length;});
   await navigate(selectedPath);
   await page.waitForFunction(count=>window.calls.filter(path=>path.includes('subjectId=')).length===count+1,{},beforeNull);
-  await context('none');
+  await page.waitForFunction(()=>document.body.innerText.includes('还没有关联的相处历程'));await context('none');
   await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
   assert.equal(await page.evaluate(()=>window.calls.filter(path=>path.includes('subjectId=')).length),beforeNull+1,'null context does not cause repeated reads');
   await page.evaluate(()=>window.noContext=false);
+  await click('重新读取历程');await context('oversized-context');
+
+  // Only the selected timeline reads details. Failures are visible and a retry
+  // cannot fall back to a second, duplicate paginated activity reader.
+  await navigate('/workspace');await page.evaluate(()=>window.detailFail=true);await navigate(selectedPath);
+  await page.waitForFunction(()=>document.body.innerText.includes('Synthetic detail unavailable'));
+  await page.evaluate(()=>window.detailFail=false);await click('重新读取历程');await context('oversized-context');
+  await navigate('/workspace');await page.evaluate(()=>window.detailTimeout=true);await navigate(selectedPath);
+  await page.waitForFunction(()=>document.body.innerText.includes('连接暂时较慢'));
+  await page.evaluate(()=>window.detailTimeout=false);await click('重新读取历程');await context('oversized-context');
+
+  // A tab change aborts the pending read. Even a transport ignoring abort may
+  // not overwrite the next attempt or hide its loading/error state.
+  await navigate('/workspace');await page.evaluate(()=>{window.holdDetail=true;window.ignoreAbort=true;window.contextVersion='cancelled-detail';});await navigate(selectedPath);
+  await page.waitForFunction(()=>window.pending.some(row=>row.url.includes('detailOnly=1')));
+  await page.waitForFunction(()=>document.body.innerText.includes('正在读取这位人物的相处历程'));
+  const aborts=await page.evaluate(()=>window.aborted);await click('现状');await page.waitForSelector('[aria-label="人物关系概览"]');
+  await page.waitForFunction(count=>window.aborted>count,{},aborts);
+  await page.evaluate(()=>{window.oldCancelled=window.pending.splice(0);window.holdDetail=false;window.contextVersion='after-cancel';});
+  await click('历程');await context('after-cancel');
+  await page.evaluate(()=>{window.oldCancelled.forEach(row=>row.finish(200));window.ignoreAbort=false;});await frames();await context('after-cancel');
+
+  // A focused reply cannot replace the saved report or cross a changed person
+  // version. Refreshing after that conflict obtains a new authoritative base.
+  await navigate('/workspace');await page.evaluate(()=>window.changedDetail=true);await navigate(selectedPath);
+  await page.waitForFunction(()=>document.body.innerText.includes('人物资料已变化'));
+  await page.evaluate(()=>window.changedDetail=false);await click('重新读取历程');await context('after-cancel');
+  await click('现状');assert.match(await text(),/Saved relationship judgment/);assert.match(await text(),/上次报告统计/);
+  await navigate('/workspace');await page.evaluate(()=>window.wrongContext=true);await navigate(selectedPath);
+  await page.waitForFunction(()=>document.body.innerText.includes('资料正在更新'));await context('none');
+  await page.evaluate(()=>window.wrongContext=false);await click('重新读取历程');await context('after-cancel');
+  await navigate('/workspace');await page.evaluate(()=>window.detailPaused=true);await navigate(selectedPath);
+  await page.waitForFunction(()=>document.body.innerText.includes('恢复档案使用后'));await context('none');
+  assert.equal(await page.evaluate(()=>window.archiveSession('owner-A').value.paused),true);
+  await page.evaluate(()=>window.detailPaused=false);
   await navigate('/workspace');await page.evaluate(()=>window.fail=true);await navigate('/archive');
   await page.waitForFunction(()=>document.body.innerText.includes('Synthetic unavailable'));
   assert.match(await text(),/Synthetic Alice/,'transient refresh failure keeps the existing archive');
@@ -136,15 +184,20 @@ try {
   await page.waitForFunction(()=>document.body.innerText.includes('正在读取你的档案'));
   assert.doesNotMatch(await text(),/Synthetic Alice/,'confirmed profile mutation invalidates the return cache');
   await settle(200);await page.waitForFunction(()=>document.body.innerText.includes('Synthetic Alice'));
+  await navigate('/workspace');await page.evaluate(()=>{window.holdDetail=true;window.ignoreAbort=true;window.contextVersion='old-owner-context';});await navigate(selectedPath);
+  await page.waitForFunction(()=>window.pending.some(row=>row.url.includes('detailOnly=1')));
+  await page.evaluate(()=>{window.oldOwnerDetail=window.pending.splice(0);window.holdDetail=false;});
   await navigate('/workspace');await page.evaluate(()=>{window.fixture.subjects[0].label='Synthetic Bob';window.hold=true;});
   await page.evaluate(()=>window.changeOwner('owner-B'));await navigate('/archive');
   await page.waitForFunction(()=>document.body.innerText.includes('正在读取你的档案'));
   assert.doesNotMatch(await text(),/Synthetic Alice/,'another login never sees the old archive');
   await settle(200);await page.waitForFunction(()=>document.body.innerText.includes('Synthetic Bob'));
+  await page.evaluate(()=>{window.oldOwnerDetail.forEach(row=>row.finish(200));window.ignoreAbort=false;});await frames();
+  assert.equal(await page.evaluate(()=>window.archiveSession('owner-B').value.subjects[0].relationshipContext),null,'previous owner detail cannot populate the new owner cache');
   await navigate('/workspace');await page.evaluate(()=>window.hold=true);await navigate('/archive');
   await page.waitForFunction(()=>window.pending.length>=2);await settle(401);
   await page.waitForFunction(()=>document.body.innerText.includes('登录后查看你的档案'));
   assert.doesNotMatch(await text(),/Synthetic Bob/,'401 removes a cached archive');
   assert.deepEqual(errors,[]);
-  console.log('PASS actual archive ReactDOM: immediate cached person, parallel base/owner, changed-person refresh, deleted-source purge, late detail rejection, focused merge, 60s expiry, mutation invalidation, account isolation and 401 purge.');
-} finally { await browser.close();await new Promise(resolve=>server.close(resolve)); }
+  console.log('PASS actual archive ReactDOM: saved overview without detail reads, on-demand focused timeline, no duplicate activity reader, cache return, retry/null/timeout/cancel, changed-person refresh, deleted-source purge, late result rejection, focused merge, bounded cache, mutation invalidation, account isolation and 401 purge.');
+} catch(error) {console.error('Synthetic browser diagnostics:',errors,await text());throw error;} finally { await browser.close();await new Promise(resolve=>server.close(resolve)); }

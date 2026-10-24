@@ -16,7 +16,7 @@ const eventTitle = (event: JourneyContext["events"][number]) => /聊天中的变
 const bases: Record<string, string> = { quote: "原话", interpretation: "分析线索", "user-report": "本人补充", profile: "已确认资料" };
 
 /** Only measured behavior appears here; message shares never become affection scores. */
-export function RelationshipSnapshot({ activity, friend = "对方" }: { activity?: ChatActivitySummary | null; friend?: string }) {
+export function RelationshipSnapshot({ activity, friend = "对方" }: { activity?: Pick<ChatActivitySummary, "messages" | "self" | "other" | "unknown" | "activeDays" | "starts"> | null; friend?: string }) {
   if (!activity?.messages) return <p className={styles.gap}>还没有可核对的聊天统计，先按已提供的原话阅读。</p>;
   const total = activity.self + activity.other + activity.unknown;
   return <div className={styles.snapshot} data-relationship-snapshot>
