@@ -12,7 +12,7 @@ export type ReplyAttentionQuestion = {
   label: string; reading: string; elapsedMinutes: number | null;
 };
 type Window = { from: string; to: string; questions: number; answered: number; bypassed: number; unclear: number; cutoff: number; unread: number; observedResponses: number };
-export const REPLY_ATTENTION_RULES_VERSION = 2;
+export const REPLY_ATTENTION_RULES_VERSION = 3;
 export type ReplyAttentionSummary = {
   version: 1; rulesVersion: number; scope: ReplyAttentionScope; cutoffAt: string; status: 'ready' | 'insufficient';
   messages: number; questionCount: number; headline: string; reading: string;
@@ -44,29 +44,40 @@ function item(row: ReplyAttentionRow, order: number): Item {
       text: plain(row.text).slice(0, 700), role: role === 'self' || role === 'other' ? role : 'unknown' } };
 }
 /** Deliberately excludes rhetorical/quoted questions; ambiguity is never a rejection. */
+function colloquialTimeQuestion(text: string): boolean {
+  // A direct spoken invitation can ask for a time without a question mark.
+  // Anchor at the address/question itself: reported speech and "我不知道…"
+  // are not requests directed at the other person.
+  if (!/^(?:(?:对了|那|话说)[，,\s]*)?(?:(?:你|咱们|我们)[，,\s]*)?(?:啥时候|啥时|哪会儿)[，,\s]*(?:(?:你|咱们|我们)[，,\s]*)?(?:能|可以)?(?:有空|有时间|方便|来|到|去|走|出发|回来|回去|见面|见一面|见|开始|结束|下班|忙完)/u.test(text)) return false;
+  // These give a conditional arrangement or leave timing open; do not turn
+  // "啥时候有空再说" into an unanswered request for a concrete time.
+  return !/(?:再说|再聊|再约|再看|都(?:行|可以|方便)|还(?:不|没)知道|(?:就|到时)(?:再)?(?:告诉|联系|通知)|不重要|无所谓)/u.test(text);
+}
+const openTimeSlot = /(?:什么时候|啥时候|啥时|哪会儿|哪天)/u;
 export function isDirectReplyQuestion(value: string): boolean {
   const text = plain(value);
   if (!text || text.length > 500 || /^(?:[“「『">]|转发|引用)/.test(text) || /(?:难道|谁知道|怎么说呢|何必|又能怎样|这还用问|不是.*吗[？?]?$)/.test(text)) return false;
   if (/^(?:哈哈+|啊+|嗯+|哦+|好吧|是吧)[？?]?$/.test(text)) return false;
   return /[？?]/.test(text) || /(?:吗|么|呢)[呀啊吧]?[。！!]?$/u.test(text)
-    || /(?:你|咱们|我们).{0,22}(?:能不能|可不可以|要不要|有没有|想不想|去不去|什么时候|几点|在哪|哪里|怎么样)/.test(text);
+    || /(?:你|咱们|我们).{0,22}(?:能不能|可不可以|要不要|有没有|想不想|去不去|什么时候|几点|在哪|哪里|怎么样)/.test(text)
+    || colloquialTimeQuestion(text);
 }
 function explicitAnswer(question: string, text: string): boolean {
   const q = normal(question), answer = normal(text).toLowerCase();
   if (!answer || isDirectReplyQuestion(text)) return false;
   // A yes/no acknowledgment does not fill an open time/place/choice slot.
-  const openQuestion=/(?:什么时候|几[点时天]|多久|在哪|哪里|哪儿|哪天|哪个|哪种|为什么|为何|怎么|多少|什么|还是)/.test(q);
+  const openQuestion=openTimeSlot.test(q)||/(?:几[点时天]|多久|在哪|哪里|哪儿|哪个|哪种|为什么|为何|怎么|多少|什么|还是)/.test(q);
   // An explicit closed-question answer can introduce a separate explanation.
   // Require a clause boundary: “对了…” / “可以的话…” are not confirmations.
   if (!openQuestion && /^(?:yes|no|yeah|yep|nope|nah|ok|okay|sure|好的|好呀|行|可以|不可以|不行|是的|不是|是|没有|有|嗯嗯|嗯|对|不对|愿意|不愿意)[呀啊吧呢哒哦噢哈]*[\s，,。.!！；;]/i.test(text.trim())) return true;
   if (!openQuestion&&(/^(?:yes|no|yeah|yep|nope|nah|ok|okay|sure)$/.test(answer)
     || /^(?:好(?:的|呀|啊)?|行(?:啊|呀)?|可以|不可以|不行|不去|去|不来|来|不了|不用|不要|要|想|不想|是|不是|有|没有|没|有空|没空|不方便|没时间|嗯|嗯嗯|对|不对|愿意|不愿意)[呀啊吧呢哒哦噢哈]*$/.test(answer))) return true;
   const clockAnswer=/(?:[0-9一二三四五六七八九十两]+点(?:半|[0-9一二三四五六七八九十]+分?)?|\d{1,2}[:：]\d{2})/.test(answer);
-  const calendarAnswer=/(?:[0-9一二三四五六七八九十两]+[号日]|周[一二三四五六日天]|星期[一二三四五六日天]|明天|后天|今天|今晚|下周)/.test(answer);
+  const calendarAnswer=/(?:[0-9一二三四五六七八九十两]+[号日]|周[一二三四五六日天末]|星期[一二三四五六日天]|明天|后天|今天|今晚|下周)/.test(answer);
   const timeUndecided=/(?:不知道|不确定|不清楚|没定|待定|再说|再看)/.test(answer);
   // "今天没事" gives no clock time; "可以" gives neither time nor date.
   if (/(?:几点|几时)/.test(q) && clockAnswer&&!timeUndecided) return true;
-  if (/(?:什么时候|哪天)/.test(q) && (clockAnswer||calendarAnswer)&&!timeUndecided) return true;
+  if (openTimeSlot.test(q) && (clockAnswer||calendarAnswer)&&!timeUndecided) return true;
   if (!openQuestion&&/(?:周[一二三四五六日天]|有空|时间|一起|约|吃饭|见面)/.test(q)
     && (clockAnswer||calendarAnswer||/(?:没空|有空|没时间|不方便|可以|不行)/.test(answer))) return true;
   if (/(?:在哪|哪里|哪儿)/.test(q)

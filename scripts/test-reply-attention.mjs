@@ -10,6 +10,12 @@ assert.equal(isQuestion('周六一起吃饭吗？'),true);
 assert.equal(isQuestion('哈哈？'),false);
 assert.equal(isQuestion('这不是很好吗？'),false);
 assert.equal(isQuestion('“你喜欢我吗？”'),false);
+for(const question of ['啥时候有空我带你去公园，就上次拍照那个地方。','你啥时候有空','那，啥时方便一起吃饭','哪会儿能见面','咱们啥时候出发','你啥时候有时间见一面','啥时候你可以下班']) {
+  assert.equal(isQuestion(question),true,`direct spoken time request: ${question}`);
+}
+for(const statement of ['我不知道你啥时候有空','她说啥时候有空再约','“啥时候有空我带你去公园”','引用：啥时候有空一起吃饭','我说“啥时候有空一起吃饭”只是举例','啥时候有空再说吧','啥时候方便都行','你啥时候有空就告诉我','哪会儿有空还不知道','啥时候有空不重要','啥时候才能不加班','谁知道啥时候有空']) {
+  assert.equal(isQuestion(statement),false,`quoted, conditional or rhetorical statement: ${statement}`);
+}
 let result=compute([row('a','self','今晚有空吗？',at(10)),row('b','other','有空呀',at(10,10,5))],full);
 assert.equal(result.questions[0].status,'answered');assert.equal(result.questions[0].elapsedMinutes,5);
 assert.equal(result.questions[0].question.sourceId,'a');assert.equal(result.questions[0].responses[0].sourceId,'b');
@@ -22,7 +28,7 @@ for(const answer of ['yes','YES!','No.','nope','OK']) {
 for(const answer of ['对，明天开始准备。','是的。还有一点紧张','可以，我们先试试','Yes, I already started.','No, I changed my mind.']) {
   const got=compute([row('q','self','你已经开始了吗？',at(10)),row('a','other',answer,at(10,10,5))],full);
   assert.equal(got.questions[0].status,'answered','an explicit closed-question answer can include an explanation');
-  assert.equal(got.rulesVersion,2);
+  assert.equal(got.rulesVersion,3);
 }
 for(const answer of ['对了，我今天买了新衣服','好像还没听说过','可以的话再说']) {
   assert.equal(compute([row('q','self','你已经开始了吗？',at(10)),row('a','other',answer,at(10,10,5))],full).questions[0].status,'unclear','similar prefixes without a clause boundary do not confirm');
@@ -31,6 +37,9 @@ for(const [question,answer] of [
   ['几点出发？','可以'],['几点见？','嗯'],['几点见？','今天没事'],['几点走？','不知道8点能不能走'],
   ['什么时候来？','周六还没定'],['你在哪儿？','yes'],['在哪见？','我在忙'],
   ['在哪见？','我在考虑去公司'],['明天去还是后天去？','可以'],['什么时候有空？','有空'],
+  ['啥时候有空我带你去公园。','可以'],['你啥时候有空','嗯'],['那啥时方便一起吃饭','有空'],
+  ['哪会儿能见面','Yes, sounds good.'],['啥时候有空一起吃饭','可以，我们再聊'],
+  ['啥时候有空一起吃饭','周六还没定'],['你啥时候下班','不知道8点能不能走'],
 ]) {
   const got=compute([row('q','self',question,at(10)),row('a','other',answer,at(10,10,5))],full);
   assert.equal(got.questions[0].status,'unclear',`${question} / ${answer} does not fill the requested detail`);
@@ -39,7 +48,14 @@ for(const [question,answer] of [
 for(const [question,answer] of [
   ['几点见？','下午两点半'],['几点出发？','14:30'],['哪天见？','周六'],
   ['你在哪里？','我在公司'],['你在哪儿？','家里'],['周六有空吗？','没空，下周再说'],
+  ['啥时候有空我带你去公园。','周六有空'],['你啥时方便一起吃饭','周末可以'],
+  ['哪会儿能见面','下午两点半'],['你啥时候下班','18:30'],
 ]) assert.equal(compute([row('q','self',question,at(10)),row('a','other',answer,at(10,10,5))],full).questions[0].status,'answered',`${question} / ${answer} has a concrete reply`);
+result=compute([row('earlier','self','你已经开始了吗？',at(10)),row('yes','other','对，还有点紧张。',at(10,10,5)),row('invite','self','啥时候有空我带你去公园，就上次拍照那个地方。',at(11))],full);
+assert.equal(result.rulesVersion,3);assert.equal(result.questionCount,2);
+assert.equal(result.questions[0].question.sourceId,'invite','the latest oral invitation is not hidden by an older answered question');
+assert.equal(result.questions[0].status,'cutoff');assert.equal(result.questions[0].elapsedMinutes,0);
+assert.match(result.headline,/材料到这里/);assert.doesNotMatch(result.reading,/已读不回|拒绝|不喜欢|没有回复/,'end of material is not proof of nonresponse');
 result=compute([row('a','self','你愿意说说你的想法吗？',at(10)),row('b','other','不想回答，换个话题吧',at(10,10,5))],full);
 assert.equal(result.questions[0].status,'bypassed');assert.match(result.headline,/明确跳过/);
 result=compute([row('a','self','周六一起吃饭吗？',at(10)),row('b','other','哈哈哈',at(10,10,5))],full);
@@ -87,5 +103,6 @@ const tail=compute([row('t','self','周六一起吃饭吗？',at(10))],{...full,
 const html=renderToStaticMarkup(React.createElement(module.exports.ReplyAttentionOverview,{report:{id:'synthetic',semanticHistory:{replyAttention:tail}}}));
 assert.match(html,/材料到这里，后续未知/);assert.match(html,/2 小时/);assert.match(html,/不是截至现在的等待时长/);assert.match(html,/周六一起吃饭吗/);assert.doesNotMatch(html,/已读不回/);
 const unsafe=renderToStaticMarkup(React.createElement(module.exports.ReplyAttentionOverview,{report:{id:'old',analysisScope:'fullHistory',recentSentenceAnalysis:{scope:'recent',lines:[row('t','self','为什么不回我？',at(10))]}}}));
-assert.equal(unsafe,'','legacy annotated snippets cannot fabricate continuous reply history');
+assert.match(unsafe,/data-reply-attention-state="unauthorized"/,'old report keeps an explicit sign-in recovery state');
+assert.doesNotMatch(unsafe,/为什么不回我|data-reply-status|已核对 \d+ 条/,'legacy annotated snippets cannot fabricate continuous reply history');
 console.log('PASS reply-attention UI: saved summary renders original question and fixed cutoff; unsafe legacy samples stay excluded.');

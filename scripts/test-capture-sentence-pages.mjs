@@ -109,7 +109,7 @@ try{
   sql.prepare("UPDATE coach_report_sentence_pages SET payload=json_remove(payload,'$.replyAttention.rulesVersion') WHERE page_key='attention'").run();
   const repairedAttention=await readSentenceAttention(db,owner,id);
   assert.equal(repairedAttention.cached,false,'an old rule cache must be recomputed from originals');
-  assert.equal(repairedAttention.replyAttention.rulesVersion,2);assert.equal(calls,attentionCalls,'rule updates never require another model analysis');
+  assert.equal(repairedAttention.replyAttention.rulesVersion,3);assert.equal(calls,attentionCalls,'rule updates never require another model analysis');
   assert.equal((await readSentencePage(db,owner,id,{offset:0})).totalAnalyzed,0,'behavior summary never counts as model sentence analysis');
   await assert.rejects(()=>readSentenceAttention(db,'foreign',id),e=>e.status===404);
   const racedb={prepare:query=>({bind:(...values)=>{const statement=db.prepare(query).bind(...values);return{...statement,first:async()=>{const value=await statement.first();if(query.startsWith('SELECT payload FROM coach_report_sentence_pages'))sql.prepare("UPDATE coach_capture_libraries SET subject_id='changed' WHERE id=?").run(libraryId);return value;}};}})};
@@ -117,6 +117,18 @@ try{
   sql.prepare('UPDATE coach_capture_libraries SET subject_id=NULL WHERE id=?').run(libraryId);
   sql.prepare('UPDATE coach_capture_libraries SET revision=2 WHERE id=?').run(libraryId);
   assert.equal(sql.prepare('SELECT count(*) AS n FROM coach_report_sentence_pages').get().n,0,'source changes purge the summary cache too');
+
+  // The previous rules missed spoken invitations. Version 3 must replace a
+  // version-2 summary from the same source revision, without model or credits.
+  reset([{localId:'earlier',kind:'text',senderRole:'self',at:'2026-10-24T10:00:00Z',text:'你开始了吗？',source:{}},{localId:'answer',kind:'text',senderRole:'other',at:'2026-10-24T10:01:00Z',text:'对，还有点紧张。',source:{}},{localId:'invite',kind:'text',senderRole:'self',at:'2026-10-24T10:02:00Z',text:'啥时候有空我带你去公园，就上次拍照那个地方。',source:{}}]);
+  await readSentenceAttention(db,owner,id);
+  sql.prepare("UPDATE coach_report_sentence_pages SET payload=json_set(payload,'$.replyAttention.rulesVersion',2,'$.replyAttention.questionCount',1,'$.replyAttention.headline','旧版只看到了更早的回答') WHERE page_key='attention'").run();
+  const beforeUpgrade={calls,budgets},upgraded=await readSentenceAttention(db,owner,id);
+  assert.equal(upgraded.cached,false);assert.equal(upgraded.cost,0);assert.equal(upgraded.replyAttention.rulesVersion,3);
+  assert.equal(upgraded.replyAttention.questionCount,2);assert.equal(upgraded.replyAttention.questions[0].question.sourceId,'invite');assert.equal(upgraded.replyAttention.questions[0].status,'cutoff');
+  assert.deepEqual({calls,budgets},beforeUpgrade,'version upgrade performs no model call or budget reservation');
+  assert.equal((await readSentenceAttention(db,owner,id)).cached,true,'recomputed version-3 summary is reused');
+  assert.deepEqual(JSON.parse(sql.prepare('SELECT result FROM coach_saved_reports').get().result),original,'free observation upgrade never rewrites the saved report conclusions');
 
   // Only validated model weights are stored. An ungrounded response stays unread.
   reset();const invalid=await readSentencePage(db,owner,id,{offset:0});
