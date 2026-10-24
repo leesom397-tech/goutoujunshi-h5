@@ -2,6 +2,7 @@
 import json
 import socket
 import threading
+from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, patch
 
@@ -68,7 +69,7 @@ class SetupServiceTests(unittest.TestCase):
             return self.controller
         self.factory = Mock(side_effect=factory)
         self.result = []
-        self.platform = patch.object(service.sys, "platform", platform)
+        self.platform = patch.object(service, "sys", SimpleNamespace(platform=platform))
         self.platform.start()
         self.addCleanup(self.platform.stop)
         self.cleanup = patch("platform_runtime.clear_worker_authorization")
