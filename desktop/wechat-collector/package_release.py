@@ -35,6 +35,7 @@ SOURCE_FILES += ('launcher.py', 'build_launcher.py', 'test_launcher.py', 'launch
 SOURCE_FILES += ('release_signature.py', 'test_release_signing.py', 'test_main.py')
 SOURCE_FILES += ('chengzi-fluted-chat-v1.ico', 'chengzi-fluted-chat-v1.png')
 SOURCE_FILES += ('test_moments_ui_speed.py',)
+SOURCE_FILES += ('LICENSE-sensevoice-model.txt', 'THIRD-PARTY-VOICE-MODEL.md', 'voice-model-manifest.json')
 
 # PyInstaller 6's default onedir layout. Stop before publishing an installer
 # whose offline OCR would otherwise fail only on the user's computer.

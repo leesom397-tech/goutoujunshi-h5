@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { execFileSync } = require('node:child_process');
+const { stageVoiceModel, verifyVoiceModelResources } = require('./voice-model-resources.cjs');
 const APP = path.resolve(__dirname, '..');
 const REPO = path.resolve(APP, '../..');
 const COLLECTOR = path.join(REPO, 'desktop/wechat-collector');
@@ -111,6 +112,9 @@ function stageResources(platform = process.platform) {
   fs.mkdirSync(destination, { recursive: true });
   fs.cpSync(source, platform === 'darwin' ? path.join(destination, 'ChengziDesktopService.app') : destination,
     { recursive: true, dereference: false, verbatimSymlinks: true });
+  // Weights live beside the signed nested service; do not mutate its bundle.
+  // Full desktop packages fail closed if the pinned build input is absent.
+  stageVoiceModel(destination);
   const files = validateSidecar(destination, platform);
   const brand = path.join(target, 'brand');
   fs.mkdirSync(brand);
@@ -122,7 +126,7 @@ function stageResources(platform = process.platform) {
     requiredFile(icon);
     fs.copyFileSync(icon, path.join(brand, 'icon.ico'));
   }
-  const manifest = { schema: 1, platform, arch: platform === 'darwin' ? 'arm64' : 'x64', files };
+  const manifest = { schema: 1, platform, arch: platform === 'darwin' ? 'arm64' : 'x64', bundledVoiceModel: true, files };
   fs.writeFileSync(path.join(target, 'service-manifest.json'), JSON.stringify(manifest, null, 2) + '\n');
   return { target, manifest };
 }
@@ -132,6 +136,7 @@ function verifyPackagedResources(resources, platform) {
   if (manifest.schema !== 1 || manifest.platform !== platform) throw new Error('Wrong service manifest.');
   const files = validateSidecar(path.join(resources, 'collector'), platform);
   if (JSON.stringify(files) !== JSON.stringify(manifest.files)) throw new Error('Packaged service is missing or differs from the staged build.');
+  if (manifest.bundledVoiceModel === true) verifyVoiceModelResources(path.join(resources, 'collector'));
 }
 
 module.exports = { stageResources, validateSidecar, verifyPackagedResources, tree };

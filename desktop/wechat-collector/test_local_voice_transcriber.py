@@ -257,6 +257,63 @@ class LocalVoiceTests(unittest.TestCase):
                     voice.prepare_model()
                 self.assertEqual(error.exception.code, code)
 
+    def test_bundled_model_works_offline_and_keeps_runtime_lazy(self):
+        content = b"fixed bundled model"
+        expected = {"model.int8.onnx": (len(content), hashlib.sha256(content).hexdigest())}
+        bundled = self.root / "package" / "voice-models" / voice.MODEL_ID
+        bundled.mkdir(parents=True)
+        (bundled / "model.int8.onnx").write_bytes(content)
+        voice.configure_transcriber(cache_root=self.root / "cache")
+        with patch.object(voice, "MODEL_FILES", expected), \
+             patch.object(voice.sys, "_MEIPASS", str(self.root / "package"), create=True), \
+             patch.object(voice.urllib.request, "urlopen", side_effect=AssertionError("network")), \
+             patch.object(voice, "_get_recognizer", side_effect=AssertionError("runtime")), \
+             patch.object(voice, "_decode_silk", side_effect=AssertionError("audio")):
+            self.assertTrue(voice.probe_transcriber()["modelReady"])
+            self.assertEqual(voice.prepare_model(), bundled)
+            self.assertEqual(voice.prepare_model(), bundled)
+        self.assertFalse((self.root / "cache").exists())
+
+    def test_bundled_probe_only_stats_but_first_use_rejects_corrupt_weights(self):
+        content = b"fixed bundled model"
+        expected = {"model.int8.onnx": (len(content), hashlib.sha256(content).hexdigest())}
+        bundled = self.root / "package" / "voice-models" / voice.MODEL_ID
+        bundled.mkdir(parents=True)
+        (bundled / "model.int8.onnx").write_bytes(b"x" * len(content))
+        voice.configure_transcriber()
+        with patch.object(voice, "MODEL_FILES", expected), \
+             patch.object(voice.sys, "_MEIPASS", str(self.root / "package"), create=True), \
+             patch.object(voice.urllib.request, "urlopen", side_effect=AssertionError("network")):
+            with patch.object(voice, "_file_hash", side_effect=AssertionError("probe must remain cheap")):
+                self.assertTrue(voice.probe_transcriber()["modelReady"])
+            with self.assertRaises(voice.TranscriptionError) as error:
+                voice.prepare_model()
+            self.assertEqual(error.exception.code, "model-integrity-failed")
+        self.assertEqual((bundled / "model.int8.onnx").read_bytes(), b"x" * len(content))
+
+    def test_frozen_macos_finds_weights_beside_signed_nested_bundle(self):
+        executable = self.root / "collector/ChengziDesktopService.app/Contents/MacOS/ChengziDesktopService"
+        expected = self.root / "collector/voice-models" / voice.MODEL_ID
+        with patch.object(voice.sys, "platform", "darwin"), \
+             patch.object(voice.sys, "frozen", True, create=True), \
+             patch.object(voice.sys, "executable", str(executable)), \
+             patch.object(voice, "_files_present", side_effect=lambda directory: directory == expected):
+            self.assertEqual(voice._bundled_model_directory(), expected)
+
+    def test_gateway_network_failure_reuses_partial_for_fixed_upstream(self):
+        urls = []
+        def download(path, url, size, digest, *args, **kwargs):
+            urls.append(url)
+            self.assertEqual(kwargs["attempts_limit"], 1)
+            if len(urls) == 1:
+                path.write_bytes(b"partial")
+                raise voice.TranscriptionError("model-download-failed", "offline")
+            self.assertEqual(path.read_bytes(), b"partial")
+            return path
+        with patch.object(voice, "_download_file", side_effect=download):
+            voice._download_archive(self.root)
+        self.assertEqual(urls, [voice.MODEL_URL, voice.MODEL_UPSTREAM_URL])
+
 
 if __name__ == "__main__":
     unittest.main()

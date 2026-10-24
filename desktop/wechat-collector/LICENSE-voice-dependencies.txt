@@ -5,7 +5,7 @@ Local speech runtime: sherpa-onnx 1.13.8 (Apache-2.0), silk-python 0.2.8 (PyPI m
 SILK Python binding: https://github.com/synodriver/pysilk/tree/v0.2
 SILK native decoder source is its pinned silk-v3-decoder submodule (507be6b).
 
-SenseVoice int8 model is downloaded separately from the fixed sherpa-onnx release; the archive LICENSE points to FunASR. Model attribution: https://github.com/FunAudioLLM/SenseVoice and https://github.com/modelscope/FunASR
+SenseVoiceSmall int8 weights may ship with the full desktop package or be prepared from the fixed public sherpa-onnx release. The archive LICENSE points to the separate FunASR Model Open Source License Agreement, NOT the source-code MIT license. Full model terms: LICENSE-sensevoice-model.txt. Attribution and fixed conversion revision: THIRD-PARTY-VOICE-MODEL.md. Original model authors: FunAudioLLM / FunASR, Alibaba Group. Model attribution: https://github.com/FunAudioLLM/SenseVoice and https://github.com/modelscope/FunASR
 
 
 SILK codec: copyright and BSD-style terms
@@ -62,7 +62,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 
-SenseVoice/FunASR model upstream license
+SenseVoice source-code upstream license (the weights use separate model terms)
 Source: https://raw.githubusercontent.com/FunAudioLLM/SenseVoice/main/LICENSE
 
 MIT License

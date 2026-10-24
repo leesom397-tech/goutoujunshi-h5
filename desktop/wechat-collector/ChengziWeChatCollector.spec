@@ -20,6 +20,7 @@ version_info_path = write_version_info(
 )
 
 datas = [('local_ocr.ps1', '.'), ('LICENSE-voice-dependencies.txt', '.'),
+         ('LICENSE-sensevoice-model.txt', '.'), ('THIRD-PARTY-VOICE-MODEL.md', '.'),
          ('chengzi-fluted-chat-v1.ico', '.'), ('chengzi-fluted-chat-v1.png', '.'),
          ('vendor/LICENSE.wechatauto-replica.txt', 'vendor'), ('vendor/NOTICE.md', 'vendor'),
          ('vendor/WECHATAUTO_ACCESSIBILITY_LICENSE', 'vendor'),
@@ -35,8 +36,9 @@ hiddenimports = ['desktop_service', 'pythoncom', 'pywintypes', 'voice_ui', 'voic
 datas += copy_metadata('pywechat127')
 hiddenimports += collect_submodules('comtypes')
 
-# OCR models ship with the helper. The larger pinned speech model is prepared
-# once on the first explicit voice request, with resumable integrity checking.
+# OCR models ship with the helper. Full Electron desktop staging adds the
+# pinned speech weights beside this service; standalone/lite helpers can fetch
+# the same weights on an explicit request, with resumable integrity checking.
 datas += collect_data_files('rapidocr_onnxruntime', includes=['config.yaml', 'models/*.onnx'])
 datas += copy_metadata('rapidocr-onnxruntime')
 datas += copy_metadata('onnxruntime')

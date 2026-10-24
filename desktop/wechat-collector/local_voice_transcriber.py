@@ -24,7 +24,8 @@ import urllib.request
 
 MODEL_ID = "sensevoice-int8-2024-07-17"
 MODEL_PACKAGE = "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17"
-MODEL_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/" + MODEL_PACKAGE + ".tar.bz2"
+MODEL_URL = "https://coach.lovetalk.love/api/web/voice-model?asset=" + MODEL_ID
+MODEL_UPSTREAM_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/" + MODEL_PACKAGE + ".tar.bz2"
 MODEL_FALLBACK_BASE = ("https://huggingface.co/csukuangfj/"
                        "sherpa-onnx-sense-voice-zh-en-ja-ko-yue-2024-07-17/resolve/"
                        "2365baeacb507f821a0c8120fcee3d484dba7a07/")
@@ -81,7 +82,26 @@ def _storage_root():
 
 
 def model_directory():
-    return (_model_root or _storage_root() / "models") / MODEL_ID
+    if _model_root is not None:
+        return _model_root / MODEL_ID
+    bundled = _bundled_model_directory()
+    return bundled if bundled is not None else _storage_root() / "models" / MODEL_ID
+
+
+def _bundled_model_directory():
+    """Fixed package resources only. Discovery never reads/loads model contents."""
+    roots = [Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))]
+    if getattr(sys, "frozen", False):
+        executable = Path(sys.executable).resolve()
+        roots.append(executable.parent)
+        if sys.platform == "darwin" and executable.parent.name == "MacOS":
+            # Electron keeps weights beside the complete, signed nested service.
+            roots.append(executable.parents[3])
+    for root in roots:
+        candidate = root / "voice-models" / MODEL_ID
+        if _files_present(candidate):
+            return candidate
+    return None
 
 
 def _private_dir(path):
@@ -133,11 +153,11 @@ def _verify_files(directory, cancelled=None):
                                           for name, expected in MODEL_FILES.items())
 
 
-def _download_file(archive, url, expected_bytes, expected_hash, progress=None, cancelled=None, deadline=None):
+def _download_file(archive, url, expected_bytes, expected_hash, progress=None, cancelled=None, deadline=None, attempts_limit=3):
     """Internal only: caller supplies hard-coded public assets, never request URLs."""
     deadline = deadline or time.monotonic() + MAX_DOWNLOAD_SECONDS
     attempts = 0
-    while attempts < 3:
+    while attempts < attempts_limit:
         _check_cancelled(cancelled)
         attempts += 1
         offset = archive.stat().st_size if archive.is_file() else 0
@@ -194,14 +214,23 @@ def _download_file(archive, url, expected_bytes, expected_hash, progress=None, c
                 raise TranscriptionError("model-integrity-failed", "语音模型完整性校验失败，未加载该文件。")
             return archive
         except (urllib.error.URLError, OSError, TimeoutError):
-            if attempts >= 3 or time.monotonic() >= deadline:
+            if attempts >= attempts_limit or time.monotonic() >= deadline:
                 raise TranscriptionError("model-download-failed", "本机语音模型下载暂未完成，下次可以继续下载。") from None
     raise TranscriptionError("model-download-failed", "语音模型下载不完整，下次可以继续下载。")
 
 
 def _download_archive(root, progress=None, cancelled=None, deadline=None):
-    return _download_file(root / (MODEL_PACKAGE + ".tar.bz2.part"), MODEL_URL,
-                          ARCHIVE_BYTES, ARCHIVE_SHA256, progress, cancelled, deadline)
+    archive = root / (MODEL_PACKAGE + ".tar.bz2.part")
+    # The first-party gateway avoids a direct GitHub connection on constrained
+    # networks. A missing gateway should fall through after one bounded attempt.
+    try:
+        return _download_file(archive, MODEL_URL, ARCHIVE_BYTES, ARCHIVE_SHA256,
+                              progress, cancelled, deadline, attempts_limit=1)
+    except TranscriptionError as error:
+        if error.code != "model-download-failed":
+            raise
+    return _download_file(archive, MODEL_UPSTREAM_URL, ARCHIVE_BYTES, ARCHIVE_SHA256,
+                          progress, cancelled, deadline, attempts_limit=1)
 
 
 def _install_direct_fallback(directory, progress=None, cancelled=None, deadline=None):
@@ -266,6 +295,8 @@ def prepare_model(progress=None, cancelled=None):
         if _verified_directory == directory and _files_present(directory):
             return directory
         if not _verify_files(directory, cancelled):
+            if directory == _bundled_model_directory():
+                raise TranscriptionError("model-integrity-failed", "随包语音模型校验失败，请重新安装电脑助手。")
             _private_dir(directory.parent)
             deadline = time.monotonic() + MAX_DOWNLOAD_SECONDS
             try:

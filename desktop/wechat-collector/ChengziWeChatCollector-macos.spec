@@ -16,6 +16,8 @@ verify_vendor(root)
 
 datas = [(str(root / "chengzi-fluted-chat-v1.png"), "."),
          (str(root / "LICENSE-voice-dependencies.txt"), "."),
+         (str(root / "LICENSE-sensevoice-model.txt"), "."),
+         (str(root / "THIRD-PARTY-VOICE-MODEL.md"), "."),
          (str(root / "MACOS-PREVIEW.md"), "."),
          (str(root / "vendor" / "CHATLOG_KEEPER_LICENSE"), "vendor"),
          (str(root / "vendor" / "chatlog-keeper-pin.json"), "vendor"),
