@@ -24,6 +24,7 @@ import { archiveRequest, personDisplayData, basicFields, preferenceFields, perso
 import styles from "./archive.module.css";
 import {api,useAccount} from "@/components/web-analysis/client";
 import {intakeReturnTo} from "@/components/web-analysis/intake-navigation";
+import { archiveSession, rememberArchive, clearArchive, archiveDetailFresh } from '@/lib/archive-session-cache';
 
 const empty: ArchiveState = { enabled: false, paused: false, self: {}, subjects: [], facts: [], signals: [], trends: [] };
 type Action = (body: Record<string, unknown>, message?: string) => Promise<boolean>;
@@ -40,13 +41,14 @@ export default function ArchivePage() {
 }
 
 function OwnedArchive({ownerId}:{ownerId:string}) {
-  const [state, setState] = useState<ArchiveState>(empty);
-  const [tab, setTab] = useState<"people" | "self" | "compare">("people");
-  const [selectedId, setSelectedId] = useState("");
+  const [state, setState] = useState<ArchiveState>(()=>archiveSession(ownerId).value || empty);
+  const [tab, setTab] = useState<"people" | "self" | "compare">(()=>typeof window!=='undefined'&&new URLSearchParams(window.location.search).get('compare')==='1'?'compare':typeof window!=='undefined'&&new URLSearchParams(window.location.search).get('tab')==='self'?'self':'people');
+  const [selectedId, setSelectedId] = useState(()=>typeof window==='undefined'?'':new URLSearchParams(window.location.search).get('subjectId')||'');
   const [avatarPrompt,setAvatarPrompt]=useState('');
   useEffect(()=>{const query=new URLSearchParams(window.location.search);if(query.get('avatar')==='choose')setAvatarPrompt(query.get('subjectId')||'');},[]);
   const [section, setSection] = useState<"overview" | "profile" | "evidence" | "trend">("overview");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(()=>!archiveSession(ownerId).value);
+  const [refreshingList, setRefreshingList] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const [signedOut, setSignedOut] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -62,22 +64,30 @@ function OwnedArchive({ownerId}:{ownerId:string}) {
   const [sortBy, setSortBy] = useState("recent");
   const [reviewPending, setReviewPending] = useState(false);
   const mutation = useRef(false);
+  const ownerVerification=useRef<Promise<void>|null>(null);
+  const detailAttempt=useRef('');
   const mounted=useRef(true),loadGeneration=useRef(0);
   useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;loadGeneration.current++;};},[]);
   const verifyOwner=useCallback(async()=>{
-    const identity=await api("/api/account/credits");
-    if(identity.account?.userId!==ownerId){
-      if(mounted.current){setState(empty);setEditing(false);setNotice("");window.dispatchEvent(new Event("chengzi:credits-changed"));}
-      throw new Error("账号已变化，正在重新读取当前账号的档案。");
-    }
+    if(ownerVerification.current)return ownerVerification.current;
+    const task=api("/api/account/credits").then(identity=>{
+      if(identity.account?.userId!==ownerId){
+        if(mounted.current){clearArchive(ownerId);setState(empty);setEditing(false);setNotice("");window.dispatchEvent(new Event("chengzi:credits-changed"));}
+        throw new Error("账号已变化，正在重新读取当前账号的档案。");
+      }
+    });
+    ownerVerification.current=task;
+    try{await task;}finally{if(ownerVerification.current===task)ownerVerification.current=null;}
   },[ownerId]);
   const load = useCallback(async () => {
-    const version=++loadGeneration.current;
-    setError("");
-    try { const next = await archiveRequest<ArchiveState>("profile"); await verifyOwner(); if(!mounted.current||version!==loadGeneration.current)return; setState(next); setLoadFailed(false); setSignedOut(false); }
-    catch (cause) { if(!mounted.current||version!==loadGeneration.current)return; if ((cause as { status?: number }).status === 401) {setState(empty);setSignedOut(true);} else { setLoadFailed(true); setError(cause instanceof Error ? cause.message : "档案暂时无法读取。"); } }
-    finally { if(mounted.current&&version===loadGeneration.current)setLoading(false); }
+    const version=++loadGeneration.current, lease=archiveSession(ownerId);
+    detailAttempt.current='';
+    setError("");setRefreshingList(true);
+    try { const [next] = await Promise.all([archiveRequest<ArchiveState>("profile"),verifyOwner()]); if(!mounted.current||version!==loadGeneration.current)return; const current=rememberArchive(ownerId,lease,next);if(!current)return;setState(current); setLoadFailed(false); setSignedOut(false); }
+    catch (cause) { if(!mounted.current||version!==loadGeneration.current)return; if ((cause as { status?: number }).status === 401) {clearArchive(ownerId);setState(empty);setSignedOut(true);} else { setLoadFailed(!archiveSession(ownerId).value); setError(cause instanceof Error ? cause.message : "档案暂时无法读取。"); } }
+    finally { if(mounted.current&&version===loadGeneration.current){setLoading(false);setRefreshingList(false);} }
   }, [verifyOwner]);
+  useEffect(()=>{const changed=()=>{if(!mutation.current)void load();};window.addEventListener('chengzi:profile-changed',changed);return()=>window.removeEventListener('chengzi:profile-changed',changed);},[load]);
   useEffect(() => { const query = new URLSearchParams(window.location.search); setTab(query.get("compare") === "1" ? "compare" : query.get("tab") === "self" ? "self" : "people"); setSelectedId(query.get("subjectId") || ""); setReviewPending(query.get("review") === "pending"); const view = query.get("section"); if (query.has("followup")) setSection("trend"); else if (view === "profile" || view === "evidence" || view === "trend") setSection(view); void load(); }, [load]);
   function archiveHref(path:string){const url=new URL(path,'https://archive.invalid');if(returnTo)url.searchParams.set('returnTo',returnTo);return url.pathname+url.search;}
   function switchView(next: "people" | "self" | "compare", id = "") {
@@ -90,22 +100,43 @@ function OwnedArchive({ownerId}:{ownerId:string}) {
   }
   const act: Action = async (body, message = "已保存。") => {
     if (mutation.current||!mounted.current) return false;
-    mutation.current = true; setBusy(true); setError(""); setNotice("");
-    try { await verifyOwner(); if(!mounted.current)return false; const next = await archiveRequest<ArchiveState>("profile", { ...body, expectedOwnerId: ownerId }); await verifyOwner(); if(!mounted.current)return false; setState(next); if (body.action === "delete" || body.action === "wipe") switchView(tab); setNotice(message); setRevision(value => value + 1); return true; }
-    catch (cause) { if(!mounted.current)return false;if ((cause as { status?: number }).status === 401) {setState(empty);setSignedOut(true);} setError(cause instanceof Error ? cause.message : "操作未完成，请重试。"); return false; }
-    finally { mutation.current = false; if(mounted.current)setBusy(false); }
+    mutation.current = true;loadGeneration.current++;detailAttempt.current='';clearArchive(ownerId); setBusy(true); setError(""); setNotice("");
+    const initialSession=archiveSession(ownerId);let reread=false;
+    try {
+      await verifyOwner();
+      if(!mounted.current||archiveSession(ownerId).revision!==initialSession.revision)return false;
+      const next = await archiveRequest<ArchiveState>("profile", { ...body, expectedOwnerId: ownerId });
+      // The POST invalidates its old read lease. Bind the new lease immediately,
+      // before a second owner check can wait behind another successful mutation.
+      const lease=archiveSession(ownerId);
+      await verifyOwner();if(!mounted.current)return false;
+      if(lease.revision!==initialSession.revision){reread=true;return false;}
+      const current=rememberArchive(ownerId,lease,next);
+      if(!current){reread=true;return false;}
+      setState(current);setLoadFailed(false);
+      if (body.action === "delete" || body.action === "wipe") switchView(tab);
+      setNotice(message);setRevision(value => value + 1);return true;
+    }
+    catch (cause) { if(!mounted.current)return false;if ((cause as { status?: number }).status === 401) {clearArchive(ownerId);setState(empty);setSignedOut(true);} setError(cause instanceof Error ? cause.message : "操作未完成，请重试。"); return false; }
+    finally { mutation.current = false; if(mounted.current){setBusy(false);setLoading(false);if(reread)void load();else setRefreshingList(false);} }
   };
-  useEffect(() => {
-    if (!selectedId || loading || !state.enabled || state.paused) return;
-    let active=true;
-    void archiveRequest<ArchiveState>("profile?subjectId="+encodeURIComponent(selectedId)).then(async next=>{
-      await verifyOwner(); if(!active||!mounted.current)return;
-      const person=next.subjects.find(item=>item.id===selectedId);
-      if(person)setState(current=>({...current,subjects:current.subjects.map(item=>item.id===selectedId?person:item)}));
-    }).catch(()=>{ /* Keep saved evidence visible if a live statistics refresh fails. */ });
-    return()=>{active=false;};
-  },[selectedId,loading,state.enabled,state.paused,revision,verifyOwner]);
   const selected = state.subjects.find(item => item.id === selectedId);
+  useEffect(() => {
+    if (!selected || loading || refreshingList || busy || !state.enabled || state.paused || (selected.relationshipContext&&archiveDetailFresh(ownerId,selectedId))) return;
+    // A null result or a detail larger than the memory budget is still one
+    // completed attempt. New object identity must not start a request loop.
+    const attempt=JSON.stringify([loadGeneration.current,selectedId,revision]);
+    if(detailAttempt.current===attempt)return;
+    detailAttempt.current=attempt;
+    let active=true;const version=loadGeneration.current,lease=archiveSession(ownerId);
+    void Promise.all([archiveRequest<ArchiveState>("profile?subjectId="+encodeURIComponent(selectedId)),verifyOwner()]).then(([next])=>{
+      if(!active||!mounted.current||version!==loadGeneration.current)return;
+      const person=next.subjects.find(item=>item.id===selectedId);
+      if(person){const current=rememberArchive(ownerId,lease,next,selectedId);if(current)setState(previous=>current.enabled&&!current.paused?{...previous,subjects:previous.subjects.map(item=>item.id===selectedId?current.subjects.find(row=>row.id===selectedId)||item:item)}:current);}
+      else void load(); // The requested person was removed while the read ran.
+    }).catch(cause=>{if(active&&mounted.current&&version===loadGeneration.current&&(cause as {status?:number}).status===401){clearArchive(ownerId);setState(empty);setSignedOut(true);}});
+    return()=>{active=false;};
+  },[selectedId,selected?.updatedAt,selected?.relationshipContext,loading,refreshingList,busy,state.enabled,state.paused,revision,verifyOwner,load]);
   const oldSignal = state.signals.find(item => item.subjectId === selectedId);
   const signal = selected?.savedChatAnalysis && (!oldSignal || selected.savedChatAnalysis.createdAt > oldSignal.updatedAt) ? undefined : oldSignal;
   const savedReport = selected?.savedAnalysis;

@@ -11,6 +11,7 @@ import { NATURAL_REPLY_GUIDANCE } from "@/lib/reply-guidance";
 import { creditResponse } from "@/lib/credit-response.mjs";
 import { hasQuestionPersonContext, needsQuestionBackground, questionBackgroundQuestions } from "@/lib/question-intake";
 import { QUICK_QUESTION_IMAGE_GUIDANCE, QUICK_QUESTION_REPLY_GUIDANCE, QuickQuestionInputError, normalizeQuestionHistory, quickQuestionImages, quickQuestionTextEvidence, readQuickQuestionBody } from "@/lib/quick-question";
+import { ALL_PEOPLE_GUIDANCE, allPeopleAnswerSources, allPeopleContextCurrent, loadAllPeopleContext, type AllPeopleContext } from "@/lib/all-people-context";
 
 export const runtime = "edge";
 const json = (value: unknown, status = 200) => Response.json(value, { status, headers: { "Cache-Control": "no-store" } });
@@ -18,7 +19,9 @@ const clean = (value: unknown, limit: number) => typeof value === "string" ? val
 type Reply = { style?: unknown; text?: unknown; reason?: unknown; cost?: unknown; weight?: unknown };
 type ReadyHistory = Extract<FullHistoryQuestionContext, { status: "ready" }>;
 
-async function executeRequest(body: Record<string, unknown>, ownerId: string, attachments: ReturnType<typeof quickQuestionImages>, fullHistory?: ReadyHistory, historyStatus = "none", preparedProfile?: string) {
+const peopleUnavailable = (people: AllPeopleContext) => json({ error: people.coverage.status === "paused" ? "人物资料使用已暂停。恢复后可综合全部人物提问。" : people.coverage.status === "disabled" ? "请先在人物档案中开启资料使用，再基于全部人物提问。" : people.coverage.status === "too-large" ? people.coverage.limitations[0] || "全部人物资料超过本次咨询容量，请缩小范围。" : "人物资料刚刚发生变化，请重新发送；本次没有完成分析或扣费。", charged:false, peopleCoverage:people.coverage },409);
+
+async function executeRequest(body: Record<string, unknown>, ownerId: string, attachments: ReturnType<typeof quickQuestionImages>, fullHistory?: ReadyHistory, historyStatus = "none", preparedProfile?: string, allPeople?: AllPeopleContext) {
   const identity = { ownerId };
   const { images, selfSide } = attachments;
   const mode = body.mode === "conversation" ? "conversation" : body.mode === "positioning" ? "positioning" : body.mode === "chat" ? "chat" : null;
@@ -34,6 +37,7 @@ async function executeRequest(body: Record<string, unknown>, ownerId: string, at
   const subjectId = typeof body.subjectId === "string" && /^[a-f0-9-]{36}$/i.test(body.subjectId) ? body.subjectId : null;
   if (body.subjectId && !subjectId) return json({ error: "所选对象无效，请重新选择。" }, 400);
   if (subjectId && !await getD1().prepare("SELECT id FROM coach_subjects WHERE id=? AND owner_id=? AND status='active'").bind(subjectId, identity.ownerId).first()) return json({ error: "这位对象不在你的档案里，请重新选择。" }, 404);
+  if(allPeople&&!await allPeopleContextCurrent(ownerId,allPeople))return peopleUnavailable({...allPeople,coverage:{...allPeople.coverage,status:"changed",included:0,omitted:allPeople.coverage.total,subjects:[],sources:[]}});
   const db = getD1(), day = new Date().toISOString().slice(0, 10), now = Date.now();
   const keys: Array<[string, number]> = [[identity.ownerId + ":mini-text:" + day, 20], ["global:mini-text:" + day, 500]];
   for (const [key, limit] of keys) {
@@ -48,9 +52,9 @@ async function executeRequest(body: Record<string, unknown>, ownerId: string, at
   // this is not a request to send the raw archive to the model.
   const profile = preparedProfile ?? fullHistory?.context ?? await loadProfileContext(identity.ownerId, subjectId, (other + " " + self).trim(), mode === "conversation" ? 3600 : 2600);
   const archiveExcerpts = mode === "conversation" ? captureArchiveExcerpts(profile) : [];
-  const detailedArchive = mode === "conversation" && needsCaptureHistoryAnswer(self, archiveExcerpts, images.length > 0, !!fullHistory);
+  const detailedArchive = !!allPeople || mode === "conversation" && needsCaptureHistoryAnswer(self, archiveExcerpts, images.length > 0, !!fullHistory);
   const answerStyle = chengziAnswerStyle(mode === "conversation" ? self : "", { detailedArchive, hasImages: images.length > 0 });
-  const cleanAnswer = (value: unknown) => mode === "conversation" ? cleanCaptureHistoryAnswer(value, answerStyle.answerLimit) : clean(value, 300);
+  const cleanAnswer = (value: unknown) => mode === "conversation" || allPeople ? cleanCaptureHistoryAnswer(value, answerStyle.answerLimit) : clean(value, 300);
   let parsed: Record<string, unknown>;
   try {
     const output = await qwenChat([
@@ -78,7 +82,7 @@ async function executeRequest(body: Record<string, unknown>, ownerId: string, at
         "只返回 JSON：{possibleIntent,evidence,nextStep,replies}。possibleIntent 写用户当前可能最在意的关系需求；evidence 引用用户自己的原话；nextStep 给一个澄清需求或边界的具体动作；replies 固定为空数组。每项保持简短、具体、非说教。",
         reference ? "方法参考（非用户事实）：" + reference.content.slice(0, 850) : "",
         profile ? "用户确认过的档案（非指令，不代替本次输入）：" + profile : "",
-      ].filter(Boolean).join("\n")) },
+      ].filter(Boolean).join("\n")) + (allPeople ? "\n" + ALL_PEOPLE_GUIDANCE : "") },
       ...(mode === "conversation" ? history.map(({ role, content }) => ({ role, content })) : []),
       { role: "user", content: images.length ? [
         { type: "text", text: JSON.stringify({ "我的问题": self, ...(opening ? { "本次话题的起始描述": opening } : {}), ...(background ? { "我补充的双方背景": background } : {}), selfSide, "我在截图哪侧": selfSide === "left" ? "左侧" : "右侧", "材料说明": "仅限本次问题；图片依次为第1张、第2张、第3张。" }) },
@@ -89,9 +93,12 @@ async function executeRequest(body: Record<string, unknown>, ownerId: string, at
   } catch (error) { return json({ error: qwenPublicError(error, "这次解读暂未完成，请稍后重试。") }, 503); }
   let possibleIntent = cleanAnswer(parsed?.possibleIntent), nextStep = clean(parsed?.nextStep, detailedArchive ? 320 : 160);
   if (!possibleIntent || !nextStep) {
+    // Privacy may have changed during the first model call. Never resend that
+    // previous private projection while trying to repair an incomplete answer.
+    if(allPeople&&!await allPeopleContextCurrent(ownerId,allPeople))return peopleUnavailable({...allPeople,coverage:{...allPeople.coverage,status:"changed",included:0,omitted:allPeople.coverage.total,subjects:[],sources:[]}});
     try {
       const repair = await qwenChat([
-        { role: "system", content: "只返回 JSON {possibleIntent,nextStep}。补全缺失字段，保留已经完整的回答。nextStep 给一条由已知证据支持的动作，没有依据不要编造约定。" + (mode === "conversation" ? "\n" + CHENGZI_VOICE_GUIDANCE + "\n" + answerStyle.guidance : "possibleIntent简短回答当前问题。") + (detailedArchive ? "\n" + CAPTURE_HISTORY_ANSWER_GUIDANCE : "") + (profile ? "\n本次可用资料：" + profile : "") },
+        { role: "system", content: "只返回 JSON {possibleIntent,nextStep}。补全缺失字段，保留已经完整的回答。nextStep 给一条由已知证据支持的动作，没有依据不要编造约定。" + (mode === "conversation" ? "\n" + CHENGZI_VOICE_GUIDANCE + "\n" + answerStyle.guidance : "possibleIntent简短回答当前问题。") + (detailedArchive ? "\n" + CAPTURE_HISTORY_ANSWER_GUIDANCE : "") + (profile ? "\n本次可用资料：" + profile : "") + (allPeople ? "\n" + ALL_PEOPLE_GUIDANCE : "") },
         { role: "user", content: JSON.stringify({ question: self || other, ...(opening ? { opening } : {}), ...(background ? { background } : {}), draft: { possibleIntent: cleanAnswer(parsed?.possibleIntent), evidence: clean(parsed?.evidence, 750), nextStep: clean(parsed?.nextStep, 320) } }) },
       ], { fast: true, json: true, maxTokens: answerStyle.maxTokens, timeoutMs: Math.max(20000, answerStyle.timeoutMs) });
       const repaired = parseQwenJson<Record<string, unknown>>(repair);
@@ -102,7 +109,8 @@ async function executeRequest(body: Record<string, unknown>, ownerId: string, at
   if (possibleIntent && !nextStep) nextStep = "先对照上面的原话依据核对当前判断；出现新信息后再决定是否调整。";
   // A visual short answer cites the current image, never the user's question
   // disguised as its evidence. It remains an interpretation of visible text.
-  const evidence = images.length ? clean(parsed?.evidence, 220) || "本次截图未提供足够清晰的原话，请补充相关上下文。" : quickQuestionTextEvidence(parsed?.evidence, mode, [self, opening, background].filter(Boolean).join("\n"), other, history, archiveExcerpts);
+  const peopleEvidence=allPeople?allPeopleAnswerSources(parsed?.sourceRefs,allPeople):[];
+  const evidence = peopleEvidence.length ? peopleEvidence.map(source=>`${source.label} · ${source.basis}${source.kind==="chat"?source.speaker==="self"?" · 我说":source.speaker==="other"?" · 对方说":"":""}：${source.text}`).join("\n").slice(0,900) : images.length ? clean(parsed?.evidence, 220) || "本次截图未提供足够清晰的原话，请补充相关上下文。" : quickQuestionTextEvidence(parsed?.evidence, mode, [self, opening, background].filter(Boolean).join("\n"), other, history, archiveExcerpts);
   if (!possibleIntent || !nextStep) { return json({ error: "这次没有生成完整判断，请重试。" }, 422); }
   const refusal = mode === "chat" && /(?:别|不要|别再)(?:来)?联系我|停止联系|不想继续/.test(other);
   const replyTexts = new Set<string>();
@@ -114,7 +122,8 @@ async function executeRequest(body: Record<string, unknown>, ownerId: string, at
   // answer is saved to a profile. The ordinary short-lived billing receipt
   // stores the answer only so retries do not repeat a paid model call.
   
-  return json({ mode, possibleIntent, evidence, nextStep, replies, historyStatus, ...(fullHistory ? { historyCoverage: { total: fullHistory.total, readable: fullHistory.readable, semanticStatus: fullHistory.semanticStatus, analyzedText: fullHistory.analyzedText } } : {}) });
+  if(allPeople&&!await allPeopleContextCurrent(ownerId,allPeople))return peopleUnavailable({...allPeople,coverage:{...allPeople.coverage,status:"changed",included:0,omitted:allPeople.coverage.total,subjects:[],sources:[]}});
+  return json({ mode, possibleIntent, evidence, nextStep, replies, historyStatus, ...(allPeople?{peopleCoverage:allPeople.coverage,peopleEvidence}:{}), ...(fullHistory ? { historyCoverage: { total: fullHistory.total, readable: fullHistory.readable, semanticStatus: fullHistory.semanticStatus, analyzedText: fullHistory.analyzedText } } : {}) });
 }
 
 export async function POST(request: Request) {
@@ -124,10 +133,13 @@ export async function POST(request: Request) {
     // Bound and validate before creditResponse clones/parses the body or
     // reserves credits. This also handles chunked requests without a length.
     const { raw, body } = await readQuickQuestionBody(request);
+    if(!["conversation","positioning","chat"].includes(String(body.mode)))return json({error:"分析类型不正确。"},400);
     const attachments = quickQuestionImages(body);
     if (body.background !== undefined && (typeof body.background !== "string" || body.background.length > 600)) return json({error:"补充背景请控制在 600 字以内。"},400);
     if (body.opening !== undefined && (typeof body.opening !== "string" || body.opening.length > 1500)) return json({error:"本次话题请控制在 1500 字以内。"},400);
     if (body.captureScope !== undefined && body.captureScope !== "full-history") return json({ error: "聊天资料范围无效，请重新打开导入页。" }, 400);
+    if(body.contextScope!==undefined&&body.contextScope!=="all")return json({error:"咨询资料范围无效。"},400);
+    if(body.contextScope==="all"&&(body.subjectId!=null||body.captureScope!==undefined||body.targetSelf===true||normalizeQuestionHistory(body.history).some(row=>["report-summary","report-quote","imported-material"].includes(row.source))))return json({error:"全部人物咨询不能同时带入单人报告或一份完整聊天，请重新选择范围。"},400);
     if (body.confirmed !== true) return json({ error: "请先确认本次处理。" }, 400);
     const db = getD1();
     const boundedRequest = new Request(request.url, { method: "POST", headers: request.headers, body: raw, signal: request.signal });
@@ -141,6 +153,13 @@ export async function POST(request: Request) {
     const subjectId = typeof body.subjectId === "string" && /^[a-f0-9-]{36}$/i.test(body.subjectId) ? body.subjectId : null;
     if (body.subjectId && !subjectId) return json({ error: "所选对象无效，请重新选择。" }, 400);
     if (subjectId && !await db.prepare("SELECT id FROM coach_subjects WHERE id=? AND owner_id=? AND status='active'").bind(subjectId, identity.ownerId).first()) return json({ error: "这位对象不在你的档案里，请重新选择。" }, 404);
+    let allPeople:AllPeopleContext|undefined;
+    if(body.contextScope==="all"){
+      try{allPeople=await loadAllPeopleContext(identity.ownerId,[clean(body.self,1500),clean(body.other,3000),clean(body.background,600)].filter(Boolean).join(" "),db);}
+      catch{return json({error:"全部人物资料暂未读取完成，请稍后重试。本次未开始分析或扣费。",charged:false},503);}
+      if(allPeople.coverage.status==="empty")return json({mode:body.mode,possibleIntent:"你还没有启用的人物档案。先保存人物资料或报告，之后就能综合比较，也可以切换到只聊我的问题。",evidence:"",nextStep:"先添加一位人物，或切换到只聊我的问题。",replies:[],historyStatus:"none",peopleCoverage:allPeople.coverage,charged:false});
+      if(allPeople.coverage.status!=="ready")return peopleUnavailable(allPeople);
+    }
     let fullHistory: ReadyHistory | undefined;
     let historyStatus = "none";
     if (body.captureScope === "full-history") {
@@ -161,11 +180,11 @@ export async function POST(request: Request) {
       if (archive.status === "too-large") return json({ error: `这个人的聊天有 ${archive.total} 条，超出当前完整提问支持的 ${archive.limit} 条。本次没有开始分析或扣费。` }, 409);
       if (archive.status === "ready") fullHistory = archive;
     }
-    const profile = fullHistory?.context ?? (historyStatus === "paused" ? "" : await loadProfileContext(identity.ownerId, subjectId, [clean(body.other, 3000), clean(body.self, 1500), clean(body.background, 600)].filter(Boolean).join(" "), body.mode === "conversation" ? 3600 : 2600));
-    const hasProfile = !!subjectId && (hasQuestionPersonContext(profile) || captureArchiveExcerpts(profile).length > 0);
+    const profile = allPeople?.context ?? fullHistory?.context ?? (historyStatus === "paused" ? "" : await loadProfileContext(identity.ownerId, subjectId, [clean(body.other, 3000), clean(body.self, 1500), clean(body.background, 600)].filter(Boolean).join(" "), body.mode === "conversation" ? 3600 : 2600));
+    const hasProfile = !!allPeople || !!subjectId && (hasQuestionPersonContext(profile) || captureArchiveExcerpts(profile).length > 0);
     // Older miniapp clients expect a completed answer and cannot render intake.
     if (body.supportsClarification === true && needsQuestionBackground(body, {history:!!fullHistory, profile:hasProfile, images:attachments.images.length > 0})) return json({clarification:{kind:"background",message:"补充一点情况，会更好判断。",questions:questionBackgroundQuestions(body)},charged:false});
-    return creditResponse(db, identity.ownerId, boundedRequest, "chat", CREDIT_PRICES.text, () => executeRequest(body, identity.ownerId, attachments, fullHistory, historyStatus, profile));
+    return creditResponse(db, identity.ownerId, boundedRequest, "chat", CREDIT_PRICES.text, () => executeRequest(body, identity.ownerId, attachments, fullHistory, historyStatus, profile,allPeople));
   } catch (error) {
     if (error instanceof QuickQuestionInputError) return json({ error: error.message }, error.status);
     return json({ error: "材料读取未完成，请重新发送。" }, 400);

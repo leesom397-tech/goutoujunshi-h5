@@ -1,13 +1,36 @@
 import { webAccountStore } from './web-account-session';
 
 type SavedReport = Record<string, any>;
-type CachedReport = { value: SavedReport; serialized: string; checkedAt: number; ui: Map<string, unknown> };
+type CachedReport = { value: SavedReport; serialized: string; characters: number; checkedAt: number; ui: Map<string, unknown> };
+
+/** Compare saved content, excluding only three exact read-projection check times.
+ * The original payload, generated dates, method versions and conclusions stay
+ * intact. A nested field with the same name is still meaningful content. */
+export function serializeReportContent(value: SavedReport): string {
+  const envelope = { ...value };
+  const freshness = value.freshness;
+  if (freshness && typeof freshness === 'object' && !Array.isArray(freshness) && Object.hasOwn(freshness, 'checkedAt')) {
+    const { checkedAt: _freshnessCheckTime, ...content } = freshness;
+    envelope.freshness = content;
+  }
+  const report = value.report;
+  if (!report || typeof report !== 'object' || Array.isArray(report)) return JSON.stringify(envelope);
+  const comparable = { ...report };
+  for (const key of ['personalConnectionContext', 'compatibilityContext']) {
+    const context = report[key];
+    if (context && typeof context === 'object' && !Array.isArray(context) && Object.hasOwn(context, 'computedAt')) {
+      const { computedAt: _checkTime, ...content } = context;
+      comparable[key] = content;
+    }
+  }
+  return JSON.stringify({ ...envelope, report: comparable });
+}
 
 /** Session memory only: no report text, draft or credentials enter Web Storage. */
 export function createReportSessionCache(now = Date.now, maxEntries = 4, maxCharacters = 6_000_000) {
   const entries = new Map<string, CachedReport>();
   let session = '', characters = 0;
-  const remove = (id: string) => { const entry = entries.get(id); if (entry) characters -= entry.serialized.length; entries.delete(id); };
+  const remove = (id: string) => { const entry = entries.get(id); if (entry) characters -= entry.characters; entries.delete(id); };
   function bind(owner: string | undefined, revision: number) {
     const next = owner ? JSON.stringify([owner, revision]) : '';
     if (next !== session) { entries.clear(); characters = 0; session = next; }
@@ -16,18 +39,22 @@ export function createReportSessionCache(now = Date.now, maxEntries = 4, maxChar
     if (!owner || session !== JSON.stringify([owner, revision])) return null;
     const entry = entries.get(id);
     if (!entry) return null;
-    if (now() - entry.checkedAt > 30 * 60_000) { remove(id); return null; }
+    // Age is not a logout. Keep the last opened report while this authenticated
+    // session is alive; ReportPage revalidates in the background on every return.
+    // Owner/revision changes and protected 401s still purge immediately, while
+    // the entry/character limits bound memory even after a long reading session.
     entries.delete(id); entries.set(id, entry);
     return entry;
   }
   function put(owner: string, revision: number, id: string, value: SavedReport) {
     if (!owner || session !== JSON.stringify([owner, revision])) return null;
-    const serialized = JSON.stringify(value);
-    if (serialized.length > maxCharacters) { remove(id); return null; }
+    const payloadCharacters = JSON.stringify(value).length;
+    if (payloadCharacters > maxCharacters) { remove(id); return null; }
+    const serialized = serializeReportContent(value);
     const previous = get(owner, revision, id), same = previous?.serialized === serialized;
     remove(id);
-    const entry: CachedReport = same ? Object.assign(previous!, {checkedAt: now()}) : { value, serialized, checkedAt: now(), ui: new Map() };
-    entries.set(id, entry); characters += serialized.length;
+    const entry: CachedReport = same ? Object.assign(previous!, {checkedAt: now()}) : { value, serialized, characters: payloadCharacters, checkedAt: now(), ui: new Map() };
+    entries.set(id, entry); characters += entry.characters;
     while (entries.size > maxEntries || characters > maxCharacters) remove(entries.keys().next().value!);
     return entry;
   }

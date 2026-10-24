@@ -15,7 +15,7 @@ import { personAnalysisHref, withAnalysisFocus, withCaptureQuestion } from "@/li
 import { reportIdentity, reportGoal } from "@/components/web-analysis/report-context";
 import { ReportReturnLink } from "@/components/web-analysis/ReportReturnLink";
 import { ReportTimestamp } from "@/components/web-analysis/ReportTimestamp";
-import { cachedReport, rememberReport, forgetReport, reportSessionRevision } from '@/lib/report-session-cache';
+import { cachedReport, rememberReport, forgetReport, reportSessionRevision, serializeReportContent } from '@/lib/report-session-cache';
 import { ReportSessionContext } from '@/components/web-analysis/ReportSessionState';
 export default function ReportPage() {
   const account=useAccount(),search=useSearchParams(),id=search.get('id'),owner=account.account?.account?.userId;
@@ -66,7 +66,7 @@ function SavedReportPage({account,id}:{account:ReturnType<typeof useAccount>;id:
       const normalized={ ...value, kind: value.kind || "chat", report: { ...report, ...scopeMetadata, reportId: value.reportId || id }, entries };
       // Do not replace an open chapter underneath the reader. A changed saved
       // report becomes an explicit refresh; unchanged data preserves all UI state.
-      if(prior&&prior.serialized!==JSON.stringify(normalized))setUpdated(normalized);
+      if(prior&&prior.serialized!==serializeReportContent(normalized))setUpdated(normalized);
       else {const entry=rememberReport(scope,revision,id,normalized);setSaved(entry?.value||normalized);setReportOwner(scope);setUpdated(null);}
     } catch (e) { if (ticket === generation.current) {
       if(e instanceof WebError&&[401,403,404].includes(e.status)){forgetReport(scope,id);setSaved(null);setReportOwner(null);setUpdated(null);setError(message(e));}

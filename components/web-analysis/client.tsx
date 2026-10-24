@@ -19,6 +19,7 @@ export async function api(path: string, body?: Json, signal?: AbortSignal): Prom
     if (response.status === 401 && /^\/api\/(?:web\/|account\/credits(?:[?#]|$))/.test(path)) expireAccountSession(accountRevision);
     throw new WebError(data.error || (response.status === 401 ? "请登录后继续。" : "暂时无法完成，请稍后重试。"), response.status, data);
   }
+  if (body && path.split('?')[0] === '/api/web/profile' && typeof window !== 'undefined') window.dispatchEvent(new Event('chengzi:profile-changed'));
   return data;
 }
 export const message = (error: unknown) => error instanceof Error ? error.message : "暂时无法完成，请稍后重试。";

@@ -10,7 +10,7 @@ import type { PersonSavedAnalysis } from "@/lib/person-saved-insights";
 export type MomentsReport = NonNullable<ReturnType<typeof cleanMomentsReport>>;
 export type Reading = NonNullable<ReturnType<typeof cleanCommunicationReading>>;
 export type Person = {
-  relationshipContext?: RelationshipContext;
+  relationshipContext?: RelationshipContext | null;
   id: string; label: string; avatar?: string; updatedAt: number;
   notes?: string; stage?: string; howMet?: string; values?: string; boundaries?: string;
   ageRange?: string; city?: string; education?: string; occupation?: string;
@@ -34,6 +34,7 @@ export async function archiveRequest<T>(path: string, body?: unknown, method = "
   catch(error) { throw new Error(error instanceof Error && error.name === "TimeoutError" ? "档案读取时间较长，请重新加载。已保存的资料仍在。" : "档案连接中断，请检查网络后重新加载。"); }
   const data = await response.json().catch(() => ({})) as T & { error?: string };
   if (!response.ok) throw Object.assign(new Error(data?.error || "暂时无法完成，请重试。"), { status: response.status });
+  if (body !== undefined && path.split('?')[0] === 'profile' && typeof window !== 'undefined') window.dispatchEvent(new Event('chengzi:profile-changed'));
   return data as T;
 }
 

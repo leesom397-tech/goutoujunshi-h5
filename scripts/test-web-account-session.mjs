@@ -147,6 +147,8 @@ const reportReturn = {};
 new Function('exports',ts.transpileModule(readFileSync('lib/report-return.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(reportReturn);
 const clientDependencies = {
   '@/lib/report-return': reportReturn,
+  '@/lib/report-session-navigation': { navigateReportSession() { throw Error('Unexpected navigation in the account-session test'); } },
+  '@/lib/report-followup-context': { reportFollowupContext() { throw Error('Unexpected report follow-up in the account-session test'); } },
   '@/components/AuroraUI.module.css': { default: {} },
   '@/components/PersonAvatarChoice': { PersonAvatarChoice() {} },
   '@/lib/web-api-request.mjs': { fetchWebJson() { const read = deferred(); apiReads.push(read); return read.promise; } },
